@@ -10,13 +10,30 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
-/// <summary>A unit-of-measure row for the existing-units list on the master screen.</summary>
-public sealed class UnitListRow
+/// <summary>A unit-of-measure row for the existing-units list on the master screen.
+///
+/// <para>🔴 <b>W28 C3 — THIS IS THE ROW CENSUS 3.5 NAMES.</b> "The list row type carries no Guid, so no row can
+/// address a unit" was recorded against this exact class, and it is why the Unit master had Create only and why
+/// <c>InventoryService.DeleteUnit</c> had zero callers. <see cref="IMasterListRow"/> ends it.</para>
+/// </summary>
+public sealed partial class UnitListRow : ObservableObject, IMasterListRow
 {
     public string Symbol { get; init; } = string.Empty;
     public string FormalName { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
     public string Detail { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <inheritdoc/>
+    /// <remarks>The SYMBOL, not the formal name — "Nos", not "Numbers". The delete confirmation reads
+    /// <i>Delete unit 'Nos'?</i>, and the symbol is what the operator sees on every voucher line, so it is what
+    /// identifies the master to them.</remarks>
+    public string MasterName => Symbol;
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -36,11 +53,162 @@ public sealed class UnitListRow
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable.</para>
 /// </summary>
-public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // --------------------------------------------- W28 C3: alteration state (census 3.5)
+
+    /// <summary>The id of the unit being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen heading — it says which VERB is running, because the form is identical in both
+    /// modes.</summary>
+    public string Caption => IsAltering ? "Unit Alteration" : "Unit Creation";
+
+    /// <summary>
+    /// True while the Simple/Compound toggle and the compound composition fields must be treated as READ-ONLY —
+    /// i.e. whenever this screen is altering.
+    ///
+    /// <para>🔴 <b>The composition of a compound unit is not alterable, and this flag is how the screen says so
+    /// instead of pretending otherwise.</b> <c>Unit.FirstUnitId</c>, <c>TailUnitId</c> and the conversion
+    /// numerator/denominator are get-only on the domain type, because the conversion is the arithmetic every
+    /// quantity already posted in that unit was stored against: re-pointing a Dozen from 12 Nos to 10 Nos would
+    /// silently restate every posted line. <c>InventoryService.AlterUnit</c> therefore changes symbol, formal
+    /// name, UQC and decimals only, and the form must not offer fields it will discard.</para>
+    /// </summary>
+    public bool IsCompositionReadOnly => IsAltering;
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing unit — the same form, pre-filled. Returns
+    /// <c>null</c> if the id does not resolve.
+    /// </summary>
+    public static UnitMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid unitId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindUnit(unitId) is not { } unit) return null;
+
+        var vm = new UnitMasterViewModel(company, storage, onChanged);
+        vm._editingId = unitId;
+        vm.LoadFrom(unit);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(IsCompositionReadOnly));
+        return vm;
+    }
+
+    /// <summary>Loads an existing unit's values into the form. The Simple/Compound toggle is set from the unit
+    /// so the correct half of the form is shown, and the compound components are loaded for DISPLAY — they are
+    /// not writable (see <see cref="IsCompositionReadOnly"/>).</summary>
+    public void LoadFrom(Unit unit)
+    {
+        ArgumentNullException.ThrowIfNull(unit);
+        IsCompound = unit.IsCompound;
+        Symbol = unit.Symbol;
+        FormalName = unit.FormalName;
+        UnitQuantityCode = unit.UnitQuantityCode ?? string.Empty;
+        DecimalPlacesText = unit.DecimalPlaces.ToString(CultureInfo.InvariantCulture);
+
+        if (unit.IsCompound)
+        {
+            FirstUnit = unit.FirstUnitId is { } fid ? _company.FindUnit(fid) : null;
+            TailUnit = unit.TailUnitId is { } tid ? _company.FindUnit(tid) : null;
+            ConversionFactorText = (unit.ConversionNumerator ?? 0).ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: renames the unit and rewrites its formal name, and — for a SIMPLE unit only — its UQC
+    /// and decimal places, via <see cref="InventoryService.AlterUnit"/>.
+    ///
+    /// <para>The decimals field is pre-validated here exactly as <c>CreateSimple</c> pre-validates it, so an
+    /// operator who types "7" gets the form's own sentence rather than the engine's. On a COMPOUND unit the
+    /// parsed value is discarded by the engine, so a malformed one is not worth refusing over — the field is not
+    /// part of that shape at all.</para>
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing unit.";
+            return false;
+        }
+
+        var isCompoundUnit = _company.FindUnit(_editingId)?.IsCompound ?? false;
+        var decimals = 0;
+        if (!isCompoundUnit
+            && (!int.TryParse((DecimalPlacesText ?? string.Empty).Trim(), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out decimals) || decimals is < 0 or > 4))
+        {
+            Message = "Decimal places must be a whole number between 0 and 4.";
+            return false;
+        }
+
+        var uqc = string.IsNullOrWhiteSpace(UnitQuantityCode) ? null : UnitQuantityCode.Trim();
+        try
+        {
+            var altered = new InventoryService(_company)
+                .AlterUnit(_editingId, Symbol, FormalName, decimals, uqc);
+            _storage.Save(_company);
+            Message = $"Unit '{altered.Symbol}' ({altered.FormalName}) altered.";
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshSimpleUnits();
+        RefreshList();
+        _onChanged();
+        return true;
+    }
+
+    // ------------------------------------------- W28 C2: the shared Alt+D arm (census 3.5)
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "unit";
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    /// <remarks>Refreshes the SIMPLE-UNIT pool too: a deleted unit must not stay on offer as a compound unit's
+    /// first or tail component.</remarks>
+    public void ReloadExisting()
+    {
+        RefreshSimpleUnits();
+        RefreshList();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns. The refusal is
+    /// <c>MasterDeletionRules.EnsureUnitDeletable</c>'s, and it is materially wider than the one
+    /// <c>InventoryService.DeleteUnit</c> carried before wave 28: it now counts the alternate-unit column and
+    /// both line-level unit columns, any of which would otherwise have made the open company unsavable.</remarks>
+    public void DeleteMaster(Guid id) => new InventoryService(_company).DeleteUnit(id);
+
+    // ------------------------------------------------- keyboard selection over the existing list
+
+    private PayrollMasterHighlight<UnitListRow>? _highlight;
+
+    private PayrollMasterHighlight<UnitListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<UnitListRow>(
+            Existing, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The highlighted existing-unit row, or <c>null</c>. Ctrl+Enter opens Unit Alteration; Alt+D
+    /// deletes it.</summary>
+    public UnitListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -227,6 +395,10 @@ public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExpo
 
     private void RefreshList()
     {
+        // By ID, not by index — see PayrollMasterHighlight.RestoreTo. An alter that renames a unit must not walk
+        // the highlight onto the neighbour that the next Alt+D would then delete.
+        var previouslyHighlighted = Highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var u in _company.Units)
         {
@@ -248,11 +420,14 @@ public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExpo
 
             Existing.Add(new UnitListRow
             {
+                MasterId = u.Id,
                 Symbol = u.Symbol,
                 FormalName = u.FormalName,
                 Kind = u.IsCompound ? "Compound" : "Simple",
                 Detail = detail,
             });
         }
+
+        Highlight.RestoreTo(previouslyHighlighted);
     }
 }

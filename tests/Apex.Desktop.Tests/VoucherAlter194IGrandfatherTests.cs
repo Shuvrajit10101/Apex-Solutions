@@ -351,13 +351,17 @@ public sealed class VoucherAlter194IGrandfatherTests
         Assert.Equal(Money.FromRupees(50_000m), created.MonthlyThreshold);
 
         // A financial-year section still takes the very same figure.
-        vm.SectionCode = "194K";
-        vm.Name = "Income in respect of units";
-        vm.FvuSectionCode = "94K";
+        // 🔴 §194M, NOT §194K — §194K became a SEEDED section when census row 6.35's second instalment landed
+        // (2026-09-08), so creating it here stopped exercising "a hand-authored FY section accepts the figure"
+        // and started colliding with a predefined row ("A Nature of Payment '194K' already exists"). The section
+        // used here must be one the seed genuinely does not carry.
+        vm.SectionCode = "194M";
+        vm.Name = "Certain payments by individual/HUF";
+        vm.FvuSectionCode = "94M";
         vm.CumulativeThresholdText = "600000";
         Assert.True(vm.Create(), vm.Message);
         Assert.Equal(
             Money.FromRupees(6_00_000m),
-            book.Company.NaturesOfPayment.First(n => n.SectionCode == "194K").CumulativeThreshold);
+            book.Company.NaturesOfPayment.First(n => n.SectionCode == "194M").CumulativeThreshold);
     }
 }

@@ -100,6 +100,16 @@ public sealed class PayrollMasterHighlightVisibilityTests
             m.Name = "Asha"; m.SelectedGroup = m.GroupOptions.First(); Assert.True(m.Create(), m.Message);
             m.Name = "Bala"; m.SelectedGroup = m.GroupOptions.First(); Assert.True(m.Create(), m.Message);
         },
+        // W28 V3 / census 7.6 — the pay head master joined the Alt+D / Ctrl+Enter surface, so its row template has
+        // to draw the cursor too. Its list had no highlight bar at all until now, and the verb this cursor aims is
+        // an alteration of a live RATE, not just a delete.
+        ["PayHead"] = vm =>
+        {
+            vm.ShowPayHeadMaster();
+            var m = vm.PayHeadMaster!;
+            m.Name = "Basic Pay"; Assert.True(m.Create(), m.Message);
+            m.Name = "House Rent Allowance"; Assert.True(m.Create(), m.Message);
+        },
     };
 
     public static IEnumerable<object[]> Kinds() => from k in Drivers.Keys select new object[] { k };
@@ -244,18 +254,19 @@ public sealed class PayrollMasterHighlightVisibilityTests
     }
 
     /// <summary>
-    /// The roster guard, in the shape <see cref="MasterPageRowStructureTests"/> established: adding a fifth
+    /// The roster guard, in the shape <see cref="MasterPageRowStructureTests"/> established: adding a further
     /// payroll master kind to the Alt+D surface without adding it here would leave it silently unguarded, which
-    /// is precisely how all four shipped without a visible cursor in the first place.
+    /// is precisely how the first four shipped without a visible cursor at all.
     /// </summary>
     [AvaloniaFact]
     public void Every_payroll_master_kind_that_carries_alt_d_is_covered_here()
     {
-        Assert.Equal(5, Drivers.Count);
+        Assert.Equal(6, Drivers.Count);
         Assert.Contains("EmployeeCategory", Drivers.Keys);
         Assert.Contains("EmployeeGroup", Drivers.Keys);
         Assert.Contains("PayrollUnit", Drivers.Keys);
         Assert.Contains("AttendanceType", Drivers.Keys);
         Assert.Contains("Employee", Drivers.Keys);
+        Assert.Contains("PayHead", Drivers.Keys);
     }
 }

@@ -276,10 +276,18 @@ Stated so the Phase-5 boundary is unambiguous:
   requirement, into any test name, or into any code comment**, and a second reader must re-verify the
   lettering before any of it is quoted anywhere. This project has already had to strip mis-attributed
   citations out of shipped code once. *(CGST Act §34(1)/(3)/(4); CGST Rule 53)*
-  **▶ THIS REQUIREMENT HAS NO DEPENDENCY ON CENSUS T0-10.** A note cannot carry inventory lines **at all** —
-  `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws *"Item-invoice stock lines are only valid on a
-  Purchase or Sales voucher"* on every post — so the value-level shape above **is** the statutory minimum and
-  is fully reachable today. Any per-item table on a note would sit **above** that minimum and is labelled OURS.
+  **▶ THIS REQUIREMENT HAS NO DEPENDENCY ON CENSUS T0-10.** ~~A note cannot carry inventory lines **at all** —
+  the validator refused an item line on any carrier but a Purchase or a Sales, on every post — so~~ the
+  value-level shape above **is** the statutory minimum and is fully reachable today. Any per-item table on a
+  note would sit **above** that minimum and is labelled OURS.
+
+  > **▶ 🔴 AMENDED 2026-09-15 — T0-10 IS CLOSED (census 4.7/4.8), so the struck clause states a limit that no
+  > longer exists.** A Credit or Debit Note now carries inventory lines like any item invoice; the carrier set
+  > lives in one predicate — `src/Apex.Ledger/Domain/VoucherEffects.cs:111`, whose
+  > **four item-invoice carriers are Purchase, Sales, Credit Note and Debit Note**. **The requirement's own
+  > claim is untouched and is now on firmer ground:** it never depended on the notes being stock-less, only on
+  > Rule 53 being value-level. The value-level shape remains the statutory minimum; a per-item table on a note
+  > remains OURS and unbuilt.
 
 > **▶ 🔴 WHY RQ-11 WAS AMENDED, RECORDED IN PLACE — AND THE CENSUS INHERITED THIS ERROR.**
 > **RQ-11 as shipped commanded a document we have no right to issue.** Its scope phrase read *"For a **sales

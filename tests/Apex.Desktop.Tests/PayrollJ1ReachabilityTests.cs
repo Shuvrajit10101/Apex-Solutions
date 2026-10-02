@@ -423,11 +423,35 @@ public sealed class PayrollJ1ReachabilityTests : IDisposable
             Assert.True(IsTextVisible(window, IndianFormat.AmountAlways(annexure.GrossSalary.Amount)),
                 "the computation's Gross Salary figure is not on screen.");
 
-            // The date-blindness of the §192 slab tables (open defect T1-26) is stated on the report itself
-            // rather than papered over.
+            // 🔴 DEFECT T1-26 IS FIXED, SO THIS ASSERTION IS INVERTED FROM WHAT IT USED TO BE. It used to require
+            // the report to CONFESS that the slab tables carried no effective-from date and were not selected by
+            // the period. The engine is now dated, so the report must instead state WHICH financial year's tables
+            // actually priced these figures — and that sentence is computed from the table that was resolved, not
+            // written as a literal, so it cannot drift away from the arithmetic it describes.
             Assert.Contains(r.PayrollFootnotes,
-                n => n.Contains("2025-26", StringComparison.Ordinal)
-                  && n.Contains("effective-from", StringComparison.Ordinal));
+                n => n.Contains("Computed on the FY ", StringComparison.Ordinal)
+                  && n.Contains("slab, surcharge and cess tables", StringComparison.Ordinal)
+                  && n.Contains("Health and Education Cess at 4%", StringComparison.Ordinal));
+
+            // 🔴 And where the year's own rates are NOT notified in this build, the substitution is DISCLOSED on the
+            // face of the report. This fixture's financial year is exactly such a year, which is what made the old
+            // silent carry-over a wrong-money path: the figures were priced on another year's law with nothing on
+            // screen to say so. Pinned against the engine rather than against a hard-coded year label, so this test
+            // keeps its teeth on the day FY 2026-27 is notified and the note correctly disappears.
+            var rates = Form24Q.AnnexureIIRates(vm.Company, fyStart);
+            if (rates.IsProvisional)
+            {
+                Assert.Equal(report.ProvisionalRatesNote, rates.ProvisionalNote);
+                Assert.Contains(r.PayrollFootnotes,
+                    n => n.Contains("have not been notified", StringComparison.Ordinal)
+                      && n.Contains("provisional", StringComparison.Ordinal));
+            }
+            else
+            {
+                Assert.Null(report.ProvisionalRatesNote);
+                Assert.DoesNotContain(r.PayrollFootnotes,
+                    n => n.Contains("have not been notified", StringComparison.Ordinal));
+            }
         }
         finally { window.Close(); }
     }

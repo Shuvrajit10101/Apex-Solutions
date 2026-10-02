@@ -527,6 +527,8 @@ public static class CanonicalMapper
         SlabType = s.SlabType.ToString(), RateBasisPoints = s.RateBasisPoints,
         ValuePaisa = MoneyCodec.ToPaisa(s.Value),
         FromAmountPaisa = MoneyCodec.ToPaisa(s.FromAmount), ToAmountPaisa = MoneyCodec.ToPaisa(s.ToAmount),
+        // v63 (census 7.19): the effective window. Null stays null and is then omitted from the XML entirely.
+        EffectiveFrom = Iso(s.EffectiveFrom), EffectiveTo = Iso(s.EffectiveTo),
     };
 
     private static SalaryStructureDto MapSalaryStructure(SalaryStructure s) => new()
@@ -711,6 +713,14 @@ public static class CanonicalMapper
         CategoryId = i.CategoryId, Alias = i.Alias, ValuationMethod = i.ValuationMethod.ToString(),
         HsnSacCode = i.HsnSacCode, IsTaxable = i.IsTaxable,
         StandardCostPaisa = MoneyCodec.ToPaisa(i.StandardCost),
+        // census 3.4 / user ruling 26 — the market-valuation dimension and the remediation marker. The method is
+        // written only when it is not the inert default, so a book that never touched the dimension serialises
+        // byte-identically to a pre-v65 file (ER-13).
+        MarketValuationMethod = i.MarketValuationMethod == Domain.MarketValuationMethod.AtZeroPrice
+            ? null
+            : i.MarketValuationMethod.ToString(),
+        StandardPricePaisa = MoneyCodec.ToPaisa(i.StandardPrice),
+        ValuationRemediatedFrom = i.ValuationRemediatedFrom?.ToString(),
         ReorderLevel = i.ReorderLevel, MinimumOrderQuantity = i.MinimumOrderQuantity,
         Gst = i.Gst is { } g ? MapStockItemGst(g) : null,
         MaintainInBatches = i.MaintainInBatches,

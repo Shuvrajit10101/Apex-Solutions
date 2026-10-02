@@ -160,6 +160,12 @@ public sealed class CompositionSchemaTests
     /// and <c>entry_lines</c> + <c>voucher_types</c> because the v43→v44 ALTER touches both — all need the tables to exist.</summary>
     private const string MinimalV39Ddl = """
         CREATE TABLE schema_version (version INTEGER NOT NULL);
+        -- pay_head_computation_slabs is required because the chain now runs through the v61 -> v63 Labour Welfare
+        -- Fund migration (census 7.19), whose ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_from /
+        -- effective_to needs the table to exist. A real database of this vintage always has it (created at v31);
+        -- this fixture is a minimal hand-written subset, so the table is declared here for the ALTERs to land on
+        -- -- exactly as voucher_inventory_lines, groups and cost_centres are.
+        CREATE TABLE pay_head_computation_slabs (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, pay_head_id TEXT NOT NULL DEFAULT '', from_amount_paisa INTEGER NULL, to_amount_paisa INTEGER NULL, slab_type INTEGER NOT NULL DEFAULT 0, rate_basis_points INTEGER NOT NULL DEFAULT 0, value_paisa INTEGER NOT NULL DEFAULT 0, ord INTEGER NOT NULL DEFAULT 0);
         -- pt_slab_bands has existed in every real database since v35, so a fixture standing in for a LATER version
         -- must declare it: v54 is the first migration that READS a table an earlier migration created (it clears the
         -- unsourced Karnataka February over-charge) rather than only adding DDL of its own. Left empty — the repair
@@ -175,7 +181,7 @@ public sealed class CompositionSchemaTests
         CREATE TABLE cost_centres (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL DEFAULT '', line_order INTEGER NOT NULL DEFAULT 0, stock_item_id TEXT NOT NULL DEFAULT '', godown_id TEXT NOT NULL DEFAULT '', quantity_micro INTEGER NOT NULL DEFAULT 0, direction INTEGER NOT NULL DEFAULT 0);
-        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL, valuation_method INTEGER NOT NULL DEFAULT 0);  -- valuation_method: the v65 (ruling-26) remediating UPDATE lands on it
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE voucher_types (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL);
         CREATE TABLE entry_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT);

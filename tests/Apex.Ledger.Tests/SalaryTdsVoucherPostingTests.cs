@@ -160,8 +160,10 @@ public sealed class SalaryTdsVoucherPostingTests
         // Raise effective 1-Jul-2025: paid-to-date ₹3,75,000 + projected ₹1,50,000 × 9 = ₹17,25,000 → taxable ₹16,50,000.
         svc.DefineForEmployee(empId, new DateOnly(2025, 7, 1), Lines(heads, 150_000m));
 
+        // T1-26: priced on the FY 2025-26 table, the year the July-2025 period falls in.
+        var fy2025 = SalaryTaxRates.ForFinancialYear(2025);
         var newAnnual = SalaryIncomeTax.ComputeAnnual(
-            SalaryIncomeTax.TaxableIncome(1_725_000m, 0m, TaxRegime.New), TaxRegime.New).AnnualTax;
+            SalaryIncomeTax.TaxableIncome(1_725_000m, 0m, TaxRegime.New, fy2025), TaxRegime.New, fy2025).AnnualTax;
         // July TDS = (newAnnual − 24,375 already) / 9 remaining, nearest rupee.
         var expectedJuly = SalaryIncomeTax.MonthlyTds(newAnnual, new Money(24_375m), monthsRemaining: 9);
         var july = PostMonth(c, empId, 2025, 7);
@@ -244,8 +246,10 @@ public sealed class SalaryTdsVoucherPostingTests
 
         // November's TDS is the paid-to-date + projected value (₹7L paid Apr–Oct + ₹6L × 5 remaining), NOT the ×12 bug.
         var novEstAnnual = 700_000m + 600_000m * 5m; // ₹37,00,000
+        // T1-26: priced on the FY 2025-26 table, the year the November-2025 period falls in.
+        var novRates = SalaryTaxRates.ForFinancialYear(2025);
         var novAnnualTax = SalaryIncomeTax.ComputeAnnual(
-            SalaryIncomeTax.TaxableIncome(novEstAnnual, 0m, TaxRegime.New), TaxRegime.New).AnnualTax;
+            SalaryIncomeTax.TaxableIncome(novEstAnnual, 0m, TaxRegime.New, novRates), TaxRegime.New, novRates).AnnualTax;
         Assert.Equal(SalaryIncomeTax.MonthlyTds(novAnnualTax, Money.Zero, monthsRemaining: 5), novTds);
 
         // The bonus is captured by year-end — the actual FY gross is fully covered (not under-withheld).

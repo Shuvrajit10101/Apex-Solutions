@@ -38,7 +38,7 @@ public sealed partial class TcsChallanReconRow : ViewModelBase
 ///
 /// <para>MVVM boundary: references the engine + domain but no Avalonia types (headlessly testable).</para>
 /// </summary>
-public sealed partial class TcsChallanReconciliationViewModel : ViewModelBase
+public sealed partial class TcsChallanReconciliationViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly DateOnly _from;
@@ -115,6 +115,37 @@ public sealed partial class TcsChallanReconciliationViewModel : ViewModelBase
 
         HighlightedIndex = Rows.Count > 0 ? 0 : -1;
         Message = Rows.Count == 0 ? StatusText : null;
+    }
+
+    /// <summary>
+    /// <b>Census 6.38 — the snapshot that gives this page an exit.</b> The exact mirror of
+    /// <see cref="ChallanReconciliationViewModel.ToMasterListSnapshot"/>, and it is written as a mirror on
+    /// purpose: the two reconciliations are read side by side at the same quarter-end, so an operator comparing
+    /// a printed TDS reconciliation against a printed TCS one must not have to re-learn the layout. Same five
+    /// columns in the same order, same three <see cref="MasterListColumn.Number"/> money columns, same trailing
+    /// Grand Total and same <see cref="BasisNote"/> row — only the first column's caption and the money
+    /// columns' verbs differ, because §206C <i>collects</i> where Chapter XVII-B <i>deducts</i>.
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Rows.Count + 2);
+        foreach (var r in Rows)
+            rows.Add(new[] { r.CollectionCode, r.Collected, r.Deposited, r.Remaining, r.Status });
+
+        rows.Add(new[] { "Grand Total", TotalCollected, TotalDeposited, TotalRemaining, string.Empty });
+        rows.Add(new[] { BasisNote, string.Empty, string.Empty, string.Empty, string.Empty });
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Collection Code"),
+                MasterListColumn.Number("Collected"),
+                MasterListColumn.Number("Deposited"),
+                MasterListColumn.Number("Remaining"),
+                MasterListColumn.Text("Status"),
+            },
+            rows);
     }
 
     /// <summary>Moves the row highlight (Up/Down within the page); wraps. Keeps a live ListBox selection.</summary>

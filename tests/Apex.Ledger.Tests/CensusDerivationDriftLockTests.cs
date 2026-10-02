@@ -113,8 +113,23 @@ public sealed class CensusDerivationDriftLockTests
     /// </list>
     /// The census's own <c>awk</c> returns <c>TOTAL rows=221 C=52 P=122 A=47 U=0 sum=221</c> after the move; it
     /// returned <c>… rows=216 … A=42 … sum=216</c> before it. Not one state cell changed.</para>
+    ///
+    /// <para>🔴 <b>MOVED <c>221</c> → <c>219</c> ON 2026-09-14 BY USER RULING 24 — the SECOND time this constant
+    /// has moved, and again for the only reason it may: a user-ruled scope change.</b> Rows <b>8.11</b>
+    /// (Connected Banking) and <b>8.12</b> (Payment Request) were STRUCK to <b>§1.2d</b> as subscription-gated
+    /// capabilities under §1.1 rule 4 — both gated behind a vendor subscription and a vendor-operated service,
+    /// so there is nothing a clone could build that a user of this product could reach. <b>Ruling 19's own row
+    /// 8.11 had already flagged this exact question as the user's to answer, so this is an answered question,
+    /// not a reversal.</b> Both were <c>ABSENT</c>, so — exactly as with ruling 20 — striking them lowered the
+    /// denominator AND the missing count <b>without shipping anything</b>, and Area 8's resulting
+    /// <c>0 absent</c> is an artefact rather than an achievement. Area 8's heading moved
+    /// <c>13 rows · 1 / 10 / 2</c> → <c>11 rows · 1 / 10 / 0</c>.
+    /// The census's own <c>awk</c> returns <c>TOTAL rows=219 C=52 P=162 A=5 U=0 sum=219</c> after the move; it
+    /// returned <c>TOTAL rows=221 C=52 P=160 A=9 U=0 sum=221</c> before it. Two of the four absent rows that
+    /// disappeared were struck here; the other two (<b>2.6</b> Voucher Class and <b>16.1</b> the company vault)
+    /// were BUILT in the same wave and moved <c>ABSENT</c> → <c>PARTIAL</c> on their own evidence.</para>
     /// </summary>
-    private const int ScopedCapabilityRows = 221;
+    private const int ScopedCapabilityRows = 219;
 
     /// <summary>§1.2a's sixteen areas.</summary>
     private const int ScopedAreas = 16;

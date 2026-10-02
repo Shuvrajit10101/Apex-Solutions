@@ -186,6 +186,47 @@ public static class MasterDeletionRules
         "price_lists.stock_item_id",
         "stock_opening_balances.stock_item_id",
         "voucher_inventory_lines.stock_item_id",
+
+        // ---- pointing at a GODOWN (EnsureGodownDeletable) — W28 C2, census 3.7.
+        // 🔴 NINE of these eleven were counted by NOTHING before wave 28. InventoryService.DeleteGodown guarded
+        // the default location, godowns.parent_id and stock_opening_balances.godown_id and stopped there, so a
+        // godown named by any posted line could be removed from memory and the next Save would fail the FK.
+        "batch_masters.godown_id",
+        "bom_lines.godown_id",
+        "godowns.parent_id",
+        "inventory_allocations.godown_id",
+        "job_work_order_lines.godown_id",
+        "job_work_orders.fg_godown_id",
+        "order_lines.godown_id",
+        "physical_stock_lines.godown_id",
+        "pos_voucher_type_config.default_godown_id",
+        "stock_opening_balances.godown_id",
+        "voucher_inventory_lines.godown_id",
+
+        // ---- pointing at a UNIT (EnsureUnitDeletable) — W28 C2, census 3.5.
+        // stock_items.alternate_unit_id arrived at census 3.6 (v60) and the delete guard was never revisited; the
+        // two line-level columns were never counted at all.
+        "inventory_allocations.unit_id",
+        "stock_items.alternate_unit_id",
+        "stock_items.base_unit_id",
+        "units.first_unit_id",
+        "units.tail_unit_id",
+        "voucher_inventory_lines.unit_id",
+
+        // ---- pointing at a STOCK GROUP / STOCK CATEGORY (EnsureStockGroupDeletable / …CategoryDeletable)
+        "stock_categories.parent_id",
+        "stock_groups.parent_id",
+        "stock_items.category_id",
+        "stock_items.stock_group_id",
+
+        // ---- pointing at a COST CATEGORY / COST CENTRE (EnsureCostCategoryDeletable / …CentreDeletable)
+        // W28 C2, census 2.7 / 2.8 — neither master had a delete service of ANY kind before this wave, so none of
+        // these five columns had ever been considered.
+        "cost_allocations.category_id",
+        "cost_allocations.centre_id",
+        "cost_centres.category_id",
+        "cost_centres.parent_id",
+        "godowns.job_cost_centre_id",
     ];
 
     /// <summary>
@@ -847,6 +888,436 @@ public static class MasterDeletionRules
                 "scenario", "scenarios");
 
         ThrowIfNamed(referenceParts, $"voucher type '{type.Name}'");
+    }
+
+    // ============================================================ W28 C2: the six masters Alt+D now reaches
+    //
+    // 🔴 WHY THESE SIX ARRIVED TOGETHER, AND WHY THE GUARDS ARE THE LARGER HALF OF THAT SLICE.
+    // Wave 28's brief described cluster C2 as "six masters have a delete service in Apex.Ledger with ZERO callers
+    // in Apex.Desktop" — i.e. as pure wiring. MEASURED AT origin/main 9a83de6, THAT IS WRONG IN THE DANGEROUS
+    // DIRECTION, and the code was trusted over the brief. The existing services carried only a PART of the
+    // referential surface:
+    //
+    //   • InventoryService.DeleteGodown guarded IsMainLocation, child godowns and stock_opening_balances — and
+    //     MISSED NINE other columns that declare REFERENCES godowns(id): voucher_inventory_lines.godown_id,
+    //     inventory_allocations.godown_id, order_lines.godown_id, physical_stock_lines.godown_id,
+    //     batch_masters.godown_id, bom_lines.godown_id, pos_voucher_type_config.default_godown_id,
+    //     job_work_orders.fg_godown_id and job_work_order_lines.godown_id.
+    //   • InventoryService.DeleteUnit guarded stock_items.base_unit_id and the compound components — and MISSED
+    //     stock_items.alternate_unit_id, voucher_inventory_lines.unit_id and inventory_allocations.unit_id.
+    //   • Cost category and cost centre had NO delete service at all.
+    //
+    // The consequence is not a cosmetic dangle. SqliteCompanyStore runs PRAGMA foreign_keys = ON and Save is a
+    // delete-all + full re-insert, so an uncounted sibling row means the master leaves memory and the VERY NEXT
+    // SAVE throws SQLITE_CONSTRAINT_FOREIGNKEY — and every later save on the open company throws too. The book on
+    // screen can never be written again. That is the exact failure MasterDeletionForeignKeyCoverageTests was
+    // written to prevent, and the reason it did not prevent it here is that its parser matched only
+    // vouchers|ledgers|groups|stock_items. Wave 28 widened that regex to these six parents, which is what turns
+    // every column above from a silent hole into a DECISION the suite forces someone to make.
+    //
+    // FIDELITY (R7 / ruling 14). The godown refusal is vendor-attested almost clause for clause —
+    // help.tallysolutions.com/tally-prime/inventory/inventory-storage-using-godowns-locations-tally/ (fetched
+    // 2026-09-14) deletes with "Alt + D" and refuses unless the godown "does not store any stock items", "was not
+    // used in any transaction" and "is not a parent of other godowns", and adds "You cannot delete the default
+    // godown in TallyPrime". The cost refusals are attested too:
+    // help.tallysolutions.com/cost-centre-or-profit-centre-tally/ — "You can delete a Cost Category if no Cost
+    // Centre or Profit Centre has been grouped under it", and a cost centre with allocated expenses must have
+    // them moved "to another Cost Centre and then delete it". The unit refusal's compound clause is attested on
+    // the Units of Measure pages (a unit that is part of a compound measure cannot be deleted). Everything BEYOND
+    // those clauses — the exact counts, the breakdown wording and the extra FK columns — is OURS, and is here
+    // because the schema demands it rather than because a page said so.
+
+    /// <summary>
+    /// <b>THE GODOWN DELETE GUARD</b> (census 3.7). Refuses in three layers, matching the vendor's three stated
+    /// conditions and then going further where our schema is wider than their prose.
+    ///
+    /// <list type="number">
+    ///   <item>The seeded <b>Main Location</b> is never deletable — the vendor's "You cannot delete the default
+    ///     godown in TallyPrime". This is also structural for us: every inventory line resolves to a godown, and
+    ///     removing the fallback would leave posting with nowhere to put stock.</item>
+    ///   <item><b>Movements and stock</b> — the vendor's "does not store any stock items" and "was not used in
+    ///     any transaction", counted across opening balances, item-invoice lines, inventory-voucher allocations
+    ///     (both source and destination), order lines and physical-stock lines.</item>
+    ///   <item><b>Masters and settings that merely NAME it</b> — sub-godowns (the vendor's third condition),
+    ///     batches, BOM lines, a POS default and job-work orders and their lines.</item>
+    /// </list>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The godown is the default, holds stock or movements, or is
+    /// named by another master.</exception>
+    public static void EnsureGodownDeletable(Company company, Godown godown)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(godown);
+
+        if (godown.IsMainLocation)
+            throw new InvalidOperationException(
+                $"Cannot delete godown '{godown.Name}': it is the default location every inventory line falls "
+                + "back to, so the book would have nowhere to put stock. The default godown cannot be deleted.");
+
+        // stock_opening_balances.godown_id
+        var openings = company.StockOpeningBalances.Count(b => b.GodownId == godown.Id);
+        // voucher_inventory_lines.godown_id
+        var invoiceLines = company.Vouchers.Sum(v => v.InventoryLines.Count(l => l.GodownId == godown.Id));
+        // inventory_allocations.godown_id (both sides), order_lines.godown_id, physical_stock_lines.godown_id
+        var inventoryLines = company.InventoryVouchers.Sum(
+            v => v.Allocations.Count(a => a.GodownId == godown.Id)
+               + v.DestinationAllocations.Count(a => a.GodownId == godown.Id)
+               + v.OrderLines.Count(o => o.GodownId == godown.Id)
+               + v.PhysicalLines.Count(p => p.GodownId == godown.Id));
+
+        var total = openings + invoiceLines + inventoryLines;
+        if (total > 0)
+        {
+            var parts = new List<string>();
+            AddPart(parts, openings, "opening balance", "opening balances");
+            AddPart(parts, invoiceLines, "invoice line", "invoice lines");
+            AddPart(parts, inventoryLines, "inventory-voucher line", "inventory-voucher lines");
+
+            var head = total == 1 ? "1 entry stores stock there" : $"{total} entries store stock there";
+            throw new InvalidOperationException(
+                $"Cannot delete godown '{godown.Name}': {head} ({string.Join(", ", parts)}). "
+                + "Move the stock to another godown with an inter-godown transfer first.");
+        }
+
+        var referenceParts = new List<string>();
+        // godowns.parent_id — the vendor's "is not a parent of other godowns".
+        AddPart(referenceParts, company.Godowns.Count(g => g.ParentId == godown.Id),
+                "sub-godown", "sub-godowns");
+        // batch_masters.godown_id
+        AddPart(referenceParts, company.BatchMasters.Count(b => b.GodownId == godown.Id),
+                "batch", "batches");
+        // bom_lines.godown_id
+        AddPart(referenceParts, company.BillsOfMaterials.Sum(b => b.Lines.Count(l => l.GodownId == godown.Id)),
+                "bill-of-materials line", "bill-of-materials lines");
+        // pos_voucher_type_config.default_godown_id
+        AddPart(referenceParts,
+                company.VoucherTypes.Count(t => t.PosConfig is { } p && p.DefaultGodownId == godown.Id),
+                "POS default location", "POS default locations");
+        // job_work_orders.fg_godown_id
+        AddPart(referenceParts,
+                company.InventoryVouchers.Count(
+                    v => v.JobWorkOrder is { } o && o.FinishedGoodGodownId == godown.Id),
+                "job-work order", "job-work orders");
+        // job_work_order_lines.godown_id
+        AddPart(referenceParts,
+                company.InventoryVouchers.Sum(
+                    v => v.JobWorkOrder is { } o ? o.Lines.Count(l => l.GodownId == godown.Id) : 0),
+                "job-work component line", "job-work component lines");
+
+        ThrowIfNamed(referenceParts, $"godown '{godown.Name}'");
+    }
+
+    /// <summary>
+    /// <b>THE UNIT-OF-MEASURE DELETE GUARD</b> (census 3.5). The vendor's attested clause is the compound one —
+    /// a unit that is part of a compound measure cannot be deleted — and the rest is the schema's demand:
+    /// <c>stock_items.base_unit_id</c>, <c>stock_items.alternate_unit_id</c>,
+    /// <c>voucher_inventory_lines.unit_id</c> and <c>inventory_allocations.unit_id</c> all declare
+    /// <c>REFERENCES units(id)</c>.
+    ///
+    /// <para>🔴 The last three were NOT counted by <c>InventoryService.DeleteUnit</c> before wave 28. The
+    /// alternate-unit column in particular is recent (census 3.6, v60) and the delete guard was never revisited
+    /// when it landed — which is exactly the drift the widened coverage test now makes impossible.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The unit measures entries, or is named by another master.</exception>
+    public static void EnsureUnitDeletable(Company company, Unit unit)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(unit);
+
+        // voucher_inventory_lines.unit_id — a line expressed in this unit. Its QUANTITY means nothing without it.
+        var invoiceLines = company.Vouchers.Sum(v => v.InventoryLines.Count(l => l.UnitId == unit.Id));
+        // inventory_allocations.unit_id
+        var inventoryLines = company.InventoryVouchers.Sum(
+            v => v.Allocations.Count(a => a.UnitId == unit.Id)
+               + v.DestinationAllocations.Count(a => a.UnitId == unit.Id));
+
+        var total = invoiceLines + inventoryLines;
+        if (total > 0)
+        {
+            var parts = new List<string>();
+            AddPart(parts, invoiceLines, "invoice line", "invoice lines");
+            AddPart(parts, inventoryLines, "inventory-voucher line", "inventory-voucher lines");
+
+            var head = total == 1 ? "1 entry is measured in it" : $"{total} entries are measured in it";
+            throw new InvalidOperationException(
+                $"Cannot delete unit '{unit.Symbol}': {head} ({string.Join(", ", parts)}). "
+                + "Deleting it would leave those quantities with no unit at all.");
+        }
+
+        var referenceParts = new List<string>();
+        // stock_items.base_unit_id
+        AddPart(referenceParts, company.StockItems.Count(i => i.BaseUnitId == unit.Id),
+                "stock item", "stock items");
+        // stock_items.alternate_unit_id — census 3.6 / v60.
+        AddPart(referenceParts, company.StockItems.Count(i => i.AlternateUnitId == unit.Id),
+                "stock item's alternate unit", "stock items' alternate unit");
+        // units.first_unit_id / units.tail_unit_id — the vendor's attested compound clause.
+        AddPart(referenceParts,
+                company.Units.Count(u => u.FirstUnitId == unit.Id || u.TailUnitId == unit.Id),
+                "compound unit", "compound units");
+
+        ThrowIfNamed(referenceParts, $"unit '{unit.Symbol}'");
+    }
+
+    /// <summary>
+    /// <b>THE STOCK-GROUP DELETE GUARD</b> (census 3.1). The whole referential surface is two columns —
+    /// <c>stock_groups.parent_id</c> and <c>stock_items.stock_group_id</c> — and the pre-wave-28 service already
+    /// counted both. It is restated here so every master Alt+D reaches refuses through ONE file with ONE wording,
+    /// rather than two masters refusing in the engine's voice and four in this one.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The group has sub-groups or items under it.</exception>
+    public static void EnsureStockGroupDeletable(Company company, StockGroup group)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(group);
+
+        var subGroups = company.StockGroups.Count(g => g.ParentId == group.Id);
+        var items = company.StockItems.Count(i => i.StockGroupId == group.Id);
+
+        var total = subGroups + items;
+        if (total == 0) return;
+
+        var parts = new List<string>();
+        AddPart(parts, subGroups, "sub-group", "sub-groups");
+        AddPart(parts, items, "stock item", "stock items");
+
+        var head = total == 1 ? "1 master is filed under it" : $"{total} masters are filed under it";
+        throw new InvalidOperationException(
+            $"Cannot delete stock group '{group.Name}': {head} ({string.Join(", ", parts)}). "
+            + "Move or delete them first.");
+    }
+
+    /// <summary>
+    /// <b>THE STOCK-CATEGORY DELETE GUARD</b> (census 3.2) — <c>stock_categories.parent_id</c> and
+    /// <c>stock_items.category_id</c>, the category axis's exact analogue of the stock-group guard above.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The category has sub-categories or items under it.</exception>
+    public static void EnsureStockCategoryDeletable(Company company, StockCategory category)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(category);
+
+        var subCategories = company.StockCategories.Count(c => c.ParentId == category.Id);
+        var items = company.StockItems.Count(i => i.CategoryId == category.Id);
+
+        var total = subCategories + items;
+        if (total == 0) return;
+
+        var parts = new List<string>();
+        AddPart(parts, subCategories, "sub-category", "sub-categories");
+        AddPart(parts, items, "stock item", "stock items");
+
+        var head = total == 1 ? "1 master is filed under it" : $"{total} masters are filed under it";
+        throw new InvalidOperationException(
+            $"Cannot delete stock category '{category.Name}': {head} ({string.Join(", ", parts)}). "
+            + "Move or delete them first.");
+    }
+
+    /// <summary>
+    /// <b>THE COST-CATEGORY DELETE GUARD</b> (census 2.7). The vendor states the rule outright: <i>"You can
+    /// delete a Cost Category if no Cost Centre or Profit Centre has been grouped under it"</i>
+    /// (help.tallysolutions.com/cost-centre-or-profit-centre-tally/, fetched 2026-09-14). We add the seeded
+    /// Primary Cost Category, which <see cref="CostCategory.IsPredefined"/> has always declared undeletable, and
+    /// <c>cost_allocations.category_id</c> — a category an already-posted voucher line allocates along.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The category is predefined, carries allocations, or has
+    /// centres grouped under it.</exception>
+    public static void EnsureCostCategoryDeletable(Company company, CostCategory category)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(category);
+
+        if (category.IsPredefined)
+            throw new InvalidOperationException(
+                $"Cannot delete cost category '{category.Name}': it is the predefined category every cost centre "
+                + "falls back to. The predefined cost category cannot be deleted.");
+
+        // cost_allocations.category_id — a posted allocation, so this is the TRANSACTION refusal.
+        var allocations = company.Vouchers.Sum(
+            v => v.Lines.Sum(l => l.CostAllocations.Count(a => a.CategoryId == category.Id)));
+        if (allocations > 0)
+            throw new InvalidOperationException(
+                $"Cannot delete cost category '{category.Name}': "
+                + $"{Count(allocations, "voucher line allocates", "voucher lines allocate")} along it. "
+                + "Move those allocations to another cost category first.");
+
+        var referenceParts = new List<string>();
+        // cost_centres.category_id — the vendor's own stated condition.
+        AddPart(referenceParts, company.CostCentres.Count(c => c.CategoryId == category.Id),
+                "cost centre", "cost centres");
+
+        ThrowIfNamed(referenceParts, $"cost category '{category.Name}'");
+    }
+
+    /// <summary>
+    /// <b>THE COST-CENTRE DELETE GUARD</b> (census 2.8). The vendor's rule is the allocation one — move "the
+    /// allocation of expenses from the Cost Centre that you want to delete to another Cost Centre and then delete
+    /// it". We add the two remaining columns that declare <c>REFERENCES cost_centres(id)</c>:
+    /// <c>cost_centres.parent_id</c> (a centre with children) and <c>godowns.job_cost_centre_id</c> (census 9.6 —
+    /// a godown designated as this centre's job/project).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The centre carries allocations, or is named by another
+    /// master.</exception>
+    public static void EnsureCostCentreDeletable(Company company, CostCentre centre)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(centre);
+
+        // cost_allocations.centre_id
+        var allocations = company.Vouchers.Sum(
+            v => v.Lines.Sum(l => l.CostAllocations.Count(a => a.CentreId == centre.Id)));
+        if (allocations > 0)
+            throw new InvalidOperationException(
+                $"Cannot delete cost centre '{centre.Name}': "
+                + $"{Count(allocations, "voucher line allocates", "voucher lines allocate")} to it. "
+                + "Move those allocations to another cost centre first.");
+
+        var referenceParts = new List<string>();
+        // cost_centres.parent_id
+        AddPart(referenceParts, company.CostCentres.Count(c => c.ParentId == centre.Id),
+                "sub-centre", "sub-centres");
+        // godowns.job_cost_centre_id — census 9.6.
+        AddPart(referenceParts, company.Godowns.Count(g => g.JobCostCentreId == centre.Id),
+                "godown designated as this job/project", "godowns designated as this job/project");
+
+        ThrowIfNamed(referenceParts, $"cost centre '{centre.Name}'");
+    }
+
+    // ============================================================ W33 C3: the residual master-verb parents
+    //
+    // 🔴 WHY THESE TWO GUARDS ARRIVE TOGETHER AND WHY THE OTHER SIX MASTERS IN THE SAME SLICE GET NONE.
+    // Wave 33's cluster wires Alt+D on eight masters that never had it (Batch, BOM, Currency, Budget, Scenario,
+    // Price Level, Price List, Reorder Levels). A guard is owed exactly where the schema declares a foreign key
+    // into the parent that is NOT written from the parent's own object graph — the distinction
+    // `ForeignKeyColumnsThatDieWithTheirParent` above draws. Derived from the DDL rather than from a list:
+    //
+    //   · bill_of_materials  ← bom_lines.bom_id (child, dies with it)
+    //                        ← job_work_orders.fill_components_bom_id  🔴 NOT a child — GUARDED BELOW.
+    //   · currencies         ← ledgers.currency_id, exchange_rates.currency_id,
+    //                          entry_lines.forex_currency_id            🔴 none is a child — GUARDED BELOW.
+    //   · budgets            ← budget_lines.budget_id                   (child: Budget.Lines — dies with it)
+    //   · scenarios          ← scenario_voucher_types.scenario_id       (child: Scenario.IncludedTypeIds)
+    //   · price_lists        ← price_list_lines.price_list_id           (child: PriceList.Slabs)
+    //   · reorder_definitions← (nothing references it)
+    //   · price_levels       ← price_lists.price_level_id, ledgers.default_price_level_id
+    //                          — already guarded, in PriceListService.DeleteLevel, and left there.
+    //   · batch_masters      ← four *.batch_id columns that the store NEVER POPULATES (SqliteCompanyStore:2299
+    //                          says so outright); the real reference is the free-string batch LABEL, which
+    //                          BatchService.IsBatchReferenced already counts. Left there for the same reason.
+    //
+    // 🔴 THE FOUR "no guard" ROWS ABOVE ARE A MEASURED ABSENCE, NOT AN OVERSIGHT. Inventing a refusal with no
+    // rule behind it is the defect this file's own InventoryVoucher remarks name; a budget with no external
+    // referent simply deletes.
+
+    /// <summary>
+    /// <b>THE BILL-OF-MATERIALS DELETE GUARD</b> (census 3.9).
+    ///
+    /// <para>🔴 <b>THIS GUARD IS A DEFECT FIX, NOT A NEW RULE FOR A NEW VERB.</b> <c>BomService.DeleteBom</c> has
+    /// existed since Phase 6 and, exactly like <c>LedgerService.Delete</c> before S4, <b>nothing in the
+    /// application called it</b> — so the omission below has never been reachable. Wave 33 wires Alt+D onto the
+    /// BOM master, and the very first keystroke would have made it reachable:
+    /// <c>job_work_orders.fill_components_bom_id</c> is a real <c>REFERENCES bill_of_materials(id)</c> column
+    /// (Schema.cs, v-current DDL) written from <c>Company.InventoryVouchers</c> — a collection of its OWN that
+    /// knows nothing about whether the BOM survived. That is the <c>cheque_books</c> shape verbatim: under
+    /// <c>PRAGMA foreign_keys = ON</c> plus this product's delete-all-and-reinsert save, deleting a BOM a job-work
+    /// order was filled from raises <c>SQLITE_CONSTRAINT_FOREIGNKEY</c> on the NEXT save and on every save after
+    /// it, with the row already gone from memory — <b>the open company can never be saved again.</b></para>
+    ///
+    /// <para><b>The line lines need no clause.</b> <c>bom_lines.bom_id</c> is written from
+    /// <see cref="BillOfMaterials.Lines"/>, so a deleted BOM is simply not enumerated and no row is written.</para>
+    ///
+    /// <para><b>FIDELITY (R7).</b> <b>OURS, and recorded as ours.</b> No admissible source — vendor documentation,
+    /// statutory or internal catalog — speaks to what deleting a BOM does to an order already filled from it, and
+    /// no new vendor claim is made here. What is borrowed is this file's own established SHAPE: count, name the
+    /// blocking records, state the consequence, name the remedy.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">A job-work order was filled from this BOM.</exception>
+    public static void EnsureBomDeletable(Company company, BillOfMaterials bom)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(bom);
+
+        // job_work_orders.fill_components_bom_id
+        var orders = company.InventoryVouchers.Count(
+            v => v.JobWorkOrder is { } o && o.FillComponentsBomId == bom.Id);
+
+        if (orders > 0)
+            throw new InvalidOperationException(
+                $"Cannot delete BOM '{bom.Name}': "
+                + $"{Count(orders, "job-work order was filled from it", "job-work orders were filled from it")}. "
+                + "Each of those would be left pointing at a BOM that no longer exists, and the company could not "
+                + "be saved again. Delete those orders first.");
+    }
+
+    /// <summary>
+    /// <b>THE CURRENCY DELETE GUARD</b> (census 2.11). Three real foreign keys point at
+    /// <c>currencies(id)</c> and <b>not one of them is written from the currency's own object graph</b>, so all
+    /// three are counted here: a ledger denominated in it, a dated rate-of-exchange quote for it, and a posted
+    /// entry line entered in it.
+    ///
+    /// <para>🔴 <b>THE POSTED-LINE CLAUSE IS THE ONE THAT MATTERS AND IT IS DELIBERATELY FIRST.</b> It is the
+    /// attested master shape — <i>a master carrying transactions cannot be deleted</i> — and it is also the
+    /// clause with a WRONG-FIGURE consequence rather than merely an unsavable one: a forex line's base
+    /// <see cref="Money"/> is already exact, so a report would still foot, while the line's stated foreign
+    /// amount and rate would name a currency that no longer exists.</para>
+    ///
+    /// <para><b>The BASE currency is refused outright and separately.</b> It is seeded on company create, every
+    /// base-currency figure in the book is denominated in it, and <c>Company.AddCurrency</c> enforces exactly one
+    /// — so removing it is not a delete with consequences, it is a book with no unit. The refusal says so rather
+    /// than reporting a count.</para>
+    ///
+    /// <para><b>FIDELITY (R7). 🔴 PART VENDOR-ATTESTED, AND AN EARLIER DRAFT OF THIS COMMENT WAS WRONG TO CALL
+    /// THE WHOLE RULE OURS.</b> The vendor's own page for this master says it in one sentence — <i>"You can delete
+    /// a currency if it is not used in transactions or opening balance for ledgers"</i> — and gives the keystroke
+    /// as <i>Alt+G (Go To) &gt; Alter Master &gt; Currency &gt; select the currency &gt; press Alt+D (Delete)</i>
+    /// [help.tallysolutions.com/create-alter-or-delete-currencies/, read 2026-09-25]. So the transaction clause
+    /// and the keystroke are ATTESTED, not extrapolated.</para>
+    ///
+    /// <para><b>Where we are deliberately WIDER than the attested rule, said plainly.</b> The vendor names
+    /// <i>transactions</i> and <i>ledger opening balances</i>; the ledger clause below refuses <b>any</b> ledger
+    /// carrying <c>currency_id</c>, opening balance or not, because in this product that column is what makes the
+    /// row savable at all and a ledger left pointing at a deleted currency is the unsavable-company shape. The
+    /// <b>base-currency</b> refusal and the <b>rate-of-exchange</b> clause are OURS and vendor-silent (the page
+    /// treats the base currency through a separate change-base-currency procedure instead), as is every string
+    /// here. <b>No vendor citation is made or implied for those three.</b></para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The currency is the base, or something still names it.</exception>
+    public static void EnsureCurrencyDeletable(Company company, Currency currency)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(currency);
+
+        // 🔴 THE FORMAL NAME LEADS AND THE SYMBOL IS THE PARENTHETICAL, AND THAT IS NOT COSMETIC.
+        // A symbol is NOT unique: USD, CAD, AUD, SGD and HKD are all "$". A refusal — or a confirmation — built
+        // on the symbol alone would name a different row than the one the operator highlighted, on the one verb
+        // in this product that cannot be undone. This is the same string shape CurrencyListRow.MasterName uses,
+        // deliberately, so the question and the refusal identify the same master. A test in
+        // MasterVerbsW33DeletionGuardTests caught the symbol-only first cut of this file.
+        var what = $"currency '{currency.FormalName} ({currency.Symbol})'";
+
+        if (currency.IsBaseCurrency)
+            throw new InvalidOperationException(
+                $"Cannot delete {what}: it is the company's base currency. "
+                + "Every figure in the book is denominated in it, so it cannot be removed at all.");
+
+        // entry_lines.forex_currency_id — the attested "master carrying transactions" clause.
+        var lines = company.Vouchers.Sum(
+            v => v.Lines.Count(l => l.Forex is { } f && f.CurrencyId == currency.Id));
+        if (lines > 0)
+            throw new InvalidOperationException(
+                $"Cannot delete {what}: "
+                + $"{Count(lines, "posted entry line is entered in it", "posted entry lines are entered in it")}. "
+                + "Delete those transactions first, and then you can delete the currency.");
+
+        var referenceParts = new List<string>();
+        // ledgers.currency_id
+        AddPart(referenceParts, company.Ledgers.Count(l => l.CurrencyId == currency.Id),
+                "ledger denominated in it", "ledgers denominated in it");
+        // exchange_rates.currency_id
+        AddPart(referenceParts, company.ExchangeRates.Count(r => r.CurrencyId == currency.Id),
+                "rate-of-exchange quote", "rate-of-exchange quotes");
+
+        ThrowIfNamed(referenceParts, what);
     }
 
     // ==================================================================== helpers

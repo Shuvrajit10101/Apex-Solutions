@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using Apex.Ledger.Domain;
@@ -100,7 +100,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         // Company TDS is on, TAN captured, the predefined Nature-of-Payment masters seeded, payable ledger created.
         Assert.True(vm.Company.TdsEnabled);
         Assert.Equal(ValidTan, vm.Company.Tds!.Tan);
-        Assert.Equal(11, vm.Company.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
+        Assert.Equal(17, vm.Company.NaturesOfPayment.Count);   // 17 since census row 6.35 seeded 194T/194R/194S then 192A/194EE/194G/194K/194LA/194-O (2026-09-08)
         Assert.Contains(vm.Company.NaturesOfPayment, n => n.SectionCode == "194J(b)");
         Assert.NotNull(vm.Company.FindLedgerByName("TDS Payable"));
         Assert.Contains(page.TdsTcsLedgers, r => r.Name == "TDS Payable");
@@ -109,7 +109,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         var reloaded = Reload(companyName);
         Assert.True(reloaded.TdsEnabled);
         Assert.Equal(ValidTan, reloaded.Tds!.Tan);
-        Assert.Equal(11, reloaded.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
+        Assert.Equal(17, reloaded.NaturesOfPayment.Count);   // 17 since census row 6.35 seeded 194T/194R/194S then 192A/194EE/194G/194K/194LA/194-O (2026-09-08)
         Assert.NotNull(reloaded.FindLedgerByName("TDS Payable"));
     }
 
@@ -204,7 +204,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
 
         // Re-enabling on that reloaded company re-seeds the predefined masters cleanly (no duplication).
         new Apex.Ledger.Services.TdsTcsService(reloaded).EnableTds(new TdsConfig { Tan = ValidTan });
-        Assert.Equal(11, reloaded.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
+        Assert.Equal(17, reloaded.NaturesOfPayment.Count);   // 17 since census row 6.35 seeded 194T/194R/194S then 192A/194EE/194G/194K/194LA/194-O (2026-09-08)
     }
 
     [Fact]
@@ -237,7 +237,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
 
         Assert.True(vm.Company!.TdsEnabled);
         Assert.Equal(ValidTan, vm.Company.Tds!.Tan);
-        Assert.Equal(11, vm.Company.NaturesOfPayment.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
+        Assert.Equal(17, vm.Company.NaturesOfPayment.Count);   // 17 since census row 6.35 seeded 194T/194R/194S then 192A/194EE/194G/194K/194LA/194-O (2026-09-08)
         Assert.NotNull(vm.Company.FindLedgerByName("TDS Payable"));
 
         // And it persists across a reload, exactly like the button path.
@@ -291,19 +291,22 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
         vm.ShowNatureOfPaymentMaster();
         Assert.Equal(Screen.NatureOfPaymentMaster, vm.CurrentScreen);
         var m = vm.NatureOfPaymentMaster!;
-        Assert.Equal(11, m.Natures.Count);   // 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08)
+        Assert.Equal(17, m.Natures.Count);   // 17 since census row 6.35 seeded 194T/194R/194S then 192A/194EE/194G/194K/194LA/194-O (2026-09-08)
         Assert.Contains(m.Natures, r => r.SectionCode == "194Q" && r.Kind == "Predefined");
 
-        // Create a custom nature.
-        m.SectionCode = "194K";
-        m.Name = "Income from units";
+        // Create a custom nature. 🔴 §194M, NOT §194K — §194K became a SEEDED section when census row 6.35's
+        // second instalment landed (2026-09-08), so using it here stopped testing "an operator adds a section the
+        // product does not ship" and started colliding with a predefined row. The custom section must be one the
+        // seed genuinely does not carry, or this test silently becomes a duplicate-rejection test.
+        m.SectionCode = "194M";
+        m.Name = "Certain payments by individual/HUF";
         m.RateWithPanText = "10";
         m.RateWithoutPanText = "20";
-        m.FvuSectionCode = "94K";
+        m.FvuSectionCode = "94M";
         m.CumulativeThresholdText = "5000";
         Assert.True(m.Create());
 
-        var nature = vm.Company!.NaturesOfPayment.Single(n => n.SectionCode == "194K");
+        var nature = vm.Company!.NaturesOfPayment.Single(n => n.SectionCode == "194M");
         Assert.Equal(1000, nature.RateWithPanBp);   // 10%
         Assert.Equal(2000, nature.RateWithoutPanBp); // 20%
         Assert.False(nature.IsPredefined);
@@ -319,7 +322,7 @@ public sealed class TdsTcsConfigViewModelTests : IDisposable
 
         // Persisted.
         var reloaded = Reload(companyName);
-        Assert.Contains(reloaded.NaturesOfPayment, n => n.SectionCode == "194K");
+        Assert.Contains(reloaded.NaturesOfPayment, n => n.SectionCode == "194M");
     }
 
     [Fact]

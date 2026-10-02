@@ -35,11 +35,11 @@ namespace Apex.Desktop.Tests;
 /// checks the count is unchanged and the SAME <c>Guid</c> now carries the new name. A "rename" that created a
 /// second master would pass a name-only assertion and silently fork every historical reference.</para>
 ///
-/// <para>🔴 <b>SCOPE — this file covers FIVE of the eight kinds, and row 7.16 is NOT closed.</b> Employee
-/// category, employee group, payroll unit, attendance/production type and — since W7-D2 — the employee master
-/// are driven end-to-end below. The pay head, salary structure and tax declaration masters are not built;
-/// <see cref="PayrollMasterHalfWiredKindsTests"/> locks that remainder so it cannot be quietly claimed. A green
-/// run of this file is evidence for five kinds and for nothing else.</para>
+/// <para>🔴 <b>SCOPE — this file covers SIX of the eight kinds, and row 7.16 is STILL NOT closed.</b> Employee
+/// category, employee group, payroll unit, attendance/production type, the employee master (W7-D2) and the pay
+/// head (W28 V3, census 7.6) are driven end-to-end below. The salary structure and tax declaration masters are
+/// not built; <see cref="PayrollMasterHalfWiredKindsTests"/> locks that remainder so it cannot be quietly
+/// claimed. A green run of this file is evidence for six kinds and for nothing else.</para>
 /// </summary>
 public sealed class PayrollMasterAlterDeleteTests
 {
@@ -280,6 +280,131 @@ public sealed class PayrollMasterAlterDeleteTests
             EscapeAndReopenList(window, vm, "Attendance / Production Type");
             ArrowToAndDelete(window, vm, "Present Days");
             Assert.Empty(vm.Company.AttendanceTypes);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE T2-38 TEST (census 7.6 / 7.16; W28 V3) — A MISTYPED PAY-HEAD RATE CAN NOW BE CORRECTED.</b>
+    ///
+    /// <para>Before this slice <c>PayHeadService</c> had <c>CreatePayHead</c>, <c>RenamePayHead</c>,
+    /// <c>SetComputation</c> and <c>DeletePayHead</c> and <b>no Alter</b>, and <c>PayHeadMasterViewModel</c> was
+    /// deliberately kept off <c>PayrollMasterScreen</c> because of it. So a Professional Tax head typed at
+    /// <b>12%</b> instead of <b>1.2%</b> was permanent: renaming it does not touch the rate, and delete-and-recreate
+    /// is refused the moment a salary structure references the head. The wrong rate then came off <i>every payslip
+    /// thereafter</i>. That is wrong money, which is why this is the first thing the slice built.</para>
+    ///
+    /// <para>This drives the whole route with real keys — arrow into the existing-pay-head list, Ctrl+Enter to
+    /// alter, correct the slab, Ctrl+A to accept — and then asserts the SAME pay head id carries the corrected
+    /// rate. It fails on today's <c>main</c> by construction, twice over: <c>PayrollMasterScreen</c> is null on
+    /// the pay head master so Ctrl+Enter does nothing, and <c>AlterPayHead</c> does not exist to be called.</para>
+    ///
+    /// <para><b>The rate is asserted in BASIS POINTS off the stored slab</b>, not off a screen string. A screen
+    /// that displayed the new rate while saving the old one is exactly the failure this is aimed at.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Pay_head_alters_a_mistyped_rate_by_identity_and_deletes()
+    {
+        var (window, vm, dir) = NewWindow("Pay Head Co");
+        try
+        {
+            vm.ShowPayHeadMaster();
+            var master = vm.PayHeadMaster!;
+
+            // A basis head for the computed head to stand on.
+            master.Name = "Basic Pay";
+            master.SelectedCalcType = master.CalcTypes.Single(c => c.Value == PayHeadCalculationType.FlatRate);
+            Assert.True(master.Create(), master.Message);
+
+            // The mistyped head: Professional Tax at 12% of Basic, where 1.2% was meant.
+            master.Name = "Professional Tax";
+            master.SelectedType = master.Types.Single(t => t.Value == PayHeadType.EmployeesStatutoryDeductions);
+            master.SelectedCalcType = master.CalcTypes.Single(c => c.Value == PayHeadCalculationType.AsComputedValue);
+            master.SelectedBasisPayHead = master.BasisPayHeadOptions.Single(o => o.PayHead.Name == "Basic Pay");
+            master.AddBasisComponent();
+            master.SelectedSlabType = master.SlabTypes.Single(s => s.Value == PayHeadComputationSlabType.Percentage);
+            master.SlabRateOrValueText = "12";
+            master.AddSlab();
+            Assert.True(master.Create(), master.Message);
+
+            var id = vm.Company!.PayHeads.Single(p => p.Name == "Professional Tax").Id;
+            Assert.Equal(1200, vm.Company.FindPayHead(id)!.Computation!.Slabs.Single().RateBasisPoints);
+
+            // ---- the correction, entirely by keystroke ----
+            ArrowToAndAlter(window, vm, "Professional Tax");
+            var alter = vm.PayHeadMaster!;
+            Assert.True(alter.IsAltering);
+            Assert.Equal("Pay Head Alteration", alter.Caption);
+
+            // 🔴 The pre-fill is load-bearing: an alteration screen that opened with an EMPTY slab list would
+            // save exactly that on Ctrl+A, deleting the rate the operator came to fix.
+            Assert.Equal(1200, alter.Slabs.Single().RateBasisPoints);
+            Assert.Equal("Basic Pay", alter.BasisComponents.Single().PayHeadName);
+
+            alter.RemoveSlab(alter.Slabs.Single());
+            alter.SelectedSlabType = alter.SlabTypes.Single(s => s.Value == PayHeadComputationSlabType.Percentage);
+            alter.SlabRateOrValueText = "1.2";
+            alter.AddSlab();
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            // Same identity, corrected rate, and no second pay head forked off the alteration.
+            var corrected = vm.Company.FindPayHead(id)!;
+            Assert.Equal(120, corrected.Computation!.Slabs.Single().RateBasisPoints);
+            Assert.Equal("Professional Tax", corrected.Name);
+            Assert.Equal(2, vm.Company.PayHeads.Count);
+
+            // And it survives a reload — the alteration reached the STORE, not just the in-memory aggregate.
+            // Without this clause an Alter that mutated the company and never saved would pass everything above.
+            var storage = new CompanyStorage(dir);
+            var reloaded = storage.Load(storage.ListCompanies().Single(e => e.Name == "Pay Head Co"));
+            Assert.Equal(120, reloaded.FindPayHead(id)!.Computation!.Slabs.Single().RateBasisPoints);
+
+            EscapeAndReopenList(window, vm, "Pay Head");
+            ArrowToAndDelete(window, vm, "Professional Tax");
+            Assert.DoesNotContain(vm.Company.PayHeads, p => p.Name == "Professional Tax");
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>REVIEW FINDING F6 — <c>DeleteMaster</c> REMOVES; THE SHELL PERSISTS. THE PAY HEAD WAS THE ONE THAT
+    /// DID BOTH.</b>
+    ///
+    /// <para><c>PayHeadMasterViewModel.DeleteMaster</c> ended with its own <c>_storage.Save(_company)</c>. The
+    /// only caller is <c>MainWindowViewModel.ConfirmDeletion</c>, which calls the interface method and then saves
+    /// the company itself — inside its own <c>SaveFailure</c> handling, which is where a write failure is meant
+    /// to be caught. So every pay-head delete wrote the WHOLE company twice, and it was the only one of the
+    /// twelve sibling implementations to do so. <c>IMasterListScreen.DeleteMaster</c>'s contract says nothing
+    /// about persisting and every sibling reads it as "remove through the engine, nothing more".</para>
+    ///
+    /// <para><b>Asserted behaviourally rather than by counting writes:</b> the verb is called DIRECTLY, bypassing
+    /// the shell, and the store must still hold the pay head afterwards. That is false today — the self-save made
+    /// the removal durable on its own — and true once the save is removed. The end-to-end delete (which DOES
+    /// persist, through the shell) is asserted by the test above, so this pins the split without weakening it.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Pay_head_DeleteMaster_does_not_persist_by_itself()
+    {
+        var (window, vm, dir) = NewWindow("Pay Head Save Split Co");
+        try
+        {
+            vm.ShowPayHeadMaster();
+            var master = vm.PayHeadMaster!;
+            master.Name = "Conveyance";
+            master.SelectedCalcType = master.CalcTypes.Single(c => c.Value == PayHeadCalculationType.FlatRate);
+            Assert.True(master.Create(), master.Message);
+
+            var id = vm.Company!.PayHeads.Single(p => p.Name == "Conveyance").Id;
+            var storage = new CompanyStorage(dir);
+            var entry = storage.ListCompanies().Single(e => e.Name == "Pay Head Save Split Co");
+            Assert.NotNull(storage.Load(entry).FindPayHead(id));   // the CREATE did persist — Create saves
+
+            // The interface verb on its own. It removes from the aggregate…
+            ((IPayrollMasterList)master).DeleteMaster(id);
+            Assert.Null(vm.Company.FindPayHead(id));
+
+            // …and must NOT have written the store. The shell's own Save is what makes a delete durable.
+            Assert.NotNull(storage.Load(entry).FindPayHead(id));
         }
         finally { window.Close(); Cleanup(dir); }
     }

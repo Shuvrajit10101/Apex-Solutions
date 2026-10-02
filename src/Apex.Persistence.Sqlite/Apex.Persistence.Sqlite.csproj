@@ -7,10 +7,29 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.9" />
-    <!-- Pin the native SQLite bundle to a patched build; the version Microsoft.Data.Sqlite
-         pulls transitively (SQLitePCLRaw.lib.e_sqlite3 2.1.11) carries a known advisory (NU1903). -->
-    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <!-- 🔴 THE NATIVE PROVIDER IS e_sqlcipher, NOT e_sqlite3, AND THAT IS A DELIBERATE TRADE RECORDED HERE
+         RATHER THAN LEFT FOR SOMEONE TO REDISCOVER (census row 16.1, the company vault).
+
+         WHY .Core AND NOT PLAIN Microsoft.Data.Sqlite. The plain package takes a HARD dependency on
+         SQLitePCLRaw.bundle_e_sqlite3, and two bundles in one graph both publish the type
+         SQLitePCL.Batteries_V2 — which provider actually wins then depends on assembly resolution order
+         rather than on anything written down. Microsoft.Data.Sqlite.Core carries no bundle, so the single
+         PackageReference below is the only provider in the graph and the choice is explicit.
+
+         WHY e_sqlcipher AT ALL. Page-level encryption cannot be done above the provider: the company name is
+         itself company data the vault must hide, and it lives in a row of the company .db. SQLCipher encrypts
+         every page including the schema, so nothing readable survives in the file. An UNKEYED database opens
+         under this provider exactly as before, which is why the ~40 schema/migration tests that open
+         databases directly needed no change at all.
+
+         🔴 THE COST, STATED PLAINLY. bundle_e_sqlite3 was pinned to 3.0.3 to escape advisory NU1903 on
+         SQLitePCLRaw.lib.e_sqlite3 2.1.11. The e_sqlcipher family STOPS at 2.1.11 — there is no 3.x — so this
+         swap moves the native back to that vintage (SQLCipher 4.5.2 community). `dotnet restore` raises NO
+         NU1903 here, because the advisory is filed against the e_sqlite3 package id and not against
+         e_sqlcipher; the audit being silent is NOT the same as the code being newer. This is a user decision
+         and it is reported as one. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.9" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlcipher" Version="2.1.11" />
   </ItemGroup>
 
   <ItemGroup>

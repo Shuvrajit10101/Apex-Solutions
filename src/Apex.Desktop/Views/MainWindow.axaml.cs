@@ -270,6 +270,28 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W29 U1 (census 2.7, 2.8, 3.2, 3.5, 3.7) — THE SAME CHORD, THE SAME RULE, on the Godown, Unit, Stock
+        // Category, Cost Category and Cost Centre masters' existing-lists. ONE arm for all five: the VM resolves
+        // which of them is open and returns false on every other screen, so this is inert everywhere else.
+        //
+        // W33 C3 adds the PRICE LEVEL (census 3.10) and the CURRENCY (census 2.11) to that same switch — SEVEN
+        // screens now, through this one unchanged line, which is the point of resolving by VM rather than by key
+        // handler. The currency case is also the one that can return true WITHOUT opening a screen: the base
+        // currency is refused with a notice naming Alter Company, so the chord is consumed rather than falling
+        // through to an arm below and acting on whatever page sits underneath.
+        //
+        // 🔴 ORDER IS LOAD-BEARING AND IT IS BELOW THE STOCK-GROUP ARM ON PURPOSE. Census 3.13 already wired
+        // Ctrl+Enter on Screen.StockGroupMaster, so that screen is handled by the arm at the top of this block and
+        // AlterHighlightedMasterListRow deliberately has no case for it. Two arms racing for one screen is exactly
+        // how a master silently ends up gated differently from its siblings, so the absence is documented on the
+        // VM method rather than left for a reader to rediscover.
+        if (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.AlterHighlightedMasterListRow())
+        {
+            e.Handled = true;
+            return;
+        }
+
         // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
         // │ Ctrl+Enter OPENS THE HIGHLIGHTED POSTED VOUCHER FOR ALTERATION. (Phase 10.11 S5d / VL-1.)        │
         // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -439,8 +461,14 @@ public partial class MainWindow : Window
                 vm.ApplyAutoColumns();
             else if (vm.CurrentScreen == Screen.SaveView)
                 vm.ApplySaveView();
+            // 🔴 TakeSavedViewsRow, NOT OpenSelectedSavedView. The Saved-Views panel is reached by TWO Ctrl+H
+            // rows — "Saved Views" and "Delete Saved Views" — so the accept chord has to mean what the row the
+            // operator chose means. Before this, Ctrl+A always OPENED, bare Enter had no case at all in
+            // ActivateSelected, and Delete's only door in the whole product was a mouse Click handler
+            // (OnDeleteSavedViewClick) — so the Delete row led to a verb no keyboard could reach. Both chords
+            // now route here. See MainWindowViewModel.TakeSavedViewsRow for the vendor's two-press confirm.
             else if (vm.CurrentScreen == Screen.SavedViews)
-                vm.OpenSelectedSavedView();
+                vm.TakeSavedViewsRow();
             // Ctrl+G "Switch To" (census 14.2): Ctrl+A is the accept every other column in this shell
             // advertises, so the panel answers it as well as Enter. Without this arm Ctrl+A on the panel would
             // fall through to the voucher/company accept below and act on whatever page happens to be sitting
@@ -452,6 +480,11 @@ public partial class MainWindow : Window
             // voucher the operator was still adding a field to.
             else if (vm.CurrentScreen == Screen.MoreDetails)
                 vm.TakeMoreDetailsRow();
+            // Census 1.8 — Ctrl+A on the F1 (Help) > Settings page APPLIES the settings. Same reasoning as the
+            // Switch To and More Details arms above: without it Ctrl+A would fall through to the voucher/company
+            // accept below and act on whatever page the settings column was opened over.
+            else if (vm.CurrentScreen == Screen.AppSettings)
+                vm.ApplyAppSettings();
             else if (vm.CurrentScreen == Screen.PrintConfig)
                 vm.ApplyPrintConfig();
             else if (vm.CurrentScreen == Screen.Export)
@@ -497,6 +530,13 @@ public partial class MainWindow : Window
                 vm.SaveSecurityUsers();
             else if (vm.CurrentScreen == Screen.PasswordPolicy)
                 vm.SavePasswordPolicy();
+            // 🔴 Census 16.1 — Ctrl+A on the Data Vault sets or changes the passphrase, and on the passphrase
+            // prompt it OPENS the vaulted company. Same accelerator, same meaning as everywhere else on this
+            // list: "accept what is on this screen". Both are advertised on the screens' own buttons.
+            else if (vm.CurrentScreen == Screen.DataVault)
+                vm.ApplyDataVault();
+            else if (vm.CurrentScreen == Screen.CompanyUnlock)
+                vm.UnlockCompany();
             // Phase 7 slice 7: Ctrl+A on a TDS/TCS certificate / control-chart page EXPORTS the deterministic,
             // de-branded PDF (the accelerator every one of those pages advertises) — no dead shortcut.
             else if (vm.CurrentScreen == Screen.Form16A)
@@ -761,6 +801,34 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Bare C on the Memorandum Register CONVERTS the highlighted memorandum into a real voucher (census 4.17 /
+        // T2-9). It raises the Y/N confirmation; it never converts on the keystroke — the verb posts money onto the
+        // books and removes the memo, so it is gated exactly as the Alt+X above it is.
+        //
+        // 🔴 THIS CHORD IS OURS, NOT THE VENDOR'S, AND IT IS SCOPED TO ONE REPORT SO IT CANNOT SHADOW ANYTHING.
+        // The vendor attests the CAPABILITY ("You can alter and convert a Memo voucher into a regular voucher")
+        // but names no keystroke for it on any page, and its TallyPrime shortcut table has no entry for it — so it
+        // is deliberately kept OUT of ShellChordTable, whose stated contract is that every chord in it is quoted
+        // from the vendor and "where the vendor is silent the chord is absent". It ships here instead, as a
+        // page-scoped arm and a labelled divergence, the same shape as the BankStatementImport block further down
+        // (bare `R` = "Mark as Regular"), which is this file's own precedent for a page-scoped bare letter.
+        //
+        // 🔴 BARE `C` WAS MEASURED FREE BEFORE IT WAS TAKEN, not assumed. Every `Key.C` arm in this handler carries
+        // Alt (the comparison-column arm, the dashboard tile arm and the global Create-Ledger arm), and the
+        // bare-letter quick-jump arm is gated on `vm.IsMenuScreen`, which a report is not. `== KeyModifiers.None`
+        // matches the quick-jump arm's own predicate so "bare letter" means one thing in both places, and
+        // deliberately excludes Shift. `!IsTyping` keeps it out of the report's own filter/search boxes and
+        // `!IsPickerOpen` off an open dropdown — the identical guard trio the Alt+X, Alt+A and Alt+S report arms
+        // around it carry. The arm sits BELOW the accept-prompt block, so while a confirmation is up a bare C is
+        // not a second question.
+        if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.None
+            && vm.IsMemorandumRegisterReport && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.RequestConvertHighlightedMemorandum();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+A on the Cheque Register's leaf list is the vendor's "Alter Status" (census 8.5;
         // help.tallysolutions.com/cheque-register/). It cycles the highlighted leaf Available → Blank →
         // Cancelled → Available and saves.
@@ -864,6 +932,22 @@ public partial class MainWindow : Window
             && vm.CurrentScreen == Screen.AlterCompany)
         {
             vm.RequestDeleteOpenCompany();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Census 16.1 — Alt+D on the DATA VAULT screen takes the company OUT of the vault. Same shape and
+        // same reasoning as the Company Alteration arm directly above: this screen has no list behind it (its
+        // subject IS the open company), so the chord can only mean one thing wherever the caret sits, and
+        // guarding it on !IsTyping would make it dead in ordinary use — the operator is on this screen to type
+        // the current passphrase into a field, which is exactly what removal requires. It sits ABOVE the master
+        // Alt+D arm and is disjoint from it: `IsDeleteTargetPage` does not include Screen.DataVault, so neither
+        // arm can swallow the other's surface. Removal refuses without the correct current passphrase, which is
+        // the guard that matters here — an accidental Alt+D with an empty field cannot decrypt anything.
+        if (e.Key == Key.D && e.KeyModifiers == KeyModifiers.Alt
+            && vm.CurrentScreen == Screen.DataVault)
+        {
+            vm.RemoveDataVault();
             e.Handled = true;
             return;
         }
@@ -1138,6 +1222,33 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 Ctrl+L ON A REPORT IS THE VENDOR'S **SAVE VIEW**, AND IT MUST BE TESTED BEFORE THE OPTIONAL TOGGLE
+        // IMMEDIATELY BELOW. Vendor, verbatim (help.tallysolutions.com/use-save-view-feature-in-tallyprime/):
+        // "Press Ctrl+L (Save View) to save the report with the specific configurations."
+        //
+        // WHAT WAS MEASURED HERE BEFORE THIS ARM EXISTED: the Optional toggle below consumed Ctrl+L
+        // UNCONDITIONALLY (`e.Handled = true` on every screen in the product), and `ToggleOptional()` then
+        // no-ops off Screen.VoucherEntry. So on all 82 report kinds the vendor's Save View chord was SWALLOWED
+        // and did nothing — the worst shape a chord can have, because the key is gone and nothing says so.
+        //
+        // 🔴 THE ARM BELOW IS NOT NARROWED, AND THAT IS DELIBERATE. Breaking a shipped voucher chord to fix a
+        // report chord would be a straight regression, and this project has shipped exactly that kind of
+        // regression under a fully green gate before. Nothing about the voucher's Ctrl+L changes: this arm is
+        // ADDITIVE and its guard is disjoint from the screen ToggleOptional acts on. `IsReportContext` requires
+        // a non-null `Reports`, and opening a voucher runs `ClearSubScreens`, which nulls it — so on
+        // Screen.VoucherEntry this arm cannot match and control falls straight through to the incumbent.
+        // ReportChordFidelityTests pins both halves.
+        // The `Company is not null` clause mirrors OpenSaveView's OWN refusal, so the key is never consumed on a
+        // screen where the verb would silently decline — the same rule the Ctrl+B and Ctrl+J arms below follow.
+        if (e.Key == Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Company is not null)
+        {
+            vm.OpenSaveView();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+L toggles the in-progress voucher as Optional (a provisional, scenario-only entry).
         if (e.Key == Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
@@ -1183,6 +1294,50 @@ public partial class MainWindow : Window
         if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control) && vm.IsChangeModeEntry)
         {
             vm.ChangeMode();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Ctrl+H ON A REPORT IS THE VENDOR'S **CHANGE VIEW** MENU (census row 11.16). Vendor, verbatim
+        // (help.tallysolutions.com/use-save-view-feature-in-tallyprime/): a saved view is recalled by "press
+        // Ctrl+H (Change View), and select the view", and the same menu carries "Ctrl+H (Change View) > Delete
+        // Saved Views" and "Ctrl+H (Change View) > Show Original View".
+        //
+        // 🔴 IT DISPLACES NOTHING. The Change Mode arm IMMEDIATELY ABOVE keeps the chord wherever it had it, and
+        // it is tested FIRST — the position is the guarantee, not the guard. The two predicates are disjoint in
+        // any case: `IsChangeModeEntry` is a VOUCHER predicate and `IsReportContext` requires a non-null
+        // `Reports`, which opening a voucher nulls via ClearSubScreens. Ruling 17 put the item-invoice toggle on
+        // Ctrl+H and the ShellChordTable remarks warn against ever "freeing" that chord; this arm does not touch
+        // it — it claims Ctrl+H only where the shipped arm declines, which before this slice was NOWHERE, i.e.
+        // on a report Ctrl+H fell through and did nothing at all.
+        if (e.Key == Key.H && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsReportContext && vm.Company is not null)
+        {
+            vm.OpenChangeViewMenu();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 BARE Y — THE VENDOR'S SECOND CONFIRMATION KEY FOR A SAVED-VIEW DELETE, AND IT WAS QUOTED IN THE CODE
+        // WITHOUT BEING IMPLEMENTED. help.tallysolutions.com/use-save-view-feature-in-tallyprime/ (Delete Saved
+        // View of a Report): choose the view and press Enter, then "Press Enter or Y to confirm deletion". Only
+        // Enter answered — Y was pressed on the realised window and the view survived — so the panel's own remark
+        // quoted a behaviour the product did not have.
+        //
+        // SCOPED TO THE ARMED STATE, NOT TO THE SCREEN, AND THE DIFFERENCE IS THE WHOLE SAFETY OF IT.
+        // `IsSavedViewDeleteArmed` requires the panel to be the active pane, in delete mode, with THIS row already
+        // named by a first Enter. So Y cannot arm anything (the vendor's arming press is Enter alone), cannot act
+        // after the highlight has moved (OnSelectedChanged throws the arming away), and is not claimed on any other
+        // screen — bare Y elsewhere still reaches its owners below, Export Data on the Gateway root among them.
+        //
+        // POSITION: deliberately ABOVE the letter arms further down this first-match-wins chain, because a bare
+        // letter over a data-driven column must not be able to swallow a confirmation the operator can see on
+        // screen. `!IsTyping(e)` for the reason every letter arm here carries it.
+        if (e.Key == Key.Y && e.KeyModifiers == KeyModifiers.None
+            && vm.IsSavedViewDeleteArmed && !IsTyping(e))
+        {
+            vm.ConfirmSavedViewDeleteWithY();
             e.Handled = true;
             return;
         }
@@ -1234,12 +1389,48 @@ public partial class MainWindow : Window
             return;
         }
 
+        // W-V2 census 11.9 — Alt+A on the RE-HOMED Bills Receivable / Bills Payable REPORT opens the settlement
+        // helper page for the side on screen.
+        //
+        // 🔴 WITHOUT THIS ARM THE RE-HOME WOULD HAVE STRANDED A SHIPPED WORKFLOW. The menu rows "Receivables"
+        // and "Payables" now open ReportKinds (so the reports finally get Ctrl+P, Ctrl+E, F2, F12, Alt+F12 and
+        // Alt+K), which means nothing else routes to Screen.Outstandings any more — and that page is the only
+        // place the spacebar bill multi-select and the settlement preload live. An unreachable-but-shipped
+        // screen is precisely the defect census row 11.10 already records ("one shipped report nobody can
+        // reach"), and re-homing without this line would have created a second instance of it in the same wave.
+        //
+        // ORDER: immediately BELOW the Screen.Outstandings arm above, so standing ON the settle page keeps
+        // priority, and ABOVE the Day Book arm below. The guards are disjoint (one tests a page Screen, this
+        // one tests Screen.Report via Reports.Kind), but this chain is first-match-wins and the ordering is
+        // what keeps that true if the guards ever stop being disjoint.
+        //
+        // 🔴 <c>IsLiveReportPage</c> IS LOAD-BEARING AND THIS ARM SHIPPED WITHOUT IT. The kind test alone is
+        // report-CONTEXT width: <see cref="MainWindowViewModel.Reports"/> stays bound BENEATH an F12 config
+        // panel, an Alt+F12 sort/filter panel, an Alt+K saved-views panel and a Print Preview column, so the
+        // bare pattern fired while the operator was standing INSIDE one of those and teleported them out of the
+        // panel they were working in — measured, not theorised: Alt+A inside F12 over Bills Receivable landed on
+        // Screen.Outstandings, and inside Print Preview over Bills Payable it did the same. IsLiveReportPage is
+        // the predicate this codebase already wrote for exactly this distinction ("the live report page and no
+        // other surface"), and it is the one a verb that NAVIGATES AWAY must use. Both cases are locked by
+        // AltA_on_a_rehomed_outstandings_report_is_refused_while_a_column_is_stacked_over_it.
+        if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsLiveReportPage
+            && vm.Reports is { Kind: ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding })
+        {
+            vm.OpenSettlementPageFromOutstandingsReport();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+A on the Day Book ADDS a voucher (WI-12; Book p.431 "Add a voucher in a report"): it opens a
         // voucher-type picker beside the live Day Book (the report is NOT destroyed) and refreshes it on save.
         // Ordered AFTER the POS Alt+A so POS keeps priority, and scoped to the Day Book (IsDayBookReport) — copying
         // the Alt+K report-context pattern below — so it never hijacks Alt+A elsewhere. A no-op off the Day Book.
+        // 🔴 `!IsDayBookRowHidden` matches the door: OpenAddVoucherFromReport refuses while a picker column is on
+        // top, so claiming the chord there would swallow Alt+A to fire nothing. Nothing below this arm claims
+        // Alt+A (the bare-letter menu arm requires KeyModifiers.None), so the fall-through is a clean no-op.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
-            && vm.IsDayBookReport)
+            && vm.IsDayBookReport && !vm.IsDayBookRowHidden)
         {
             vm.OpenAddVoucherFromReport();
             e.Handled = true;
@@ -1288,11 +1479,61 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Alt+K (RQ-8) opens the "Saved Views" list — the company's saved report views (open/apply or delete one).
-        // Available over any report page; needs a company. Checked before the global Alt shortcuts.
-        if (e.Key == Key.K && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.IsReportContext)
+        // W28 V3 (census 5.2 / 5.7 / 5.8) — Ctrl+J on the DAY BOOK opens the vendor's three EXCEPTION REPORTS:
+        // Optional Vouchers, Cancelled Vouchers, Post-Dated Vouchers. The vendor names both the chord and the
+        // whole set (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+        //
+        // 🔴 IT IS A SECOND ARM ON THE SAME CHORD, AND THE TWO CONTEXTS ARE DISJOINT BY CONSTRUCTION.
+        // `IsChartOfAccountsScreen` above and `IsDayBookReport` here can never both be true — the first requires
+        // Screen.ChartOfAccounts, the second requires Reports bound with Kind == DayBook — so neither rebinds the
+        // other and the order of the two arms does not matter. This is the same resolution the Alt+I and Alt+A
+        // context branches use (see BuildButtonBar), rather than the shadowing trap that a single arm with two
+        // meanings would be.
+        // 🔴 Guarded on BOTH conditions OpenExceptionReportsPicker refuses on, so the key is never swallowed on a
+        // screen where it would fire nothing. The door refuses when the live report is not the Day Book AND when a
+        // Day-Book picker column is already on top (its own, or the Alt+A/Alt+I voucher-type one) — the second
+        // clause used to be missing here while `e.Handled = true` ran unconditionally, so with the picker open
+        // Ctrl+J was consumed and did nothing, which is exactly what the sentence above claimed could not happen.
+        if (e.Key == Key.J && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsDayBookReport && !vm.IsDayBookRowHidden)
         {
-            vm.OpenSavedViews();
+            vm.OpenExceptionReportsPicker();
+            e.Handled = true;
+            return;
+        }
+
+        // ── 🔴 THE Alt+K SAVED-VIEWS ARM WAS DELETED HERE, AND THE HOLE IS LEFT LABELLED ON PURPOSE. ──────────
+        // It read `Key.K && Alt && vm.IsReportContext` -> `vm.OpenSavedViews()`. Two things were wrong with it
+        // at once, and both are fixed rather than traded:
+        //   • Alt+K is the vendor's COMPANY MENU ("To open the company menu with the list of actions related to
+        //     managing your company", help.tallysolutions.com/tally-prime/keyboard-shortcuts-tally/). Because
+        //     this arm sat ABOVE the ShellChordTable dispatch and claimed the key on every report, the company
+        //     menu — Create, Alter, Select, Shut, Users and Passwords, Password Policy, Data Vault — had NO
+        //     keyboard door on any of this build's 82 report kinds. ShellChordTable's Alt+K entry had been
+        //     scoped `&& !vm.IsReportContext` to stay out of this arm's way; that clause is now deleted and the
+        //     chord is whole.
+        //   • Saved Views itself is reached the way the vendor reaches it: Ctrl+H (Change View) > Saved Views,
+        //     the arm added beside Change Mode further up. It did not lose a door, it gained the right one.
+        // DO NOT RE-ADD A REPORT-SCOPED Key.K ARM HERE. If a new report feature needs a chord, take one the
+        // vendor does not document, and record it in docs/invented-vs-cloned.md.
+
+        // 🔴 Alt+P — THE VENDOR'S **PRINT MENU** (census rows 12.1 / 12.6). Vendor, verbatim: "To open the print
+        // menu for printing transactions or reports." Its pair, Ctrl+P ("To print the current voucher or
+        // report"), already ships and is untouched below.
+        //
+        // MEASURED BEFORE THIS ARM: Alt+P was INERT ON EVERY SCREEN IN THE PRODUCT. The bare-P arm below reads
+        // `!e.KeyModifiers.HasFlag(KeyModifiers.Alt)`, the Ctrl+P arms require Control, and the bare-letter menu
+        // quick-jump at the bottom of this handler requires `KeyModifiers == None`. No arm matched Alt+P, so a
+        // documented vendor chord did nothing anywhere. Nothing is displaced by taking it.
+        //
+        // ORDER: above the Ctrl+P and bare-P arms, so the intent is explicit rather than incidental — the same
+        // reason Alt+Y sits above bare-Y further down.
+        if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsPrintablePage && !IsTyping(e))
+        {
+            vm.OpenPrintMenu();
             e.Handled = true;
             return;
         }
@@ -1325,11 +1566,35 @@ public partial class MainWindow : Window
             return;
         }
 
-        // E / Alt+E (RQ-14/16) opens the Export panel for the CURRENT report OR master list (Chart of Accounts,
+        // 🔴 Alt+E — THE VENDOR'S **EXPORT MENU** (census row 13.5). Vendor, verbatim: "To open the export menu
+        // for exporting masters, transactions, or reports." Its pair is Ctrl+E, "To export the current voucher
+        // or report", which is bound on a report further down this handler.
+        //
+        // MEASURED BEFORE THIS ARM: Alt+E WAS DOING Ctrl+E's JOB. The arm immediately below guarded only
+        // `!Control`, so bare E and Alt+E BOTH opened the current-object export panel directly — the vendor's
+        // menu chord silently performing the vendor's current-object verb, while the real current-object chord
+        // was unreachable on a report. Both halves move in one edit, because moving either alone would leave
+        // some screen with no export chord at all.
+        //
+        // 🔴 THIS ARM MUST SIT ABOVE THE BARE-E ARM. That arm still accepts anything that is not Control, Alt
+        // included; first-match-wins is what stops it swallowing Alt+E again. The bare E is deliberately NOT
+        // narrowed — it is this application's own quick key, advertised as "E: Export" on the header hint, and
+        // not a vendor chord to get wrong.
+        if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsExportablePage && !IsTyping(e))
+        {
+            vm.OpenExportMenu();
+            e.Handled = true;
+            return;
+        }
+
+        // E (RQ-14/16) opens the Export panel for the CURRENT report OR master list (Chart of Accounts,
         // ledgers, stock items) — choose CSV/XLSX/PDF, folder, filename and an optional timestamp; applying
         // writes the file via Apex.Ledger.Io. Exportable-page context only (a report or a master list), and not
         // while typing in a field (so a name-entry keystroke on a master screen goes to the field, not the
-        // export jump). Accepts both the bare E and Alt+E (the header hint reads "E: Export"). No Ctrl.
+        // export jump). The header hint reads "E: Export". No Ctrl — and, since the Alt+E arm above claims it
+        // first, no Alt either.
         if (e.Key == Key.E && vm.IsExportablePage && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExport();
@@ -1411,12 +1676,57 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 🔴 Ctrl+E — THE VENDOR'S **EXPORT CURRENT** (census row 13.5). Vendor, verbatim: "To export the
+        // current voucher or report." Before this arm, Ctrl+E on a report did NOTHING: the only Key.E + Control
+        // arm in this handler is the Restore one immediately above, scoped to Screen.RestoreCompany, so the
+        // vendor's export chord was unbound on all 82 report kinds and on every master list.
+        //
+        // 🔴 THE RESTORE ARM IS NOT TOUCHED, AND ITS POSITION IS THE PROOF. Ctrl+E on Screen.RestoreCompany is a
+        // real shipped behaviour (Examine the chosen backup; the destructive step is a separate Ctrl+A that
+        // refuses until Examine has passed). This arm sits BELOW it and first-match-wins, so Restore keeps the
+        // chord unconditionally — the two do not merely have disjoint-looking guards, the incumbent is
+        // structurally unreachable past. ReportChordFidelityTests pins that Restore still answers to Ctrl+E.
+        //
+        // The guard is `IsExportablePage`, the same predicate the bare-E and Alt+E arms above use, so the chord
+        // is never consumed on a screen where OpenExport would decline.
+        if (e.Key == Key.E && e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.IsExportablePage && !IsTyping(e))
+        {
+            vm.OpenExport();
+            e.Handled = true;
+            return;
+        }
+
         // Y (Gateway → Export Data; RQ-19/DP-4) opens the "Export Data" panel: a canonical JSON/XML backup of the
         // whole company. Same Gateway-root guard as Import — the header hint reads "Y: Data".
         if (e.Key == Key.Y && vm.CurrentScreen == Screen.Gateway
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
             vm.OpenExportData();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Alt+M — THE VENDOR'S **SHARE MENU** (census rows 13.7 / 14.10). Vendor, verbatim: "To open the Share
+        // menu for sharing transactions or reports through e-mail or WhatsApp." Its pair, Ctrl+M ("To e-mail the
+        // current voucher or report"), already ships on the arm immediately below and is untouched.
+        //
+        // MEASURED BEFORE THIS ARM: Alt+M was INERT. The only Key.M arm in this tunnel is the e-mail one below,
+        // and it reads `!e.KeyModifiers.HasFlag(KeyModifiers.Alt)` — it excludes Alt by construction — so the
+        // vendor's Share chord matched nothing anywhere. The W-chord remarks below already recorded that Alt+M
+        // was free and that IV-64's recommended route was a channel picker on it; this is that picker.
+        //
+        // 🔴 THE GUARD IS IsShareablePage, NOT IsPrintablePage, AND THAT IS A CORRECTION. Printability is TRUE on
+        // every master list (its third arm is TopMasterExportSource()), but NEITHER share channel can build a
+        // panel from a master list — so this arm used to match on the Chart of Accounts, set e.Handled, and draw
+        // a Share menu whose two rows were both inert. Matching the view model's own gate keeps Alt+M from being
+        // swallowed where it cannot act. See MainWindowViewModel.IsShareablePage.
+        if (e.Key == Key.M && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.IsShareablePage && !IsTyping(e))
+        {
+            vm.OpenShareMenu();
             e.Handled = true;
             return;
         }
@@ -1672,8 +1982,16 @@ public partial class MainWindow : Window
             // The SAME guard is load-bearing here, and not decoration: without it the arm above merely hands the
             // stolen Enter to this one — the prompt stops appearing but the key is still consumed and the
             // dropdown still never sees it. Both arms must yield for Enter to actually reach the picker.
+            // 🔴 `viaAcceptChord: false` — THE ONE CALL SITE IN THE APP THAT OPTS OUT, AND IT IS LOAD-BEARING.
+            // This arm is reached by a BARE Enter, after the `DrillSelectedRow` arm at :415 has already declined
+            // the key. On a matrix report DrillSelectedRow ALWAYS declines (Rows is empty), so without this flag
+            // an Enter aimed at a drill reaches ActivateSelected's `case Screen.Report when …` arms — one of
+            // which POSTS A JOURNAL VOUCHER. Measured before the flag existed: one Enter on the re-homed
+            // Gratuity Provision register took the voucher count 0 -> 1, with no confirmation, on the key that
+            // means "drill" on every other report in the product. Ctrl+A (:537) and the WI-11 "Y" confirmation
+            // both keep the default `true`, so the ~40 accept screens are untouched.
             case Key.Enter when !IsPickerOpen(e):
-                vm.ActivateSelected();
+                vm.ActivateSelected(viaAcceptChord: false);
                 e.Handled = true;
                 break;
             // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a
@@ -1884,6 +2202,17 @@ public partial class MainWindow : Window
 
     private void OnCreateCompanyClick(object? sender, RoutedEventArgs e)
         => Vm?.CreateCompany();
+
+    /// <summary>
+    /// Dismisses the user-ruling-26 upgrade banner — the notice that this book's closing stock value moved when
+    /// it was migrated off the retired Last-Sale-Cost basis at schema v65.
+    ///
+    /// <para>Dismissal is session-local by design: it does NOT clear the per-item remediation marker, so the
+    /// warning returns on the next open and the record that the figures were restated is never destroyed. See
+    /// <c>MainWindowViewModel.DismissValuationRemediationWarning</c>.</para>
+    /// </summary>
+    private void OnDismissValuationRemediationWarningClick(object? sender, RoutedEventArgs e)
+        => Vm?.DismissValuationRemediationWarning();
 
     /// <summary>
     /// The bank ledger master's <b>Add book</b> button (census 8.5). The view model is reached through the
@@ -2134,8 +2463,15 @@ public partial class MainWindow : Window
     private void OnCreateScenarioClick(object? sender, RoutedEventArgs e)
         => Vm?.ScenarioMaster?.Create();
 
+    // W33 C3: branches exactly as the Ctrl+A arm in ActivateSelected does. 🔴 The mouse button and the keyboard
+    // chord MUST agree — OnCreateStockCategoryClick below is the shipped counter-example (it calls Create()
+    // unconditionally while the keyboard branches), and on an Alteration screen that button fails on the
+    // duplicate name and discards the operator's edits.
     private void OnCreateCurrencyClick(object? sender, RoutedEventArgs e)
-        => Vm?.CurrencyMaster?.CreateCurrency();
+    {
+        if (Vm?.CurrencyMaster is not { } master) return;
+        if (master.IsAltering) master.AlterCurrency(); else master.CreateCurrency();
+    }
 
     private void OnCreateExchangeRateClick(object? sender, RoutedEventArgs e)
         => Vm?.CurrencyMaster?.CreateRate();
@@ -2167,8 +2503,13 @@ public partial class MainWindow : Window
     private void OnCreateBomClick(object? sender, RoutedEventArgs e)
         => Vm?.BomMaster?.Create();
 
+    // W33 C3: branches exactly as the Ctrl+A arm does — see OnCreateCurrencyClick for why the two routes must
+    // agree rather than one of them always creating.
     private void OnCreatePriceLevelClick(object? sender, RoutedEventArgs e)
-        => Vm?.PriceLevels?.Create();
+    {
+        if (Vm?.PriceLevels is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateReorderLevelClick(object? sender, RoutedEventArgs e)
         => Vm?.ReorderLevels?.Create();
@@ -2671,6 +3012,10 @@ public partial class MainWindow : Window
     private void OnSaveSmtpClick(object? sender, RoutedEventArgs e)
         => Vm?.SaveSmtpSettings();
 
+    /// <summary>The Apply button on the F1 (Help) &gt; Settings page (census row 1.8). Same door Ctrl+A runs.</summary>
+    private void OnApplyAppSettingsClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyAppSettings();
+
     // Census 16.2 — the Security Control screens' buttons. Each is a one-line hand-off to the view model, which
     // holds every rule; nothing about a password is decided in the view. 🔴 None of these ever reads a password
     // back out of a control — the view model clears NewPassword itself the moment a verb succeeds.
@@ -2688,6 +3033,17 @@ public partial class MainWindow : Window
 
     private void OnSavePasswordPolicyClick(object? sender, RoutedEventArgs e)
         => Vm?.SavePasswordPolicy();
+
+    // 🔴 Census 16.1 — the Data Vault's three buttons. Each mirrors a keyboard route (Ctrl+A / Alt+D / Ctrl+A)
+    // so neither the mouse nor the keyboard is the only way in.
+    private void OnApplyDataVaultClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyDataVault();
+
+    private void OnRemoveDataVaultClick(object? sender, RoutedEventArgs e)
+        => Vm?.RemoveDataVault();
+
+    private void OnUnlockCompanyClick(object? sender, RoutedEventArgs e)
+        => Vm?.UnlockCompany();
 
     private void OnApplyReportSortFilterClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyReportSortFilter();

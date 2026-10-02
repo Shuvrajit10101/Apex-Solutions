@@ -114,9 +114,47 @@ public sealed partial class VoucherNumberingConfigViewModel : ViewModelBase
     /// <summary>The numbering Method, DISPLAY-ONLY this slice (Automatic / Manual / None) — editing it is deferred (S5+).</summary>
     public string MethodDisplay => SelectedType is null ? string.Empty : SelectedType.Numbering.ToString();
 
-    /// <summary>False when the selected type's Method is <see cref="NumberingMethod.None"/> — the Width/affix editors are
-    /// then meaningless and greyed (Prevent-duplicate stays available).</summary>
-    public bool CanConfigureAffixes => SelectedType is { Numbering: not NumberingMethod.None };
+    /// <summary>
+    /// True only on the three numbering methods the vendor offers <b>Set/Alter additional numbering details</b>
+    /// (the Prefix / Suffix / Width editors) under — <see cref="NumberingMethod.Automatic"/>,
+    /// <see cref="NumberingMethod.AutomaticManualOverride"/> and <see cref="NumberingMethod.MultiUserAuto"/>.
+    ///
+    /// <para><b>R7 / RULING 14 — vendor verbatim</b>, <c>help.tallysolutions.com/tally-prime/accounting/voucher-types-tally/</c>
+    /// (fetched 2026-09-14), the parenthetical against that very option:
+    /// <i>"(Applicable to Automatic, Automatic (Manual Override), and Multi-user Auto)"</i>.</para>
+    ///
+    /// <para>🔴 <b>THIS NARROWS THE PREDICATE — <see cref="NumberingMethod.Manual"/> USED TO PASS IT, AND THAT IS
+    /// DEFECT T2-21 (census 2.5), a wrong-filed-document risk.</b> The old test was merely
+    /// <c>Numbering: not None</c>, so a MANUAL type — where the operator types the whole number themselves — was
+    /// offered a prefix and a suffix that the reference product never offers there, and the printed document
+    /// number could therefore diverge from what the same configuration produces in the reference product. None is
+    /// still excluded, for its own (unchanged) reason: with numbering disabled there is no number to affix to.</para>
+    /// </summary>
+    public bool CanConfigureAffixes =>
+        SelectedType is { Numbering: NumberingMethod.Automatic
+                                  or NumberingMethod.AutomaticManualOverride
+                                  or NumberingMethod.MultiUserAuto };
+
+    /// <summary>
+    /// True only on the two numbering methods the vendor offers <b>Prevent creating duplicate Voucher Nos</b>
+    /// under — <see cref="NumberingMethod.AutomaticManualOverride"/> and <see cref="NumberingMethod.MultiUserAuto"/>.
+    ///
+    /// <para><b>R7 / RULING 14 — vendor verbatim</b>, same page and same fetch, the parenthetical against that
+    /// option: <i>"(Applicable to Automatic (Manual Override), and Multi-user Auto)"</i>.</para>
+    ///
+    /// <para><b>The narrowing is exactly the vendor's and the reason is legible:</b> these are the two methods
+    /// where the engine numbers the voucher AND the operator may also key one, so two vouchers can collide.
+    /// Under plain <see cref="NumberingMethod.Automatic"/> the engine is the only writer and cannot collide with
+    /// itself; under <see cref="NumberingMethod.Manual"/> the vendor does not offer the check at all; under
+    /// <see cref="NumberingMethod.None"/> there is no number to duplicate.</para>
+    ///
+    /// <para>🔴 <b>The flag is NOT cleared when it is not offered.</b> <see cref="Commit"/> leaves the stored value
+    /// untouched on a method that hides the box — see the note there. Hiding a control must not become a silent
+    /// writer of the field behind it.</para>
+    /// </summary>
+    public bool CanPreventDuplicate =>
+        SelectedType is { Numbering: NumberingMethod.AutomaticManualOverride
+                                  or NumberingMethod.MultiUserAuto };
 
     // =========================================================== N3 — the date-keyed affix editors (working copy)
 
@@ -185,6 +223,12 @@ public sealed partial class VoucherNumberingConfigViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(MethodDisplay));
         OnPropertyChanged(nameof(CanConfigureAffixes));
+        // T2-21 — the new per-method gate is re-evaluated on EVERY selection change, exactly as its sibling above
+        // is. Omitting this line is the whole bug it would cause: the box would keep the visibility of the
+        // PREVIOUSLY selected type, so stepping from a Multi-user Auto type to a Manual one would leave a control
+        // on screen that the method does not offer — which is the defect being fixed, reintroduced through stale
+        // notification rather than through a wrong predicate.
+        OnPropertyChanged(nameof(CanPreventDuplicate));
     }
 
     // =========================================================== N3 add / delete (keyboard buttons)
@@ -312,10 +356,27 @@ public sealed partial class VoucherNumberingConfigViewModel : ViewModelBase
     private NumberingSaveResult Commit(VoucherType type, int width,
         List<VoucherNumberAffix> prefixes, List<VoucherNumberAffix> suffixes)
     {
-        type.PreventDuplicate = PreventDuplicate;
-        type.NumberWidth = width;
-        type.PrefillWithZero = PrefillWithZero;
-        type.SetAffixes(prefixes, suffixes);
+        // 🔴 T2-21 — A HIDDEN CONTROL MUST NOT BECOME A SILENT WRITER OF THE FIELD BEHIND IT, AND GETTING THIS
+        // WRONG WOULD HAVE MADE THE GATE ITSELF A WRONG-DOCUMENT DEFECT RATHER THAN THE FIX FOR ONE.
+        // Gating only the VIEW leaves this method still assigning from working copies the operator could no longer
+        // see or correct. Two concrete failures that guards:
+        //   • a Manual type carrying affixes from an imported book (or set before its method was changed on the
+        //     Voucher Type master) would have those affixes REWRITTEN from a working copy the screen no longer
+        //     shows — and because the affixes are what `VoucherNumberFormatter.Render` prints, that silently
+        //     restates the document number of every already-issued voucher of the type. §5.4's whole
+        //     Blocked/NeedsConfirmation apparatus exists to stop precisely that happening by accident;
+        //   • `PreventDuplicate` on an Automatic or Manual type would be written from a checkbox that is not on
+        //     screen, so an unrelated save of a Width change would flip a validation rule nobody touched.
+        // The stored value is therefore LEFT ALONE wherever the method does not offer the option. Nothing is
+        // cleared either: clearing is also a write, and this screen has no mandate to decide that a value the
+        // vendor simply does not surface here should cease to exist.
+        if (CanPreventDuplicate) type.PreventDuplicate = PreventDuplicate;
+        if (CanConfigureAffixes)
+        {
+            type.NumberWidth = width;
+            type.PrefillWithZero = PrefillWithZero;
+            type.SetAffixes(prefixes, suffixes);
+        }
 
         _storage.Save(_company);
         _onSaved?.Invoke();

@@ -9,9 +9,20 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
 
-/// <summary>A stock-group row for the existing-groups list on the master screen.</summary>
-public sealed partial class StockGroupListRow : ObservableObject
+/// <summary>A stock-group row for the existing-groups list on the master screen.
+/// <para>W28 C2: implements <see cref="IMasterListRow"/>, which is what lets the ONE shared Alt+D arm name and
+/// delete this row without a second, parallel delete path per master.</para></summary>
+public sealed partial class StockGroupListRow : ObservableObject, IMasterListRow
 {
+    /// <inheritdoc/>
+    /// <remarks>The same Guid as <see cref="StockGroupId"/>. The typed name is kept because this screen's own
+    /// alter route and its by-id highlight restore were written against it before the shared contract existed,
+    /// and renaming it would churn working code to say the same thing.</remarks>
+    public Guid MasterId => StockGroupId;
+
+    /// <inheritdoc/>
+    public string MasterName => Name;
+
     public string Name { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
     public string Quantities { get; init; } = string.Empty;
@@ -52,11 +63,37 @@ public sealed class ParentStockGroupOption
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="CostCentreMasterViewModel"/>.</para>
 /// </summary>
-public sealed partial class StockGroupMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class StockGroupMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------------- W28 C2: the shared Alt+D arm (census 3.1)
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "stock group";
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    /// <remarks>🔴 Refreshes the PARENT PICKER as well as the list. A delete removes a group that was an option
+    /// in "Under", and a picker still offering a master that no longer exists is how the next create is handed a
+    /// dangling parent id.</remarks>
+    public void ReloadExisting()
+    {
+        RefreshParentOptions();
+        RefreshList();
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only, exactly like the payroll and voucher-type implementations: the shell saves the
+    /// company and calls <see cref="ReloadExisting"/> after this returns, so doing either here would save twice
+    /// and re-render twice. The refusal is the engine's — <c>InventoryService.DeleteStockGroup</c> defers to
+    /// <c>MasterDeletionRules.EnsureStockGroupDeletable</c>, which throws with the count and the remedy when
+    /// sub-groups or stock items are filed under this group, and the shell turns that throw into a notice.</remarks>
+    public void DeleteMaster(Guid id) => new InventoryService(_company).DeleteStockGroup(id);
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(

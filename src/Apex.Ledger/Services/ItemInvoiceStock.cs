@@ -41,7 +41,8 @@ internal static class ItemInvoiceStock
     /// not-yet-due post-dated voucher does not count, a voucher dated after <paramref name="asOf"/> is excluded.
     /// The presence of item lines on a Purchase/Sales voucher <b>is</b> item-invoice mode, so — unlike a
     /// pure-stock voucher — the movement counts on the item lines' presence, not the type's <c>AffectsStock</c>
-    /// flag. Only Purchase/Sales base kinds are valid carriers (the validator enforces this at post time).
+    /// flag. The valid carriers are <see cref="VoucherEffects.CanCarryItemInvoiceLines"/> — Purchase, Sales,
+    /// Credit Note and Debit Note (the validator enforces the same set at post time).
     /// </summary>
     internal static bool Counts(Company company, Voucher v, DateOnly asOf)
     {
@@ -50,7 +51,12 @@ internal static class ItemInvoiceStock
         if (v.Date > asOf) return false;
         if (v.PostDated && v.Date > asOf) return false; // redundant with the date bound, kept for clarity
         var type = company.FindVoucherType(v.TypeId);
-        return type is not null && type.BaseType is VoucherBaseType.Purchase or VoucherBaseType.Sales;
+        // 🔴 Census 4.7/4.8 (defect T0-10) — THE STOCK HALF OF A RETURN. This gate is what actually folds an item
+        // line into on-hand and into closing-stock valuation; the validator only decides whether the line may be
+        // SAVED. Left at Purchase-or-Sales it would have accepted a Credit Note's lines and then counted none of
+        // them, so a sales return would have moved money and no goods — the exact understatement T0-10 names,
+        // now with the line visible on screen to make it look closed. One home: VoucherEffects.
+        return type is not null && VoucherEffects.CanCarryItemInvoiceLines(type.BaseType);
     }
 
     /// <summary>

@@ -28,6 +28,14 @@ public sealed partial class LedgerVouchersViewModel : ViewModelBase
     /// <summary>The drilled ledger's id — the identity the header/tests key on.</summary>
     public Guid LedgerId { get; }
 
+    /// <summary>The first day this book covers. Exposed (census 11.5) so the shell's <b>F6 (Monthly)</b> can open
+    /// the Monthly Summary over the SAME window this book is showing — a summary built over a different period
+    /// would not foot to the book the operator is standing on.</summary>
+    public DateOnly PeriodFrom => _from;
+
+    /// <summary>The last day this book covers. See <see cref="PeriodFrom"/>.</summary>
+    public DateOnly PeriodTo => _to;
+
     /// <summary>The presentation rows: an opening line, one line per posting (drillable), then the closing line.</summary>
     public ObservableCollection<ReportRow> Rows { get; } = new();
 

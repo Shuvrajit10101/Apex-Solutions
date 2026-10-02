@@ -982,11 +982,23 @@ public sealed class GstService
     /// Round-Off entry line so the voucher can stay balanced (RQ-17). The caller assembles the full voucher:
     /// party (Dr/Cr taxable+tax±roundoff), stock/sales legs, these tax lines and the round-off line.
     /// </summary>
+    /// <param name="reverseSides">
+    /// 🔴 <b>Census 4.7/4.8 (defect T0-10) — a §34 RETURN NOTE reverses the tax it is adjusting.</b> A Credit Note
+    /// for a sales return still touches the <b>Output</b> heads (it un-charges tax we charged), and a Debit Note
+    /// for a purchase return still touches the <b>Input</b> heads (it gives back ITC we claimed) — so
+    /// <paramref name="direction"/>, which chooses the LEDGER, is unchanged. What reverses is only the SIDE each
+    /// tax leg is posted on, and with it the round-off residual.
+    /// <para>A note that instead flipped <paramref name="direction"/> would post a sales return against
+    /// <i>Input</i> CGST — claiming input credit on a sale. That is a wrong filed GSTR, not a wrong screen, which
+    /// is why the two knobs are kept separate here rather than collapsed into one.</para>
+    /// <para><c>false</c> is every existing caller, so an invoice posts byte-identically (ER-13).</para>
+    /// </param>
     public InvoiceTax ComputeInvoiceTax(
         IReadOnlyList<TaxableLine> lines,
         bool interState,
         GstTaxDirection direction,
-        bool applyInvoiceRoundOff = false)
+        bool applyInvoiceRoundOff = false,
+        bool reverseSides = false)
     {
         ArgumentNullException.ThrowIfNull(lines);
 
@@ -1058,7 +1070,10 @@ public sealed class GstService
 
         // Aggregate per (head, rate) group, on the correct side: Output tax is a credit (liability) on a sale;
         // Input tax is a debit (ITC asset) on a purchase. The tax-ledger side mirrors the party side.
+        // The invoice side (Output ⇒ Cr, Input ⇒ Dr), flipped whole on a return note (census 4.7/4.8). The LEDGER
+        // is chosen by `direction` and is deliberately NOT flipped — see the reverseSides parameter note.
         var taxSide = direction == GstTaxDirection.Output ? DrCr.Credit : DrCr.Debit;
+        if (reverseSides) taxSide = taxSide == DrCr.Credit ? DrCr.Debit : DrCr.Credit;
         var taxLines = new List<EntryLine>();
         var cgst = 0m; var sgst = 0m; var igst = 0m;
 
@@ -1130,6 +1145,9 @@ public sealed class GstService
                 // Convention: Round Off carries the residual so Σ Dr = Σ Cr with the party at the rounded total.
                 var roMagnitude = new Money(Math.Abs(roundOff)).RoundToPaisa();
                 var roSide = RoundOffSide(direction, roundOff > 0m);
+                // Census 4.7/4.8: on a return note every leg — party, stock and tax — is on the opposite side, so
+                // the residual that balances them must flip with them or the note would not foot.
+                if (reverseSides) roSide = roSide == DrCr.Credit ? DrCr.Debit : DrCr.Credit;
                 roundOffLine = new EntryLine(roLedger.Id, roMagnitude, roSide);
             }
         }

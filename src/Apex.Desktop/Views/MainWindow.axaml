@@ -227,6 +227,47 @@
                             </ItemsControl>
                         </Border>
 
+                        <!-- 🔴 Census 16.1 — the passphrase prompt for a VAULTED company chosen on Company
+                             Select. It lives HERE, beside the create-company form, rather than in the cascade
+                             page region, because it is reached with NO company open and therefore no cascade.
+                             It shows the company NUMBER and never a name: there is no name to show until the
+                             passphrase arrives, which is the vendor's own behaviour ("displayed with a series
+                             of asterisks, while the company number remains visible") and also the plain truth
+                             about what this application can know at this moment. -->
+                        <ContentControl Grid.Row="1"
+                                        IsVisible="{Binding CompanyUnlock, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                        Content="{Binding CompanyUnlock}">
+                          <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:CompanyUnlockViewModel">
+                              <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                      HorizontalAlignment="Center" VerticalAlignment="Top"
+                                      Margin="0,10" Width="500" Padding="18">
+                                <StackPanel Spacing="12">
+                                  <TextBlock Text="{Binding Identification}"
+                                             FontSize="15" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBlock Text="{Binding Notice}" FontSize="11" Foreground="#8A8A8A"
+                                             TextWrapping="Wrap"/>
+                                  <Grid ColumnDefinitions="120,*">
+                                    <TextBlock Grid.Column="0" Text="Passphrase" FontWeight="SemiBold"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBox Grid.Column="1" x:Name="UnlockPassphraseBox"
+                                             Text="{Binding Passphrase, Mode=TwoWay}"
+                                             PasswordChar="&#x2022;" FontFamily="Consolas,Menlo,monospace"/>
+                                  </Grid>
+                                  <TextBlock Text="{Binding Message}"
+                                             IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="#6B2018" FontSize="12" TextWrapping="Wrap"/>
+                                  <Button Content="Open company (Ctrl+A)" Padding="14,6"
+                                          HorizontalAlignment="Right"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnUnlockCompanyClick"/>
+                                </StackPanel>
+                              </Border>
+                            </DataTemplate>
+                          </ContentControl.ContentTemplate>
+                        </ContentControl>
+
                         <!-- Create-company inline form. The postal block here is the supplier name and address
                              every tax invoice must carry (CGST Rule 46(a)) — before it existed, creation
                              captured only the Name and the address half could not be typed anywhere.
@@ -521,6 +562,20 @@
                                      HorizontalAlignment="Center" Margin="12,4,12,0"
                                      TextWrapping="Wrap"
                                      ToolTip.Tip="{Binding EPaymentsExportStatus}"/>
+
+                          <!-- W-V2 — what a report's own primary ACTION just did. Today that is Ctrl+A on the
+                               re-homed Gratuity Provision register (census 7.13), which posts the period-end
+                               provision voucher. Stacked in the same panel for the reason stated above: two
+                               children sharing one Auto grid row draw on top of each other, and this line
+                               wraps. Invisible (and zero-height) on every report that sets no status. -->
+                          <TextBlock Text="{Binding ReportActionStatus}"
+                                     IsVisible="{Binding ReportActionStatus,
+                                                 Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                     FontSize="11.5" FontWeight="SemiBold"
+                                     Foreground="{StaticResource BrandNavy}"
+                                     HorizontalAlignment="Center" Margin="12,4,12,0"
+                                     TextWrapping="Wrap"
+                                     ToolTip.Tip="{Binding ReportActionStatus}"/>
                         </StackPanel>
 
                         <!-- Scenario picker (TB / P&L / Balance Sheet): view the figures under a scenario. -->
@@ -743,8 +798,28 @@
                                                            Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                            FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"
                                                            VerticalAlignment="Center" FontSize="12.5"/>
-                                                <!-- Single-amount mode: Amount occupies column 2 alone -->
-                                                <TextBlock Grid.Column="2" Text="{Binding Amount}"
+                                                <!-- Single-amount mode: Amount SPANS the Debit + Credit tracks.
+                                                     🔴 THE SPAN IS LOAD-BEARING, NOT COSMETIC. numCell is
+                                                     right-aligned with NO TextTrimming and NO TextWrapping —
+                                                     correct for money, which always fits 150px. But this cell
+                                                     also carries the Ratio-Analysis withheld markers (user
+                                                     ruling 27), e.g. "N/A - no bill-wise details", which is a
+                                                     SENTENCE and does not fit. With no trimming, a right-
+                                                     aligned overflow starts at a NEGATIVE x inside its cell and
+                                                     paints leftward over Particulars — the same C1 financial
+                                                     misread documented above, arriving from the amount side.
+                                                     In single-amount mode the Debit track is EMPTY (both Dr/Cr
+                                                     cells are IsVisible=False), so spanning it costs nothing and
+                                                     gives the sentence ~300px. Right alignment plus the 8px
+                                                     numCell margin keep the RIGHT edge exactly where it was, so
+                                                     every numeric amount on every accounting report is
+                                                     unmoved and still lines up under the "Amount" header.
+                                                     Locked by
+                                                     Ratio_analysis_withheld_marker_fits_its_own_amount_cell,
+                                                     which asserts both halves. Do NOT "tidy" this back to a
+                                                     single column, and do NOT add TextTrimming instead: an
+                                                     ellipsised marker is forbidden by the emitted-PDF test. -->
+                                                <TextBlock Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding Amount}"
                                                            Classes="numCell"
                                                            IsVisible="{Binding !IsTwoColumn}"
                                                            Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
@@ -1731,27 +1806,38 @@
                           </Grid>
                           </ScrollViewer>
 
-                          <!-- == GSTR-1: Party/HSN | GSTIN/Desc | Invoice/UQC | POS/Qty | Taxable | CGST | SGST | IGST ==
+                          <!-- == GSTR-1: Party/HSN | GSTIN/Desc | Invoice/UQC | POS/Qty | Taxable | CGST | SGST | IGST | Cess ==
                                G2: the grid is FLUID — Width binds to the page pane and MinWidth (950) is now BELOW the
-                               1440-default pane (~998px), so at 1440 the grid equals the pane and ALL eight columns —
-                               including the rightmost IGST — fit within it (previously MinWidth 1030 forced the grid
-                               wider than the pane, scrolling IGST off behind the shortcut bar). The four numeric tax
-                               columns (Taxable/CGST/SGST/IGST) are NOT squeezed; the small saving comes from Invoice/UQC.
-                               A horizontal scrollbar only appears if the pane is narrower than the 950 floor. -->
+                               1440-default pane (~998px), so at 1440 the grid equals the pane and ALL columns —
+                               including the rightmost one — fit within it (previously MinWidth 1030 forced the grid
+                               wider than the pane, scrolling IGST off behind the shortcut bar).
+                               🔴 CESS (Table 12 col 11) was added WITHOUT moving the 950 floor, because raising it is
+                               exactly what caused that shipped defect. The 90px Cess column is paid for out of the
+                               three over-wide columns beside it (GSTIN/Desc 150→120, Invoice/UQC 150→115,
+                               POS/Qty 90→75, Taxable 130→120), so the fixed budget is UNCHANGED at 850px and the
+                               star column keeps the same 100px floor. Do not add a tenth column by bumping MinWidth;
+                               take it out of the fixed columns the same way or the rightmost cell scrolls off. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr1}">
                           <Grid RowDefinitions="Auto,*" Width="{Binding #GstReportPane.Bounds.Width}" MinWidth="950"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="950">
+                              <Grid ColumnDefinitions="*,120,115,75,120,110,110,110,90" MinWidth="950">
                                 <TextBlock Grid.Column="0" Text="Party / HSN" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="GSTIN / Description" Classes="colHdr"/>
+                                <!-- 🔴 HEADER TEXT, NOT TRACK WIDTH. Paying for the Cess column narrowed this track
+                                     150->120, whose colHdr slot is 120-16=104px; "GSTIN / Description" is 19 chars
+                                     = 125.4px at the colHdr's 12pt Consolas advance (6.5977px), so it ELLIPSIZED to
+                                     "GSTIN / Descrip...". The track is already spoken for, so the label is shortened
+                                     instead: "GSTIN / Desc." is 13 chars = 85.8px and sits inside 104px with room.
+                                     Same for col 3 below ("POS / Qty" 59.4px vs a 59px slot — truncating by 0.4px). -->
+                                <TextBlock Grid.Column="1" Text="GSTIN / Desc." Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Invoice / UQC" Classes="colHdr"/>
-                                <TextBlock Grid.Column="3" Text="POS / Qty" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="POS/Qty" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="5" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="6" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="7" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="8" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1759,7 +1845,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,150,150,90,130,110,110,110" MinWidth="950" Height="24">
+                                      <Grid ColumnDefinitions="*,120,115,75,120,110,110,110,90" MinWidth="950" Height="24">
                                         <!-- G2: a section-header row (B2B / B2C / Rate-wise / HS-SAC) shows its label
                                              SPANNING the full width so it is never clipped into the narrow Party/HSN
                                              column; the columnar Col1 is used only for data rows (party name / HSN). -->
@@ -1768,7 +1854,7 @@
                                                    VerticalAlignment="Center" FontSize="11.5"
                                                    TextTrimming="CharacterEllipsis"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
-                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="8" Text="{Binding Col1}" Margin="8,0"
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="9" Text="{Binding Col1}" Margin="8,0"
                                                    IsVisible="{Binding IsHeader}"
                                                    VerticalAlignment="Center" FontSize="11.5" FontWeight="Bold"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -1791,6 +1877,10 @@
                                         <TextBlock Grid.Column="7" Text="{Binding Col8}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="8" Text="{Binding Col9}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="11.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
@@ -1800,25 +1890,35 @@
                           </Grid>
                           </ScrollViewer>
 
-                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST ==
+                          <!-- == GSTR-3B: Particulars | Taxable value | CGST | SGST | IGST | Cess ==
                                Wide "Particulars" (MinWidth) so labels like "3.1 Details of outward
-                               supplies…" / "Net payable / (credit carried forward)" show in full;
-                               numeric columns trimmed. The grid stretches to fill the pane but has a
-                               floor width — a horizontal scrollbar appears only if the pane is narrower
-                               than that floor, so labels are never clipped. Header + rows share the same
-                               widths and scroll together. -->
+                               supplies…" / "(A)(3) ITC available — inward supplies liable to reverse
+                               charge…" show in full; numeric columns trimmed. The grid stretches to fill
+                               the pane but has a floor width — a horizontal scrollbar appears only if the
+                               pane is narrower than that floor, so labels are never clipped. Header +
+                               rows share the same widths and scroll together.
+
+                               🔴 CESS IS A REAL COLUMN OF THE FORM AND WAS MISSING (census 6.9). Table
+                               3.1(d) and Table 4(B) both carry Compensation Cess, the projection has
+                               always computed them (RcmOutwardCess / ItcReversed4B*Cess), and with only
+                               five columns there was nowhere on screen for the figure to land — so a cess
+                               amount was computed and then dropped. The Particulars floor also rises with
+                               the longer statutory captions this grid now carries: 700 → 1040, of which
+                               the six fixed numeric columns take 100+95+95+95+95 = 480, leaving the label
+                               column a 560px floor rather than 700's 220. -->
                           <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                                         IsVisible="{Binding IsGstr3b}">
-                          <Grid RowDefinitions="Auto,*" MinWidth="700"
+                          <Grid RowDefinitions="Auto,*" MinWidth="1040"
                                 Width="{Binding #GstReportPane.Bounds.Width}"
                                 Height="{Binding #GstReportPane.Bounds.Height}">
                             <Border Grid.Row="0" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700">
+                              <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040">
                                 <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Taxable Value" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="2" Text="CGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="3" Text="SGST" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="4" Text="IGST" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Cess" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ScrollViewer Grid.Row="1" Background="White">
@@ -1826,10 +1926,10 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,100,95,95,95" MinWidth="700" Height="24">
-                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                      <Grid ColumnDefinitions="*,100,95,95,95,95" MinWidth="1040" MinHeight="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,3"
                                                    VerticalAlignment="Center" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="Wrap"
                                                    FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"/>
@@ -1840,6 +1940,9 @@
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                         <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
+                                                   FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="5" Text="{Binding Col6}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
                                       </Grid>
@@ -2651,6 +2754,77 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: census 4.9-4.16 - PURE-STOCK voucher detail drill (read-only leaf).
+                         The sibling of the Voucher Detail column above: a Stock Journal, Physical Stock,
+                         Delivery/Receipt Note, Sales/Purchase Order or Rejection drilled from its Day Book row.
+                         Its columns are Quantity / Rate / Value rather than Debit / Credit, because a pure-stock
+                         voucher posts no accounting entry (DP-5) and has neither.
+                         COLUMN BUDGET: 80+100+100+120 = 400 fixed against the 638px page-column floor, leaving
+                         the star Particulars track 238px - comfortably over the 150px XamlLayoutInvariantTests
+                         minimum, so this grid joins no allow-list. -->
+                    <ContentControl IsVisible="{Binding InventoryVoucherDetail, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding InventoryVoucherDetail}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:InventoryVoucherDetailViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,2"/>
+                            <StackPanel Grid.Row="1" HorizontalAlignment="Center" Margin="0,0,0,10" Spacing="3">
+                              <TextBlock Text="{Binding Subtitle}"
+                                         FontSize="12" Foreground="#555555" HorizontalAlignment="Center"
+                                         TextTrimming="CharacterEllipsis"
+                                         ToolTip.Tip="{Binding Subtitle}"/>
+                              <!-- The cancelled badge. Stated in WORDS as well as in ink: colour alone is never
+                                   the only carrier of a fact this material. -->
+                              <Border IsVisible="{Binding StatusLabel, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                      Background="#FBEAEA" BorderBrush="#C0504D" BorderThickness="1"
+                                      CornerRadius="3" Padding="10,2" HorizontalAlignment="Center">
+                                <TextBlock Text="{Binding StatusLabel}" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="#A03028"/>
+                              </Border>
+                            </StackPanel>
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="*,80,100,100,120">
+                                <TextBlock Grid.Column="0" Text="Particulars" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="In/Out" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Quantity" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="3" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="4" Text="Value" Classes="colHdr" TextAlignment="Right"/>
+                              </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:ReportRow">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
+                                            Background="Transparent">
+                                      <Grid ColumnDefinitions="*,80,100,100,120" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Col1}"
+                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Col2}" Margin="4,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Col3}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Col4}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Col5}" TextAlignment="Right"
+                                                   Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Voucher entry (Contra/Payment/Receipt/Journal/Sales/Purchase) -->
                     <ContentControl IsVisible="{Binding Voucher, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding Voucher}">
@@ -3252,7 +3426,8 @@
                               <Border Grid.Row="0" Background="{StaticResource Cream}"
                                       BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                       Padding="10,6">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                                <StackPanel Orientation="Vertical" Spacing="4">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding PartyCaption}" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="0,0,8,0"/>
@@ -3267,15 +3442,38 @@
                                       </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
+                                  <!-- CENSUS 2.6 — Voucher Class. Sits BEFORE the value ledger because it governs
+                                       it: a class that pre-maps ledgers takes that field off the screen. The
+                                       vendor states that on help.tallysolutions.com/accounting-faq/ and states it
+                                       CONDITIONALLY (a class selected AND F12 "Select common ledger account for
+                                       Item allocation" = No); we do not model that F12 flag, so our rule is the
+                                       narrower one — see ShowStockLedgerPicker for the divergence, recorded as
+                                       ours. Hidden entirely on a type that defines no class, so an ordinary
+                                       invoice header is unchanged. -->
+                                  <TextBlock Grid.Column="2" Text="Voucher Class" FontWeight="SemiBold"
+                                             IsVisible="{Binding ShowVoucherClassSelector}"
+                                             Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
+                                             Margin="16,0,8,0"/>
+                                  <ComboBox Grid.Column="3" Width="200"
+                                            IsVisible="{Binding ShowVoucherClassSelector}"
+                                            ItemsSource="{Binding VoucherClassOptions}"
+                                            SelectedItem="{Binding SelectedVoucherClass, Mode=TwoWay}"
+                                            PlaceholderText="Voucher class…">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:VoucherClassOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
                                   <!-- Item-invoice value ledger (Purchases/Sales) — hidden in Accounting mode, where
                                        each Particulars line carries its OWN income/expense ledger (there is no single
                                        value leg). The party picker to the left stays shared across both modes. -->
-                                  <TextBlock Grid.Column="2" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
-                                             IsVisible="{Binding IsItemInvoice}"
+                                  <TextBlock Grid.Column="4" Text="{Binding StockLedgerCaption}" FontWeight="SemiBold"
+                                             IsVisible="{Binding ShowStockLedgerPicker}"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0"/>
-                                  <ComboBox Grid.Column="3" Width="220"
-                                            IsVisible="{Binding IsItemInvoice}"
+                                  <ComboBox Grid.Column="5" Width="220"
+                                            IsVisible="{Binding ShowStockLedgerPicker}"
                                             ItemsSource="{Binding StockLedgers}"
                                             views:CreateField.Master="StockLedger"
                                             SelectedItem="{Binding SelectedStockLedger, Mode=TwoWay}"
@@ -3289,10 +3487,10 @@
                                   <!-- Price Level header (slice 5; RQ-30) — Sales item-invoice + F11 flag on only
                                        (ShowPriceLevelSelector). Auto-fills each line's Rate/Discount from the resolver;
                                        an operator override sticks. A trailing gated column ⇒ byte-identical when off. -->
-                                  <TextBlock Grid.Column="4" Text="Price Level" FontWeight="SemiBold"
+                                  <TextBlock Grid.Column="6" Text="Price Level" FontWeight="SemiBold"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
                                              Margin="16,0,8,0" IsVisible="{Binding ShowPriceLevelSelector}"/>
-                                  <ComboBox Grid.Column="5" Width="180"
+                                  <ComboBox Grid.Column="7" Width="180"
                                             IsVisible="{Binding ShowPriceLevelSelector}"
                                             ItemsSource="{Binding PriceLevelOptions}"
                                             SelectedItem="{Binding SelectedPriceLevel, Mode=TwoWay}"
@@ -3304,6 +3502,15 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <!-- CENSUS 2.6 — what the chosen class will post WITHOUT ASKING. A voucher class
+                                     writes ledger entries with no prompt, so the ledgers it will hit and the
+                                     percentages it will hit them with are stated before Accept rather than
+                                     discovered afterwards in the day book. Empty string ⇒ collapsed, so an invoice
+                                     with no class shows nothing new. -->
+                                <TextBlock Text="{Binding VoucherClassSummary}" FontSize="11"
+                                           Foreground="#6A6A6A" TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding VoucherClassSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                                </StackPanel>
                               </Border>
 
                               <!-- 🔴 HEADER BAND + LINES SHARE ONE HORIZONTAL SCROLLER — do not split them again.
@@ -6609,6 +6816,11 @@
                                   <DataTemplate x:DataType="vm:BudgetListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,240,120" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 2.9). A destructive verb may not
+                                             run on an invisible cursor: Alt+D deletes the row the arrows are on,
+                                             so the operator has to be able to SEE which row that is. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Period}"
@@ -6722,6 +6934,9 @@
                                   <DataTemplate x:DataType="vm:ScenarioListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,90,*" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 2.10) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Actuals}"
@@ -6868,6 +7083,12 @@
                                     <DataTemplate x:DataType="vm:CurrencyListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="120,*,90,90" Height="24">
+                                          <!-- W33 C3 keyboard highlight (census 2.11). This is the CURRENCIES
+                                               grid; the Rates of Exchange grid below it is deliberately NOT on
+                                               the shared arm and carries no highlight, because the arm exposes
+                                               one highlighted row per screen. See CurrencyMasterViewModel. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Symbol}"
                                                      Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FormalName}"
@@ -8327,6 +8548,36 @@
                                                Foreground="{StaticResource Ink}" Opacity="0.65"/>
                                   </Grid>
 
+                                  <!-- census 3.4 / USER RULING 26 — THE MARKET VALUATION DIMENSION. The second of
+                                       the reference product's two stock-valuation fields, and the half this build
+                                       shipped without. It auto-fills a SELLING price on a sales line and never
+                                       values closing stock; "Valuation" above is the COSTING field and is the only
+                                       one that reaches the Balance Sheet. Keeping them as two visibly separate
+                                       rows is the point — "Last Sale Price" used to sit in the costing picker and
+                                       valued stock at our own sale rate. Same fixed-140px entry + trimmed star
+                                       hint as Std rate above, so neither can be pushed out of view. -->
+                                  <Grid ColumnDefinitions="90,*,90,*">
+                                    <TextBlock Grid.Column="0" Text="Market val." FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                    <ComboBox Grid.Column="1" Name="StockItemMarketValuationPicker"
+                                              HorizontalAlignment="Stretch"
+                                              ItemsSource="{Binding MarketValuationMethods}"
+                                              SelectedItem="{Binding SelectedMarketValuation, Mode=TwoWay}">
+                                      <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:MarketValuationMethodOption">
+                                          <TextBlock Text="{Binding Display}"/>
+                                        </DataTemplate>
+                                      </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <TextBlock Grid.Column="2" Text="Std price" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" Margin="10,0,0,0"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <TextBox Grid.Column="3" Text="{Binding StandardPriceText, Mode=TwoWay}"
+                                             TextAlignment="Right" PlaceholderText="₹ / unit (selling)"/>
+                                  </Grid>
+
                                   <!-- GST details (shown when GST is enabled; catalog §12) -->
                                   <Border Background="#FBF7EE"
                                           BorderBrush="{StaticResource GridLine}" BorderThickness="1"
@@ -8797,6 +9048,9 @@
                                   <DataTemplate x:DataType="vm:BatchListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="118,*,96,92,124,96" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.8) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding BatchNumber}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -9090,6 +9344,9 @@
                                   <DataTemplate x:DataType="vm:BomListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="140,150,70,*,*" Height="26">
+                                        <!-- W33 C3 keyboard highlight (census 3.9) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -9706,6 +9963,9 @@
                                   <DataTemplate x:DataType="vm:PriceLevelListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,140" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.10) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Lists}"
@@ -9832,6 +10092,9 @@
                                     <DataTemplate x:DataType="vm:PriceListVersionRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="120,*" Height="24">
+                                          <!-- W33 C3 keyboard highlight (census 3.11) — see the Budget list. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding ApplicableFrom}" Margin="8,0"
                                                      VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
                                           <TextBlock Grid.Column="1" Text="{Binding Slabs}" Margin="0,0,8,0"
@@ -9996,6 +10259,9 @@
                                   <DataTemplate x:DataType="vm:ReorderLevelListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="90,*,120,120,120,100" Height="24">
+                                        <!-- W33 C3 keyboard highlight (census 3.12) — see the Budget list. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Scope}" Margin="8,0"
                                                    VerticalAlignment="Center" FontSize="12"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Target}" Margin="0,0,8,0"
@@ -10753,7 +11019,11 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PayHeadMasterViewModel">
                           <Grid RowDefinitions="Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Pay Head Creation"
+                            <!-- 7.6 — bound, not literal: this screen now runs TWO verbs off Ctrl+A, and the
+                                 caption is the only signal telling the operator which one they are about to run.
+                                 A screen reading "Pay Head Creation" while Ctrl+A alters an existing head is how
+                                 an operator overwrites a live rate believing they are adding a head. -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -11018,12 +11288,36 @@
                                           <Button Grid.Column="5" Content="+ Slab" HorizontalAlignment="Right"
                                                   Margin="4,0,0,0" Padding="6,4" Click="OnAddSlabClick"/>
                                         </Grid>
+
+                                        <!-- v63 / census 7.19 — the vendor's Computation Information "Effective From"
+                                             (with an explicit end date). Its OWN row rather than two more columns on
+                                             the crowded picker row above, because two 100px date fields squeezed into
+                                             that Grid is exactly the fixed-track truncation this project keeps filing.
+                                             LEAVING BOTH BLANK MEANS EVERY PERIOD, which is what a Labour Welfare Fund
+                                             head must NOT be — hence the hint text rather than a bare pair of boxes. -->
+                                        <Grid ColumnDefinitions="52,100,100,*" Margin="0,4,0,0">
+                                          <TextBlock Grid.Column="0" Text="In force" FontWeight="SemiBold"
+                                                     VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBox Grid.Column="1" Text="{Binding SlabEffectiveFromText, Mode=TwoWay}"
+                                                   TextAlignment="Right" PlaceholderText="from"
+                                                   ToolTip.Tip="Effective From (dd-MMM-yyyy). Blank = in force in every payroll period."/>
+                                          <TextBox Grid.Column="2" Text="{Binding SlabEffectiveToText, Mode=TwoWay}"
+                                                   TextAlignment="Right" Margin="4,0,0,0" PlaceholderText="to"
+                                                   ToolTip.Tip="Effective To (dd-MMM-yyyy). Blank = no end date."/>
+                                          <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                     FontSize="11.5" Opacity="0.75"
+                                                     TextWrapping="Wrap"
+                                                     Text="Leave both blank to deduct in every period. Date a once-a-year or half-yearly levy (e.g. Labour Welfare Fund) to the month it falls due."/>
+                                        </Grid>
+
                                         <ItemsControl ItemsSource="{Binding Slabs}">
                                           <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="vm:PayHeadSlabRow">
                                               <Grid ColumnDefinitions="*,80" Height="24">
                                                 <TextBlock Grid.Column="0" Text="{Binding Display}"
-                                                           Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                                           Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                           TextTrimming="CharacterEllipsis"/>
                                                 <Button Grid.Column="1" Content="Remove" Padding="6,2"
                                                         FontSize="11" HorizontalAlignment="Right"
                                                         Click="OnRemoveSlabClick"/>
@@ -11060,6 +11354,11 @@
                                     <DataTemplate x:DataType="vm:PayHeadListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                         <Grid ColumnDefinitions="*,150,150,*" Height="24">
+                                          <!-- 7.6 / 7.16 keyboard highlight — a destructive verb (Alt+D) and an
+                                               alteration (Ctrl+Enter) both act on THIS row, so the cursor has to
+                                               be visible. See the Employee Category list above. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                      Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                      TextTrimming="CharacterEllipsis"/>
@@ -11796,6 +12095,67 @@
                                       </StackPanel>
                                     </Border>
                                   </StackPanel>
+
+                                  <!-- census 3.13 — THE COMPANY RUNG of the GST rate hierarchy, the fifth and LAST
+                                       level of both resolution orders. The storage (v51), its validation
+                                       (GstConfig.EnsureValid) and the resolver walk (GstService.Hierarchy, T0-4 S2a)
+                                       all already existed; until now NOTHING but the canonical importer could write
+                                       it, so an imported book resolved rates from a rung a hand-keyed book could
+                                       never populate. Same four fields, same shared editor and same validator as the
+                                       Stock Group and accounting Group blocks above, so the three cannot drift.
+                                       🔴 This ADDS a rung, it does not re-order one: company is consulted only when
+                                       no ledger, group, stock item or stock group declared anything. -->
+                                  <StackPanel Spacing="10">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0" Margin="0,2,0,0"/>
+                                    <TextBlock Text="COMPANY GST RATE DEFAULT" FontSize="11" FontWeight="Bold"
+                                               Foreground="#9098A8" LetterSpacing="1.5"/>
+                                    <CheckBox Name="CompanyGstSetDetails"
+                                              IsChecked="{Binding CompanyGst.Enabled, Mode=TwoWay}" FontSize="13"
+                                              Content="Set/Alter GST Details"/>
+                                    <TextBlock Text="Applies to any item or ledger that declares no GST rate of its own. A rate set on a ledger, an accounting group, a stock item or a stock group always wins over this one."
+                                               FontSize="11" Foreground="#777777" TextWrapping="Wrap"
+                                               IsVisible="{Binding CompanyGst.Enabled}"/>
+                                    <Grid ColumnDefinitions="130,2*,130,*" IsVisible="{Binding CompanyGst.Enabled}">
+                                      <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="CompanyGstHsn"
+                                               Text="{Binding CompanyGst.HsnSac, Mode=TwoWay}"
+                                               PlaceholderText="4, 6 or 8 digits"/>
+                                      <TextBlock Grid.Column="2" Text="Taxability" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" Name="CompanyGstTaxability"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CompanyGst.TaxabilityChoices}"
+                                                SelectedItem="{Binding CompanyGst.SelectedTaxability, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MasterGstTaxabilityChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="130,2*,130,*" IsVisible="{Binding CompanyGst.Enabled}">
+                                      <TextBlock Grid.Column="0" Text="GST Rate %" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="CompanyGstRate"
+                                               Text="{Binding CompanyGst.RatePercentText, Mode=TwoWay}"
+                                               PlaceholderText="e.g. 18"/>
+                                      <TextBlock Grid.Column="2" Text="Type of Supply" FontWeight="SemiBold"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" Name="CompanyGstSupplyType"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding CompanyGst.SupplyTypeChoices}"
+                                                SelectedItem="{Binding CompanyGst.SelectedSupplyType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MasterGstSupplyTypeChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                  </StackPanel>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
@@ -12308,6 +12668,49 @@
                                   </Grid>
                                   <TextBlock Text="Average-rate monthly withholding (annual tax spread over the remaining FY months); the per-employee Form 12BB declaration + regime drive the estimate."
                                              FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                  <!-- ===== Health & Education Cess (v64; defect T1-26 / the 4% cess ruling) =====
+                                       DATED + PER-COMPANY EDITABLE + 4% BY DEFAULT. Deliberately inside this block
+                                       and committed by the existing "Apply Salary TDS" button below, so it inherits
+                                       the F11 -> Payroll Statutory keyboard route: Tab reaches both fields in order
+                                       and the same accept commits them. A BLANK rate box means "leave it alone" —
+                                       it is never read as 0%. -->
+                                  <Border Background="#FAFBFD" BorderBrush="{StaticResource GridLine}"
+                                          BorderThickness="1" Padding="12" Margin="0,4,0,0">
+                                    <StackPanel Spacing="8">
+                                      <TextBlock Text="HEALTH &amp; EDUCATION CESS" FontSize="10" FontWeight="Bold"
+                                                 Foreground="#9098A8" LetterSpacing="1.2"/>
+                                      <TextBlock Text="{Binding SalaryTdsCessStatusText}" FontSize="11.5"
+                                                 Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                      <Grid ColumnDefinitions="170,*,170,*">
+                                        <TextBlock Grid.Column="0" Text="Cess Rate %" FontWeight="SemiBold"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="1" Watermark="leave blank to keep current"
+                                                 Text="{Binding SalaryTdsCessPercentText, Mode=TwoWay}"/>
+                                        <TextBlock Grid.Column="2" Text="Effective From" FontWeight="SemiBold"
+                                                   FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"
+                                                   Foreground="{StaticResource BrandNavy}"/>
+                                        <TextBox Grid.Column="3" Watermark="dd-MM-yyyy (blank = FY start)"
+                                                 Text="{Binding SalaryTdsCessEffectiveFromText, Mode=TwoWay}"/>
+                                      </Grid>
+                                      <ItemsControl ItemsSource="{Binding SalaryTdsCessRates}"
+                                                    IsVisible="{Binding HasSalaryTdsCessRates}">
+                                        <ItemsControl.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:IncomeTaxCessRateRow">
+                                            <Grid ColumnDefinitions="170,*" Margin="0,1">
+                                              <TextBlock Grid.Column="0" Text="{Binding EffectiveFromText}"
+                                                         FontSize="11.5" Foreground="#6A6A6A"/>
+                                              <TextBlock Grid.Column="1" Text="{Binding RateText}"
+                                                         FontSize="11.5" Foreground="#6A6A6A"/>
+                                            </Grid>
+                                          </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                      </ItemsControl>
+                                      <TextBlock Text="Charged last, on (income-tax + surcharge − §87A rebate). Leave the rate blank and this company keeps the statutory rate for each year — no existing payslip changes."
+                                                 FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                  </Border>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
@@ -12481,24 +12884,33 @@
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                       <TextBlock Grid.Column="1" Text="{Binding MethodDisplay}" VerticalAlignment="Center"/>
                                     </Grid>
+                                    <!-- T2-21 (census 2.5): these three are SHOWN ONLY UNDER THE NUMBERING METHODS
+                                         THE VENDOR OFFERS THEM UNDER, and they are HIDDEN rather than merely
+                                         disabled. The vendor states applicability as a property of the option
+                                         ("Applicable to Automatic (Manual Override), and Multi-user Auto"), i.e.
+                                         the option is not part of the form at all on the other methods — a greyed
+                                         box still tells an operator the setting exists here, which is the claim
+                                         being corrected. The predicates carry the verbatim citations. -->
                                     <CheckBox Content="Prevent duplicate numbers"
+                                              IsVisible="{Binding CanPreventDuplicate}"
                                               IsChecked="{Binding PreventDuplicate, Mode=TwoWay}"
                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
-                                    <Grid ColumnDefinitions="150,120" IsEnabled="{Binding CanConfigureAffixes}">
+                                    <Grid ColumnDefinitions="150,120" IsVisible="{Binding CanConfigureAffixes}">
                                       <TextBlock Grid.Column="0" Text="Width of numerical part" FontWeight="SemiBold"
                                                  VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
                                                  TextWrapping="Wrap"/>
                                       <TextBox Grid.Column="1" Text="{Binding WidthText, Mode=TwoWay}"/>
                                     </Grid>
-                                    <CheckBox Content="Prefill with zero" IsEnabled="{Binding CanConfigureAffixes}"
+                                    <CheckBox Content="Prefill with zero" IsVisible="{Binding CanConfigureAffixes}"
                                               IsChecked="{Binding PrefillWithZero, Mode=TwoWay}"
                                               FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                   </StackPanel>
                                 </Border>
 
-                                <!-- N3 (prefix) -->
+                                <!-- N3 (prefix) — hidden, not greyed, on a method the vendor gives no prefix to
+                                     (Manual and None). See the T2-21 note on the N2 block above. -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
-                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                        BorderThickness="1" Padding="12" IsVisible="{Binding CanConfigureAffixes}">
                                   <StackPanel Spacing="6">
                                     <TextBlock Text="PREFIX DETAILS" FontSize="11" FontWeight="Bold"
                                                Foreground="#9098A8" LetterSpacing="1.5"/>
@@ -12524,9 +12936,10 @@
                                   </StackPanel>
                                 </Border>
 
-                                <!-- N3 (suffix) -->
+                                <!-- N3 (suffix) — hidden, not greyed, on a method the vendor gives no suffix to
+                                     (Manual and None). See the T2-21 note on the N2 block above. -->
                                 <Border Background="White" BorderBrush="{StaticResource GridLine}"
-                                        BorderThickness="1" Padding="12" IsEnabled="{Binding CanConfigureAffixes}">
+                                        BorderThickness="1" Padding="12" IsVisible="{Binding CanConfigureAffixes}">
                                   <StackPanel Spacing="6">
                                     <TextBlock Text="SUFFIX DETAILS" FontSize="11" FontWeight="Bold"
                                                Foreground="#9098A8" LetterSpacing="1.5"/>
@@ -17339,7 +17752,10 @@
                                     <TextBlock Grid.Row="6" Grid.Column="0" Text="Surcharge" Margin="6,2" FontSize="11.5"/>
                                     <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding Surcharge}" TextAlignment="Right"
                                                Margin="0,2,6,2" FontSize="11.5"/>
-                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="Health &amp; edu. cess (4%)" Margin="6,2" FontSize="11.5"/>
+                                    <!-- v64 / T1-26: the rate in the caption is the rate actually charged, not a
+                                         hard-coded "4%". The cess is dated and company-configurable now, so a fixed
+                                         caption could sit above a figure computed at another rate. -->
+                                    <TextBlock Grid.Row="7" Grid.Column="0" Text="{Binding CessCaption}" Margin="6,2" FontSize="11.5"/>
                                     <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding Cess}" TextAlignment="Right"
                                                Margin="0,2,6,2" FontSize="11.5"/>
                                     <Border Grid.Row="8" Grid.Column="0" Grid.ColumnSpan="2" Background="#EEF1F6" Height="1" Margin="0,2"/>
@@ -17350,6 +17766,19 @@
                                   </Grid>
                                   <TextBlock Text="No annual computation for this employee (Part B is built from the Q4 return)."
                                              FontSize="11.5" Foreground="#777777" IsVisible="{Binding !HasPartB}"/>
+
+                                  <!-- ===== The §192 rate basis this certificate was priced on (v64; defect T1-26) =====
+                                       Part B is the document an employee files a return from, so the financial year
+                                       whose law produced these figures is printed ON the certificate rather than
+                                       left to be inferred. Both lines are computed from the table that was actually
+                                       resolved, so neither can drift away from the money above it. -->
+                                  <TextBlock Text="{Binding RateBasisNote}" IsVisible="{Binding HasPartB}"
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap" Margin="6,8,6,0"/>
+                                  <Border IsVisible="{Binding HasProvisionalRates}" Background="#FFF8E6"
+                                          BorderBrush="#E0C068" BorderThickness="1" Padding="8,6" Margin="6,6,6,0">
+                                    <TextBlock Text="{Binding ProvisionalRatesNote}" FontSize="11"
+                                               Foreground="#7A5A10" TextWrapping="Wrap"/>
+                                  </Border>
                                 </StackPanel>
                               </ScrollViewer>
                             </Grid>
@@ -18617,16 +19046,26 @@
                                           IsVisible="{Binding SupportsDetailToggle}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
-                                <!-- RQ-6: display config -->
+                                <!-- RQ-6: display config. EACH KNOB IS GATED ON ITS OWN PREDICATE, and the
+                                     section heading on "at least one of the three". A previous pass gated all
+                                     four on one flag (!IsPayrollMatrix), which was wrong in BOTH directions:
+                                     it still showed all three on ~80 non-matrix kinds that ignore them (Day
+                                     Book, every register, GSTR-1/3B, Statistics — measured), and it HID
+                                     hide-zero on the Attendance Sheet, whose builder passes it straight into
+                                     the engine. A live control that changes nothing and then answers "Applied —
+                                     view updated" is the panel lying about what it did. -->
                                 <TextBlock Text="Display" FontWeight="Bold"
+                                           IsVisible="{Binding SupportsDisplayOptions}"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
                                 <CheckBox Content="Hide zero balances"
                                           IsChecked="{Binding HideZeroBalances, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsHideZeroBalances}"
                                           Foreground="{StaticResource BrandNavy}"/>
                                 <CheckBox Content="Show percentages (of section/column total)"
                                           IsChecked="{Binding ShowPercentages, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsPercentages}"
                                           Foreground="{StaticResource BrandNavy}"/>
-                                <Grid ColumnDefinitions="130,*">
+                                <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsClosingStockBasis}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
@@ -20118,6 +20557,109 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: F1 (Help) > Settings — the APPLICATION-wide configuration surface (census row 1.8,
+                         user ruling 21). A Miller-column page beside whatever it was opened over, never a stacked
+                         overlay, exactly like the F12 config panel above.
+
+                         🔴 THIS IS F1, NOT A RESURRECTED F12 TREE. The reference product removed the global
+                         Configuration menu outright ("Button F12 has been removed from Menu context."; "The menu
+                         'Configuration' has been removed.") and moved the General Configuration items into this
+                         popup. F12 stays per-screen and contextual and is untouched here.
+
+                         Every switch below gates behaviour that really renders — the status strip at the foot of
+                         this window, and the one digit-grouping rule every amount and quantity in the application
+                         formats through. The vendor groups with no behaviour in this build (Startup, Language,
+                         Connectivity, Licence) are listed DIMMED with their reason rather than shipped as knobs
+                         with nothing behind them. -->
+                    <ContentControl IsVisible="{Binding AppSettings, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AppSettings}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AppSettingsViewModel">
+                          <Grid RowDefinitions="Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,10"/>
+
+                            <Border Grid.Row="1" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="360">
+
+                                <!-- Session-scoped honesty notice: these settings are not persisted. -->
+                                <TextBlock Name="AppSettingsNotice" Text="{Binding Notice}"
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- Group: Display -->
+                                <TextBlock Text="Display" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Name="ShowBottomBarCheck" Content="Show bottom bar"
+                                          IsChecked="{Binding ShowBottomBar, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="Clear this to hide the status bar at the foot of the window and gain viewing space. Notices and prompts are never hidden."
+                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+
+                                <!-- Group: Country, Date and Number Format -->
+                                <TextBlock Text="Country — Date and Number Format" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,6,0,0"/>
+                                <CheckBox Name="ShowMillionsCheck" Content="Show Quantity and Number in millions"
+                                          IsChecked="{Binding ShowAmountsInMillions, Mode=TwoWay}"
+                                          Foreground="{StaticResource BrandNavy}"/>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Example:" FontSize="11" Foreground="#8A8A8A"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <TextBlock Grid.Column="1" Name="NumberPreviewText" Text="{Binding NumberPreview}"
+                                             FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                             Foreground="{StaticResource BrandNavy}"
+                                             VerticalAlignment="Center"
+                                             TextTrimming="CharacterEllipsis"/>
+                                </Grid>
+
+                                <!-- The vendor's Settings groups, including the ones this build has not got -->
+                                <TextBlock Text="Settings groups" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}" Margin="0,6,0,0"/>
+                                <ItemsControl Name="AppSettingsGroups" ItemsSource="{Binding Groups}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AppSettingGroup">
+                                      <!-- 🔴 THE THREE BINDINGS BELOW ARE WHAT MAKES "shown DIMMED" TRUE. This row
+                                           previously bound Caption and Detail only, with a hard-coded Foreground,
+                                           while AppSettingGroup.IsAvailable / IsUnavailable carried the dimming
+                                           claim in a comment and were bound NOWHERE in the repo — six identical
+                                           full-opacity rows. Opacity dims it, IsEnabled makes it inoperable, and
+                                           the tag says so in words for anyone who cannot read a 55% grey. -->
+                                      <Grid ColumnDefinitions="120,Auto,*" Margin="0,2"
+                                            Opacity="{Binding RowOpacity}"
+                                            IsEnabled="{Binding IsAvailable}">
+                                        <TextBlock Grid.Column="0" Text="{Binding Caption}" FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{StaticResource BrandNavy}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Name="GroupUnavailableTag"
+                                                   Text="Not in this build — " FontSize="11"
+                                                   IsVisible="{Binding IsUnavailable}"
+                                                   Foreground="#8A8A8A"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Detail}" FontSize="11"
+                                                   Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Name="AppSettingsStatus" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyAppSettingsClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: "Users for Company" — Alt+K (Company) > Users and Passwords (census 16.2).
                          🔴 R13: this screen SETS passwords and can never SHOW one. The password box is
                          PasswordChar-masked, it is cleared the moment the verb runs, and the list column says
@@ -20340,6 +20882,84 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: "Data Vault" — Alt+K (Company) > Data Vault (census 16.1). Sets, changes or
+                         removes the passphrase that encrypts the whole company book. The route and the three
+                         fields are the vendor's; the NAME is ours, because the vendor's product name carries a
+                         brand this application never renders. The irreversibility warning is on the screen from
+                         the moment it opens — before the decision, not after it. -->
+                    <ContentControl IsVisible="{Binding DataVault, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding DataVault}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:CompanyVaultViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding CompanyName}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding CompanyName}"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="16" VerticalAlignment="Top">
+                              <StackPanel Spacing="12" MinWidth="380">
+
+                                <!-- Stated BEFORE the act. See CompanyVault.IrreversibilityWarning. -->
+                                <Border Background="#FDECEA" BorderBrush="#E0A6A0" BorderThickness="1"
+                                        Padding="10" CornerRadius="2">
+                                  <TextBlock Text="{Binding Warning}" FontSize="11" TextWrapping="Wrap"
+                                             Foreground="#6B2018"/>
+                                </Border>
+
+                                <!-- The vendor's "Old Password": only meaningful once a passphrase is set. -->
+                                <Grid ColumnDefinitions="180,*" IsVisible="{Binding IsVaulted}">
+                                  <TextBlock Grid.Column="0" Text="Current passphrase" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CurrentPassphrase, Mode=TwoWay}"
+                                           PasswordChar="•" FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+
+                                <Grid ColumnDefinitions="180,*">
+                                  <TextBlock Grid.Column="0" Text="New passphrase" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding NewPassphrase, Mode=TwoWay}"
+                                           PasswordChar="•" FontFamily="Consolas,Menlo,monospace"
+                                           PlaceholderText="at least 8 characters"/>
+                                </Grid>
+
+                                <!-- Asked twice, because a typo in a passphrase that is never stored is a lost book. -->
+                                <Grid ColumnDefinitions="180,*">
+                                  <TextBlock Grid.Column="0" Text="Confirm passphrase" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"
+                                             TextTrimming="CharacterEllipsis"/>
+                                  <TextBox Grid.Column="1" Text="{Binding ConfirmPassphrase, Mode=TwoWay}"
+                                           PasswordChar="•" FontFamily="Consolas,Menlo,monospace"/>
+                                </Grid>
+
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                           TextWrapping="Wrap"/>
+
+                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                  <Button Grid.Column="0" Content="Leave vault (Alt+D)" Padding="12,6"
+                                          IsVisible="{Binding IsVaulted}"
+                                          Click="OnRemoveDataVaultClick"/>
+                                  <Button Grid.Column="2" Content="{Binding ActionLabel}" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyDataVaultClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Alt+F12 report Sort/Filter panel (RQ-3 sort & value/range/name filter) -->
                     <ContentControl IsVisible="{Binding ReportSortFilter, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ReportSortFilter}">
@@ -20359,7 +20979,21 @@
                                     Padding="16" VerticalAlignment="Top">
                               <StackPanel Spacing="14" MinWidth="300" Grid.IsSharedSizeScope="True">
 
-                                <!-- Sort -->
+                                <!-- The panel says so when it cannot act on this report, instead of accepting a
+                                     filter and answering "Applied — view updated" over unchanged rows.
+                                     SupportsSortFilter has existed on this view model since RQ-3 and was bound
+                                     NOWHERE until now. -->
+                                <TextBlock Text="{Binding CannotSortOrFilterNote}"
+                                           IsVisible="{Binding CannotSortOrFilter}"
+                                           FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                           Foreground="{StaticResource BrandNavy}"/>
+
+                                <!-- Sort. IsEnabled="{Binding SupportsSortFilter}" on every editable control
+                                     and on Apply: the banner above plus a refusal in Apply() was only half the
+                                     fix — an operator could still type a filter into a LIVE box, press a LIVE
+                                     Apply, and learn only afterwards that the panel does not act here. A
+                                     control that cannot do anything must not accept input. Clear stays enabled:
+                                     it is not a claim, and resetting to the identity view is always valid. -->
                                 <TextBlock Text="Sort" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}"/>
                                 <Grid>
@@ -20370,6 +21004,7 @@
                                   <TextBlock Grid.Column="0" Text="By" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            IsEnabled="{Binding SupportsSortFilter}"
                                             ItemsSource="{Binding SortKeys}"
                                             SelectedItem="{Binding SelectedSortKey, Mode=TwoWay}">
                                     <ComboBox.ItemTemplate>
@@ -20381,6 +21016,7 @@
                                 </Grid>
                                 <CheckBox Content="Ascending (unchecked = descending)"
                                           IsChecked="{Binding Ascending, Mode=TwoWay}"
+                                          IsEnabled="{Binding SupportsSortFilter}"
                                           Foreground="{StaticResource BrandNavy}"/>
 
                                 <!-- Filter: amount range + name -->
@@ -20394,6 +21030,7 @@
                                   <TextBlock Grid.Column="0" Text="Min" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MinText, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no lower bound)"/>
                                 </Grid>
@@ -20405,6 +21042,7 @@
                                   <TextBlock Grid.Column="0" Text="Max" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding MaxText, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            FontFamily="Consolas,Menlo,monospace"
                                            PlaceholderText="rupees (blank = no upper bound)"/>
                                 </Grid>
@@ -20416,6 +21054,7 @@
                                   <TextBlock Grid.Column="0" Text="Name has" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding NameContains, Mode=TwoWay}"
+                                           IsEnabled="{Binding SupportsSortFilter}"
                                            PlaceholderText="substring (blank = all)"/>
                                 </Grid>
 
@@ -20427,6 +21066,7 @@
                                   <Button Grid.Column="1" Content="Clear" Padding="14,6" Margin="0,0,8,0"
                                           Click="OnClearReportSortFilterClick"/>
                                   <Button Grid.Column="2" Content="Apply (Ctrl+A)" Padding="14,6"
+                                          IsEnabled="{Binding SupportsSortFilter}"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnApplyReportSortFilterClick"/>
                                 </Grid>
@@ -21625,6 +22265,44 @@
                         </ItemsControl.ItemTemplate>
                       </ItemsControl>
                     </ScrollViewer>
+
+                    <!-- ============ USER RULING 26: THE UPGRADE WARNING BANNER ============
+                         🔴 A book whose CLOSING STOCK VALUE MOVED when it was upgraded to schema v65 must tell
+                         its operator so, on open. Schema v65 migrates every stock item off the retired
+                         "Last Sale Price" costing basis (which valued closing stock at our own SELLING rate and
+                         overstated Stock-in-Hand and profit by the unrealised margin) onto Last Purchase Cost.
+                         The ruling accepted that the figures change; it required that the change be announced.
+
+                         WHY IT LIVES HERE, as the last child of the screens Panel and not in the status bar:
+                         the Panel overlays its children, so a top-aligned banner floats above WHATEVER screen is
+                         showing and survives the Gateway's own rebuilds — `Message` is cleared by ShowGateway and
+                         `Notice` is an 11px grey line wiped on the next change of screen. Neither is loud enough
+                         nor long-lived enough for a movement in reported profit.
+
+                         IT IS TARGETED: the bound string is empty for every book the migration never touched, so
+                         an unaffected operator sees nothing at all. A banner everyone sees is one nobody reads. -->
+                    <Border IsVisible="{Binding ValuationRemediationWarning,
+                                                Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                            VerticalAlignment="Top" HorizontalAlignment="Stretch"
+                            Margin="12,8" Padding="14,10"
+                            Background="#FFF4E5" BorderBrush="#C8811A" BorderThickness="2"
+                            BoxShadow="0 2 8 0 #33000000">
+                      <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Grid.Column="0" Spacing="4">
+                          <TextBlock Text="Your closing stock figures have changed"
+                                     FontWeight="Bold" FontSize="13" TextWrapping="Wrap"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <TextBlock Name="ValuationRemediationWarningText"
+                                     Text="{Binding ValuationRemediationWarning}"
+                                     FontSize="12" TextWrapping="Wrap"
+                                     Foreground="{StaticResource Ink}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Dismiss"
+                                VerticalAlignment="Top" Margin="12,0,0,0" Padding="14,6"
+                                Click="OnDismissValuationRemediationWarningClick"
+                                Background="{StaticResource BrandNavy}" Foreground="White"/>
+                      </Grid>
+                    </Border>
                 </Panel>
             </Border>
 
@@ -21653,8 +22331,14 @@
             </Border>
         </Grid>
 
-        <!-- ============ STATUS BAR (navy) ============ -->
-        <Border Grid.Row="3" Background="{StaticResource BrandNavy}" Height="26">
+        <!-- ============ STATUS BAR (navy) ============
+             🔴 GATED BY F1 (Help) > Settings > Display > "Show bottom bar" (census row 1.8). Vendor: "You can set
+             Show bottom bar to No if you need to disable the bottom bar to increase viewing space on your
+             screen." The row is Auto-height, so hiding this Border really does give the cascade the 26px back.
+             The notice line and the Accept? (Y/N) prompt below share this grid row and are DELIBERATELY NOT
+             gated by the flag — they are messages the operator must not be able to switch off. -->
+        <Border Grid.Row="3" Name="StatusBar" Background="{StaticResource BrandNavy}" Height="26"
+                IsVisible="{Binding ShowBottomBar}">
             <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="#CFE0FF"
                            TextTrimming="CharacterEllipsis">

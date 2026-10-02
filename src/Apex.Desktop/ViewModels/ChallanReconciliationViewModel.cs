@@ -37,7 +37,7 @@ public sealed partial class ChallanReconRow : ViewModelBase
 ///
 /// <para>MVVM boundary: references the engine + domain but no Avalonia types (headlessly testable).</para>
 /// </summary>
-public sealed partial class ChallanReconciliationViewModel : ViewModelBase
+public sealed partial class ChallanReconciliationViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly DateOnly _from;
@@ -114,6 +114,46 @@ public sealed partial class ChallanReconciliationViewModel : ViewModelBase
 
         HighlightedIndex = Rows.Count > 0 ? 0 : -1;
         Message = Rows.Count == 0 ? StatusText : null;
+    }
+
+    /// <summary>
+    /// <b>Census 6.31 — the snapshot that gives this page an exit.</b> Implementing
+    /// <see cref="IMasterListExportSource"/> is the whole of the fix: E / Alt+E projects this through
+    /// <see cref="MasterListTabularProjector.ProjectSource"/> to CSV / XLSX / PDF / HTML / XML / JSON / ASCII,
+    /// and P / Ctrl+P renders the same snapshot as a print preview. Before it, the reconciliation could be read
+    /// and never taken anywhere — the census called it an "output dead end", and a reconciliation an accountant
+    /// cannot hand to anyone is a report that has done half its job.
+    ///
+    /// <para><b>The grand total is part of the snapshot, not left to the reader.</b> A challan reconciliation is
+    /// read for one number — what is still owed — and an export carrying only the per-section rows would make
+    /// every consumer re-add them. The three money columns are <see cref="MasterListColumn.Number"/> so a
+    /// spreadsheet stores real decimals and can check that total rather than trust it.</para>
+    ///
+    /// <para><b>What is deliberately carried across with it.</b> <see cref="BasisNote"/> — the cash-basis
+    /// caveat — rides as a trailing row. Exporting the figures without it would strip the one sentence that
+    /// stops a compliant March-deducted / April-deposited entry being read as an outstanding default, which is
+    /// the misreading this report is most likely to cause.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Rows.Count + 2);
+        foreach (var r in Rows)
+            rows.Add(new[] { r.Section, r.Deducted, r.Deposited, r.Remaining, r.Status });
+
+        rows.Add(new[] { "Grand Total", TotalDeducted, TotalDeposited, TotalRemaining, string.Empty });
+        rows.Add(new[] { BasisNote, string.Empty, string.Empty, string.Empty, string.Empty });
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Section"),
+                MasterListColumn.Number("Deducted"),
+                MasterListColumn.Number("Deposited"),
+                MasterListColumn.Number("Remaining"),
+                MasterListColumn.Text("Status"),
+            },
+            rows);
     }
 
     /// <summary>Moves the row highlight (Up/Down within the page); wraps. Keeps a live ListBox selection.</summary>

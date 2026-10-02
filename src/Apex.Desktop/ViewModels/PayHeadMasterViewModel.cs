@@ -95,6 +95,30 @@ public sealed class PayHeadSlabRow
     public Money? FromAmount { get; init; }
     public Money? ToAmount { get; init; }
 
+    /// <summary>The vendor's Computation Information "Effective From" (schema v63, census 7.19); null = perpetual.</summary>
+    public DateOnly? EffectiveFrom { get; init; }
+
+    /// <summary>The slab's last in-force date (schema v63); null = perpetual.</summary>
+    public DateOnly? EffectiveTo { get; init; }
+
+    /// <summary>
+    /// The effective window as the user sees it in the added-slabs list.
+    ///
+    /// <para>🔴 <b>THE UNDATED CASE SAYS "every period" IN WORDS, DELIBERATELY.</b> An undated slab reads as a
+    /// blank column on every other screen in this product, and a blank is exactly what a user configuring a
+    /// Labour Welfare Fund deduction would skim past — while the consequence of skimming past it is an annual
+    /// contribution coming off the payslip twelve times. Naming the perpetual case makes the dangerous default
+    /// visible instead of invisible.</para>
+    /// </summary>
+    public string EffectiveDisplay => (EffectiveFrom, EffectiveTo) switch
+    {
+        (null, null) => "every period",
+        ({ } f, null) => $"from {f:dd-MMM-yyyy}",
+        (null, { } t) => $"up to {t:dd-MMM-yyyy}",
+        ({ } f, { } t) when f == t => $"on {f:dd-MMM-yyyy}",
+        ({ } f, { } t) => $"{f:dd-MMM-yyyy} to {t:dd-MMM-yyyy}",
+    };
+
     public string Display
     {
         get
@@ -109,18 +133,27 @@ public sealed class PayHeadSlabRow
             var amount = SlabType == PayHeadComputationSlabType.Percentage
                 ? $"{(RateBasisPoints / 100m).ToString("0.###", CultureInfo.InvariantCulture)}%"
                 : IndianFormat.Amount(Value.Amount);
-            return $"{amount}  {band}";
+            return $"{amount}  {band}  ({EffectiveDisplay})";
         }
     }
 }
 
 /// <summary>A pay-head row for the existing-heads list on the master screen.</summary>
-public sealed class PayHeadListRow
+public sealed partial class PayHeadListRow : ObservableObject, IPayrollMasterListRow
 {
     public string Name { get; init; } = string.Empty;
     public string Type { get; init; } = string.Empty;
     public string CalcType { get; init; } = string.Empty;
     public string Detail { get; init; } = string.Empty;
+
+    /// <summary>The stable identity of the pay head this row displays (census 7.6 / 7.16). Filled in
+    /// <see cref="PayHeadMasterViewModel.RefreshList"/>; an empty id here would arm Alt+D against nothing — the
+    /// exact trap <c>PayrollMasterHalfWiredKindsTests</c> caught on the employee list.</summary>
+    public Guid MasterId { get; init; }
+
+    string IMasterListRow.MasterName => Name;
+
+    [ObservableProperty] private bool _isHighlighted;
 }
 
 /// <summary>
@@ -144,11 +177,133 @@ public sealed class PayHeadListRow
 /// <para>Only reachable when Payroll is enabled (ER-13). MVVM boundary: domain + persistence only, no Avalonia
 /// types ⇒ headlessly unit-testable.</para>
 /// </summary>
-public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListExportSource, IPayrollMasterList
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    private readonly PayrollMasterHighlight<PayHeadListRow> _highlight;
+
+    /// <summary>The id of the pay head being ALTERED, or <see cref="Guid.Empty"/> in Create mode (7.6 / 7.16).</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Pay Head Alteration" : "Pay Head Creation";
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "pay head";
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => _highlight.Row;
+
+    /// <summary>The highlighted existing-pay-head row, or <c>null</c>.</summary>
+    public PayHeadListRow? HighlightedRow => _highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => _highlight.Move(direction);
+
+    /// <inheritdoc/>
+    public void ReloadExisting() { RefreshGroups(); RefreshBasisOptions(); RefreshAttendanceOptions(); RefreshList(); }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <para>The referential guards (another head computes on this one; a salary structure references it) live in
+    /// <see cref="PayHeadService.DeletePayHead"/> and are not duplicated here — the shell turns the engine's own
+    /// refusal message into a notice.</para>
+    ///
+    /// <para>🔴 <b>IT DOES NOT PERSIST, AND THAT IS THE CONTRACT RATHER THAN AN OMISSION.</b> This method used to
+    /// end with <c>_storage.Save(_company)</c>. The only caller is
+    /// <c>MainWindowViewModel.ConfirmDeletion</c>, which calls <c>list.DeleteMaster(id)</c> and then saves the
+    /// company itself inside its own <c>SaveFailure</c> try — so the pay head wrote the WHOLE company twice on
+    /// every delete, and it was the only one of the twelve sibling <c>DeleteMaster</c> implementations that did.
+    /// Every sibling is one call to its engine service, <see cref="IMasterListScreen.DeleteMaster"/> says nothing
+    /// about persisting, and the shell's save is the one that is wrapped in the failure handling. Pinned by
+    /// <c>PayrollMasterAlterDeleteTests.Pay_head_DeleteMaster_does_not_persist_by_itself</c>.</para>
+    /// </remarks>
+    public void DeleteMaster(Guid id) => new PayHeadService(_company).DeletePayHead(id);
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing pay head — the same form, pre-filled, including the
+    /// computation basis and every slab with its effective window. Returns <c>null</c> if the id does not resolve.
+    ///
+    /// <para>🔴 <b>Pre-filling the computation editor is the load-bearing half.</b> A pay head's rate lives in its
+    /// slabs; opening the alteration screen with an EMPTY slab list would show the operator a computed head with no
+    /// formula, and Ctrl+A would then save exactly that — silently deleting the rate they came to correct. Both
+    /// collections are therefore rebuilt from the stored computation, and the effective-from / effective-to dates
+    /// (schema v63, census 7.19) are carried across with them, because dropping those would turn a once-a-year
+    /// Labour Welfare Fund deduction into a monthly one.</para>
+    /// </summary>
+    public static PayHeadMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid payHeadId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindPayHead(payHeadId) is not { } head) return null;
+
+        var vm = new PayHeadMasterViewModel(company, storage, onChanged);
+        vm._editingId = payHeadId;
+
+        vm.Name = head.Name;
+        vm.DisplayName = head.DisplayName ?? string.Empty;
+        // The type first: assigning it rebuilds the income-tax picker (OnSelectedTypeChanged) and resets
+        // AffectsNetSalary to the type's default, so both must be re-applied AFTER it, not before.
+        vm.SelectedType = vm.Types.FirstOrDefault(t => t.Value == head.Type) ?? vm.Types.First();
+        vm.SelectedCalcType = vm.CalcTypes.FirstOrDefault(c => c.Value == head.CalculationType) ?? vm.CalcTypes.First();
+        vm.AffectsNetSalary = head.AffectsNetSalary;
+        vm.SelectedGroup = vm.GroupOptions.FirstOrDefault(o => o.Group?.Id == head.UnderGroupId)
+                           ?? vm.GroupOptions.First();
+        vm.SelectedIncomeTaxComponent = vm.IncomeTaxComponents.FirstOrDefault(o => o.Value == head.IncomeTaxComponent)
+                                        ?? vm.IncomeTaxComponents.First();
+        vm.UseForGratuity = head.UseForGratuity;
+        vm.SelectedRoundingMethod = vm.RoundingMethods.FirstOrDefault(o => o.Value == head.RoundingMethod)
+                                    ?? vm.RoundingMethods.First();
+        vm.RoundingLimitText = head.RoundingMethod == PayHeadRoundingMethod.NotApplicable
+            ? string.Empty
+            : head.RoundingLimit.Amount.ToString("0.##", CultureInfo.InvariantCulture);
+        vm.SelectedPeriod = vm.Periods.FirstOrDefault(o => o.Value == head.CalculationPeriod) ?? vm.Periods.First();
+
+        // The attendance/production picker is filtered by calc type, and SelectedCalcType was assigned above, so
+        // AttendanceTypeOptions already holds the right pool by the time this runs.
+        vm.SelectedAttendanceType = vm.AttendanceTypeOptions.FirstOrDefault(o => o.Type.Id == head.AttendanceTypeId);
+        vm.PerDayBasisText = head.PerDayCalculationBasisDays is { } d
+            ? d.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+
+        // A head may not compute on ITSELF — take it out of the basis picker rather than let the operator find out
+        // by being refused. The engine's self-reference and cycle guards still have the last word.
+        var self = vm.BasisPayHeadOptions.FirstOrDefault(o => o.PayHead.Id == payHeadId);
+        if (self is not null) vm.BasisPayHeadOptions.Remove(self);
+        vm.SelectedBasisPayHead = vm.BasisPayHeadOptions.FirstOrDefault();
+
+        if (head.Computation is { } computation)
+        {
+            foreach (var component in computation.BasisComponents)
+                vm.BasisComponents.Add(new PayHeadBasisRow
+                {
+                    PayHeadId = component.PayHeadId,
+                    PayHeadName = company.FindPayHead(component.PayHeadId)?.Name ?? "?",
+                    IsSubtraction = component.IsSubtraction,
+                });
+            foreach (var slab in computation.Slabs)
+                vm.Slabs.Add(new PayHeadSlabRow
+                {
+                    SlabType = slab.SlabType,
+                    RateBasisPoints = slab.RateBasisPoints,
+                    Value = slab.Value,
+                    FromAmount = slab.FromAmount,
+                    ToAmount = slab.ToAmount,
+                    EffectiveFrom = slab.EffectiveFrom,
+                    EffectiveTo = slab.EffectiveTo,
+                });
+        }
+
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -202,6 +357,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
     [ObservableProperty] private string _slabFromText = string.Empty;
     [ObservableProperty] private string _slabToText = string.Empty;
 
+    // v63 / census 7.19 — the vendor's Computation Information "Effective From" (plus an explicit end date).
+    // Blank in BOTH ⇒ the slab is in force in every payroll period, which is what every pre-v63 slab did.
+    [ObservableProperty] private string _slabEffectiveFromText = string.Empty;
+    [ObservableProperty] private string _slabEffectiveToText = string.Empty;
+
     [ObservableProperty] private string? _message;
 
     public PayHeadMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
@@ -209,6 +369,8 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
         _company = company ?? throw new ArgumentNullException(nameof(company));
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onChanged = onChanged ?? throw new ArgumentNullException(nameof(onChanged));
+        _highlight = new PayrollMasterHighlight<PayHeadListRow>(
+            Existing, () => { OnPropertyChanged(nameof(HighlightedRow)); OnPropertyChanged(nameof(HighlightedMasterRow)); });
 
         Types.Add(new PayHeadTypeOption { Value = PayHeadType.Earnings, Display = "Earnings for Employees" });
         Types.Add(new PayHeadTypeOption { Value = PayHeadType.Deductions, Display = "Deductions from Employees" });
@@ -385,6 +547,35 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             value = new Money(val);
         }
 
+        // v63 / census 7.19 — the effective window. Both blank ⇒ perpetual, i.e. exactly the pre-v63 slab.
+        DateOnly? effectiveFrom = null, effectiveTo = null;
+        if (!string.IsNullOrWhiteSpace(SlabEffectiveFromText))
+        {
+            if (!ApexDate.TryParse(SlabEffectiveFromText, out var ef))
+            {
+                Message = "The slab 'effective from' must be a date (or blank for every period).";
+                return;
+            }
+            effectiveFrom = ef;
+        }
+        if (!string.IsNullOrWhiteSpace(SlabEffectiveToText))
+        {
+            if (!ApexDate.TryParse(SlabEffectiveToText, out var et))
+            {
+                Message = "The slab 'effective to' must be a date (or blank for every period).";
+                return;
+            }
+            effectiveTo = et;
+        }
+        // Refused here as well as in the domain constructor, because an inverted window produces a slab that can
+        // never be in force — a deduction that silently never happens, which is invisible on the payslip and only
+        // shows up later as an unremitted statutory liability.
+        if (effectiveFrom is { } dFrom && effectiveTo is { } dTo && dTo < dFrom)
+        {
+            Message = "The slab 'effective to' must be on or after the 'effective from' date.";
+            return;
+        }
+
         Slabs.Add(new PayHeadSlabRow
         {
             SlabType = slabType.Value,
@@ -392,10 +583,14 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             Value = value,
             FromAmount = from,
             ToAmount = to,
+            EffectiveFrom = effectiveFrom,
+            EffectiveTo = effectiveTo,
         });
         SlabRateOrValueText = string.Empty;
         SlabFromText = string.Empty;
         SlabToText = string.Empty;
+        SlabEffectiveFromText = string.Empty;
+        SlabEffectiveToText = string.Empty;
         Message = null;
     }
 
@@ -467,7 +662,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             }
             computation = new PayHeadComputation(
                 BasisComponents.Select(r => new PayHeadComputationComponent(r.PayHeadId, r.IsSubtraction)),
-                Slabs.Select(r => new PayHeadComputationSlab(r.SlabType, r.RateBasisPoints, r.Value, r.FromAmount, r.ToAmount)));
+                Slabs.Select(r => new PayHeadComputationSlab(
+                    r.SlabType, r.RateBasisPoints, r.Value, r.FromAmount, r.ToAmount,
+                    // v63 / census 7.19: carry the effective window into the domain. Dropping it here would let
+                    // the screen show "on 31-Dec-2026" while the saved head deducted in all twelve months.
+                    r.EffectiveFrom, r.EffectiveTo)));
         }
 
         // attendance / production link + per-day basis
@@ -495,29 +694,86 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             }
         }
 
+        // 7.6 / 7.16 — the SAME Ctrl+A runs the verb the screen is in (see the Caption the operator is reading).
+        var altering = IsAltering;
+
         // W0-13 B7 — PayHeadService.CreatePayHead validates and then writes the head to the shared aggregate
         // BEFORE the store is reached, and the shipped catch took no rollback at all: a refused save left a pay
         // head the .db does not hold, so every LATER save threw. `created` is null on an engine failure because
         // CreatePayHead validates before it adds, so the restore is exact rather than a list snapshot.
+        //
+        // 🔴 THE ALTER PATH HAS THE SAME HAZARD AND IT IS WORSE, so it gets the same treatment. AlterPayHead
+        // writes the new field values onto the LIVE pay head and rolls them back itself if a domain guard
+        // refuses — but it cannot see a STORE failure, which happens after it has returned. Without the state
+        // captured here, a failed save would leave the in-memory head altered while the .db still held the old
+        // one: the operator is shown a refusal, and the next unrelated save silently persists the alteration
+        // anyway. Since the alteration is typically a RATE, that is a wrong-money outcome, not a stale screen.
         PayHead? created = null;
+        PayHeadState? restorePoint = null;
+        PayHead? edited = null;
+        // F11 — how far this alteration reaches. Counted BEFORE the write (the count cannot change during it) and
+        // reported after, because a salary structure's reference is not visible on this screen.
+        var structuresAffected = 0;
+        if (altering)
+        {
+            edited = _company.FindPayHead(_editingId);
+            if (edited is null)
+            {
+                Message = "This pay head no longer exists — it may have been deleted in another window.";
+                return false;
+            }
+            restorePoint = PayHeadState.Capture(edited);
+        }
+
         try
         {
             var service = new PayHeadService(_company);
-            created = service.CreatePayHead(
-                name,
-                SelectedType.Value,
-                calcType,
-                underGroupId: SelectedGroup?.Group?.Id,
-                affectsNetSalary: AffectsNetSalary,
-                incomeTaxComponent: (SelectedIncomeTaxComponent ?? IncomeTaxComponents.First()).Value,
-                useForGratuity: UseForGratuity,
-                roundingMethod: roundingMethod,
-                roundingLimit: roundingLimit,
-                calculationPeriod: (SelectedPeriod ?? Periods.First()).Value,
-                attendanceTypeId: attendanceTypeId,
-                perDayCalculationBasisDays: perDayBasis,
-                computation: computation,
-                displayName: string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim());
+            if (altering)
+            {
+                // 🔴 BUILT FROM THE HEAD, THEN OVERRIDDEN FIELD BY FIELD. `PayHeadEdit.From(edited)` starts from
+                // the head exactly as it stands, so everything this screen does NOT show — the four statutory
+                // tags and the overtime flag — is carried through unchanged instead of being reset to
+                // None/false, which would take a statutory head out of its own return with nothing on screen to
+                // say so. This used to be six hand-copied arguments guarded only by a comment; it is now the
+                // default, and the only fields that move are the ones listed below, which are exactly the fields
+                // the operator can see.
+                structuresAffected = service.SalaryStructuresUsing(_editingId);
+                service.AlterPayHead(_editingId, PayHeadEdit.From(edited!) with
+                {
+                    Name = name,
+                    DisplayName = string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim(),
+                    Type = SelectedType.Value,
+                    CalculationType = calcType,
+                    AffectsNetSalary = AffectsNetSalary,
+                    UnderGroupId = SelectedGroup?.Group?.Id,
+                    IncomeTaxComponent = (SelectedIncomeTaxComponent ?? IncomeTaxComponents.First()).Value,
+                    UseForGratuity = UseForGratuity,
+                    RoundingMethod = roundingMethod,
+                    RoundingLimit = roundingLimit,
+                    CalculationPeriod = (SelectedPeriod ?? Periods.First()).Value,
+                    AttendanceTypeId = attendanceTypeId,
+                    PerDayCalculationBasisDays = perDayBasis,
+                    Computation = computation,
+                });
+            }
+            else
+            {
+                created = service.CreatePayHead(
+                    name,
+                    SelectedType.Value,
+                    calcType,
+                    underGroupId: SelectedGroup?.Group?.Id,
+                    affectsNetSalary: AffectsNetSalary,
+                    incomeTaxComponent: (SelectedIncomeTaxComponent ?? IncomeTaxComponents.First()).Value,
+                    useForGratuity: UseForGratuity,
+                    roundingMethod: roundingMethod,
+                    roundingLimit: roundingLimit,
+                    calculationPeriod: (SelectedPeriod ?? Periods.First()).Value,
+                    attendanceTypeId: attendanceTypeId,
+                    perDayCalculationBasisDays: perDayBasis,
+                    computation: computation,
+                    displayName: string.IsNullOrWhiteSpace(DisplayName) ? null : DisplayName.Trim());
+            }
             _storage.Save(_company);
         }
         catch (Exception ex)
@@ -526,9 +782,31 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
             // old `when (ex is InvalidOperationException or ArgumentException)` filter also let a SqliteException
             // (SQLITE_BUSY from a second instance holding the write lock, READONLY, FULL) escape as a crash.
             if (created is not null) _company.RemovePayHead(created);
+            if (restorePoint is { } point && edited is not null) point.RestoreTo(edited);
             if (!SaveFailure.IsReportable(ex)) throw;
             Message = ex.Message;
             return false;
+        }
+
+        if (altering)
+        {
+            // Deliberately NOT ResetForm() — the operator stays on the altered head, exactly as the five payroll
+            // masters that had alteration before this one behave. RefreshBasisOptions is skipped for the same
+            // reason: it would put the head back into its own basis picker while the screen is still editing it.
+            RefreshList();
+            // 🔴 THE REACH IS STATED, BECAUSE IT IS NOT VISIBLE ON THIS SCREEN (review finding F11). Deleting a
+            // referenced head is REFUSED; altering one is deliberately allowed, since a mistyped rate on a head no
+            // structure references is the rare case and refusing the normal one is what made the wrong figure
+            // permanent. What the operator cannot see from here is how many salary structures the correction will
+            // reach. The alteration is forward-only — a posted payroll voucher carries its own immutable
+            // PayrollLineDetail — so the sentence names the NEXT payroll run and does not imply a restatement.
+            Message = structuresAffected == 0
+                ? $"Pay head '{name}' altered."
+                : $"Pay head '{name}' altered. {structuresAffected} salary " +
+                  (structuresAffected == 1 ? "structure uses" : "structures use") +
+                  " it — the next payroll run will use the new values. Periods already paid are unchanged.";
+            _onChanged();
+            return true;
         }
 
         Message = $"Pay head '{name}' created.";
@@ -549,6 +827,10 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
         SlabRateOrValueText = string.Empty;
         SlabFromText = string.Empty;
         SlabToText = string.Empty;
+        // v63 / census 7.19 — cleared with the rest of the slab editor, so a date typed for one pay head can
+        // never leak onto the next one the user creates.
+        SlabEffectiveFromText = string.Empty;
+        SlabEffectiveToText = string.Empty;
         BasisSubtract = false;
         BasisComponents.Clear();
         Slabs.Clear();
@@ -659,15 +941,23 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
 
     private void RefreshList()
     {
+        // By id, never by index — see PayrollMasterHighlight.RestoreTo for why. This list is SORTED BY NAME, so an
+        // alteration that renames a head re-sorts it, and an index restore would leave the cursor on a NEIGHBOUR
+        // that the next Alt+D would delete.
+        var previous = _highlight.IdBeforeRebuild();
+
         Existing.Clear();
         foreach (var ph in _company.PayHeads.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
             Existing.Add(new PayHeadListRow
             {
+                MasterId = ph.Id,
                 Name = ph.Name,
                 Type = DescribeType(ph.Type),
                 CalcType = DescribeCalcType(ph.CalculationType),
                 Detail = DescribeDetail(ph),
             });
+
+        _highlight.RestoreTo(previous);
     }
 
     private string DescribeDetail(PayHead ph)
@@ -689,7 +979,11 @@ public sealed partial class PayHeadMasterViewModel : ViewModelBase, IMasterListE
                     : first.SlabType == PayHeadComputationSlabType.Percentage
                         ? $"{(first.RateBasisPoints / 100m).ToString("0.###", CultureInfo.InvariantCulture)}% of "
                         : $"{IndianFormat.Amount(first.Value.Amount)} on ";
-                return $"{rate}{basis}";
+                // v63 / census 7.19 — say so in the LIST when any slab is dated. Without this the existing-heads
+                // list renders a once-a-year Labour Welfare Fund head and an every-month deduction identically,
+                // and the difference between them is eleven extra deductions a year.
+                var dated = c.Slabs.Any(s => s.IsDated) ? "  [dated]" : string.Empty;
+                return $"{rate}{basis}{dated}";
             }
             case PayHeadCalculationType.OnAttendance or PayHeadCalculationType.OnProduction
                 when ph.AttendanceTypeId is { } aid:

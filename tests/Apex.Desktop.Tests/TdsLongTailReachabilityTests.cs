@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -21,8 +21,9 @@ using Xunit;
 namespace Apex.Desktop.Tests;
 
 /// <summary>
-/// 🔴 <b>CENSUS ROW 6.35 — REACHABILITY. THE THREE NEW TDS SECTIONS HAVE TO BE SOMETHING A USER CAN GET TO FROM
-/// THE KEYBOARD, OR THEY ARE NOT SHIPPED.</b>
+/// 🔴 <b>CENSUS ROW 6.35 — REACHABILITY. THE NEW TDS SECTIONS HAVE TO BE SOMETHING A USER CAN GET TO FROM THE
+/// KEYBOARD, OR THEY ARE NOT SHIPPED.</b> Nine of them now: §194T/§194R/§194S from the row's first instalment and
+/// §192A/§194EE/§194G/§194K/§194LA/§194-O from its second.
 ///
 /// <para>This project has filed three capabilities that were fully built, fully tested and reachable by nobody.
 /// A seeded master is unusually exposed to a quieter version of the same failure: the seed only runs on
@@ -46,8 +47,15 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
 {
     private const string ValidTan = "MUMA12345B";
 
-    /// <summary>The three sections census row 6.35's first instalment added.</summary>
-    private static readonly string[] NewSections = { "194T", "194R", "194S" };
+    /// <summary>
+    /// The sections census row 6.35 added, <b>both instalments</b>: §194T/§194R/§194S (first, 2026-09-08) and
+    /// §192A/§194EE/§194G/§194K/§194LA/§194-O (second, same day). Nine. Every one of them has to reach an
+    /// EXISTING book through the top-up, not only a brand-new company — which is the whole point of this file,
+    /// and which a second instalment tests harder than the first did, because there are now two generations of
+    /// book behind the current seed rather than one.
+    /// </summary>
+    private static readonly string[] NewSections =
+        { "194T", "194R", "194S", "192A", "194EE", "194G", "194K", "194LA", "194-O" };
 
     /// <summary>The eight the Phase-7 seed shipped — i.e. exactly what a book created before this slice holds.
     /// Kept as literal text on purpose: deriving it from the seed would make the "legacy book" fixture silently
@@ -112,6 +120,56 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
         // aggregate and not a per-payment test.
         Assert.Equal("₹20,000/FY", page.Natures.Single(r => r.SectionCode == "194T").Threshold);
         Assert.Equal("₹10,000/FY", page.Natures.Single(r => r.SectionCode == "194S").Threshold);
+
+        // 🔴 AND THE COLUMN MUST STATE THE BOUNDARY AND THE CONDITION, NOT JUST THE NUMBER — the second
+        // instalment introduced two threshold shapes a bare figure would misdescribe.
+        //  · §192A / §194EE are liable AT the figure ("is less than X"), where every other section is liable only
+        //    ABOVE it ("does not exceed X"). A bare "₹50,000/FY" on §192A would read as the exclusive rule the
+        //    engine deliberately does not apply there, so it is suffixed "(incl.)".
+        //  · §194-O's ₹5,00,000 is available ONLY to an individual/HUF participant who furnished a PAN; every
+        //    other participant is liable from the first rupee, so the figure alone overstates who it protects.
+        //  · §194G's limb is PER-PAYMENT, not an FY aggregate — "single", not "/FY".
+        Assert.Equal("₹50,000/FY (incl.)", page.Natures.Single(r => r.SectionCode == "192A").Threshold);
+        Assert.Equal("₹2,500/FY (incl.)", page.Natures.Single(r => r.SectionCode == "194EE").Threshold);
+        Assert.Equal("₹20,000 single", page.Natures.Single(r => r.SectionCode == "194G").Threshold);
+        Assert.Equal(
+            "₹5,00,000/FY · Ind/HUF with PAN only",
+            page.Natures.Single(r => r.SectionCode == "194-O").Threshold);
+
+        // An ordinary FY-aggregate section in the same instalment keeps the plain form — so the suffixes above
+        // are carried by the section's shape and are not decoration sprayed over every new row.
+        Assert.Equal("₹10,000/FY", page.Natures.Single(r => r.SectionCode == "194K").Threshold);
+        Assert.Equal("₹5,00,000/FY", page.Natures.Single(r => r.SectionCode == "194LA").Threshold);
+
+        // 🔴 The §194-I arms show the code that will actually be FILED. A legacy book stores "4IB"; both a legacy
+        // and a fresh book must display — and file — the notified hyphenated spelling.
+        Assert.Equal("4-IA", page.Natures.Single(r => r.SectionCode == "194I(a)").FvuCode);
+        Assert.Equal("4-IB", page.Natures.Single(r => r.SectionCode == "194I(b)").FvuCode);
+    }
+
+    /// <summary>
+    /// 🔴 <b>A LEGACY BOOK'S MASTER SCREEN MUST SHOW THE CODE IT WILL FILE, NOT THE ONE IT STORES.</b> After the
+    /// top-up an existing book still persists <c>"4IB"</c> on its §194-I rows — the value is deliberately not
+    /// migrated — but the operator reading the Nature of Payment screen must see <c>"4-IB"</c>, because that is
+    /// what Form 26Q and the FVU file will carry. Showing the stored value would tell them a code the return does
+    /// not have.
+    /// </summary>
+    [Fact]
+    public void A_legacy_books_master_screen_shows_the_notified_194I_code_not_the_stored_one()
+    {
+        var vm = BookStoringTheSupersededFvuCodes("Legacy Fvu Co");
+
+        // The fixture really is a pre-fix book: the persisted value is the superseded spelling.
+        Assert.Equal("4IB", vm.Company!.FindNatureOfPaymentByCode("194I(b)")!.FvuSectionCode);
+
+        vm.ShowNatureOfPaymentMaster();
+        var page = Assert.IsAssignableFrom<NatureOfPaymentMasterViewModel>(vm.NatureOfPaymentMaster);
+
+        Assert.Equal("4-IB", page.Natures.Single(r => r.SectionCode == "194I(b)").FvuCode);
+        Assert.Equal("4-IA", page.Natures.Single(r => r.SectionCode == "194I(a)").FvuCode);
+        // …and the stored value is still untouched, because normalising it needs a migration this pass has no
+        // budget for. Both halves matter: the fix must reach the screen WITHOUT rewriting the book.
+        Assert.Equal("4IB", vm.Company.FindNatureOfPaymentByCode("194I(b)")!.FvuSectionCode);
     }
 
     /// <summary>The row lives under its own <b>Statutory Masters</b> heading rather than being dumped flat into
@@ -138,9 +196,9 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
 
     /// <summary>
     /// 🔴 <b>THE CENTRAL TEST OF THIS SLICE.</b> A book that enabled TDS before row 6.35 holds the Phase-7
-    /// eight, and — measured, not assumed — re-running <c>EnableTds</c> does <b>not</b> give it the new three,
+    /// eight, and — measured, not assumed — re-running <c>EnableTds</c> does <b>not</b> give it the new nine,
     /// because the seed is skipped whenever the config already has natures. Ctrl+U does, and adds exactly the
-    /// three that were missing.
+    /// nine that were missing.
     /// </summary>
     [Fact]
     public void An_existing_book_gains_the_new_sections_only_through_the_top_up()
@@ -160,15 +218,15 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
         vm.ShowNatureOfPaymentMaster();
         var page = Assert.IsAssignableFrom<NatureOfPaymentMasterViewModel>(vm.NatureOfPaymentMaster);
 
-        Assert.Equal(3, page.AddMissingPredefined());
+        Assert.Equal(9, page.AddMissingPredefined());
 
-        Assert.Equal(11, company.NaturesOfPayment.Count);
+        Assert.Equal(17, company.NaturesOfPayment.Count);
         foreach (var s in NewSections) Assert.NotNull(company.FindNatureOfPaymentByCode(s));
         Assert.All(NewSections, s => Assert.Contains(page.Natures, r => r.SectionCode == s));
 
         // …and it survives a real save/load round trip, not just the in-memory object.
         var reloaded = Reload("Legacy Tds Co");
-        Assert.Equal(11, reloaded.NaturesOfPayment.Count);
+        Assert.Equal(17, reloaded.NaturesOfPayment.Count);
         var t = reloaded.FindNatureOfPaymentByCode("194T")!;
         Assert.Equal(1000, t.RateWithPanBp);
         Assert.Equal("94T", t.FvuSectionCode);
@@ -184,10 +242,10 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
         vm.ShowNatureOfPaymentMaster();
         var page = (NatureOfPaymentMasterViewModel)vm.NatureOfPaymentMaster!;
 
-        Assert.Equal(3, page.AddMissingPredefined());
+        Assert.Equal(9, page.AddMissingPredefined());
         Assert.Equal(0, page.AddMissingPredefined());
 
-        Assert.Equal(11, vm.Company!.NaturesOfPayment.Count);
+        Assert.Equal(17, vm.Company!.NaturesOfPayment.Count);
         Assert.Equal(
             vm.Company.NaturesOfPayment.Count,
             vm.Company.NaturesOfPayment.Select(n => n.SectionCode).Distinct(StringComparer.OrdinalIgnoreCase).Count());
@@ -214,8 +272,9 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
         page.CumulativeThresholdText = "20000";
         Assert.True(page.Create(), page.Message);
 
-        // Only the other two are missing now.
-        Assert.Equal(2, page.AddMissingPredefined());
+        // Only the other eight are missing now — nine seeded sections the legacy book lacks, less the one the
+        // operator has already created under the same code.
+        Assert.Equal(NewSections.Length - 1, page.AddMissingPredefined());
 
         var kept = vm.Company!.FindNatureOfPaymentByCode("194T")!;
         Assert.Equal(750, kept.RateWithPanBp);                     // the operator's 7.5%, NOT the seeded 10%
@@ -262,7 +321,7 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
         window.KeyPressQwerty(PhysicalKey.U, RawInputModifiers.Control);
         Pump(window);
 
-        Assert.Equal(11, vm.Company.NaturesOfPayment.Count);
+        Assert.Equal(17, vm.Company.NaturesOfPayment.Count);
         Assert.NotNull(vm.Company.FindNatureOfPaymentByCode("194T"));
     }
 
@@ -390,6 +449,33 @@ public sealed class TdsLongTailReachabilityTests : IDisposable
             config.AddNatureOfPayment(seeded);
 
         Assert.Equal(LegacyEightSections.Length, config.NaturesOfPayment.Count);
+
+        new TdsTcsService(vm.Company!).EnableTds(config);
+        _storage.Save(vm.Company!);
+        return vm;
+    }
+
+    /// <summary>
+    /// A book whose §194-I rows persist the <b>superseded</b> Form-26Q spelling <c>"4IA"</c>/<c>"4IB"</c> — which
+    /// every book created before 2026-09-08 does.
+    /// <para>🔴 <b>THE SPELLING IS REWOUND EXPLICITLY AND NOT TAKEN FROM THE SEED, for exactly the reason
+    /// <see cref="LegacyEightSections"/> is a literal list.</b> <see cref="LegacyBook"/> copies its natures out of
+    /// <c>SeedTdsTcsRates</c>, so it silently tracks whatever the seed says today — which for the FVU code is now
+    /// the CORRECTED value. Reusing it here would have made the "legacy" fixture already-fixed, and the test would
+    /// have asserted nothing while looking like it asserted everything.</para>
+    /// </summary>
+    private MainWindowViewModel BookStoringTheSupersededFvuCodes(string name)
+    {
+        var vm = NewCompany(name);
+
+        var config = new TdsConfig { Tan = ValidTan };
+        foreach (var n in SeedTdsTcsRates.BuildTdsDefaults())
+        {
+            var stored = n.SectionCode switch { "194I(a)" => "4IA", "194I(b)" => "4IB", _ => n.FvuSectionCode };
+            config.AddNatureOfPayment(new NatureOfPayment(
+                n.Id, n.SectionCode, n.Name, n.RateWithPanBp, n.RateWithoutPanBp, stored,
+                n.SingleTransactionThreshold, n.CumulativeThreshold, n.EffectiveFrom, n.IsPredefined));
+        }
 
         new TdsTcsService(vm.Company!).EnableTds(config);
         _storage.Save(vm.Company!);

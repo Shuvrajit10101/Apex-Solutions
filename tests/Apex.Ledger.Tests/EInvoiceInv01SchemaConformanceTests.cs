@@ -257,6 +257,19 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         /// than one line.</summary>
         public required Voucher TwoItemSale { get; init; }
 
+        /// <summary>
+        /// 🔴 <b>A CREDIT NOTE CARRYING INVENTORY (census 4.7/4.8, defect T0-10) — a shape that could not be
+        /// posted at all until that slice, and one the IRP reads.</b>
+        ///
+        /// <para>It is in the fixture rather than in a test of its own so that EVERY whole-payload guard in this
+        /// file runs over it: <c>DocDtls.Typ</c> is "CRN", and because the note now has item lines the writer
+        /// takes the <b>item</b> branch of <c>BuildItems</c> instead of the synthetic-item fallback it used to
+        /// take. That branch change is the untested consequence of widening the carrier set — the note's legs are
+        /// all on the reversed side, so Σ AssAmt still has to foot to AssVal and every ItemList entry still has to
+        /// conform. Nothing else in the suite would have exercised it.</para>
+        /// </summary>
+        public required Voucher CreditNoteWithItems { get; init; }
+
         /// <summary>A genuine accounting (service) invoice: <c>isAccountingInvoice: true</c> through an income
         /// ledger declaring <c>SupplyType = Services</c> and the SAC 998311.</summary>
         public required Voucher ServiceInvoice { get; init; }
@@ -387,6 +400,28 @@ public sealed class EInvoiceInv01SchemaConformanceTests
                 new VoucherInventoryLine(gadget.Id, c.MainLocation!.Id, Item2Qty, Money.FromRupees(Item2Rate)),
             }));
 
+        // 🔴 Census 4.7/4.8 (T0-10) — a CREDIT NOTE carrying stock. Every leg is on the opposite side from the
+        // sale it reverses, so the tax is computed with `reverseSides: true`: the head stays OUTPUT (we are
+        // un-charging tax we charged) and only the side flips. The stock leg debits the SAME Sales ledger — the
+        // pairing invariant asks for the sales-side FAMILY (primary ancestor "Sales Accounts"), not for a
+        // particular ledger, so no new master is needed and the rest of this fixture is untouched.
+        var creditNoteTax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(ItemTaxable), 1800, null) },
+            interState: false, GstTaxDirection.Output, applyInvoiceRoundOff: false, reverseSides: true);
+        var creditNoteLegs = new List<EntryLine>
+        {
+            new(sales.Id, Money.FromRupees(ItemTaxable), DrCr.Debit),
+            new(b2b.Id, new Money(ItemTaxable + creditNoteTax.TotalTax.Amount), DrCr.Credit),
+        };
+        creditNoteLegs.AddRange(creditNoteTax.TaxLines);
+        var creditNoteWithItems = post.Post(new Voucher(
+            Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.CreditNote).Id,
+            SaleDate.AddDays(10), creditNoteLegs, partyId: b2b.Id,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(widget.Id, c.MainLocation!.Id, ItemQty, Money.FromRupees(ItemRate)),
+            }));
+
         var serviceInvoice = post.Post(new Voucher(
             Guid.NewGuid(), salesType, SaleDate.AddDays(3),
             Legs(Taxable, serviceIncome, b2b, interState: false), partyId: b2b.Id,
@@ -435,6 +470,7 @@ public sealed class EInvoiceInv01SchemaConformanceTests
             LedgerOnlySale = ledgerOnly,
             ItemSale = itemSale,
             TwoItemSale = twoItemSale,
+            CreditNoteWithItems = creditNoteWithItems,
             ServiceInvoice = serviceInvoice,
             GoodsLedgerSale = goodsLedgerSale,
             InterStateSale = interStateSale,
@@ -455,6 +491,9 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         ("LedgerOnlySale", f.LedgerOnlySale),
         ("ItemSale", f.ItemSale),
         ("TwoItemSale", f.TwoItemSale),
+        // Census 4.7/4.8 — the note joins the whole-payload guards rather than getting a private test, so the
+        // suite's existing conformance and footing rules bite on it too.
+        ("CreditNoteWithItems", f.CreditNoteWithItems),
         ("ServiceInvoice", f.ServiceInvoice),
         ("GoodsLedgerSale", f.GoodsLedgerSale),
         ("InterStateSale", f.InterStateSale),
@@ -1267,6 +1306,43 @@ public sealed class EInvoiceInv01SchemaConformanceTests
         Assert.Equal("N", goods.GetProperty("IsServc").GetString());     // it IS goods …
         Assert.False(goods.TryGetProperty("Qty", out _));                // … and it declares no quantity.
         Assert.False(goods.TryGetProperty("Unit", out _));
+    }
+
+    /// <summary>
+    /// 🔴 <b>CENSUS 4.7/4.8 (T0-10) — A CREDIT NOTE THAT CARRIES STOCK STILL MINTS A CONFORMANT "CRN" PAYLOAD,
+    /// AND IT NOW TAKES THE ITEM BRANCH.</b>
+    ///
+    /// <para><b>Why this test exists.</b> Widening the item-invoice carrier set changed which branch of
+    /// <c>EInvoiceJson.BuildItems</c> a note takes: with no inventory lines it fell to the synthetic-item
+    /// fallback, and with them it walks the real lines. That is a silent behaviour change on a payload the IRP
+    /// reads, and nothing in this suite exercised it — so the note was added to the FIXTURE, where every
+    /// whole-payload conformance and footing guard in this file runs over it, and this test states the two facts
+    /// those guards do not: the document type, and that the item really is the widget rather than a synthetic
+    /// stand-in.</para>
+    ///
+    /// <para>The note's legs are all on the reversed side and its tax is OUTPUT tax debited back — the payload's
+    /// values are magnitudes either way, which is precisely why the footing guards are the ones worth having here.</para>
+    /// </summary>
+    [Fact]
+    public void A_credit_note_carrying_stock_mints_a_CRN_payload_from_its_real_item_lines()
+    {
+        var f = Build();
+        var payload = Inv01(f.Company, f.CreditNoteWithItems);
+
+        Assert.Equal("CRN", payload.GetProperty("DocDtls").GetProperty("Typ").GetString());
+
+        var items = payload.GetProperty("ItemList");
+        Assert.Equal(1, items.GetArrayLength());
+        var item = items[0];
+
+        // The REAL line, not the synthetic fallback: the fallback emits an empty HsnCd and no Qty.
+        Assert.Equal("N", item.GetProperty("IsServc").GetString());
+        Assert.NotEqual("", item.GetProperty("HsnCd").GetString());
+        Assert.True(item.TryGetProperty("Qty", out var qty));
+        Assert.Equal(ItemQty, qty.GetDecimal());
+
+        // And the note's goods value is its own, not the invoice's.
+        Assert.Equal(ItemTaxable, payload.GetProperty("ValDtls").GetProperty("AssVal").GetDecimal());
     }
 
     /// <summary>

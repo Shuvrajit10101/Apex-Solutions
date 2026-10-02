@@ -213,7 +213,7 @@ public sealed class PosSchemaTests
         -- ledgers + stock_items are required because the chain now runs through the v24→v25 TDS/TCS migration,
         -- whose ALTER TABLE ledgers/stock_items ADD COLUMN … need the tables to exist.
         CREATE TABLE ledgers (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
-        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        CREATE TABLE stock_items (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL, valuation_method INTEGER NOT NULL DEFAULT 0);  -- valuation_method: the v65 (ruling-26) remediating UPDATE lands on it
         CREATE TABLE voucher_types (
             id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL REFERENCES companies(id),
             name TEXT NOT NULL, base_type INTEGER NOT NULL, numbering INTEGER NOT NULL,

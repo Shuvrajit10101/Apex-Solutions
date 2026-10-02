@@ -422,8 +422,11 @@ public sealed class SalaryTdsUiViewModelTests : IDisposable
         Assert.NotEqual(Money.Zero, result.SalaryTdsDeducted);
 
         // … and equals the SalaryIncomeTax §192 average-rate monthly figure (golden ₹8,125/mo on ₹15L NEW).
+        // T1-26: the expected figure is now priced on the table for the FY the payroll period `to` falls in — the
+        // same resolution the engine under test performs — instead of on a compile-time constant.
+        var rates = SalaryTaxRates.ForCompanyPeriod(c, to);
         var annualTax = SalaryIncomeTax.ComputeAnnual(
-            SalaryIncomeTax.TaxableIncome(15_00_000m, 0m, TaxRegime.New), TaxRegime.New).AnnualTax;
+            SalaryIncomeTax.TaxableIncome(15_00_000m, 0m, TaxRegime.New, rates), TaxRegime.New, rates).AnnualTax;
         var expectedMonthly = SalaryIncomeTax.MonthlyTds(annualTax, Money.Zero, SalaryIncomeTax.MonthsRemainingInFy(to));
         Assert.Equal(expectedMonthly, result.SalaryTdsDeducted);
         Assert.Equal(new Money(8_125m), result.SalaryTdsDeducted);

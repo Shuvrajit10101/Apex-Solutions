@@ -200,6 +200,20 @@ public sealed record Form24Q(
         return new Form24Q(fyStartYear, quarter, from, to, deductor, deductees, annexureII);
     }
 
+    /// <summary>
+    /// 🔴 <b>The one resolution of the §192 rate table for an Annexure II year</b> — the FY's own 31-March, the
+    /// company's dated cess override applied. Public because Form 16 Part B, the Income Tax Computation report and
+    /// the Form 24Q screen must all <b>disclose</b> the basis of figures they merely re-present
+    /// (<see cref="SalaryTaxRates.BasisNote"/>, <see cref="SalaryTaxRates.ProvisionalNote"/>), and they must read
+    /// that basis from the same call that priced the rows rather than each re-deriving it. It is a pure function of
+    /// the company and the year, so the disclosure cannot disagree with the arithmetic it describes.
+    /// </summary>
+    public static SalaryTaxRates AnnexureIIRates(Company company, int fyStartYear)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        return SalaryTaxRates.ForCompanyPeriod(company, new DateOnly(fyStartYear + 1, 3, 31));
+    }
+
     /// <summary>The Annexure II per-employee annual salary + tax rows for the FY starting
     /// <paramref name="fyStartYear"/> — the Q4-only annual computation that drives Form 16 Part B. Public so Form 16
     /// reads exactly the same rows.</summary>
@@ -208,6 +222,12 @@ public sealed record Form24Q(
         ArgumentNullException.ThrowIfNull(company);
         var fyStart = new DateOnly(fyStartYear, 4, 1);
         var fyEnd = new DateOnly(fyStartYear + 1, 3, 31);
+
+        // 🔴 T1-26: the rate table is resolved ONCE, from the FY this Annexure is FOR, and every row below is priced
+        // on it. Before this fix the engine had no date at all and priced every Annexure II — a filed government
+        // return — on one hard-coded year's slabs. `fyEnd` is the FY's own 31-March, so the resolution cannot drift
+        // from the year in the return's header. The company's own dated cess rate (v64) rides along.
+        var rates = AnnexureIIRates(company, fyStartYear);
 
         var rows = new List<Form24QAnnexureIIRow>();
         foreach (var employee in company.Employees.OrderBy(e => e.Name, StringComparer.Ordinal))
@@ -221,20 +241,20 @@ public sealed record Form24Q(
             var additionalIncome = declaration?.AdditionalIncome.Amount ?? 0m;
             var allowed = declaration?.AllowedDeductions(regime) ?? Money.Zero;
             var estAnnual = grossSalary.Amount + additionalIncome;
-            var taxable = SalaryIncomeTax.TaxableIncome(estAnnual, allowed.Amount, regime);
+            var taxable = SalaryIncomeTax.TaxableIncome(estAnnual, allowed.Amount, regime, rates);
             var age = SalaryIncomeTax.AgeBandFor(employee.DateOfBirth, fyEnd);
-            var c = SalaryIncomeTax.ComputeAnnual(taxable, regime, age);
+            var c = SalaryIncomeTax.ComputeAnnual(taxable, regime, rates, age);
             // Mirror the §192 engine's §206AA no-PAN branch (F3): a deductee with no valid PAN was withheld at the
             // higher of the average rate or the 20% floor, so the certificate's Total Tax must report that floor —
             // otherwise Annexure II / Form 16 Part B can never reconcile to the Σ-posted TDS for a no-PAN employee.
             var totalTax = Pan.IsValid(employee.Pan)
                 ? c.AnnualTax
-                : SalaryIncomeTax.AnnualTaxNoPan(taxable, regime, age);
+                : SalaryIncomeTax.AnnualTaxNoPan(taxable, regime, rates, age);
 
             rows.Add(new Form24QAnnexureIIRow(
                 employee.Id, employee.Name, employee.Pan, regime,
                 new Money(estAnnual),
-                new Money(SalaryIncomeTax.StandardDeduction(regime)),
+                new Money(SalaryIncomeTax.StandardDeduction(regime, rates)),
                 allowed,
                 new Money(taxable),
                 new Money(c.IncomeTaxAfterRebate),

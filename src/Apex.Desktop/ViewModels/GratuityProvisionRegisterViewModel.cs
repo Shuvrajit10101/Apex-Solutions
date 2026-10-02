@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -57,7 +58,7 @@ public sealed class GratuityRegisterRowVm
 /// reconciles to the Gratuity Provision ledger by construction. MVVM boundary: engine + persistence only, no Avalonia
 /// types (headlessly testable); deterministic — no clock/RNG.</para>
 /// </summary>
-public sealed partial class GratuityProvisionRegisterViewModel : ViewModelBase
+public sealed partial class GratuityProvisionRegisterViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
@@ -262,6 +263,60 @@ public sealed partial class GratuityProvisionRegisterViewModel : ViewModelBase
         PostStatus = $"Posted gratuity provision as-on {AsOnText}: "
                      + $"Dr {IndianFormat.AmountAlways(posted.TotalDebit)} = Cr {IndianFormat.AmountAlways(posted.TotalCredit)}.";
         return true;
+    }
+
+    /// <summary>
+    /// <b>Census 7.13 — the snapshot that gives this register an exit.</b> The row was held at PARTIAL on one
+    /// gap: "no output (not a report page, no export path)". This page is not a <c>Screen.Report</c>, so
+    /// <c>IsReportContext</c> is false on it and neither E / Alt+E nor P / Ctrl+P had anything to act on — the
+    /// register could be read on screen and never taken anywhere.
+    ///
+    /// <para><b>No new machinery was needed, and that is the point.</b> <c>MainWindowViewModel.IsExportablePage</c>
+    /// and <c>IsPrintablePage</c> already carry a general arm — <c>TopMasterExportSource()</c>, which tests the top
+    /// cascade column for <see cref="IMasterListExportSource"/>. The arm was built general; the ADOPTION was the
+    /// missing half. Implementing this one method is the whole fix, and it lights up CSV / XLSX / PDF / HTML / XML /
+    /// JSON / ASCII export and the print preview together.</para>
+    ///
+    /// <para><b>The three footings ride in the snapshot rather than being left to the reader.</b> A gratuity
+    /// provision is read for the delta — what must actually be posted this period — and that figure is NOT the
+    /// column total of any row: it is the accrued liability net of the prior posted balance. An export carrying
+    /// only the per-employee accruals would invite a reader to add the column up and post the wrong number, which
+    /// is precisely the misreading this register exists to prevent. The as-on date and the statutory cap ride too,
+    /// because an accrual figure without its as-on date cannot be reconciled to the ledger it provisions.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>(Rows.Count + 5);
+        foreach (var r in Rows)
+            rows.Add(new[]
+            {
+                r.EmployeeName, r.EmployeeNumber, r.DateOfJoining, r.CompletedYears,
+                r.Vested, r.BasicPlusDa, r.AccruedGratuity,
+            });
+
+        static IReadOnlyList<string> Footing(string label, string value)
+            => new[] { label, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, value };
+
+        rows.Add(Footing("Total Liability", TotalLiabilityText));
+        rows.Add(Footing("Less: Prior Posted Provision", PriorProvisionText));
+        rows.Add(Footing("Provision to Post (delta)", DeltaText));
+        rows.Add(Footing($"Provision as-on {AsOnText}", string.Empty));
+        if (!string.IsNullOrWhiteSpace(CapText))
+            rows.Add(Footing(CapText, string.Empty));
+
+        return new MasterListSnapshot(
+            Title,
+            new[]
+            {
+                MasterListColumn.Text("Employee"),
+                MasterListColumn.Text("Employee No."),
+                MasterListColumn.Text("Date of Joining"),
+                MasterListColumn.Text("Completed Years"),
+                MasterListColumn.Text("Vested"),
+                MasterListColumn.Number("Basic + DA"),
+                MasterListColumn.Number("Accrued Gratuity"),
+            },
+            rows);
     }
 
     /// <summary>Whole-rupee Indian-grouped display of a gratuity integer figure (always rendered, even zero).</summary>

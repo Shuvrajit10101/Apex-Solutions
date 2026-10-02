@@ -82,15 +82,41 @@ public sealed class MasterDeletionForeignKeyCoverageTests
         Assert.Contains("rcm_documents.supplier_ledger_id", declared);
         Assert.Contains("job_work_order_lines.component_stock_item_id", declared);
 
+        // W28 C2 — the six parents the alternation gained. One column each, chosen from the fourteen that NO
+        // guard counted before this wave, so a regex that silently lost a parent goes red here rather than
+        // quietly reporting full coverage of a smaller schema.
+        Assert.Contains("voucher_inventory_lines.godown_id", declared);      // godowns
+        Assert.Contains("stock_items.alternate_unit_id", declared);          // units
+        Assert.Contains("stock_items.stock_group_id", declared);             // stock_groups
+        Assert.Contains("stock_items.category_id", declared);                // stock_categories
+        Assert.Contains("godowns.job_cost_centre_id", declared);             // cost_centres
+        Assert.Contains("cost_centres.category_id", declared);               // cost_categories
+
         // …and it must NOT invent one: reorder_definitions.target_id carries no REFERENCES clause, which is why the
         // reorder half of the stock-item debt really is a soft dangler and is deliberately left uncounted.
         Assert.DoesNotContain("reorder_definitions.target_id", declared);
     }
 
     /// <summary>
-    /// Every <c>table.column</c> naming a foreign key into <c>vouchers</c>, <c>ledgers</c>, <c>groups</c> or
-    /// <c>stock_items</c> in a CREATE-TABLE script. Column definitions are one per line in this schema, so the
-    /// column name is the first token on the line and the enclosing table is the most recent CREATE TABLE.
+    /// Every <c>table.column</c> naming a foreign key into a master the application can DELETE, in a CREATE-TABLE
+    /// script. Column definitions are one per line in this schema, so the column name is the first token on the
+    /// line and the enclosing table is the most recent CREATE TABLE.
+    ///
+    /// <para>🔴 <b>THE PARENT LIST IS THE WHOLE TEST, AND IT WAS TOO SHORT.</b> Until wave 28 it read
+    /// <c>vouchers|ledgers|groups|stock_items</c> — the four masters Alt+D reached at the time. That was correct
+    /// then and became a hole the moment a sixth and seventh master grew a delete route, because a parent absent
+    /// from this alternation is a parent whose every foreign key is invisible to the coverage assertion above.
+    /// Measured at the moment wave 28 widened it, the six added parents contributed <b>28</b> columns and
+    /// <b>fourteen</b> of them were counted by no guard anywhere — nine on godowns and three on units (whose
+    /// services guarded only part of their surface) and five on the cost masters (which had no delete service at
+    /// all). Each was a permitted delete that would make the open company unsavable.</para>
+    ///
+    /// <para><b>So the rule for the next wave is explicit: when a master becomes deletable, its table name is
+    /// added to this alternation in the SAME commit.</b> The assertion then names every column that needs a
+    /// bucket, which is the point — it converts "someone should check" into a red test that says what to decide.
+    /// <c>batch_masters</c> and <c>bill_of_materials</c> are deliberately still ABSENT: wave 28 did not wire
+    /// Alt+D onto Batch or BOM (census 3.8 / 3.9), and listing a parent whose delete has no route would assert
+    /// coverage the product does not yet need.</para>
     /// </summary>
     private static HashSet<string> ForeignKeyColumnsIn(string sql)
     {
@@ -98,8 +124,11 @@ public sealed class MasterDeletionForeignKeyCoverageTests
         var table = string.Empty;
         var create = new Regex(@"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)",
                                RegexOptions.IgnoreCase);
-        var reference = new Regex(@"^\s*([A-Za-z_][A-Za-z0-9_]*)\b[^-]*?REFERENCES\s+(vouchers|ledgers|groups|stock_items)\s*\(\s*id\s*\)",
-                                  RegexOptions.IgnoreCase);
+        var reference = new Regex(
+            @"^\s*([A-Za-z_][A-Za-z0-9_]*)\b[^-]*?REFERENCES\s+"
+            + @"(vouchers|ledgers|groups|stock_items"
+            + @"|godowns|units|stock_groups|stock_categories|cost_centres|cost_categories)\s*\(\s*id\s*\)",
+            RegexOptions.IgnoreCase);
 
         foreach (var line in sql.Split('\n'))
         {

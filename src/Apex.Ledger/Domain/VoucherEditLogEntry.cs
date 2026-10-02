@@ -103,4 +103,37 @@ public static class VoucherSnapshot
         ArgumentNullException.ThrowIfNull(voucher);
         return JsonSerializer.Serialize(voucher, Options);
     }
+
+    /// <summary>
+    /// Renders an <see cref="InventoryVoucher"/> — the pure-stock aggregate — as the before-state text of an
+    /// edit-log entry. Census rows 4.9–4.16.
+    ///
+    /// <para>🔴 <b>THIS OVERLOAD CLOSES A GAP THAT WAS DECLARED IN WRITING AND LEFT OPEN.</b>
+    /// <c>InventoryPostingService.Cancel</c>/<c>.Delete</c> carried a summary saying in as many words that the
+    /// pure-stock aggregate "is NOT covered by the voucher edit log", that cancelling or deleting a Stock
+    /// Journal, Physical Stock, Delivery/Receipt Note or order "still leaves no record", and that what it would
+    /// take is exactly this: <i>"<c>VoucherSnapshot.Of</c> is typed to <see cref="Voucher"/> … so the snapshot
+    /// needs a sibling overload; the table and the entry record need nothing new."</i> That assessment was
+    /// correct in every particular, and this is that overload. Nothing is added to
+    /// <see cref="VoucherEditLogEntry"/> and nothing is added to the schema — <c>voucher_edit_log.before_snapshot</c>
+    /// is TEXT and takes this text exactly as it takes the other.</para>
+    ///
+    /// <para><b>Why a second method rather than one generic <c>Of&lt;T&gt;</c>.</b> A generic would accept any
+    /// object at all, including the wrong one, and would serialise it just as happily; two named overloads let
+    /// the compiler reject a mistake that no test would otherwise catch until an auditor read the log. The
+    /// whole-object serialisation and its completeness-by-construction property (see the class summary) apply
+    /// here unchanged: a property added to <see cref="InventoryVoucher"/> appears in the snapshot the day it is
+    /// added, with no edit in this file.</para>
+    ///
+    /// <para><b>What the two snapshots have in common, and why that matters to a reader of the log.</b> The
+    /// <see cref="VoucherEditLogEntry.VoucherId"/> column is deliberately not a foreign key (see that record), so
+    /// it already holds ids from whichever aggregate the verb ran on, and the two id spaces are kept disjoint by
+    /// <c>LedgerService.EnsureVoucherIdIsFree</c>. An entry is therefore unambiguous about which voucher it
+    /// describes without carrying a discriminator column, and the snapshot text itself names the shape.</para>
+    /// </summary>
+    public static string Of(InventoryVoucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(voucher);
+        return JsonSerializer.Serialize(voucher, Options);
+    }
 }

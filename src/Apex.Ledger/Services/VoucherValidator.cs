@@ -272,15 +272,19 @@ public static class VoucherValidator
     public static void EnsureItemInvoiceValid(Voucher v, Company c)
     {
         var type = c.FindVoucherType(v.TypeId)!; // referential integrity already checked above
-        var isPurchase = type.BaseType == VoucherBaseType.Purchase;
-        var isSales = type.BaseType == VoucherBaseType.Sales;
-        if (!isPurchase && !isSales)
+        if (!VoucherEffects.CanCarryItemInvoiceLines(type.BaseType))
             throw new InvalidVoucherException(
-                $"Item-invoice stock lines are only valid on a Purchase or Sales voucher; '{type.Name}' is neither.");
+                $"Item-invoice stock lines are only valid on a Purchase, Sales, Credit Note or Debit Note " +
+                $"voucher; '{type.Name}' is a {type.BaseType}.");
+        // Census 4.7/4.8 (defect T0-10): the purchase SIDE, not the Purchase base type. A Debit Note is a purchase
+        // return, so its stock leg is drawn from Purchase Accounts / Stock-in-Hand exactly as a Purchase's is —
+        // it is the SIDE the leg sits on that reverses, below, not the family it is drawn from.
+        var isPurchaseSide = VoucherEffects.IsPurchaseSideInvoice(type.BaseType);
 
-        // The implied direction: Purchase ⇒ inward, Sales ⇒ outward. Every item line must already carry it
-        // (the posting service stamps it), so the on-hand engine reads the direction directly.
-        var expectedDir = isPurchase ? StockDirection.Inward : StockDirection.Outward;
+        // The implied direction, from the ONE home (VoucherEffects.ItemInvoiceStockDirection): Purchase and Credit
+        // Note inward, Sales and Debit Note outward. Every item line must already carry it (the entry screen stamps
+        // it from the same function), so the on-hand engine reads the direction directly and the two cannot drift.
+        var expectedDir = VoucherEffects.ItemInvoiceStockDirection(type.BaseType);
         foreach (var line in v.InventoryLines)
         {
             var item = c.FindStockItem(line.StockItemId);
@@ -329,21 +333,27 @@ public static class VoucherValidator
         // the GROSS debit, so it equals the item-lines value; the reduced party leg and the TDS Payable (Duties &
         // Taxes) credit are BOTH outside this stock-leg sum (TDS Payable via IsDutiesAndTaxesLedger, exactly like
         // GST), so the pairing foots unchanged and the balance invariant (Σ Dr == Σ Cr) guards net + withheld == gross.
-        var wantSide = isPurchase ? DrCr.Debit : DrCr.Credit;
+        // 🔴 Census 4.7/4.8 — the side follows the STOCK DIRECTION, which is the only reading that stays true for
+        // all four carriers. Goods coming IN are backed by a DEBIT (a Purchase debits Purchases; a Credit Note
+        // debits Sales Returns), goods going OUT by a CREDIT (a Sales credits Sales; a Debit Note credits Purchase
+        // Returns). Deriving it from `isPurchaseSide` instead would put a Debit Note's leg on the debit side and
+        // the pairing would never foot; deriving it from "is it a note" would need two rules where this needs one.
+        var wantSide = expectedDir == StockDirection.Inward ? DrCr.Debit : DrCr.Credit;
         var accountingStockAmount = 0m;
         foreach (var line in v.Lines)
         {
             if (line.Side != wantSide) continue;
             var ledger = c.FindLedger(line.LedgerId);
             if (ledger is null) continue; // already validated above
-            if (IsStockLegLedger(ledger, c, isPurchase))
+            if (IsStockLegLedger(ledger, c, isPurchaseSide))
                 accountingStockAmount += line.Amount.Amount;
         }
 
         var itemLinesValue = v.InventoryLinesValue.Amount;
         if (accountingStockAmount != itemLinesValue)
         {
-            var leg = isPurchase ? "Purchases / Stock-in-Hand (debit)" : "Sales (credit)";
+            var family = isPurchaseSide ? "Purchases / Stock-in-Hand" : "Sales";
+            var leg = $"{family} ({(wantSide == DrCr.Debit ? "debit" : "credit")})";
             throw new InvalidVoucherException(
                 $"Item-invoice pairing: the item lines total ₹{itemLinesValue:0.00} (Σ qty × rate) does not equal " +
                 $"the voucher's {leg} accounting amount ₹{accountingStockAmount:0.00}. The stock leg must be backed " +
@@ -352,15 +362,17 @@ public static class VoucherValidator
     }
 
     /// <summary>
-    /// Whether a ledger is the accounting "stock leg" for an item-invoice: for a Purchase, a ledger under
-    /// <b>Purchase Accounts</b> (primary ancestor) or under <b>Stock-in-Hand</b>; for a Sales, a ledger under
-    /// <b>Sales Accounts</b> (primary ancestor).
+    /// Whether a ledger is the accounting "stock leg" for an item-invoice: on the <b>purchase side</b> (Purchase
+    /// or Debit Note), a ledger under <b>Purchase Accounts</b> (primary ancestor) or under <b>Stock-in-Hand</b>;
+    /// on the <b>sales side</b> (Sales or Credit Note), a ledger under <b>Sales Accounts</b> (primary ancestor).
+    /// <para>Census 4.7/4.8: a "Sales Returns" ledger lives under Sales Accounts and a "Purchase Returns" ledger
+    /// under Purchase Accounts, which is why a note needs no new family here — only the opposite SIDE.</para>
     /// </summary>
-    private static bool IsStockLegLedger(Domain.Ledger ledger, Company c, bool isPurchase)
+    private static bool IsStockLegLedger(Domain.Ledger ledger, Company c, bool isPurchaseSide)
     {
         var group = c.FindGroup(ledger.GroupId);
         if (group is null) return false;
-        if (isPurchase)
+        if (isPurchaseSide)
         {
             if (ClassificationRules.IsStockInHandLedger(ledger, c)) return true;
             return string.Equals(ClassificationRules.PrimaryAncestorOf(group, c).Name, "Purchase Accounts",

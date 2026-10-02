@@ -9,19 +9,32 @@ public enum RatioUnit
     Ratio,
     /// <summary>A percentage already multiplied by 100, e.g. Gross Profit 20.55 — rendered with a "%" suffix.</summary>
     Percent,
-    /// <summary>A count of days, e.g. Receivables Turnover 175 — rendered with a " days" suffix.</summary>
+    /// <summary>A count of days, e.g. Receivables Turnover 62 — rendered with a " days" suffix.</summary>
     Days,
 }
 
-/// <summary>One <b>Principal Group</b> figure (left column of the reference product's Ratio Analysis): a label and a Money amount.</summary>
-public sealed record PrincipalGroupLine(string Label, Money Value);
+/// <summary>
+/// One <b>Principal Group</b> figure (left column of the reference product's Ratio Analysis): a label and a
+/// Money amount.
+/// <para>🔴 <paramref name="UnavailableReason"/> carries user ruling 27 onto a MONEY row. A non-null reason means
+/// the amount is <b>not a measurement of this book</b> and a UI must render the reason in place of the figure.
+/// <see cref="Value"/> is deliberately left as the engine computed it (so the member still reconciles with the
+/// projection it came from); it is the RENDERED cell that changes. Without this, "Sundry Debtors (due till
+/// today)" published a flat <c>0.00</c> on any book whose party money no bill accounts for — a nil-misread
+/// beside a Balance Sheet showing the money, which is exactly what the caption qualifier alone could not fix.</para>
+/// </summary>
+public sealed record PrincipalGroupLine(string Label, Money Value, string? UnavailableReason = null);
 
 /// <summary>
 /// One <b>Principal Ratio</b> (right column of the reference product's Ratio Analysis): a label, a nullable value
-/// (<c>null</c> = "N/A", i.e. a guarded zero denominator), and the <see cref="RatioUnit"/> that fixes how a
-/// UI renders it.
+/// (<c>null</c> = unavailable), and the <see cref="RatioUnit"/> that fixes how a UI renders it.
+/// <para>🔴 <paramref name="UnavailableReason"/> exists because a bare "N/A" cannot say WHY. A <c>null</c> value
+/// with no reason is the ordinary guarded zero denominator and renders "N/A"; a <c>null</c> value WITH a reason
+/// renders that reason, so an operator can tell "this book records no bills" apart from "there were no sales".
+/// Two withheld ratios that carry different reasons must render different strings — that is the contract, and
+/// it is asserted at the rendered cell, not here.</para>
 /// </summary>
-public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit Unit);
+public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit Unit, string? UnavailableReason = null);
 
 /// <summary>
 /// The <b>Ratio Analysis</b> report (catalog §16), modelled on the reference product's actual report which is split into
@@ -32,12 +45,51 @@ public sealed record PrincipalRatioLine(string Label, decimal? Value, RatioUnit 
 /// ledger's actual <b>group id</b> (Current Assets / Current Liabilities / Loans / Capital / Stock-in-Hand /
 /// Sundry Debtors / Sundry Creditors). Profitability figures (gross/net profit, sales) come from the Trading &amp;
 /// P&amp;L. All money is exact decimal rupees; ratios are exact decimals (percentages are ×100).</para>
-/// <para><b>Verified against the reference product's official help documentation</b> (Principal Ratios): Current Ratio
+/// <para><b>Verified against the reference product's official help documentation</b>
+/// (<c>https://help.tallysolutions.com/tally-prime/accounting-financial-reports/ratio-analysis-tally/</c> — the
+/// single source for every vendor claim in this file; opened and checked by content, not quoted from memory.
+/// 🔴 <b>What that page states and what it does NOT:</b> it gives the ratio's SHAPE — "<i>This is the balance
+/// outstanding in relation to the total sales made, multiplied by the total number of days in the period</i>" —
+/// and captions the row "Sundry Debtors (due till today)" as "<i>the list of all the debtors and total debts due
+/// as of the date of the statement</i>". It nowhere states that the RATIO's numerator is that due-till-today
+/// amount rather than the closing balance; it says only that payment performance is measured "<i>irrespective of
+/// the outstanding balance on the statement date</i>", and it separates the two figures explicitly. So the shape
+/// is vendor-stated, and <b>reading "the balance outstanding" as the bill-wise due-till-today amount is OURS, a
+/// documented divergence — see the note on <see cref="ReceivablesTurnoverDays"/>. Do not cite this URL for it.</b>)
+/// (Principal Ratios): Current Ratio
 /// (CA:CL), Quick Ratio ((CA−Stock):CL), Debt/Equity (Loans:(Capital+NettProfit)), Gross Profit % (GP/Turnover),
 /// Nett Profit % (NP/Turnover), Operating Cost % (100 − NettProfit %, i.e. operating cost as a % of Sales),
-/// Receivables Turnover in days (Debtors ÷ Sales × days-in-period), Return on Investment %
+/// Receivables Turnover in days (Debtors <b>due till today</b> ÷ Sales × days-in-period), Return on Investment %
 /// (NettProfit ÷ (Capital + NettProfit) × 100), Return on Working Capital % (NettProfit ÷ WorkingCapital × 100),
 /// Inventory Turnover (Turnover ÷ Stock), Working Capital Turnover (Sales ÷ Working Capital).</para>
+/// <para>🔴 <b>The two Sundry figures are the exception to the sentence above and are deliberately NOT Balance-Sheet
+/// closing balances (defect T0-27).</b> The vendor captions them "Sundry Debtors (due till today)" and "Sundry
+/// Creditors (due till today)" and defines Receivables Turnover as the average time customers take to pay their
+/// bills <i>irrespective of the outstanding balance on the statement date</i>. Both are therefore taken from the
+/// bill-wise <see cref="Outstandings"/> projection, and the closing balances remain available in their own right as
+/// <see cref="SundryDebtorsClosing"/> / <see cref="SundryCreditorsClosing"/>. See the note inside
+/// <see cref="Build(Company, DateOnly, ReportOptions)"/> for the limitation this carries.</para>
+/// <para>🔴 <b><see cref="ReceivablesTurnoverDays"/> is WITHHELD (<c>null</c>) — and the cell says why — whenever
+/// the bills cannot account for the Sundry-Debtors money, or can but none of them has fallen due.</b> On either
+/// shape the bill-wise numerator is 0, and "0 days" would state as fact that customers pay instantly while the
+/// Balance Sheet on the same report shows real debtors. The two reasons render as the two different sentences in
+/// <see cref="ReceivablesNoBillWiseDetails"/> / <see cref="ReceivablesNoBillsDueYet"/>.</para>
+/// <para>🔴 <b>WITHHOLDING APPLIES TO ALL THREE PUBLISHED FIGURES, NOT ONLY THE RATIO (user ruling 27).</b> The
+/// two Principal-Group money rows — <b>Sundry Debtors (due till today)</b> and <b>Sundry Creditors (due till
+/// today)</b> — carry the same marker via <see cref="PrincipalGroupLine.UnavailableReason"/> whenever their own
+/// side's money is not accounted for by bills. They previously published a flat <c>0.00</c> on such a book,
+/// beside a Balance Sheet showing the balance, and the "(due till today)" caption did not rescue it: a reader
+/// takes <c>0.00</c> for a measured zero. Each side is measured independently, and a genuinely covered book
+/// with nothing yet due still publishes its honest <c>0.00</c>.</para>
+/// <para>🔴 <b>AND THIS IS A DELIBERATE DIVERGENCE FROM THE REFERENCE PRODUCT, LABELLED AS OURS (R7) — NOT a
+/// vendor-verified behaviour.</b> That label covers all three figures. Because <c>MaintainBillByBill</c>
+/// defaults to <c>false</c>, withholding applies
+/// on the MAJORITY of books, both study fixtures among them, where the vendor — by the only formula its page
+/// actually states ("the balance outstanding in relation to the total sales made, multiplied by the total number
+/// of days in the period") — would render a NUMBER computed from the outstanding balance. We withhold instead
+/// because this build's numerator is the bill-wise due-till-today amount, and on those books that amount measures
+/// the absence of bills rather than the speed of payment. The user decision that settled this is recorded against
+/// T1-35; the vendor page is not authority for it.</para>
 /// </summary>
 public sealed record RatioAnalysis(
     // ---- Principal-group figures (typed, for tests / direct access) ----
@@ -50,8 +102,10 @@ public sealed record RatioAnalysis(
     Money NetProfit,
     Money ProprietorsFunds,
     Money LongTermDebt,
-    Money SundryDebtors,
-    Money SundryCreditors,
+    Money SundryDebtorsDueTillToday,
+    Money SundryCreditorsDueTillToday,
+    Money SundryDebtorsClosing,
+    Money SundryCreditorsClosing,
     Money CapitalAccount,
     // ---- Principal ratios (typed, for tests / direct access) ----
     decimal? CurrentRatio,
@@ -69,6 +123,20 @@ public sealed record RatioAnalysis(
     IReadOnlyList<PrincipalGroupLine> PrincipalGroups,
     IReadOnlyList<PrincipalRatioLine> PrincipalRatios)
 {
+    /// <summary>
+    /// 🔴 The two reasons Receivables Turnover is withheld, as the operator reads them (user ruling 27). They are
+    /// public so a test can assert the RENDERED cell against the shipping string rather than a copy of it, and
+    /// they are deliberately DIFFERENT sentences: an operator must be able to tell "this book records no bills"
+    /// from "the bills exist but none is due yet", and both from the bare "N/A" of a zero denominator.
+    /// </summary>
+    public const string NoBillWiseDetails = "N/A — no bill-wise details";
+
+    /// <inheritdoc cref="NoBillWiseDetails"/>
+    public const string ReceivablesNoBillWiseDetails = NoBillWiseDetails;
+
+    /// <inheritdoc cref="ReceivablesNoBillWiseDetails"/>
+    public const string ReceivablesNoBillsDueYet = "N/A — no bills due yet";
+
     /// <summary>Divides guarding a zero denominator (returns <c>null</c> = N/A).</summary>
     private static decimal? Ratio(decimal numerator, decimal denominator) =>
         denominator == 0m ? (decimal?)null : numerator / denominator;
@@ -91,7 +159,7 @@ public sealed record RatioAnalysis(
         // Net-Profit heads have a null group id — handled explicitly below.
         var currentAssets = 0m;
         var inventory = 0m;
-        var sundryDebtors = 0m;
+        var sundryDebtorsClosing = 0m;
         foreach (var line in bs.Assets)
         {
             var isStock = ClassificationRules.GroupIsUnder(line.GroupId, "Stock-in-Hand", company)
@@ -105,12 +173,12 @@ public sealed record RatioAnalysis(
             {
                 currentAssets += line.Amount.Amount;
                 if (ClassificationRules.GroupIsUnder(line.GroupId, "Sundry Debtors", company))
-                    sundryDebtors += line.Amount.Amount;
+                    sundryDebtorsClosing += line.Amount.Amount;
             }
         }
 
         var currentLiabilities = 0m;
-        var sundryCreditors = 0m;
+        var sundryCreditorsClosing = 0m;
         var longTermDebt = 0m;
         var capitalAccount = 0m;   // Capital Account ledgers only (excludes folded Net Profit)
         var proprietorsFunds = 0m; // Capital Account + folded period Net Profit (= Capital + Nett Profit)
@@ -120,7 +188,7 @@ public sealed record RatioAnalysis(
             {
                 currentLiabilities += line.Amount.Amount;
                 if (ClassificationRules.GroupIsUnder(line.GroupId, "Sundry Creditors", company))
-                    sundryCreditors += line.Amount.Amount;
+                    sundryCreditorsClosing += line.Amount.Amount;
             }
             else if (ClassificationRules.GroupIsUnder(line.GroupId, "Loans (Liability)", company))
             {
@@ -141,6 +209,66 @@ public sealed record RatioAnalysis(
         var workingCapital = currentAssets - currentLiabilities;
         var quickAssets = currentAssets - inventory;
 
+        // ---------------------------------------------------------------- T0-27: "due till today"
+        // 🔴 THE TWO SUNDRY FIGURES THIS REPORT PUBLISHES ARE BILL-WISE, NOT BALANCE-SHEET CLOSING BALANCES.
+        // The reference product's Ratio Analysis labels them "Sundry Debtors (due till today)" and "Sundry
+        // Creditors (due till today)", and defines Receivables Turnover as the average time customers take to
+        // pay their bills "irrespective of the outstanding balance on the statement date" — a phrase that names
+        // the closing balance as the WRONG input. This report used to accumulate both from bs.Assets/bs.Liabilities
+        // and feed the first into receivablesTurnoverDays, so THREE published figures were wrong at once.
+        //
+        // 🔴 REUSED, NOT RE-DERIVED. The due-till-today amount comes from the SAME bill-wise projection the
+        // Outstandings reports bind to (Outstandings.Build → OutstandingsReport.Receivable/PayableDueTillToday).
+        // Computing ageing a second way here would let Ratio Analysis and Outstandings disagree about the same
+        // book, which would be a new defect wearing the old one's clothes.
+        //
+        // A bill counts once its due date has ARRIVED (DueDate <= asOf), which is one day wider than the ageing
+        // "Not due" bucket — see OutstandingBill.IsDueBy. A bill carrying no credit period is due on its own
+        // voucher date (BillAllocation.EffectiveDueDate), so a book with no credit terms lands back on the full
+        // pending amount; the two figures separate exactly when real credit periods exist, which is the point.
+        //
+        // ⚠️ KNOWN LIMITATION, stated rather than hidden: money with no BILL behind it contributes NOTHING to
+        // these two totals even when it sits in a closing balance — and that is NOT only the ledgers whose
+        // MaintainBillByBill flag is false. A bill-wise party's balance can equally arrive as an opening balance
+        // (this build has no opening bill-wise breakdown), on a line posted with no allocations, or against an
+        // On-Account allocation. That is the literal consequence of the vendor's definition; falling back to the
+        // closing balance would reinstate T0-27 for every non-bill-wise book. The two Principal-Group rows carry
+        // the "(due till today)" qualifier in their captions, so a 0 there is self-describing — but the RATIO
+        // cannot say that in a number, which is what receivablesTurnoverDays guards on below.
+        //
+        // 🔴 THE BASIS THE NUMERATOR IS BUILT ON MUST BE THE ONE THE DENOMINATOR IS BUILT ON. SalesOf below
+        // honours options.Scenario ONLY on the as-at path: under an explicit period window it falls back to
+        // un-scenarioed movement, because LedgerBalances has no signed-movement overload that also applies a
+        // scenario (that limitation is stated on SalesOf itself and is still true). Passing the scenario in here
+        // unconditionally therefore produced a NEW mixed-basis figure whenever a scenario and a period were both
+        // selected — reachable from the UI, which sets both from a saved view — dividing a scenario numerator by
+        // an actual-books denominator. So the numerator follows the same rule the denominator actually
+        // implements: scenario on the as-at path, actual books under a window. Both sides are then always one
+        // basis, and the day the movement primitive lands, both sides move together.
+        var basisScenario = options.Period is null ? options.Scenario : null;
+
+        var outstandings = Outstandings.Build(company, asOf, basisScenario);
+        var sundryDebtorsDueTillToday = outstandings.ReceivableDueTillToday.Amount;
+        var sundryCreditorsDueTillToday = outstandings.PayableDueTillToday.Amount;
+
+        // 🔴 CAN THIS BOOK ANSWER THE RECEIVABLES-TURNOVER QUESTION AT ALL? A numerator of 0 does NOT mean
+        // "nothing has fallen due" unless the bills can account for all the debtor money in the first place.
+        // This measures the MONEY the projection cannot account for — Σ (|closing| − its own pending bills) over
+        // the Sundry Debtors ledgers — and NOT the MaintainBillByBill flag, which only claims to imply it. The
+        // flag test let "0 days" through on a bill-wise party whose balance came in as an opening balance, on a
+        // line posted with no allocations, and on an On-Account allocation. See ClosingNotCoveredByBills.
+        var debtorsNotCoveredByBills = Outstandings.ClosingNotCoveredByBills(
+            company, asOf, "Sundry Debtors", basisScenario).Amount;
+
+        // 🔴 THE SAME MEASURE ON THE PAYABLES SIDE — RULING 27 COVERS ALL THREE PUBLISHED FIGURES, NOT ONLY THE
+        // RATIO. The two Principal-Group rows are money rows, and on a book whose party money no bill accounts
+        // for they published a flat 0.00 while the Balance Sheet on the same report showed the balance. The
+        // "(due till today)" caption does not rescue that: a reader takes 0.00 for a measured zero. Each side is
+        // measured in its OWN right — a book can be bill-wise on debtors and blind on creditors — so the
+        // creditors row cannot ride on the debtors measure.
+        var creditorsNotCoveredByBills = Outstandings.ClosingNotCoveredByBills(
+            company, asOf, "Sundry Creditors", basisScenario).Amount;
+
         var sales = SalesOf(company, asOf, options);  // net turnover: ledgers under the Sales Accounts primary
         var grossProfit = pl.GrossProfit.Amount;
         var netProfit = pl.NetProfit.Amount;
@@ -154,10 +282,29 @@ public sealed record RatioAnalysis(
         // there are no sales (Nett Profit % itself is N/A).
         var operatingCostPercent = netProfitPercent is { } np ? 100m - np : (decimal?)null;
 
-        // Receivables Turnover in days = (Sundry Debtors ÷ Sales) × days-in-period (inclusive window).
+        // Receivables Turnover in days = (Sundry Debtors DUE TILL TODAY ÷ Sales) × days-in-period (inclusive
+        // window). 🔴 The numerator is the bill-wise figure, NOT the closing balance — see the T0-27 note above.
+        //
+        // 🔴 TWO REASONS TO WITHHOLD IT, AND THEY ARE DIFFERENT SENTENCES ON SCREEN (user ruling 27: the cell
+        // must say WHY, and must not be a bare "N/A" an operator cannot tell from a zero denominator).
+        //   (a) Debtor money the bills cannot account for ⇒ the numerator is not a measurement of this book at
+        //       all. This is the DEFAULT book shape (MaintainBillByBill defaults to false; both study fixtures
+        //       are such books), and it also catches opening balances, allocation-less lines and On Account.
+        //   (b) Every rupee IS carried by a bill, but none of those bills has fallen due ⇒ the numerator is a
+        //       true 0 while real receivables exist, and "0 days" would state that customers pay instantly. A
+        //       fully bill-wise book whose invoices are simply inside their credit period is the ordinary steady
+        //       state of a healthy debtors ledger, so this is not an edge case either.
+        // Order matters: (a) is checked first because on a book with no bills at all BOTH hold, and (a) is the
+        // more specific truth. A book with no debtors at all trips neither and still publishes its honest 0.
         var window = options.EffectivePeriod(company);
         var daysInPeriod = window.To.DayNumber - window.From.DayNumber + 1;
-        var receivablesTurnoverDays = Ratio(sundryDebtors * daysInPeriod, sales);
+        var receivablesUnavailableReason =
+            debtorsNotCoveredByBills != 0m ? ReceivablesNoBillWiseDetails
+            : sundryDebtorsDueTillToday == 0m && sundryDebtorsClosing != 0m ? ReceivablesNoBillsDueYet
+            : null;
+        var receivablesTurnoverDays = receivablesUnavailableReason is not null
+            ? (decimal?)null
+            : Ratio(sundryDebtorsDueTillToday * daysInPeriod, sales);
 
         var currentRatio = Ratio(currentAssets, currentLiabilities);
         var quickRatio = Ratio(quickAssets, currentLiabilities);
@@ -173,8 +320,20 @@ public sealed record RatioAnalysis(
             new("Working Capital", new Money(workingCapital)),
             new("Current Assets", new Money(currentAssets)),
             new("Current Liabilities", new Money(currentLiabilities)),
-            new("Sundry Debtors", new Money(sundryDebtors)),
-            new("Sundry Creditors", new Money(sundryCreditors)),
+            // 🔴 The vendor's own captions carry the qualifier, and the qualifier is the whole of T0-27: a bare
+            // "Sundry Debtors" invites the reader to reconcile it against the Balance Sheet, which is precisely
+            // what it must NOT equal. The label states the basis so the two figures can differ in plain sight.
+            //
+            // 🔴 AND THE FIGURE IS WITHHELD (ruling 27) WHEN THE BILLS CANNOT ACCOUNT FOR THAT SIDE'S MONEY.
+            // The condition is the coverage measure, NOT "the amount is zero": a fully bill-covered book whose
+            // invoices are all inside their credit period has a due-till-today of exactly 0, and that 0 is TRUE
+            // — nothing is due today — so it must keep publishing. Only unaccounted-for money makes the figure
+            // a non-measurement, and that is the same test the ratio cell above guards on, so the three figures
+            // now agree about what this book can and cannot answer.
+            new("Sundry Debtors (due till today)", new Money(sundryDebtorsDueTillToday),
+                debtorsNotCoveredByBills != 0m ? NoBillWiseDetails : null),
+            new("Sundry Creditors (due till today)", new Money(sundryCreditorsDueTillToday),
+                creditorsNotCoveredByBills != 0m ? NoBillWiseDetails : null),
             new("Stock-in-Hand", new Money(inventory)),
             new("Sales Accounts", new Money(sales)),
             new("Capital Account", new Money(capitalAccount)),
@@ -189,7 +348,8 @@ public sealed record RatioAnalysis(
             new("Gross Profit %", grossProfitPercent, RatioUnit.Percent),
             new("Nett Profit %", netProfitPercent, RatioUnit.Percent),
             new("Operating Cost %", operatingCostPercent, RatioUnit.Percent),
-            new("Receivables Turnover (days)", receivablesTurnoverDays, RatioUnit.Days),
+            new("Receivables Turnover (days)", receivablesTurnoverDays, RatioUnit.Days,
+                receivablesUnavailableReason),
             new("Return on Investment %", returnOnInvestmentPercent, RatioUnit.Percent),
             new("Return on Working Capital %", returnOnWorkingCapitalPercent, RatioUnit.Percent),
             new("Inventory Turnover", inventoryTurnover, RatioUnit.Ratio),
@@ -206,8 +366,10 @@ public sealed record RatioAnalysis(
             new Money(netProfit),
             new Money(proprietorsFunds),
             new Money(longTermDebt),
-            new Money(sundryDebtors),
-            new Money(sundryCreditors),
+            new Money(sundryDebtorsDueTillToday),
+            new Money(sundryCreditorsDueTillToday),
+            new Money(sundryDebtorsClosing),
+            new Money(sundryCreditorsClosing),
             new Money(capitalAccount),
             CurrentRatio: currentRatio,
             QuickRatio: quickRatio,

@@ -1,4 +1,4 @@
-using Apex.Ledger;
+﻿using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Seed;
@@ -90,7 +90,7 @@ public class TdsTcsTests
         Assert.True(c.TdsEnabled);
         // The 11 predefined Nature-of-Payment masters are seeded: the Phase-7 eight (194I/194J bifurcated) plus
         // census row 6.35's first long-tail instalment — 194T, 194R, 194S (2026-09-08).
-        Assert.Equal(11, c.NaturesOfPayment.Count);
+        Assert.Equal(17, c.NaturesOfPayment.Count);
 
         // "TDS Payable" auto-created under Duties & Taxes, tagged, and excluded from the item-invoice pairing sum.
         var payable = svc.FindPayableLedger(TdsTcsLedgerKind.Tds)!;
@@ -179,10 +179,11 @@ public class TdsTcsTests
             Assert.True(n.IsPredefined);
         }
 
-        // 🔴 ELEVEN, NOT EIGHT, SINCE 2026-09-08 — census row 6.35's first long-tail instalment added §194T,
-        // §194R and §194S. The count assertion is kept (rather than relaxed to `>= 8`) precisely because it is
-        // what forces a seeding pass to come here and state the new rows' figures explicitly.
-        Assert.Equal(11, byCode.Count);
+        // 🔴 SEVENTEEN, NOT EIGHT, SINCE 2026-09-08 — census row 6.35's long tail added §194T/§194R/§194S in its
+        // first instalment and §192A/§194EE/§194G/§194K/§194LA/§194-O in its second. The count assertion is kept
+        // (rather than relaxed to `>= 8`) precisely because it is what forces a seeding pass to come here and
+        // state the new rows' figures explicitly.
+        Assert.Equal(17, byCode.Count);
         Check("194A", 1000, 2000, "94A", null, 10_000m); // generic (non-bank) SMB default (A14); bank ₹50k is a later refinement
         Check("194C", 100, 2000, "94C", 30_000m, 1_00_000m);
         Check("194H", 200, 2000, "94H", null, 20_000m);
@@ -191,8 +192,12 @@ public class TdsTcsTests
         // limb at all, so the ₹50,000 lives on the derived MonthlyThreshold. The seed used to ship ₹6,00,000 —
         // that monthly figure annualised — in the CumulativeThreshold field, which under-deducted ₹6,000.00 on a
         // single ₹60,000 month.
-        Check("194I(a)", 200, 2000, "4IA", null, null, 50_000m);
-        Check("194I(b)", 1000, 2000, "4IB", null, null, 50_000m);
+        // 🔴 "4-IA"/"4-IB", HYPHENATED, SINCE 2026-09-08. The seed used to ship "4IA"/"4IB", which is NOT what the
+        // notified Form 26Q says — its section-code table reads "194-I(a) Rent 4-IA" and "194-I (b) Rent 4-IB" —
+        // so every §194-I rent deduction was filed under a code the form does not carry. Existing books still
+        // store the old spelling and are corrected at the point of emission; see Tds194IFvuSectionCodeTests.
+        Check("194I(a)", 200, 2000, "4-IA", null, null, 50_000m);
+        Check("194I(b)", 1000, 2000, "4-IB", null, null, 50_000m);
         Check("194J(a)", 200, 2000, "94J-A", null, 50_000m);
         Check("194J(b)", 1000, 2000, "94J-B", null, 50_000m);
         Check("194Q", 10, 500, "94Q", null, 50_00_000m); // no-PAN = 5% special §206AA cap, NOT 20%
@@ -205,6 +210,23 @@ public class TdsTcsTests
         Check("194T", 1000, 2000, "94T", null, 20_000m);  // §194T(1) 10% · §194T(2) "does not exceed ₹20,000"
         Check("194R", 1000, 2000, "94R", null, 20_000m);  // §194R(1) 10% · 2nd proviso "does not exceed ₹20,000"
         Check("194S", 100, 2000, "94S", null, 10_000m);   // §194S(1) 1% · §194S(3)(b) "does not exceed ₹10,000"
+
+        // ── Census row 6.35, the long tail's SECOND instalment (2026-09-08) ───────────────────────────────
+        // Every figure is quoted in SeedTdsTcsRates from the bare Act at the slug whose "Year" field reads 2025,
+        // and every FVU code from the notified Form 26Q's own table. Four of these six had been rejected on a G2
+        // "the Act disagrees with the chart" reading taken at ARCHIVED slugs; at the right vintage all four agree.
+        Check("192A", 1000, 2000, "192A", null, 50_000m);    // 10% · "is less than ₹50,000" ⇒ INCLUSIVE boundary
+        Check("194EE", 1000, 2000, "4EE", null, 2_500m);     // 10% · "is less than ₹2,500" ⇒ INCLUSIVE boundary
+        Check("194G", 200, 2000, "94G", 20_000m, null);      // 2% · "in an amount exceeding ₹20,000" ⇒ PER-PAYMENT
+        Check("194K", 1000, 2000, "94K", null, 10_000m);     // 10% · "does not exceed ₹10,000" FY aggregate
+        Check("194LA", 1000, 2000, "4LA", null, 5_00_000m);  // 10% · "does not exceed ₹5,00,000" (NOT the archived ₹1,00,000)
+        Check("194-O", 10, 500, "94O", null, 5_00_000m);     // 0.1% (NOT the archived 1%) · no-PAN 5% per §206AA's 1st proviso
+
+        // 🔴 The two boundary shapes the seed now carries, asserted here as well as in TdsInclusiveThresholdTests
+        // so the seed table and the engine's behaviour cannot drift apart silently.
+        Assert.True(byCode["192A"].AggregateThresholdIsInclusive);
+        Assert.True(byCode["194EE"].AggregateThresholdIsInclusive);
+        Assert.True(byCode["194-O"].AggregateThresholdAppliesOnlyToIndividualHufWithPan);
     }
 
     [Fact]

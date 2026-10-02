@@ -156,12 +156,35 @@ namespace Apex.Persistence.Sqlite;
 /// goods GST never absorbed: seven <c>companies</c> columns, five <c>ledgers</c> columns, two
 /// <c>stock_items</c> columns and four <c>vouchers</c> columns. Purely additive; every default is 0/NULL. See
 /// <see cref="MigrateV58ToV59"/>.
-/// <b><see cref="CurrentVersion"/> = 59</b> (v59 = State VAT &amp; CST, see below); a fresh DB is always
-/// stamped to it via <see cref="CreateV1"/>, which therefore mirrors the cumulative result of every migration below.
+/// 🔴 <b>THE CURRENT VERSION IS THE CONSTANT <see cref="CurrentVersion"/> AND NOTHING ELSE — READ IT, NEVER THIS
+/// SENTENCE.</b> This line used to restate the digit (<i>"<c>CurrentVersion</c> = 59"</i>) and was left behind by
+/// every migration after v59, so it read 59 while the constant read 64; it misled two agents before being
+/// corrected on 2026-09-23. The restated digit is therefore <b>deleted rather than updated</b> — a second copy of
+/// a number that already has one authoritative home is a defect whatever value it currently holds. A fresh DB is
+/// always stamped to <see cref="CurrentVersion"/> via <see cref="CreateV1"/>, which therefore mirrors the
+/// cumulative result of every migration below.
 /// </summary>
 public static class Schema
 {
-    /// <summary>The current schema version this adapter reads and writes. <b>v59</b> is the latest bump
+    /// <summary>The current schema version this adapter reads and writes — <b>it is the value of this constant and
+    /// nothing else</b>.
+    ///
+    /// <para>🔴 <b>THE LADDER BELOW IS A HISTORICAL RECORD AND IT STOPS AT v59. DO NOT READ ITS HEAD AS "THE
+    /// CURRENT VERSION".</b> This sentence used to open <i>"<b>v59</b> is the latest bump"</i> and went on saying
+    /// it through five further bumps, so it claimed v59 while the constant read 64 — the same defect as the one
+    /// corrected in this type's own doc comment above, one summary lower and therefore more misleading, because it
+    /// sits directly on the constant. Both were corrected on 2026-09-23/24 by <b>deleting the restated digit
+    /// rather than updating it</b>: a second copy of a number that already has one authoritative home is a defect
+    /// whatever value it currently holds, and this file has now been wrong about itself twice in the same way.</para>
+    ///
+    /// <para><b>The five bumps missing from the ladder</b>, named by their migration constants so a reader can go
+    /// and read them rather than trust a summary: <see cref="MigrateV59ToV60"/>, <see cref="MigrateV60ToV61"/>,
+    /// <see cref="MigrateV61ToV62"/>, <see cref="MigrateV62ToV63"/> and <see cref="MigrateV63ToV64"/>. They are
+    /// deliberately <b>not</b> summarised here — an unverified summary of a migration is worse than a pointer to
+    /// it, and writing five from memory is how the stale claim above got written in the first place.</para>
+    ///
+    /// <para>▼ <i>The ladder as it stood, kept because each entry was accurate when written:</i></para>
+    /// v59 was a bump
     /// (<b>State VAT &amp; Central Sales Tax for the goods GST never absorbed</b>, census 15.1 State VAT / 15.2
     /// Tax Rate on the masters / 15.5 VAT Computation / 15.6 CST declaration forms: seven <c>companies</c>
     /// columns carrying the vendor's Company VAT Details screen, five <c>ledgers</c> columns (the sales/purchase
@@ -263,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 62;
+    public const int CurrentVersion = 65;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1003,6 +1026,18 @@ public static class Schema
         );
         CREATE INDEX ix_employee_tax_declarations_company ON employee_tax_declarations(company_id);
 
+        -- v64 (defect T1-26 / the 4% cess ruling): the establishment's OWN dated Health & Education Cess rate.
+        -- Declarations byte-identical to MigrateV63ToV64. EMPTY for every company that has not edited the rate, and
+        -- empty means "charge the statutory rate for the year" — which is why no existing book changes behaviour on
+        -- upgrade (ER-13). See that constant for the full reasoning.
+        CREATE TABLE income_tax_cess_rates (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            effective_from    TEXT    NOT NULL,   -- ISO yyyy-MM-dd; the first date this rate applies to
+            rate_basis_points INTEGER NOT NULL    -- 10000 = 100%, so the statutory 4% is 400
+        );
+        CREATE INDEX ix_income_tax_cess_rates_company ON income_tax_cess_rates(company_id);
+
         CREATE TABLE groups (
             id            TEXT    NOT NULL PRIMARY KEY,
             company_id    TEXT    NOT NULL REFERENCES companies(id),
@@ -1613,7 +1648,16 @@ public static class Schema
             -- 🔴 NO QUANTITY IS EVER STORED IN THE ALTERNATE UNIT — every stock table keeps its single base-unit
             -- column and the alternate expression is DERIVED on display by AlternateUnitConversion. See that class.
             alternate_unit_id             TEXT    NULL REFERENCES units(id),
-            alternate_conversion_micro    INTEGER NULL            -- BASE units per ONE alternate unit, × 1,000,000
+            alternate_conversion_micro    INTEGER NULL,           -- BASE units per ONE alternate unit, × 1,000,000
+            -- v65 (census 3.4, user ruling 26): the MARKET VALUATION dimension, plus the marker that lets an
+            -- upgraded book warn the RIGHT operator. Declarations byte-identical to MigrateV64ToV65.
+            -- market_valuation_method DEFAULT 0 = AtZeroPrice = auto-fill nothing, which is exactly what every
+            -- pre-v65 book did (the dimension did not exist), so no sales line anywhere changes (ER-13).
+            market_valuation_method   INTEGER NOT NULL DEFAULT 0, -- MarketValuationMethod ordinal (0 = AtZeroPrice)
+            standard_price_paisa      INTEGER     NULL,           -- Standard-PRICE selling rate, paisa (NULL = unset)
+            -- NULL on every item the v65 remediation did not touch. Holds the StockValuationMethod ordinal the
+            -- item was moved AWAY from, so the on-open warning can name affected books and stay silent on the rest.
+            valuation_remediated_from INTEGER     NULL
         );
 
         CREATE TABLE stock_opening_balances (
@@ -2162,7 +2206,13 @@ public static class Schema
             slab_type         INTEGER NOT NULL,                     -- PayHeadComputationSlabType ordinal
             rate_basis_points INTEGER NOT NULL DEFAULT 0,
             value_paisa       INTEGER NOT NULL DEFAULT 0,
-            ord               INTEGER NOT NULL
+            ord               INTEGER NOT NULL,
+            -- v63 (census 7.19 Labour Welfare Fund): the vendor's Computation Information "Effective From" window.
+            -- BOTH NULL on every pre-v63 slab, and on every slab a user never dates, which means "in force in every
+            -- period" — bit-for-bit today's behaviour, so no existing payslip moves by a paisa (ER-13).
+            -- Declarations byte-identical to MigrateV62ToV63. See that constant for why this row needed storage.
+            effective_from    TEXT        NULL,                     -- ISO yyyy-MM-dd; NULL = no lower bound
+            effective_to      TEXT        NULL                      -- ISO yyyy-MM-dd; NULL = no upper bound
         );
         CREATE INDEX ix_pay_head_computation_slabs_payhead ON pay_head_computation_slabs(pay_head_id);
 
@@ -5308,6 +5358,254 @@ public static class Schema
         -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
         -- for an added column carrying a REFERENCES clause.
         ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v65 — THE MARKET VALUATION DIMENSION, AND THE REMEDIATION OF A COSTING METHOD THAT VALUED CLOSING STOCK AT
+    // THE SELLING PRICE (census 3.4, defect T0-2, register IV-6; USER RULING 26). Object names are published here
+    // ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The three <c>stock_items</c> columns v65 adds — the exact set <see cref="MigrateV64ToV65"/> adds
+    /// and <c>SchemaDowngrade.V65ToV64</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V65StockItemColumns =
+        new[] { "market_valuation_method", "standard_price_paisa", "valuation_remediated_from" };
+
+    /// <summary>
+    /// 🔴 <b>The costing method every <c>LastSaleCost</c> item is migrated ONTO — ordinal 4,
+    /// <c>StockValuationMethod.LastPurchaseCost</c>.</b> Published as a named constant so the migration SQL, the
+    /// operator-facing warning and the tests cannot disagree about what a remediated book was moved to.
+    /// </summary>
+    public const int V65RemediationTargetMethod = 4;
+
+    /// <summary>The retired <c>StockValuationMethod.LastSaleCost</c> ordinal that v65 migrates away from.</summary>
+    public const int V65RetiredSaleCostMethod = 5;
+
+    /// <summary>
+    /// v64 → v65 (census row <b>3.4 Costing methods and Market Valuation</b>, defect <b>T0-2</b>, register
+    /// <b>IV-6</b>; <b>USER RULING 26</b>): adds the missing <b>Market Valuation</b> dimension and <b>moves every
+    /// book off a costing method that was valuing closing stock at our own selling price</b>.
+    ///
+    /// <para>🔴 <b>THE DEFECT, IN MONEY.</b> <c>LastSaleCost</c> was offered in the <i>costing</i> picker and
+    /// valued closing stock at the most recent <b>sale</b> rate. Buy 100 @ ₹100, sell 40 @ ₹150, closing 60: it
+    /// reported Stock-in-Hand <b>₹9,000</b> where every real costing method reports <b>₹6,000</b> — the Balance
+    /// Sheet overstated by the whole margin, COGS understated by the same, and unrealised profit recognised on
+    /// goods still sitting in the godown. The reference product files this basis under <b>Market Valuation</b>
+    /// ("Last Sales Price"), where it auto-fills a selling price and reaches no asset value.</para>
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>https://help.tallysolutions.com/stock-valuation-methods-tallyprime/</c>
+    /// ("How to Apply Stock Valuation Methods in TallyPrime | TallyHelp"), read 2026-09-21, re-verified 2026-10-01.
+    /// It presents two separate fields: costing methods "<i>enable you to identify the worth of your business
+    /// inventory</i>", market valuation methods "<i>help you to auto-fill the selling price of the items while
+    /// recording sales</i>", and it lists Last Sales Price under the latter.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS MIGRATION ACTUALLY CHANGES ON DISK — the only <c>UPDATE</c> in the wave, and it moves
+    /// real money.</b> Every <c>stock_items</c> row whose <c>valuation_method</c> is
+    /// <see cref="V65RetiredSaleCostMethod"/> (5) is rewritten to <see cref="V65RemediationTargetMethod"/> (4),
+    /// and its <c>valuation_remediated_from</c> is stamped with 5. Ruling 26 is explicit that such books'
+    /// closing stock value changes on the day they upgrade, and that the user chose this over grandfathering two
+    /// valuation models forever. <b>Because it is a silent balance movement, the stamp is not optional
+    /// bookkeeping</b> — it is what lets the application tell that operator, on open, what changed and why, while
+    /// staying silent for every book that never chose the method.</para>
+    ///
+    /// <para>🔴 <b>WHY <c>LastPurchaseCost</c> AND NOT THE DEFAULT — migrating to the wrong basis is its own
+    /// wrong-money event, so the choice is argued, not assumed.</b>
+    /// <list type="number">
+    ///   <item><b>It preserves the shape of the operator's own decision.</b> They chose a flat rate taken from the
+    ///   single most recent transaction. Last Purchase Cost is that identical basis on the cost side — the
+    ///   vendor's own adjacent costing method — rather than a different model imposed on them.</item>
+    ///   <item><b>It is the smallest possible movement, and for many books it is ZERO.</b> The old
+    ///   <c>LastSaleCost</c> code path already fell back to the last purchase rate whenever an item had no rated
+    ///   sale. So every item that was never sold at a rate — new stock, slow movers, an entire book that only
+    ///   purchases — values at <b>exactly the same paisa</b> after this migration as before it. The change is
+    ///   confined to items that really were being valued at a sale price, which is precisely the defect.</item>
+    ///   <item><b>It cannot embed margin.</b> A purchase rate is a cost we actually paid. That is the one property
+    ///   the retired method lacked and the whole reason it had to go; <c>AverageCost</c> would also satisfy this,
+    ///   but it would move the value of every affected item including the ones losing nothing, for no gain.</item>
+    /// </list></para>
+    ///
+    /// <para><b>Also added, and inert by construction.</b> <c>market_valuation_method</c> DEFAULT <b>0</b> =
+    /// <c>AtZeroPrice</c> = auto-fill nothing, which is byte-identical to what every pre-v65 book did, since the
+    /// dimension did not exist at all. <c>standard_price_paisa</c> is NULL everywhere. Neither is read by any
+    /// Balance Sheet or P&amp;L path — <c>MarketValuationService</c> produces a selling <i>price</i> only. This
+    /// build does <b>not</b> assert what the reference product defaults the market-valuation field to, because it
+    /// could not source that; it picks the one option of the four that can state no wrong number.</para>
+    ///
+    /// <para>🔴 <b>NO <c>DEFAULT</c> CLAUSE DRIFT.</b> <c>ALTER TABLE … ADD COLUMN</c> and the
+    /// <see cref="CreateV1"/> declarations must agree on name/type/notnull/default/pk —
+    /// <c>SchemaMigrationEquivalenceTests</c> compares <c>PRAGMA table_info</c> across a full v1 → current replay,
+    /// so the two copies of these three lines must not drift.</para>
+    ///
+    /// <para>⚠️ <b><c>stock_items</c> IS AN FK PARENT</b> (a dozen tables reference <c>stock_items(id)</c>), so the
+    /// inverse <c>SchemaDowngrade.V65ToV64</c> MUST use <c>RebuildPreservingShape</c> and not <c>DropColumns</c> —
+    /// a <c>CREATE … AS SELECT</c> rebuild silently loses the primary key, the failure <c>V56ToV55</c> records.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 65.</para>
+    /// </summary>
+    public const string MigrateV64ToV65 = """
+        -- v65 (census 3.4 / defect T0-2 / USER RULING 26): the Market Valuation dimension, and the remediation of
+        -- a costing method that valued closing stock at the SELLING price. See this constant's doc comment.
+        -- Declarations byte-identical to their counterparts in CreateV1.
+        ALTER TABLE stock_items ADD COLUMN market_valuation_method   INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE stock_items ADD COLUMN standard_price_paisa      INTEGER     NULL;
+        ALTER TABLE stock_items ADD COLUMN valuation_remediated_from INTEGER     NULL;
+
+        -- 🔴 THE ONE UPDATE, AND IT MOVES THE BALANCE SHEET OF EVERY BOOK IT TOUCHES (ruling 26, accepted
+        -- explicitly by the user). Items costed at the retired LastSaleCost ordinal (5) move to LastPurchaseCost
+        -- (4) and record where they came from, so the next open can warn THAT operator and nobody else. An item
+        -- that was never sold at a rate already valued at its last purchase rate under the old fallback chain, so
+        -- for those the value does not move at all.
+        UPDATE stock_items
+           SET valuation_remediated_from = 5,
+               valuation_method          = 4
+         WHERE valuation_method = 5;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v64 — THE ESTABLISHMENT'S OWN DATED HEALTH & EDUCATION CESS RATE (defect T1-26 / the 4% cess ruling). Object
+    // names are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME
+    // set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The one table v64 adds — the exact set <see cref="MigrateV63ToV64"/> creates and
+    /// <c>SchemaDowngrade.V64ToV63</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V64Tables = new[] { "income_tax_cess_rates" };
+
+    /// <summary>The one index v64 adds (a by-company lookup, which is the only way the table is ever read).</summary>
+    public static readonly IReadOnlyList<string> V64Indexes = new[] { "ix_income_tax_cess_rates_company" };
+
+    /// <summary>
+    /// v63 → v64 (defect <b>T1-26</b> and the user's ruling on the <b>4% Health &amp; Education Cess</b>): a
+    /// per-company, <b>effective-from-dated</b> cess rate.
+    ///
+    /// <para>🔴 <b>WHAT THE RULING OWED AND WHAT THIS VERSION SUPPLIES.</b> The cess used to be
+    /// <c>public const decimal CessRate = 0.04m;</c> — a single compile-time number applied to a <b>live payroll
+    /// deduction</b> for every company and every period. The ruling is that it ships <b>dated</b>,
+    /// <b>company-configurable</b> and <b>defaulting to 4%</b>. Dating and configurability are what need storage;
+    /// this table is the whole of that storage. The default needs <b>no</b> storage at all, and deliberately gets
+    /// none — see the next paragraph.</para>
+    ///
+    /// <para>🔴 <b>IT BACK-FILLS NOTHING, AND THAT IS THE (c) LIMB OF THE RULING RATHER THAN AN OMISSION.</b> There is
+    /// <b>no INSERT and no UPDATE</b> here. An empty <c>income_tax_cess_rates</c> means "this establishment has not
+    /// set a rate", which the engine reads as "charge the statutory rate for the year" — and every financial year
+    /// this build can source publishes 4%. So every existing payslip, Form 16 Part B figure and Form 24Q Annexure II
+    /// figure recomputes to <b>the same paisa</b> after the upgrade. Seeding a 4% row instead would have been
+    /// strictly worse in two ways: it would assert 4% as this company's own decision when nobody decided it, and it
+    /// would freeze 4% forward past any future statutory change. A silent change to a shipped payroll deduction is
+    /// the worst failure available on this path, so the no-change property is asserted by a dedicated test rather
+    /// than argued for here.</para>
+    ///
+    /// <para>🔴 <b>PURELY ADDITIVE, AND IT ADDS NO COLUMN TO ANY EXISTING TABLE — which is why the downgrade is a
+    /// plain DROP.</b> A version that put the rate on <c>companies</c> would have forced
+    /// <c>SchemaDowngrade.RebuildPreservingShape</c> on an FK <b>parent</b>, the manoeuvre whose PK-losing failure
+    /// mode <c>V56ToV55</c> records. One new child table needs none of it: <c>V64ToV63</c> drops one index and one
+    /// table and stamps the marker back, and that IS the true inverse for any book that has not set a rate.</para>
+    ///
+    /// <para><b>Why a dated ROW rather than a single current value.</b> A lone column could carry today's rate but
+    /// not the rate a past period was computed on, so re-opening an old payroll would silently re-price it — the same
+    /// class of defect as T1-26 itself, one level down. A row per effective date is the smallest shape that makes a
+    /// historical re-computation reproducible. Resolution is anchored on the payroll period's END date
+    /// (<c>Company.ResolveIncomeTaxCessRate</c>), matching the dated salary structure and the v63 dated computation
+    /// slab so the three cannot disagree about which period a date belongs to.</para>
+    ///
+    /// <para><b>SOURCE for the 4% default (R7 / ruling 14).</b> Income Tax Department e-filing portal,
+    /// <c>https://www.incometax.gov.in/iec/foportal/help/individual/return-applicable-1</c> (AY 2026-27) and
+    /// <c>.../return-applicable-3</c> (AY 2025-26), both retrieved 2026-09-15: "<i>Health &amp; Education cess @ 4% to
+    /// be paid on the amount of income tax plus Surcharge</i>". The rate itself lives in <c>SalaryTaxRates</c>, dated
+    /// per year; this table only ever holds a company's departure from it.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 64. Both declarations are byte-identical to
+    /// their counterparts in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c> compares
+    /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift.</para>
+    /// </summary>
+    public const string MigrateV63ToV64 = """
+        -- v64 (defect T1-26 / the 4% cess ruling): the establishment's OWN dated Health & Education Cess rate.
+        -- Purely additive: one CHILD table of companies, one index, and NO column on any existing table.
+        -- NOTHING is back-filled and there is no INSERT or UPDATE here — an EMPTY table means "charge the statutory
+        -- rate for the year", which is the 4% every sourceable year publishes, so every existing payslip and every
+        -- existing Form 16 / Form 24Q figure recomputes to the same paisa. See this constant's doc comment.
+        CREATE TABLE income_tax_cess_rates (
+            id                TEXT    NOT NULL PRIMARY KEY,
+            company_id        TEXT    NOT NULL REFERENCES companies(id),
+            effective_from    TEXT    NOT NULL,   -- ISO yyyy-MM-dd; the first date this rate applies to
+            rate_basis_points INTEGER NOT NULL    -- 10000 = 100%, so the statutory 4% is 400
+        );
+        CREATE INDEX ix_income_tax_cess_rates_company ON income_tax_cess_rates(company_id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v63 — DATED PAY-HEAD COMPUTATION SLABS (census 7.19 Labour Welfare Fund). Object names are published here
+    // ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set and cannot drift.
+    //
+    // 🔴 THIS RUNG WAS BUILT AS 61 → 63 AND HAS BEEN RE-POINTED TO 62 → 63; THE HISTORY IS KEPT BECAUSE IT
+    // EXPLAINS THE NUMBERING. v62 (Voucher Class) was built by a SIBLING TRACK in the same wave and had not landed
+    // on origin/main when this branch was cut (origin/main was 87f79d4, CurrentVersion 61), so ruling 22 assigned
+    // THIS track v63 and the step originally spanned 61 → 63 in one move, guarded on `version == 61`. That was
+    // correct while it stood alone and is WRONG now: v62 landed on main (973d933), its step sits directly above
+    // this one in SqliteCompanyStore.MigrateIfNeeded, and a v61 book is already at 62 by the time this rung is
+    // reached. The guard is therefore `version == 62` and this constant is named for what it actually does. The
+    // two migrations commute — v63 touches one payroll child table and nothing v62 adds — so the re-point is
+    // exact rather than a reconciliation. Nothing about the DDL below changed.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The two <c>pay_head_computation_slabs</c> columns v63 adds — the exact set
+    /// <see cref="MigrateV62ToV63"/> creates and <c>SchemaDowngrade.V63ToV62</c> drops.</summary>
+    public static readonly IReadOnlyList<string> V63SlabColumns =
+        new[] { "effective_from", "effective_to" };
+
+    /// <summary>
+    /// v62 → v63 (census row 7.19, <b>Labour Welfare Fund deduction</b>): an <b>Effective From / Effective To</b>
+    /// window on each pay-head computation slab.
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/tally-prime/payroll/payroll-faq/</c>, "How to create
+    /// Labour Welfare Fund Pay Head?": "<i>Select <b>Deductions From Employees</b> in the <b>Pay head type</b>
+    /// field. In <b>Computation Information</b> section, define the <b>Effective From</b> and <b>Value</b> as
+    /// applicable.</i>" with the load-bearing note "<i><b>Note</b>: The value will be deducted only for the month
+    /// (December) specified in the Pay Head.</i>" (retrieved and read 2026-09-14). So in the reference product LWF
+    /// is an <b>ordinary user-defined pay head</b> whose computation rows are <b>dated</b>, and the dating is what
+    /// confines the deduction to the month the levy actually falls in.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS NEEDED STORAGE AT ALL — THE DEFECT IT PREVENTS IS A TWELVE-FOLD OVER-DEDUCTION FROM A
+    /// LIVE PAYSLIP.</b> Before v63 a <c>pay_head_computation_slabs</c> row carried
+    /// <c>from_amount_paisa</c>/<c>to_amount_paisa</c>/<c>slab_type</c>/<c>rate_basis_points</c>/<c>value_paisa</c>/<c>ord</c>
+    /// and <b>no date of any kind</b>, and there was no month gate anywhere on a pay head — so a FlatValue
+    /// deduction head fired in <b>every</b> payroll period. An LWF head carrying an <b>annual</b> or
+    /// <b>half-yearly</b> contribution would therefore have been deducted <b>twelve times a year</b>. That is a
+    /// strictly worse instance of the Karnataka professional-tax over-charge (₹100 per employee per year) which
+    /// already cost this project a Tier 0 fix plus the v55 back-fill migration. The salary structure's own
+    /// <c>EffectiveFrom</c> does <b>not</b> rescue it: a structure is superseded <i>forward</i>, so a December
+    /// structure deducts from December <i>onward, forever</i>. There is no zero-storage construction that is
+    /// correct, which is why census 7.19 was held ABSENT — <b>blocked on storage</b> — rather than guessed at.</para>
+    ///
+    /// <para>🔴 <b>NO STATE RATE TABLE IS SEEDED, AND THAT IS THE FAITHFUL CLONE, NOT A SHORTFALL.</b> The
+    /// reference product ships <b>no</b> LWF rate data: its own documentation has the user "<i>define the Effective
+    /// From and Value as applicable</i>". LWF is a <b>state</b> levy whose amount, wage ceiling, employer/employee
+    /// split and <b>periodicity</b> (several states collect <b>half-yearly</b>, others annually — not monthly) are
+    /// fixed by each State's own Act and notifications. Seeding a national-looking table would be <b>inventing</b>
+    /// something the reference product does not have, on a path that takes money off somebody's salary. So v63
+    /// ships the <b>mechanism</b> and the user supplies their State's figure — which is exactly what the vendor
+    /// does. No rate, ceiling or periodicity is asserted anywhere in this change.</para>
+    ///
+    /// <para><b>Semantics, anchored on the period END date.</b> A slab is in force for a payroll period iff
+    /// <c>(effective_from IS NULL OR effective_from &lt;= periodTo)</c> AND
+    /// <c>(effective_to IS NULL OR periodTo &lt;= effective_to)</c>. The anchor is <c>periodTo</c> because that is
+    /// already this engine's convention for resolving the dated <c>SalaryStructure</c> in force ("the structure in
+    /// force on the period-end date"), so the two cannot disagree about which period a date belongs to. Both
+    /// columns NULL ⇒ in force in every period ⇒ <b>byte-identical arithmetic to v61</b> for every pay head that
+    /// exists today (ER-13); the dated window is opt-in per slab.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 63. Both declarations are byte-identical
+    /// to their counterparts in <see cref="CreateV1"/> — <c>SchemaMigrationEquivalenceTests</c> compares
+    /// <c>PRAGMA table_info</c> (name/type/notnull/default/pk), so the two copies must not drift. Purely additive:
+    /// two nullable columns on one payroll child table, no index, no back-fill, <b>no UPDATE</b>.</para>
+    /// </summary>
+    public const string MigrateV62ToV63 = """
+        -- v63 (census 7.19): the vendor's Computation Information "Effective From" window on a computation slab.
+        -- Purely additive: two nullable TEXT columns on one payroll child table. NOTHING is back-filled and there
+        -- is no UPDATE here — BOTH NULL already means "in force in every period", which is what every pre-v63 slab
+        -- did, so every existing payslip recomputes to the same paisa. See this constant's doc comment.
+        ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_from TEXT NULL;
+        ALTER TABLE pay_head_computation_slabs ADD COLUMN effective_to   TEXT NULL;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

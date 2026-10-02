@@ -34,7 +34,22 @@ public sealed record JobWorkOrderRow(
     decimal FinishedGoodQuantity,
     Money? FinishedGoodRate,
     IReadOnlyList<JobWorkOrderComponentRow> Components,
-    string FormattedNumber = "");
+    string FormattedNumber = "",
+    /// <summary>
+    /// 🔴 <b>The posted <c>InventoryVoucher</c> this order row stands for — census 9.2.</b> Without it the Job
+    /// Work Order Books rendered a voucher the operator could see but could not reach: Enter did not drill and
+    /// Ctrl+Enter, Alt+X and Alt+D were SILENT no-ops, because every one of those verbs resolves through
+    /// <c>ReportRow.DrillInventoryVoucherId</c> and this projection had no id to put in it. A silent no-op is
+    /// the worst of the failure modes on this surface — the operator believes the correction landed.
+    ///
+    /// <para>🔴 <b>THE ID IS NECESSARY AND WAS NOT SUFFICIENT, and this sentence is here because a shipped
+    /// comment once claimed it was.</b> Ctrl+Enter, Alt+X and Alt+D resolve the id through the shell, so those
+    /// three went live the moment this field was populated. <b>Enter does not</b> — it goes through
+    /// <c>ReportsViewModel.Drill</c>, a <c>switch</c> on report kind with no default arm, so until that switch
+    /// gained a case for these four kinds Enter stayed a no-op with the id sitting right there unused. Populating
+    /// a drill id and wiring the drill are two separate changes; do not read one as evidence of the other.</para>
+    /// </summary>
+    Guid VoucherId = default);
 
 /// <summary>
 /// One movement line in a Material In / Material Out register (Phase 6 slice 8; RQ-51): a single allocation on
@@ -58,7 +73,13 @@ public sealed record MaterialRegisterRow(
     string? PartyName,
     IReadOnlyList<string> LinkedOrderNumbers,
     string? Narration,
-    string FormattedNumber = "");
+    string FormattedNumber = "",
+    /// <summary>The posted <c>InventoryVoucher</c> this movement line belongs to — census 9.2. Same reason as
+    /// <see cref="JobWorkOrderRow.VoucherId"/>, including the necessary-but-not-sufficient note there: the id
+    /// arms Ctrl+Enter, Alt+X and Alt+D, while Enter additionally needs an arm in <c>ReportsViewModel.Drill</c>.
+    /// Without the id the Material In/Out registers carry rows no keyboard verb can reach. N lines of one voucher
+    /// all carry the SAME id, which is correct — the lifecycle verbs act on the voucher, not on the line.</summary>
+    Guid VoucherId = default);
 
 /// <summary>
 /// The four Job Work registers (Phase 6 slice 8; RQ-51; Book1 pp.86, 89, 93, 96) — <b>Job Work In Order
@@ -118,7 +139,8 @@ public static class JobWorkReports
             rows.Add(new JobWorkOrderRow(
                 v.Date, type?.Name ?? "(unknown)", v.Number, jwo.OrderNo, jwo.Direction,
                 v.PartyId, partyName, jwo.FinishedGoodStockItemId, fg?.Name ?? "(unknown)",
-                jwo.FinishedGoodQuantity, jwo.FinishedGoodRate, components, company.FormatVoucherNumber(v)));
+                jwo.FinishedGoodQuantity, jwo.FinishedGoodRate, components, company.FormatVoucherNumber(v),
+                v.Id));
         }
         rows.Sort(CompareOrders);
         return rows;
@@ -179,7 +201,7 @@ public static class JobWorkReports
                     v.Date, type.Name, v.Number, a.StockItemId, item?.Name ?? "(unknown)",
                     a.GodownId, godown?.Name ?? "(unknown)", qtyBase, a.Direction,
                     rateBase, value, a.BatchLabel, v.PartyId, partyName, linkedNos, v.Narration,
-                    company.FormatVoucherNumber(v)));
+                    company.FormatVoucherNumber(v), v.Id));
             }
         }
         rows.Sort((x, y) =>

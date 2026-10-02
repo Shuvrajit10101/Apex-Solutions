@@ -28,16 +28,23 @@ namespace Apex.Desktop.ViewModels;
 /// Passwords. The Users for Company screen will appear."</i> and <i>"Press Alt+K (Company) &gt; Password
 /// Policy"</i> (help.tallysolutions.com/manage-users-in-tallyprime/). Both rows are now built and both open a
 /// real screen, so the header line that said security actions were absent has been REMOVED rather than
-/// softened — it was a true statement until this slice landed and would be a false one now. What remains
-/// withheld is the data-vault row (census 16.1, whose crypto half is blocked on a user ruling) and the edit-log
-/// row (16.4, reachable elsewhere), and <see cref="Disclosure"/> now names exactly that narrower gap.</para>
+/// softened — it was a true statement until this slice landed and would be a false one now.</para>
+///
+/// <para>🔴 <b>CENSUS 16.1 — THE DATA-VAULT ROW IS NOW BUILT, AND THE DISCLOSURE MOVED AGAIN RATHER THAN
+/// BEING LEFT TO ROT.</b> Ruling 23 put the vault in scope and accepted its storage-identity change, so the
+/// row below opens <c>CompanyVaultViewModel</c> and the header line that read <i>"Company data encryption is
+/// not in this build"</i> has been REPLACED — it was true until this slice landed and would be a false
+/// statement on the operator's screen now, which is exactly the correction this file already had to make once
+/// for the two security rows. What remains withheld is the edit-log row alone (16.4, reachable elsewhere),
+/// and <see cref="Disclosure"/> now names that narrower gap. Whoever closes 16.4 removes the line.</para>
 ///
 /// <para>🔴 <b>WHAT THIS MENU DELIBERATELY DOES NOT OFFER, and why the omission is the honest answer.</b>
 /// <list type="bullet">
-/// <item>The vendor's <b>data-vault row</b> — census 16.1, whose page-encryption half needs a new native
-/// dependency and a user ruling before it can be built. A row that opens a "not available" message is worse
-/// than no row: it advertises a capability the product does not have. The column discloses the gap in a header
-/// line instead of pretending the list is complete.</item>
+/// <item><b>🔴 The data-vault row is NO LONGER on this list — it is BUILT (census 16.1).</b> It used to be
+/// withheld here on the grounds that its page-encryption half needed a new native dependency and a user
+/// ruling; ruling 23 granted both, the provider is now <c>e_sqlcipher</c>, and the row opens a real screen.
+/// The standing principle is unchanged and still governs the rows below it: a row that opens a "not
+/// available" message is worse than no row, because it advertises a capability the product does not have.</item>
 /// <item>🔴 <b>The disclosure names the CAPABILITY FAMILY, never the vendor's row names, and that is a rule
 /// rather than a style choice.</b> That withheld row is a vendor PRODUCT NAME carrying the "Tally" brand, and
 /// this application must never render that brand in a user-visible string — the suite enforces it
@@ -60,11 +67,23 @@ public static class CompanyMenu
 
     /// <summary>
     /// The verbs this application actually has, in the vendor's order (Create · Alter · Select), with Shut
-    /// last on the chord the vendor gives it. Named as a constant so the test that asserts "only verbs this
-    /// application has" DERIVES its expectation instead of restating it.
+    /// last on the chord the vendor gives it. Read by
+    /// <c>ShellNavigationRowsTests.The_company_menu_offers_only_verbs_this_application_has_and_says_what_it_withholds</c>,
+    /// which asserts the BUILT column matches this list exactly — so a row added to
+    /// <see cref="BuildColumn"/> and not to this list (or the reverse) fails rather than drifting.
     /// </summary>
     public static readonly IReadOnlyList<string> OfferedVerbs =
-        new[] { "Create", "Alter", "Select", "Shut", UsersAndPasswordsVerb, PasswordPolicyVerb };
+        new[] { "Create", "Alter", "Select", "Shut", UsersAndPasswordsVerb, PasswordPolicyVerb, DataVaultVerb };
+
+    /// <summary>
+    /// 🔴 <b>Census 16.1 — OUR name for the vendor's data-vault row.</b> The vendor's own row label is a
+    /// product name carrying the "Tally" brand, which this application must never render (R7); the suite
+    /// asserts its absence in a dozen places. "Data Vault" was checked against the whole UI before it was
+    /// taken — the word "Vault" appeared nowhere in <c>src/</c> outside doc comments quoting the vendor — and
+    /// it is defined ONCE, on <c>CompanyVault.FeatureName</c>, so the menu row, the screen title and the tests
+    /// all read the same string rather than three copies of it.
+    /// </summary>
+    public static string DataVaultVerb => Apex.Persistence.Sqlite.CompanyVault.FeatureName;
 
     /// <summary>The vendor's row label, verbatim: <i>"Alt+K (Company) &gt; <b>Users and Passwords</b>"</i>
     /// (help.tallysolutions.com/manage-users-in-tallyprime/). Census 16.2.</summary>
@@ -85,7 +104,7 @@ public static class CompanyMenu
     /// header pays for every word. This one needs two wrapped lines and a test measures that it is fully
     /// readable — the predecessor line was composed from a list, grew to 888px, and was silently cut.</para>
     /// </summary>
-    public const string Disclosure = "Company data encryption is not in this build";
+    public const string Disclosure = "Audit trail of edits is not on this menu";
 
     /// <summary>
     /// Builds the Alt+K column for the company named <paramref name="companyName"/>.
@@ -98,7 +117,8 @@ public static class CompanyMenu
         Action select,
         Action shut,
         Action usersAndPasswords,
-        Action passwordPolicy)
+        Action passwordPolicy,
+        Action dataVault)
     {
         if (create is null) throw new ArgumentNullException(nameof(create));
         if (alter is null) throw new ArgumentNullException(nameof(alter));
@@ -106,6 +126,7 @@ public static class CompanyMenu
         if (shut is null) throw new ArgumentNullException(nameof(shut));
         if (usersAndPasswords is null) throw new ArgumentNullException(nameof(usersAndPasswords));
         if (passwordPolicy is null) throw new ArgumentNullException(nameof(passwordPolicy));
+        if (dataVault is null) throw new ArgumentNullException(nameof(dataVault));
 
         var column = new GatewayColumn(ColumnTitle);
 
@@ -129,6 +150,13 @@ public static class CompanyMenu
             UsersAndPasswordsVerb, usersAndPasswords, string.Empty, kind: MenuItemKind.Action));
         column.Add(new MenuItemViewModel(
             PasswordPolicyVerb, passwordPolicy, string.Empty, kind: MenuItemKind.Action));
+
+        // 🔴 Census 16.1 — the vendor's data-vault row, which this menu disclosed as MISSING until now. It
+        // carries no chord for the same reason its two siblings do not: the vendor documents it as an Alt+K row
+        // and not as a shortcut, and an invented chord wearing an attested-looking hint is worse than no hint.
+        // The bare-letter hotkey comes from the cascade, as it does for every row here.
+        column.Add(new MenuItemViewModel(
+            DataVaultVerb, dataVault, string.Empty, kind: MenuItemKind.Action));
 
         // A HEADER row, so arrows skip it and Enter can never fire it — the disclosure is a statement, not an
         // affordance.

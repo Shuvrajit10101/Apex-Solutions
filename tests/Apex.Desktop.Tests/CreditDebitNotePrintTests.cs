@@ -311,23 +311,64 @@ public sealed class CreditDebitNotePrintTests
     }
 
     /// <summary>
-    /// The premise RQ-11b rests on, pinned rather than asserted in prose: a §34 note <b>cannot</b> carry inventory
-    /// lines, so the value-level shape above IS the statutory minimum and nothing here waits on census T0-10.
+    /// 🔴 <b>REPLACES <c>A_note_cannot_carry_inventory_lines_at_all</c>, WHICH PINNED A PREMISE THAT IS NO LONGER
+    /// TRUE — and the conclusion it guarded survives, which is why this is a rewrite and not a deletion.</b>
+    ///
+    /// <para><b>What changed.</b> Census 4.7/4.8 (defect T0-10) made a Credit/Debit Note an item-invoice carrier:
+    /// a sales or purchase return now moves stock, because until then a return moved money and no goods and every
+    /// business's closing stock was wrong by its returns. The old test asserted the validator's refusal, so it was
+    /// asserting the defect.</para>
+    ///
+    /// <para><b>What RQ-11b actually rests on, now pinned directly.</b> Its claim was never "notes have no stock";
+    /// it was that Rule 53 is <b>value-level</b>, so the printed §34 document is complete without a per-item table.
+    /// That is stronger than the old premise and is what this test proves: a note carrying REAL stock lines still
+    /// projects with <c>Items</c> EMPTY and its value rows intact, because <c>VoucherPrintProjector</c> routes a
+    /// note to <c>ProjectCreditDebitNote</c> before the item pass can ever see the lines. A per-item table on a
+    /// note remains OURS and unbuilt — it is now merely unbuilt rather than unreachable.</para>
     /// </summary>
     [Fact]
-    public void A_note_cannot_carry_inventory_lines_at_all()
+    public void A_note_carrying_stock_still_prints_the_value_level_Rule_53_document()
     {
         var f = Build();
-        var ex = Assert.ThrowsAny<Exception>(() => new LedgerService(f.Company).Post(new Voucher(
+        var c = f.Company;
+
+        // A real item and godown — the note is POSTED, so the masters must exist and the pairing must foot.
+        var inv = new InventoryService(c);
+        var widget = inv.CreateStockItem("Widget", inv.CreateStockGroup("Goods").Id,
+            inv.CreateSimpleUnit("Nos", "Numbers").Id);
+        inv.AddOpeningBalance(widget.Id, c.MainLocation!.Id, 50m, Money.FromRupees(100m));
+
+        var original = PostOriginalSale(f);
+        var cgst = HeadId(c, GstTaxDirection.Output, GstTaxHead.Central);
+        var sgst = HeadId(c, GstTaxDirection.Output, GstTaxHead.State);
+        var note = new LedgerService(c).Post(new Voucher(
             Guid.NewGuid(), f.TypeOf(VoucherBaseType.CreditNote), NoteDate, new List<EntryLine>
             {
                 new(f.SalesReturnsId, new Money(CnValue), DrCr.Debit),
-                new(f.CustomerId, new Money(CnValue), DrCr.Credit),
-            }, partyId: f.CustomerId, inventoryLines: new[]
+                new EntryLine(cgst, new Money(CnCgst), DrCr.Debit,
+                    gst: new GstLineTax(GstTaxHead.Central, 900, new Money(CnValue))),
+                new EntryLine(sgst, new Money(CnCgst), DrCr.Debit,
+                    gst: new GstLineTax(GstTaxHead.State, 900, new Money(CnValue))),
+                new(f.CustomerId, new Money(CnPartyLeg), DrCr.Credit),
+            },
+            partyId: f.CustomerId,
+            inventoryLines: new[]
             {
-                new VoucherInventoryLine(Guid.NewGuid(), Guid.NewGuid(), 1m, new Money(CnValue)),
-            })));
-        Assert.Contains("Item-invoice stock lines are only valid on a Purchase or Sales voucher", ex.Message);
+                new VoucherInventoryLine(widget.Id, c.MainLocation!.Id, 1m, new Money(CnValue)),
+            }));
+
+        Link(f, note, CdnType.Credit, original);   // the §34 link the printed note states
+
+        // It posted — the refusal is gone — and the goods came back IN.
+        Assert.True(note.HasInventoryLines);
+        Assert.Equal(StockDirection.Inward, note.InventoryLines.Single().Direction);
+        Assert.Equal(51m, new InventoryLedger(c).OnHand(widget.Id, c.MainLocation!.Id, NoteDate));
+
+        // And the PRINTED document is unmoved: value-level, no item table, the same Rule 53 particulars.
+        var data = VoucherPrintProjector.ProjectInvoice(c, note);
+        Assert.Empty(data.Items);
+        Assert.Equal(CnValue, data.TotalTaxable.Amount);
+        Assert.Equal(CnPartyLeg, data.GrandTotal.Amount);
     }
 
     // ================================================================ THE BIDIRECTIONAL RULING — a matched pair

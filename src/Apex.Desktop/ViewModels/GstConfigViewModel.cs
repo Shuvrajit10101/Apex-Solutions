@@ -63,6 +63,25 @@ public sealed class PtSlabRow
     public string FebText { get; init; } = string.Empty;
 }
 
+/// <summary>One read-back row of this establishment's own dated Health &amp; Education Cess rates (v64; defect T1-26 /
+/// the 4% cess ruling): the effective-from date and the rate. Empty for every company that has not set one, which
+/// is what leaves the statutory rate in force.</summary>
+public sealed class IncomeTaxCessRateRow
+{
+    /// <summary>The effective-from date, dd-MM-yyyy.</summary>
+    public string EffectiveFromText { get; }
+
+    /// <summary>The rate as a percent with a trailing sign, e.g. "4%".</summary>
+    public string RateText { get; }
+
+    /// <summary>Creates a read-back row.</summary>
+    public IncomeTaxCessRateRow(string effectiveFromText, string rateText)
+    {
+        EffectiveFromText = effectiveFromText;
+        RateText = rateText;
+    }
+}
+
 /// <summary>A VAT <i>"Type of Dealer"</i> picker option (census 15.1): the vendor's value + its label. Only
 /// Regular and Composite exist — see <see cref="VatDealerType"/> for why no other value ships.</summary>
 public sealed class VatDealerTypeOption
@@ -374,6 +393,52 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The salary deductor-category options (92B private / 92A govt / 92C union-govt), shared with the reports.</summary>
     public ObservableCollection<SalarySectionCodeOption> SalarySectionCodes { get; } = new();
 
+    // ---- Health & Education Cess (v64; defect T1-26 / the user's ruling on the 4% cess) ---------------------
+    // The ruling: the cess ships DATED, PER-COMPANY EDITABLE, and DEFAULTING TO 4%. This is the editability half.
+    // It deliberately lives INSIDE the existing §192 block and is committed by the existing "Apply Salary TDS"
+    // button, so it inherits the F11 → Payroll Statutory keyboard route rather than inventing a second one: Tab
+    // reaches both fields in order and the same accept commits them.
+
+    /// <summary>The Health &amp; Education Cess rate to apply, as a percent (e.g. "4"). Blank leaves the company's
+    /// existing rates untouched — it is NOT read as 0%, because a blank field must never silently zero a statutory
+    /// deduction.</summary>
+    [ObservableProperty] private string _salaryTdsCessPercentText = string.Empty;
+
+    /// <summary>The date the entered cess rate takes effect, dd-MM-yyyy. Blank ⇒ the start of the company's current
+    /// financial year, so the ordinary case ("this rate, this year") needs no typing.</summary>
+    [ObservableProperty] private string _salaryTdsCessEffectiveFromText = string.Empty;
+
+    /// <summary>
+    /// What the book will actually charge, in words — either the statutory rate for the current FY or this
+    /// establishment's own dated override. Rendered beside the fields so the operator can see which of the two is in
+    /// force <b>before</b> changing anything.
+    /// </summary>
+    public string SalaryTdsCessStatusText
+    {
+        get
+        {
+            var fyEnd = new DateOnly(_company.FinancialYearStart.Year + 1, 3, 31);
+            var rates = SalaryTaxRates.ForCompanyPeriod(_company, fyEnd);
+            var pct = (rates.CessRate * 100m).ToString("0.##", CultureInfo.InvariantCulture);
+            var basis = rates.CessRateIsCompanyOverride
+                ? "set by this company"
+                : "the statutory rate — this company has set none";
+            var note = rates.IsProvisional
+                ? $"  ·  ⚠ FY {rates.FinancialYearStartYear}-{(rates.FinancialYearStartYear + 1) % 100:00} rates are not "
+                  + $"notified in this build; FY {rates.NotifiedFinancialYearStartYear}-{(rates.NotifiedFinancialYearStartYear + 1) % 100:00} "
+                  + "figures are being applied and the computation is provisional."
+                : string.Empty;
+            return $"Currently charging {pct}% ({basis}).{note}";
+        }
+    }
+
+    /// <summary>The establishment's own dated cess rates, oldest first, for the read-back grid. Empty for a company
+    /// that has never set one — which is the overwhelming majority, and is what keeps the statutory 4% in force.</summary>
+    public ObservableCollection<IncomeTaxCessRateRow> SalaryTdsCessRates { get; } = new();
+
+    /// <summary>True when this establishment has set at least one of its own cess rates (drives the grid's visibility).</summary>
+    public bool HasSalaryTdsCessRates => SalaryTdsCessRates.Count > 0;
+
     // ---- Gratuity (Phase 8 slice 9; F11 Payroll Statutory → Gratuity; RQ-14) --------------------------------
     // The establishment's gratuity-provision policy the deterministic accrual reads (Payment of Gratuity Act 1972):
     // the ₹20,00,000 §4(3) cap, the Basic + DA wage basis and which employees a run accrues for. Only meaningful
@@ -466,6 +531,31 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
     /// <summary>True iff the chosen registration type is Composition — drives the composition block's visibility.</summary>
     public bool IsComposition => RegistrationType?.Value == GstRegistrationType.Composition;
+
+    /// <summary>
+    /// Census 3.13 — <b>THE COMPANY RUNG OF THE GST RATE HIERARCHY</b>, the fifth and LAST level of both
+    /// resolution orders (<c>GstService.LedgerFirstWalk</c> / <c>StockItemFirstWalk</c> both end
+    /// <c>… → Company</c>). Backed by <see cref="GstConfig.DefaultGst"/>.
+    ///
+    /// <para>🔴 <b>THE DEFECT THIS CLOSES, and it is the same shape as the one <see cref="MasterGstBlockEditor"/>
+    /// itself was built for.</b> The storage shipped at schema v51, <see cref="GstConfig.EnsureValid"/> has
+    /// validated it since, and <c>GstService.Hierarchy</c> has READ it since T0-4 S2a — but
+    /// <c>grep -rn "DefaultGst" src/Apex.Desktop/</c> returned <b>zero</b>: the canonical importer was the only
+    /// writer in the product. So an IMPORTED book resolved rates from a rung a hand-keyed book could never
+    /// populate, and a company that sets its rate where the vendor's own documentation tells it to found the
+    /// value unreachable. This property is what makes the two kinds of book behave the same.</para>
+    ///
+    /// <para>🔴 <b>THIS ADDS A RUNG; IT DOES NOT RE-ORDER ONE.</b> The precedence is the resolver's and is
+    /// untouched: ledger → accounting group → stock item → stock group → <b>company</b> (or the stock-item-first
+    /// permutation), company LAST in both. A company default therefore can never outrank a rate declared on a
+    /// ledger, a stock item or either group — it is only ever consulted when no other rung declared anything.
+    /// Pinned by <c>CompanyGstRungTests.Company_default_never_outranks_a_ledger_rate</c>; if that test ever has to
+    /// change to accommodate an edit here, the edit is wrong.</para>
+    ///
+    /// <para>Shares the one editor with the Stock Group and accounting Group screens, so the three rungs cannot
+    /// drift into offering different fields or different validation.</para>
+    /// </summary>
+    public MasterGstBlockEditor CompanyGst { get; } = new();
 
     /// <summary>The advisory resolved tax-on-turnover rate + turnover base for the selected sub-type (never a posting
     /// gate — a composition dealer posts no tax; this is guidance only).</summary>
@@ -678,6 +768,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SelectedCompositionSubType = CompositionSubTypes.FirstOrDefault(o => o.Value == cfg?.CompositionSubType)
                                      ?? CompositionSubTypes.First();
         CompositionOptInDateText = cfg?.CompositionOptInDate is { } optIn ? ApexDate.Format(optIn) : string.Empty;
+        // Census 3.13 — the company rung. Same reason as the tracking flags and the VAT block above: without this
+        // line the block shows "off" on every re-entry, so an operator who set a company default would find it
+        // apparently unset the next time they opened F11 — and would then clear it for real on the next Apply.
+        // LoadFrom(null) is the correct reading of a company that declares no default: the block is OFF and every
+        // field is blanked, never a previous company's values left on screen after a company switch.
+        CompanyGst.LoadFrom(cfg?.DefaultGst);
         LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
     }
@@ -1432,6 +1528,66 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         SelectedSalarySectionCode ??= SalarySectionCodes.FirstOrDefault(o => o.Code == "92B")
                                       ?? SalarySectionCodes.FirstOrDefault();
         OnPropertyChanged(nameof(SalaryTdsDeductorText));
+        RefreshSalaryTdsCess();
+    }
+
+    /// <summary>
+    /// Rebuilds the cess read-back (the rate in force, and this company's own dated rows) from the live aggregate.
+    /// The ENTRY fields are deliberately left blank rather than pre-filled with the current rate: a pre-filled rate
+    /// plus a blank date is one careless Enter away from re-stamping today's rate onto a date it was never in force
+    /// for, and this is a live payroll deduction.
+    /// </summary>
+    private void RefreshSalaryTdsCess()
+    {
+        SalaryTdsCessRates.Clear();
+        foreach (var r in _company.IncomeTaxCessRates)
+            SalaryTdsCessRates.Add(new IncomeTaxCessRateRow(
+                r.EffectiveFrom.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture),
+                (r.Rate * 100m).ToString("0.##", CultureInfo.InvariantCulture) + "%"));
+        OnPropertyChanged(nameof(SalaryTdsCessStatusText));
+        OnPropertyChanged(nameof(HasSalaryTdsCessRates));
+    }
+
+    /// <summary>
+    /// Parses and applies the Health &amp; Education Cess fields onto the live aggregate (v64), returning
+    /// <c>false</c> with <see cref="SalaryTdsMessage"/> set on a bad entry. A <b>blank</b> percent box means "leave
+    /// the cess alone" and is the normal case — it is never read as 0%.
+    /// </summary>
+    private bool TryApplySalaryTdsCess()
+    {
+        var pctText = BlankToNull(SalaryTdsCessPercentText);
+        if (pctText is null) return true; // nothing entered — the company's existing rates (or the statute) stand
+
+        if (!TryParsePercent(pctText, out var percent) || percent < 0m || percent > 100m)
+        {
+            SalaryTdsMessage = "Health & Education Cess must be a percentage between 0 and 100, for example 4 — "
+                               + "or left blank to leave the current rate unchanged.";
+            return false;
+        }
+
+        // Basis points, exactly: 4% ⇒ 400. Rounded rather than truncated so "4.005" cannot silently become 4.00%.
+        var basisPoints = (int)Math.Round(percent * 100m, MidpointRounding.AwayFromZero);
+
+        DateOnly effectiveFrom;
+        var fromText = BlankToNull(SalaryTdsCessEffectiveFromText);
+        if (fromText is null)
+        {
+            effectiveFrom = _company.FinancialYearStart; // the ordinary case: "this rate, from this year"
+        }
+        else if (DateOnly.TryParseExact(fromText, "dd-MM-yyyy", CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None, out var parsed))
+        {
+            effectiveFrom = parsed;
+        }
+        else
+        {
+            SalaryTdsMessage = "Cess effective-from must be a date in dd-MM-yyyy form — or left blank for the "
+                               + "start of the current financial year.";
+            return false;
+        }
+
+        _company.AddIncomeTaxCessRate(new IncomeTaxCessRate(Guid.NewGuid(), effectiveFrom, basisPoints));
+        return true;
     }
 
     /// <summary>
@@ -1447,6 +1603,10 @@ public sealed partial class GstConfigViewModel : ViewModelBase
 
         var previousSalaryTds = _company.SalaryTdsEnabled;
         var previousStatutory = _company.PayrollStatutoryEnabled;
+        // v64: snapshot the cess rows BEFORE touching them, so a failed Save restores the aggregate exactly. The
+        // aggregate is shared, and a half-applied cess rate would be a wrong-money residual left behind by an error.
+        var previousCess = _company.IncomeTaxCessRates.ToList();
+        if (!TryApplySalaryTdsCess()) { RevertSalaryTdsCess(previousCess); return false; }
         try
         {
             var service = new PayrollService(_company);
@@ -1456,6 +1616,7 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         }
         catch (Exception ex)
         {
+            RevertSalaryTdsCess(previousCess);
             // Enable/DisableSalaryTds write the SHARED aggregate before the store is reached, and
             // RevertSalaryTdsToggle re-derives the toggle from Company.SalaryTdsEnabled — so the restore must
             // land first or the revert reads the unpersisted value and is a no-op. See ApplyPf.
@@ -1476,6 +1637,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
               + $"{SalaryTdsPeriodCaptionShort} {SalaryTdsAssessmentYearLabel})."
             : "§192 salary TDS is now OFF for this company. Employee tax declarations are unchanged.";
         OnPropertyChanged(nameof(SalaryTdsDeductorText));
+        SalaryTdsCessPercentText = string.Empty;
+        SalaryTdsCessEffectiveFromText = string.Empty;
+        RefreshSalaryTdsCess();
         _onChanged();
         return true;
     }
@@ -1484,6 +1648,15 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     private void RevertSalaryTdsToggle()
     {
         if (SalaryTdsEnabled != _company.SalaryTdsEnabled) SalaryTdsEnabled = _company.SalaryTdsEnabled;
+    }
+
+    /// <summary>Restores the company's dated cess rows to <paramref name="previous"/> after a rejected entry or a
+    /// failed Save, so an error never leaves a half-applied rate on a live payroll deduction.</summary>
+    private void RevertSalaryTdsCess(List<IncomeTaxCessRate> previous)
+    {
+        foreach (var r in _company.IncomeTaxCessRates.ToList()) _company.RemoveIncomeTaxCessRate(r);
+        foreach (var r in previous) _company.AddIncomeTaxCessRate(r);
+        RefreshSalaryTdsCess();
     }
 
     // =========================================================== Gratuity (Phase 8 slice 9)
@@ -1884,6 +2057,18 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             return false;
         }
 
+        // Census 3.13 — build the company rung HERE, with the other pre-validations, and BEFORE the first write to
+        // `config` below. On an already-enabled company `config` IS _company.Gst, so a malformed rate discovered
+        // after those writes would already have landed on the shared aggregate; refusing up here means a bad HSN or
+        // a bad rate leaves the company byte-identical. MasterGstBlockEditor.TryBuild ends in
+        // MasterGstDetails.EnsureValid, the same validator the canonical importer and GstConfig.EnsureValid use.
+        if (!CompanyGst.TryBuild(out var companyDefaultGst, out var companyGstError))
+        {
+            Message = companyGstError;
+            RevertToggle();
+            return false;
+        }
+
         var config = _company.Gst ?? new GstConfig();
         // Capture BEFORE the six in-place writes below. On an ALREADY-ENABLED company `config` IS _company.Gst, so
         // those writes land on the shared aggregate before the store is ever reached — the same shape as ApplyPt's
@@ -1914,6 +2099,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             config.CompositionSubType = null;
             config.CompositionOptInDate = null;
         }
+
+        // Census 3.13 — the company rung. `null` when the operator left "Set/Alter GST Details" off, which is the
+        // correct reading of "this company declares no default": a rung that is ABSENT from the walk, never an
+        // empty block the resolver would stop at with nothing to say. It is also what every pre-v51 book reads as,
+        // so a company that never touches this block stays byte-identical (ER-13).
+        config.DefaultGst = companyDefaultGst;
 
         try
         {
@@ -2263,11 +2454,12 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     /// <summary>The <see cref="GstConfig"/> fields <see cref="Apply"/> overwrites IN PLACE before persisting.</summary>
     private readonly record struct GstFields(
         bool Enabled, string? Gstin, string? HomeStateCode, GstRegistrationType Registration,
-        GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate);
+        GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate,
+        MasterGstDetails? DefaultGst);
 
     private static GstFields CaptureGstFields(GstConfig c) => new(
         c.Enabled, c.Gstin, c.HomeStateCode, c.RegistrationType, c.Periodicity,
-        c.CompositionSubType, c.CompositionOptInDate);
+        c.CompositionSubType, c.CompositionOptInDate, c.DefaultGst);
 
     private static void RestoreGstFields(GstConfig c, GstFields f)
     {
@@ -2278,6 +2470,13 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         c.Periodicity = f.Periodicity;
         c.CompositionSubType = f.SubType;
         c.CompositionOptInDate = f.OptInDate;
+        // Census 3.13 — the company rung is a wrong-FIGURES field too, for the same reason HomeStateCode is: it is
+        // the last rung of the rate walk, so a default left live in memory after a FAILED save re-rates every new
+        // line no other rung answered, for the rest of the session, over a book that does not have it. Capturing
+        // and restoring the REFERENCE is sufficient and is the right granularity: Apply only ever ASSIGNS a freshly
+        // built MasterGstDetails to config.DefaultGst (TryBuild constructs a new one every call) and never mutates
+        // the existing instance in place, so the old object cannot have been touched.
+        c.DefaultGst = f.DefaultGst;
     }
 
     /// <summary>

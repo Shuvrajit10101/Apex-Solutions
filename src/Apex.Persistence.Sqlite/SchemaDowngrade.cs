@@ -755,6 +755,136 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV64ToV65"/> (census 3.4 / defect T0-2 / <b>user ruling 26</b>): removes
+    /// the three <c>stock_items</c> columns (<see cref="Schema.V65StockItemColumns"/>) and stamps
+    /// <c>schema_version</c> back to <b>64</b>.
+    ///
+    /// <para>🔴 <b><see cref="RebuildPreservingShape"/>, NOT <see cref="DropColumns"/>, and the reason is a
+    /// recorded failure rather than a preference.</b> <c>stock_items</c> is an FK <b>PARENT</b> — a dozen tables
+    /// reference <c>stock_items(id)</c> — and a <c>CREATE … AS SELECT</c> rebuild of a parent silently loses the
+    /// PRIMARY KEY, which is the <c>foreign key mismatch</c> failure <see cref="V56ToV55"/> records.
+    /// <see cref="RebuildPreservingShape"/> reconstructs the declaration from <c>PRAGMA table_info</c>, so the PK,
+    /// the NOT NULLs, the DEFAULTs and the outgoing FKs all survive. <see cref="V59ToV58"/> and
+    /// <see cref="V60ToV59"/> rebuild this same table the same way.</para>
+    ///
+    /// <para>🔴 <b>THIS RUNG IS NOT A TRUE INVERSE, AND THE PART IT CANNOT UNDO IS MONEY — say so plainly.</b>
+    /// Dropping the columns discards each item's market-valuation method, its standard price, and the
+    /// <c>valuation_remediated_from</c> marker. <b>It does NOT put a remediated item back on the retired
+    /// <c>LastSaleCost</c> ordinal</b>, and that is deliberate on both counts:
+    /// <list type="bullet">
+    ///   <item>Restoring ordinal 5 would re-create the defect — closing stock valued at the selling price — in a
+    ///   database that is then opened by an older build with no warning machinery at all. A downgrade must not
+    ///   reintroduce a wrong-money defect.</item>
+    ///   <item>What IS lost is the <i>evidence</i>: once the marker is gone, a book that was remediated can no
+    ///   longer tell its operator so. A book that has been upgraded through v65 and then downgraded keeps the
+    ///   corrected valuation and loses the explanation for it.</item>
+    /// </list>
+    /// The downgrade is a test-fixture manoeuvre, never a production path, so this is an acceptable residual —
+    /// but a book carrying any <c>valuation_remediated_from</c> row should not be downgraded and then handed back
+    /// to an operator.</para>
+    ///
+    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
+    /// every lower rung after it — to reach v63 the caller runs <c>V65ToV64</c> then <see cref="V64ToV63"/>.
+    /// Calling <see cref="V64ToV63"/> alone on a v65 file stamps the marker 63 while the three v65 columns are
+    /// still on <c>stock_items</c>, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V65ToV64(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "stock_items", Schema.V65StockItemColumns, "stock_items_v64");
+
+        Exec(connection, "UPDATE schema_version SET version = 64;");
+    }
+
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV63ToV64"/> (defect T1-26 / the 4% cess ruling) <b>and nothing else</b>:
+    /// drops the one index (<see cref="Schema.V64Indexes"/>) and the one table (<see cref="Schema.V64Tables"/>),
+    /// then stamps <c>schema_version</c> back to <b>63</b>.
+    ///
+    /// <para>🔴 <b>THIS RUNG IS A PLAIN DROP, AND THAT IS BY DESIGN OF v64 RATHER THAN LUCK.</b> v64 adds no column
+    /// to any existing table, so neither <see cref="DropColumns"/> nor <see cref="RebuildPreservingShape"/> is
+    /// needed. That matters because the table v64 hangs off — <c>companies</c> — is an FK <b>PARENT</b>, and
+    /// rebuilding a parent is the manoeuvre whose PK-losing <c>foreign key mismatch</c> <see cref="V56ToV55"/>
+    /// records. Dropping a CHILD table touches no parent's shape at all. Putting the cess rate on a
+    /// <c>companies</c> column would have walked straight into that trap; a child table avoids it entirely.</para>
+    ///
+    /// <para>🔴 <b>A TRUE INVERSE FOR EVERY BOOK THAT HAS NOT SET A RATE — WHICH IS EVERY BOOK MIGRATED UP FROM
+    /// v63.</b> The forward migration inserts nothing, so on such a book this drops an empty table and restores v63
+    /// exactly. <b>WHAT IS LOST OTHERWISE, STATED PLAINLY: an establishment that HAS set its own cess rate reverts
+    /// to the statutory 4%, silently, on the next payroll it computes.</b> No posted voucher changes and no balance
+    /// moves — the rate is read only when a payroll is <i>computed</i> — but a book that deliberately departed from
+    /// 4% and is then downgraded will start deducting 4% again with nothing on screen to say so. A book carrying any
+    /// row in <c>income_tax_cess_rates</c> must not be downgraded and then run.</para>
+    ///
+    /// <para>⚠️ <b>This is no longer the TOP rung — <see cref="V65ToV64"/> now sits above it.</b> Manufacturing an
+    /// older book out of a CURRENT one runs <see cref="V65ToV64"/> FIRST, then this, then every lower rung — to
+    /// reach v62 the caller runs <c>V65ToV64</c> → <c>V64ToV63</c> → <see cref="V63ToV62"/>. Calling
+    /// <see cref="V63ToV62"/> alone on a v64 file stamps the marker 62 while <c>income_tax_cess_rates</c> is still
+    /// there, which is a lie the next open cannot detect.</para>
+    ///
+    /// <para>📐 <b>MEASURED, so nobody mistakes belt for braces: the explicit <c>DROP INDEX</c> below is
+    /// REDUNDANT.</b> SQLite drops a table's indexes with the table, and a mutation that deleted the index line
+    /// alone left all sixteen downgrade tests green — whereas deleting the table line failed five of them. The
+    /// index drop is kept because it mirrors <see cref="V62ToV61"/> and because it states the intent explicitly,
+    /// but <b>the table drop is the load-bearing statement</b> and a reviewer should read it that way.</para>
+    /// </summary>
+    public static void V64ToV63(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        foreach (var index in Schema.V64Indexes) Exec(connection, $"DROP INDEX IF EXISTS {index};");
+        foreach (var table in Schema.V64Tables) Exec(connection, $"DROP TABLE IF EXISTS {table};");
+
+        Exec(connection, "UPDATE schema_version SET version = 63;");
+    }
+
+    /// <summary>
+    /// Reverses <see cref="Schema.MigrateV62ToV63"/> (census 7.19 Labour Welfare Fund) <b>and nothing else</b>:
+    /// drops the two <c>pay_head_computation_slabs</c> columns (<see cref="Schema.V63SlabColumns"/>) and stamps
+    /// <c>schema_version</c> back to <b>62</b>.
+    ///
+    /// <para>🔴 <b>IT STAMPS 62, NOT 61, AND THAT IS THE WHOLE POINT OF THE RENAME.</b> This rung was written as
+    /// <c>V63ToV61</c> while ruling 22 had this track spanning 61 → 63 in one move, v62 (Voucher Class) not having
+    /// landed yet. v62 has since landed, so a 63 → 61 rung would now UNDO TWO VERSIONS' WORTH OF SHAPE IN ONE STEP
+    /// while dropping only ONE version's objects: it would stamp 61 on a book that still carried v62's
+    /// <c>voucher_class_ledger_allocations</c> and <c>voucher_class_additional_entries</c>, which is exactly the
+    /// marker-lies-about-shape failure the ladder exists to prevent. Reversing v62 is <see cref="V62ToV61"/>'s job
+    /// and is called separately, immediately after this one.</para>
+    ///
+    /// <para>🔴 <b>WHAT IS LOST, STATED PLAINLY: THE DATE WINDOW, WHICH MEANS A DATED DEDUCTION SILENTLY BECOMES A
+    /// MONTHLY ONE.</b> Dropping <c>effective_from</c>/<c>effective_to</c> does not delete a slab — it deletes the
+    /// slab's <i>confinement</i>. A Labour Welfare Fund head configured to deduct in December alone will, on the
+    /// downgraded book, deduct in <b>every</b> period, because "no dates" has always meant "always in force". No
+    /// posted voucher changes and no balance moves (the window is read only when a payroll is <i>computed</i>), but
+    /// the next payroll run on a downgraded book will over-deduct. A book carrying any dated slab must not be
+    /// downgraded and then run. This residual is the reason the forward migration exists at all, so it is recorded
+    /// here rather than left to be rediscovered.</para>
+    ///
+    /// <para><b><see cref="RebuildPreservingShape"/>, not <see cref="DropColumns"/>.</b>
+    /// <c>pay_head_computation_slabs</c> is not an FK parent, but it <i>is</i> an FK <b>child</b>
+    /// (<c>pay_head_id REFERENCES pay_heads(id)</c>) and its own primary key is
+    /// <c>INTEGER … AUTOINCREMENT</c>; a <c>CREATE … AS SELECT</c> rebuild would drop both the outgoing foreign key
+    /// and the primary key, leaving a table that no longer declares the parent it depends on. Preserving the shape
+    /// costs nothing here and keeps the downgraded table comparable to a genuine v61 one.</para>
+    ///
+    /// <para>⚠️ <b>This is NO LONGER the top rung — <see cref="V64ToV63"/> is.</b> Manufacturing an older book out
+    /// of a CURRENT one runs <see cref="V64ToV63"/> FIRST, then this, then the lower rungs — to reach v61 the caller
+    /// runs <c>V64ToV63</c>, <c>V63ToV62</c>, then <see cref="V62ToV61"/>. Calling this one alone on a v64 file
+    /// stamps the marker 62 while v64's <c>income_tax_cess_rates</c> table is still there, which is a lie the next
+    /// open cannot detect.</para>
+    /// </summary>
+    public static void V63ToV62(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(
+            connection, "pay_head_computation_slabs", Schema.V63SlabColumns, "pay_head_computation_slabs_v62");
+
+        Exec(connection, "UPDATE schema_version SET version = 62;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV61ToV62"/> (census row 2.6 Voucher Class — the general machinery): drops
     /// the two indexes (<see cref="Schema.V62Indexes"/>) and the two tables (<see cref="Schema.V62Tables"/>), then
     /// stamps <c>schema_version</c> back to 61.
@@ -777,9 +907,10 @@ public static class SchemaDowngrade
     /// <b>no round-off leg</b>. A book that is downgraded and then kept in use will quietly start producing
     /// unrounded invoices that its earlier ones rounded, and the two will not agree.</para>
     ///
-    /// <para>⚠️ <b>This is now the TOP rung.</b> Manufacturing a v61 book out of a CURRENT one runs this FIRST and
-    /// the lower rungs after it. Calling <see cref="V61ToV60"/> alone on a v62 file stamps the marker 60 while the
-    /// v62 tables are still there, which is a lie the next open cannot detect.</para>
+    /// <para>⚠️ <b>This is NO LONGER the top rung — <see cref="V63ToV62"/> is.</b> Manufacturing a v61 book out of
+    /// a CURRENT one runs <see cref="V63ToV62"/> FIRST, then this, then the lower rungs. Calling this one alone on
+    /// a v63 file stamps the marker 61 while v63's two <c>pay_head_computation_slabs</c> columns are still there,
+    /// which is a lie the next open cannot detect.</para>
     /// </summary>
     public static void V62ToV61(SqliteConnection connection)
     {

@@ -479,7 +479,12 @@ internal sealed class ImportPlan
                     ParseEnum<PayHeadComputationSlabType>(s.SlabType), s.RateBasisPoints,
                     MoneyCodec.FromPaisa(s.ValuePaisa),
                     s.FromAmountPaisa is { } f ? MoneyCodec.FromPaisa(f) : (Money?)null,
-                    s.ToAmountPaisa is { } to ? MoneyCodec.FromPaisa(to) : (Money?)null))
+                    s.ToAmountPaisa is { } to ? MoneyCodec.FromPaisa(to) : (Money?)null,
+                    // v63 (census 7.19): DROPPING these on import would silently widen a one-month Labour Welfare
+                    // Fund deduction into a perpetual monthly one — the imported book would compute a different
+                    // payslip from the exported one, with nothing on screen to show why.
+                    CompanyImportService.ParseDateOpt(s.EffectiveFrom),
+                    CompanyImportService.ParseDateOpt(s.EffectiveTo)))
                 .ToList();
             domain.Computation = new PayHeadComputation(components, slabs);
         }

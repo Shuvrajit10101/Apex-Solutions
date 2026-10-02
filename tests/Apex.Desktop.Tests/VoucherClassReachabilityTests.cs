@@ -182,7 +182,108 @@ public sealed class VoucherClassReachabilityTests
         finally { Cleanup(window, dir); }
     }
 
+    /// <summary>
+    /// 🔴 <b>AND THE OTHER HALF OF THE ROUTE: CAN AN OPERATOR APPLY THE CLASS TO AN INVOICE?</b>
+    ///
+    /// <para>Everything above proves the class can be DEFINED. A class that can be defined and never applied is
+    /// the dead-feature shape exactly — and that is what schema v62 actually shipped: <c>VoucherClassPosting</c>
+    /// had no caller in <c>src/</c> at all, so there was no picker at voucher entry and no code path from a class
+    /// to a posted leg. This walks the realised visual tree of a Sales item invoice and proves the vendor's
+    /// <i>"Voucher Class"</i> field is drawn and visible there, and that choosing a class takes the Sales
+    /// value-ledger field off the screen. The vendor states that hiding on <c>help.tallysolutions.com/accounting-faq/</c>
+    /// and states it CONDITIONALLY — a class selected AND F12 "Select common ledger account for Item allocation" set
+    /// to No. We do not model that F12 flag, so this asserts OUR narrower rule (hide whenever the class pre-maps),
+    /// which matches the vendor at its shipped default. See <c>ShowStockLedgerPicker</c> for the recorded divergence.</para>
+    ///
+    /// <para>Asserting <c>ShowVoucherClassSelector</c> instead would pass on a build whose XAML never binds it —
+    /// which is the whole reason this file inspects controls rather than flags.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_voucher_class_field_is_realised_on_the_item_invoice_and_hides_the_value_ledger()
+    {
+        var (window, vm, dir) = Open();
+        try
+        {
+            var company = vm.Company!;
+            var salesType = company.FindVoucherTypeByName("Sales")!;
+
+            // Masters an item invoice needs, plus a class that pre-maps the whole value to one Sales ledger.
+            var inv = new Apex.Ledger.Services.InventoryService(company);
+            var grp = inv.CreateStockGroup("Goods");
+            var nos = inv.CreateSimpleUnit("Nos", "Numbers");
+            var item = inv.CreateStockItem("Widget", grp.Id, nos.Id);
+            inv.AddOpeningBalance(item.Id, company.MainLocation!.Id, 100m, Money.FromRupees(10m));
+
+            var sales = NewLedger(company, "Domestic Sales", "Sales Accounts");
+            NewLedger(company, "Beta Buyers", "Sundry Debtors");
+
+            var types = new Apex.Ledger.Services.VoucherTypeService(company);
+            var cls = types.AddClass(salesType.Id, "Retail", useClassForInterGodownTransfers: false);
+            types.AddClassAllocation(salesType.Id, cls.Id, sales.Id, 10_000);
+
+            vm.OpenVoucher(VoucherBaseType.Sales);
+            var entry = vm.VoucherEntry!;
+            vm.ToggleItemInvoice();
+            Pump(window);
+
+            Assert.True(HasVisibleLabel(window, "Voucher Class"),
+                "The item invoice draws no Voucher Class field, so no operator can apply a class to an invoice "
+                + "and census row 2.6's ledger pre-map, additional entries and round-off are all unreachable.");
+
+            // 🔴 The PICKER itself, found by its own placeholder rather than by the caption. The word "Sales"
+            // appears all over this shell (the menu row, the screen title), so a caption match would prove nothing
+            // about whether THIS field is on screen.
+            Assert.True(HasVisibleCombo(window, "Voucher class…"),
+                "The Voucher Class caption is drawn but no picker is, so the field cannot be operated.");
+            Assert.True(HasVisibleCombo(window, "Value ledger…"),
+                "With no class chosen the value-ledger picker must be the field that names the value leg.");
+
+            entry.SelectedVoucherClass =
+                entry.VoucherClassOptions.Single(o => o.Class?.Id == cls.Id);
+            Pump(window);
+
+            // 🔴 The class supplies those ledgers now, so the field stands down — two visible answers to "which
+            // ledger takes the value" is precisely the contradiction the vendor removes by hiding it.
+            Assert.False(HasVisibleCombo(window, "Value ledger…"),
+                "The value-ledger picker is still on screen under a class that pre-maps the ledgers, so the "
+                + "operator is shown a field whose answer the class has already overridden.");
+            Assert.True(HasVisibleCombo(window, "Voucher class…"),
+                "…and the class picker itself must stay, or the choice cannot be undone.");
+
+            // 🔴 DRAWN IS NOT REACHED. This product's keyboard-first contract makes Tab the way an operator moves
+            // across the invoice header, and a control with Focusable = false is skipped by it entirely — it would
+            // be visible, mouse-operable, and unreachable for the keyboard-only operator the contract is written
+            // for. Census 2.6 is only complete if the class can be CHOSEN without leaving the keyboard.
+            var picker = VisibleCombo(window, "Voucher class…");
+            Assert.NotNull(picker);
+            Assert.True(picker!.Focusable,
+                "The Voucher Class picker cannot be Tab-reached, so a keyboard-only operator cannot apply a class.");
+            Assert.True(picker.IsEnabled,
+                "The Voucher Class picker is drawn but disabled, so the class can never be chosen.");
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    private static Apex.Ledger.Domain.Ledger NewLedger(Apex.Ledger.Domain.Company c, string name, string groupName)
+    {
+        var group = c.FindGroupByName(groupName)!;
+        var ledger = new Apex.Ledger.Domain.Ledger(Guid.NewGuid(), name, group.Id, Money.Zero, openingIsDebit: false);
+        c.AddLedger(ledger);
+        return ledger;
+    }
+
     // ───────────────────────────────────────────────────────────────────────── helpers
+
+    /// <summary>A REALISED, visible ComboBox carrying this placeholder — the control, not its caption.</summary>
+    private static bool HasVisibleCombo(MainWindow w, string placeholder) =>
+        VisibleCombo(w, placeholder) is not null;
+
+    /// <summary>The realised, visible ComboBox itself, so a caller can interrogate more than its existence.</summary>
+    private static ComboBox? VisibleCombo(MainWindow w, string placeholder) =>
+        Descendants(w).OfType<ComboBox>().FirstOrDefault(c =>
+            c.IsEffectivelyVisible
+            && c.Bounds.Width > 0 && c.Bounds.Height > 0
+            && string.Equals(c.PlaceholderText, placeholder, StringComparison.Ordinal));
 
     private static bool HasVisibleLabel(MainWindow w, string caption) =>
         Descendants(w).Any(v =>

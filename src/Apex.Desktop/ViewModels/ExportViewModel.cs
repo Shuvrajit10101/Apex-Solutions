@@ -194,8 +194,15 @@ public sealed partial class ExportViewModel : ViewModelBase
     /// (master lists have no bespoke print projector). Number columns right-align; the header captions and the
     /// already-formatted cell text carry through verbatim (a Number cell renders its exact invariant figure).
     /// De-branding stays in the writers, so no brand text is introduced here.
+    ///
+    /// <para>🔴 <b>Public because P / Ctrl+P now shares it (census 6.31 / 6.38).</b> The print-preview path for a
+    /// page that exports through <see cref="IMasterListExportSource"/> lays the page out with THIS method, so the
+    /// PDF a user gets from Print and the PDF they get from Export → PDF are the same document. Giving the print
+    /// path its own layout would have been the cheaper change and would have let the two drift apart silently —
+    /// a reader comparing a printed challan reconciliation with an exported one would then be comparing two
+    /// different renderings of the same figures.</para>
     /// </summary>
-    private static PrintReport TabularToPrint(TabularExport export)
+    public static PrintReport TabularToPrint(TabularExport export)
     {
         var columns = new List<PrintColumn>(export.Columns.Count);
         for (int i = 0; i < export.Columns.Count; i++)

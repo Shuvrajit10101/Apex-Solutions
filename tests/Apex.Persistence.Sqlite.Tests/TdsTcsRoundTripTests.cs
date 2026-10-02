@@ -1,4 +1,4 @@
-using Apex.Ledger;
+﻿using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Services;
 using Microsoft.Data.Sqlite;
@@ -91,7 +91,7 @@ public sealed class TdsTcsRoundTripTests
 
             // Seeded masters survived count- and figure-exact.
             // TDS is 11 since census row 6.35 seeded 194T/194R/194S (2026-09-08); TCS is still 8.
-            Assert.Equal(11, r.NaturesOfPayment.Count);
+            Assert.Equal(17, r.NaturesOfPayment.Count);
             Assert.Equal(8, r.NaturesOfGoods.Count);
             var j = r.FindNatureOfPaymentByCode("194J(b)")!;
             Assert.Equal(1000, j.RateWithPanBp);

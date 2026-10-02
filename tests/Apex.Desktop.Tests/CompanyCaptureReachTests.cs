@@ -74,20 +74,57 @@ public sealed class CompanyCaptureReachTests
     /// </summary>
     private static string BlankComments(string text)
     {
-        // The literal skipper below understands ordinary quoted strings and their backslash escapes, and
-        // NOTHING ELSE. A verbatim (@"…") or raw ("""…""") literal would be mis-parsed, and a mis-parse here
-        // could blank real code and turn a scan silently green — the one failure mode a guard must not have.
-        // src/Apex.Desktop contains neither today (measured 2026-08-17: zero occurrences of each), so this
-        // fails LOUDLY the day one is introduced instead of quietly losing its teeth.
-        Assert.True(!text.Contains("@\"", StringComparison.Ordinal) && !text.Contains("\"\"\"", StringComparison.Ordinal),
-            "This file now contains a verbatim or raw string literal. CompanyCaptureReachTests.BlankComments "
-            + "cannot parse those; teach it to before adding one, or its scans stop meaning anything.");
-
+        // 🔴 This skipper once understood ordinary quoted strings and NOTHING else, and asserted that
+        // src/Apex.Desktop contained no verbatim (@"…") or raw ("""…""") literal so that it would fail loudly
+        // the day one appeared rather than quietly mis-parse. It did exactly that when CompanyRegistry.cs
+        // arrived carrying raw-string DDL (census 16.1), which is the tripwire working as designed. Its own
+        // instruction was "teach it to before adding one", so the two forms are now handled here instead.
+        //
+        // Why it matters that they are SKIPPED and not blanked: a mis-parse that ran off the end of a literal
+        // would blank real code, and a scan that silently stops seeing code is the one failure mode a guard
+        // must not have. Each branch below therefore consumes the literal EXACTLY to its terminator.
         var chars = text.ToCharArray();
         var i = 0;
         while (i < chars.Length)
         {
             var c = chars[i];
+
+            // Raw string literal: three or more quotes, closed by a run of AT LEAST as many. The opener may
+            // carry any number of leading '$' for interpolation; the fence length is what closes it, so a
+            // literal containing a shorter quote run (the common reason to reach for this form) is safe.
+            if (c == '"' && i + 2 < chars.Length && chars[i + 1] == '"' && chars[i + 2] == '"')
+            {
+                var fence = 0;
+                while (i + fence < chars.Length && chars[i + fence] == '"') fence++;
+                i += fence;
+                while (i < chars.Length)
+                {
+                    if (chars[i] != '"') { i++; continue; }
+                    var run = 0;
+                    while (i + run < chars.Length && chars[i + run] == '"') run++;
+                    if (run >= fence) { i += run; break; }
+                    i += run;
+                }
+                continue;
+            }
+
+            // Verbatim literal: @"…", where a doubled "" is an escaped quote rather than the terminator.
+            if (c == '@' && i + 1 < chars.Length && chars[i + 1] == '"')
+            {
+                i += 2;
+                while (i < chars.Length)
+                {
+                    if (chars[i] == '"')
+                    {
+                        if (i + 1 < chars.Length && chars[i + 1] == '"') { i += 2; continue; }
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+
             if (c == '"' || c == '\'')
             {
                 var quote = c;

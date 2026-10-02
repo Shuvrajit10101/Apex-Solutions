@@ -39,6 +39,43 @@ public sealed class PriceListService
     }
 
     /// <summary>
+    /// <b>Renames an existing <see cref="PriceLevel"/></b> — census 3.10, W33 C3. Same two rules as
+    /// <see cref="CreateLevel"/> (non-blank, case-insensitive uniqueness) except that the level being renamed
+    /// does not block itself, so re-accepting an unchanged name — or correcting only its CASE — is allowed rather
+    /// than refused as a duplicate.
+    ///
+    /// <para><b>FIDELITY (R7): VENDOR-ATTESTED, and this is the shape it attests.</b> TallyPrime reaches it at
+    /// <i>Alt+G (Go To) &gt; Alter Master &gt; Price levels</i> (alternatively <i>Gateway of Tally &gt; Alter &gt;
+    /// Price levels</i>) and the instruction is to <i>"Change the names of the Price Levels and press Ctrl+A to
+    /// save"</i>, after which <i>"the modified names of the price levels appear in the relevant masters and
+    /// transactions"</i> [help.tallysolutions.com/selling-buying-prices/, read 2026-09-25]. So a rename is
+    /// <b>expected</b> to be reflected everywhere rather than versioned — which is exactly what happens here,
+    /// because every referent (<c>price_lists.price_level_id</c>, <c>ledgers.default_price_level_id</c>) holds the
+    /// <see cref="PriceLevel.Id"/> and not the name. <b>A rename therefore has no referential guard and needs
+    /// none</b>, which is the opposite of <see cref="DeleteLevel"/> and the reason the two verbs differ.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No such level; blank name; or another level owns that name.</exception>
+    public PriceLevel AlterLevel(Guid levelId, string name)
+    {
+        var level = _company.FindPriceLevel(levelId)
+            ?? throw new InvalidOperationException($"Price level {levelId} not found.");
+
+        var trimmed = (name ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+            throw new InvalidOperationException("A price-level name is required.");
+
+        // 🔴 `is { } other && other.Id != levelId` — NOT a bare null check. FindPriceLevelByName is
+        // case-insensitive, so on an unchanged (or merely re-cased) name it finds THIS level and a bare check
+        // would refuse the operator their own name back. Excluding self by ID is what makes "open, look, accept"
+        // a no-op instead of an error, and it is the same exclusion InventoryService.AlterStockCategory makes.
+        if (_company.FindPriceLevelByName(trimmed) is { } other && other.Id != levelId)
+            throw new InvalidOperationException($"A price level named '{trimmed}' already exists.");
+
+        level.Name = trimmed;
+        return level;
+    }
+
+    /// <summary>
     /// Appends a dated <see cref="PriceList"/> version for a (level, item) (RQ-27). Validates: the level and item
     /// exist and the item is an inventory item; the slabs are non-empty, ascending, contiguous, non-overlapping,
     /// with at most one open-ended (NULL <see cref="PriceListSlab.ToQty"/>) slab which must be the last; each rate
@@ -87,6 +124,33 @@ public sealed class PriceListService
                 $"Price level '{level.Name}' is a party default and cannot be deleted.");
 
         _company.RemovePriceLevel(level);
+    }
+
+    /// <summary>
+    /// Deletes ONE dated <see cref="PriceList"/> version — census 3.11, W33 C3. The append-only history is how a
+    /// price is revised; this is how a version entered in error is withdrawn, which is the one thing the history
+    /// could not previously do at all (<c>Company.RemovePriceList</c> had no caller anywhere in the product).
+    ///
+    /// <para>🔴 <b>THERE IS NO REFERENTIAL GUARD AND THAT IS MEASURED, NOT FORGOTTEN.</b> The only foreign key in
+    /// the schema into <c>price_lists(id)</c> is <c>price_list_lines.price_list_id</c>, and a slab row is written
+    /// from <see cref="PriceList.Slabs"/> — the parent's own object graph — so it leaves with the parent on the
+    /// next delete-all + re-insert and can never orphan. <b>Nor can a posted document be affected:</b> a price
+    /// list is read by <c>PriceResolver</c> at ENTRY time and the resolved rate is then stored on the voucher
+    /// line itself, so withdrawing a version changes what the NEXT invoice is offered and re-prices nothing that
+    /// is already on the books.</para>
+    ///
+    /// <para><b>The one real consequence, stated because it is not obvious.</b> Deleting a version that is not
+    /// the newest widens the date range the PRECEDING version governs (or, if it was the only one, leaves the
+    /// (level, item) pair with no price list at all and the item's own rate applies). That is a configuration
+    /// change with no wrong-figure consequence, so it is confirmed rather than refused.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">No price list with that id exists.</exception>
+    public void DeleteList(Guid priceListId)
+    {
+        var list = _company.PriceLists.FirstOrDefault(pl => pl.Id == priceListId)
+            ?? throw new InvalidOperationException($"Price list {priceListId} not found.");
+
+        _company.RemovePriceList(list);
     }
 
     /// <summary>

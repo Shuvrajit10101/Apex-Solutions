@@ -90,15 +90,21 @@ public sealed class InventoryService
         catch { group.ParentId = previous; throw; }
     }
 
-    /// <summary>Deletes a stock group, blocked while it has child groups or items under it.</summary>
+    /// <summary>
+    /// Deletes a stock group, blocked while it has child groups or items under it —
+    /// <see cref="MasterDeletionRules.EnsureStockGroupDeletable"/> owns the refusal (W28 C2, census 3.1).
+    ///
+    /// <para>The two conditions are unchanged; what moved is WHERE they are stated. Until wave 28 this method was
+    /// the only caller-free delete service in the file and its refusals were worded in its own voice. Now that
+    /// Alt+D reaches six masters through one shell arm, an operator who cannot delete a stock group and cannot
+    /// delete a godown should be reading two sentences built the same way, with the same counts and the same
+    /// named remedy — so all six refusals are built in <see cref="MasterDeletionRules"/>.</para>
+    /// </summary>
     public void DeleteStockGroup(Guid groupId)
     {
         var group = _company.FindStockGroup(groupId)
             ?? throw new InvalidOperationException($"Stock group {groupId} not found.");
-        if (_company.StockGroups.Any(g => g.ParentId == groupId))
-            throw new InvalidOperationException($"Stock group '{group.Name}' has child groups and cannot be deleted.");
-        if (_company.StockItems.Any(i => i.StockGroupId == groupId))
-            throw new InvalidOperationException($"Stock group '{group.Name}' has items under it and cannot be deleted.");
+        MasterDeletionRules.EnsureStockGroupDeletable(_company, group);
         _company.RemoveStockGroup(group);
     }
 
@@ -147,15 +153,45 @@ public sealed class InventoryService
         catch { category.ParentId = previous; throw; }
     }
 
-    /// <summary>Deletes a stock category, blocked while it has child categories or items using it.</summary>
+    /// <summary>
+    /// <b>Alters</b> an existing stock category in place — rename, re-alias and re-parent — resolved by its
+    /// stable <paramref name="categoryId"/>, so every child category and stock item that references it follows a
+    /// rename automatically (they reference the Guid). Census 3.2 / W28 C3.
+    ///
+    /// <para>Deliberately built as <see cref="AlterStockGroup"/>'s twin, down to the restore-on-throw: the
+    /// proposed parent is written, validated by the cycle check, and put back if the check refuses, so a rejected
+    /// alteration leaves the company exactly as it was. The name is required and unique EXCLUDING this category
+    /// itself — without that exclusion an operator could never alter a category while leaving its name alone,
+    /// which is the commonest alteration there is.</para>
+    /// </summary>
+    public StockCategory AlterStockCategory(Guid categoryId, string name, Guid? parentId, string? alias = null)
+    {
+        var category = _company.FindStockCategory(categoryId)
+            ?? throw new InvalidOperationException($"Stock category {categoryId} not found.");
+
+        var trimmed = RequireName(name, "stock category");
+        if (_company.FindStockCategoryByName(trimmed) is { } clash && clash.Id != categoryId)
+            throw new InvalidOperationException($"A stock category named '{trimmed}' already exists.");
+
+        var previousParent = category.ParentId;
+        category.ParentId = parentId;
+        try { EnsureStockCategoryParentValid(category); }
+        catch { category.ParentId = previousParent; throw; }
+
+        category.Name = trimmed;
+        category.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        return category;
+    }
+
+    /// <summary>
+    /// Deletes a stock category, blocked while it has child categories or items using it —
+    /// <see cref="MasterDeletionRules.EnsureStockCategoryDeletable"/> owns the refusal (W28 C2, census 3.2).
+    /// </summary>
     public void DeleteStockCategory(Guid categoryId)
     {
         var category = _company.FindStockCategory(categoryId)
             ?? throw new InvalidOperationException($"Stock category {categoryId} not found.");
-        if (_company.StockCategories.Any(c => c.ParentId == categoryId))
-            throw new InvalidOperationException($"Stock category '{category.Name}' has child categories and cannot be deleted.");
-        if (_company.StockItems.Any(i => i.CategoryId == categoryId))
-            throw new InvalidOperationException($"Stock category '{category.Name}' is used by items and cannot be deleted.");
+        MasterDeletionRules.EnsureStockCategoryDeletable(_company, category);
         _company.RemoveStockCategory(category);
     }
 
@@ -220,17 +256,64 @@ public sealed class InventoryService
     }
 
     /// <summary>
-    /// Deletes a unit, blocked while it is in use — as an item's base unit, or as a component of a compound
-    /// unit.
+    /// <b>Alters</b> an existing unit in place — symbol, formal name, UQC and decimal places — resolved by its
+    /// stable <paramref name="unitId"/>, so every stock item and voucher line that measures in it follows a
+    /// rename automatically (they reference the Guid). Census 3.5 / W28 C3.
+    ///
+    /// <para>🔴 <b>SCOPE, STATED HONESTLY: A COMPOUND UNIT'S COMPOSITION CANNOT BE ALTERED HERE, AND THAT IS A
+    /// LIMIT RATHER THAN AN OVERSIGHT.</b> <see cref="Unit.IsCompound"/>, <see cref="Unit.FirstUnitId"/>,
+    /// <see cref="Unit.TailUnitId"/>, <see cref="Unit.ConversionNumerator"/> and
+    /// <see cref="Unit.ConversionDenominator"/> are all get-only on the domain type — deliberately, because the
+    /// conversion is the arithmetic every quantity in that unit has already been stored against. Re-pointing a
+    /// Dozen from 12 Nos to 10 Nos would silently restate every posted line measured in Dozens, which is a
+    /// wrong-money change dressed as a master edit. Altering the composition therefore needs its own slice with
+    /// its own restatement decision; this verb changes only what is safe to change under a stable conversion.
+    /// The wave 28 report records it as NOT reached rather than claiming row 3.5 is closed.</para>
+    ///
+    /// <para><paramref name="unitQuantityCode"/> and <paramref name="decimalPlaces"/> are applied to SIMPLE units
+    /// only, mirroring <see cref="Unit.Simple"/>: a compound unit carries no UQC and inherits precision from its
+    /// components, so writing either onto one would invent state the create path cannot produce.</para>
+    /// </summary>
+    public Unit AlterUnit(
+        Guid unitId, string symbol, string formalName, int decimalPlaces = 0, string? unitQuantityCode = null)
+    {
+        var unit = _company.FindUnit(unitId)
+            ?? throw new InvalidOperationException($"Unit {unitId} not found.");
+
+        var trimmedSymbol = RequireName(symbol, "unit symbol");
+        if (_company.FindUnitByName(trimmedSymbol) is { } clash && clash.Id != unitId)
+            throw new InvalidOperationException($"A unit '{trimmedSymbol}' already exists.");
+        if (string.IsNullOrWhiteSpace(formalName))
+            throw new InvalidOperationException("A unit formal name is required.");
+        if (!unit.IsCompound && decimalPlaces is < 0 or > 4)
+            throw new InvalidOperationException("Decimal places must be between 0 and 4.");
+
+        unit.Symbol = trimmedSymbol;
+        unit.FormalName = formalName.Trim();
+        if (!unit.IsCompound)
+        {
+            unit.DecimalPlaces = decimalPlaces;
+            unit.UnitQuantityCode = string.IsNullOrWhiteSpace(unitQuantityCode) ? null : unitQuantityCode.Trim();
+        }
+        return unit;
+    }
+
+    /// <summary>
+    /// Deletes a unit, blocked while it is in use — <see cref="MasterDeletionRules.EnsureUnitDeletable"/> owns
+    /// the refusal (W28 C2, census 3.5).
+    ///
+    /// <para>🔴 <b>THE GUARD THIS METHOD USED TO CARRY WAS INCOMPLETE, AND WIRING Alt+D ONTO IT UNCHANGED WOULD
+    /// HAVE BEEN THE WORST OUTCOME AVAILABLE.</b> It counted <c>stock_items.base_unit_id</c> and the compound
+    /// components and stopped, so a unit named by <c>stock_items.alternate_unit_id</c> (census 3.6, v60),
+    /// <c>voucher_inventory_lines.unit_id</c> or <c>inventory_allocations.unit_id</c> was deletable. Those three
+    /// columns declare <c>REFERENCES units(id)</c>, so the removal succeeded in memory and the next Save threw
+    /// <c>SQLITE_CONSTRAINT_FOREIGNKEY</c>, after which the open company could never be written again.</para>
     /// </summary>
     public void DeleteUnit(Guid unitId)
     {
         var unit = _company.FindUnit(unitId)
             ?? throw new InvalidOperationException($"Unit {unitId} not found.");
-        if (_company.StockItems.Any(i => i.BaseUnitId == unitId))
-            throw new InvalidOperationException($"Unit '{unit.Symbol}' is used by stock items and cannot be deleted.");
-        if (_company.Units.Any(u => u.FirstUnitId == unitId || u.TailUnitId == unitId))
-            throw new InvalidOperationException($"Unit '{unit.Symbol}' is a component of a compound unit and cannot be deleted.");
+        MasterDeletionRules.EnsureUnitDeletable(_company, unit);
         _company.RemoveUnit(unit);
     }
 
@@ -286,19 +369,64 @@ public sealed class InventoryService
     }
 
     /// <summary>
-    /// Deletes a godown, blocked while it is the seeded Main Location, has child godowns, or holds any
-    /// opening allocation.
+    /// <b>Alters</b> an existing godown in place — rename, re-alias, re-parent, the third-party flag and the
+    /// job/project cost centre — resolved by its stable <paramref name="godownId"/>, so every line stored there
+    /// follows a rename automatically (they reference the Guid). Census 3.7 / W28 C3, and the verb the vendor
+    /// names at <i>"Gateway of Tally &gt; Inventory Info. &gt; Godowns &gt; and select Alter"</i>.
+    ///
+    /// <para>Built as <see cref="AlterStockGroup"/>'s twin, with the same restore-on-throw around the parent so a
+    /// cyclic re-parent leaves the godown untouched, plus <see cref="CreateGodown"/>'s own existence check on the
+    /// job cost centre — a link to a centre that is not in the book would break the schema's foreign key at Save
+    /// time with a raw persistence error instead of a clean domain one.</para>
+    ///
+    /// <para><b><see cref="Godown.IsMainLocation"/> is get-only and is NOT altered.</b> The seeded default is
+    /// renameable and re-aliasable like any other godown, but it cannot be demoted, because the flag is what every
+    /// inventory line falls back to when no godown is named.</para>
+    /// </summary>
+    public Godown AlterGodown(
+        Guid godownId, string name, Guid? parentId, string? alias = null, bool thirdParty = false,
+        Guid? jobCostCentreId = null)
+    {
+        var godown = _company.FindGodown(godownId)
+            ?? throw new InvalidOperationException($"Godown {godownId} not found.");
+
+        var trimmed = RequireName(name, "godown");
+        if (_company.FindGodownByName(trimmed) is { } clash && clash.Id != godownId)
+            throw new InvalidOperationException($"A godown named '{trimmed}' already exists.");
+        if (jobCostCentreId is { } centreId && _company.FindCostCentre(centreId) is null)
+            throw new InvalidOperationException($"Cost centre {centreId} not found.");
+
+        var previousParent = godown.ParentId;
+        godown.ParentId = parentId;
+        try { EnsureGodownParentValid(godown); }
+        catch { godown.ParentId = previousParent; throw; }
+
+        godown.Name = trimmed;
+        godown.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        godown.ThirdParty = thirdParty;
+        godown.JobCostCentreId = jobCostCentreId;
+        return godown;
+    }
+
+    /// <summary>
+    /// Deletes a godown — <see cref="MasterDeletionRules.EnsureGodownDeletable"/> owns the refusal (W28 C2,
+    /// census 3.7), which is the vendor's three stated conditions plus the six further columns our schema has.
+    ///
+    /// <para>🔴 <b>THE GUARD THIS METHOD USED TO CARRY COUNTED THREE OF TWELVE REFERENCES.</b> It refused the
+    /// default location, child godowns and opening balances. It did NOT count
+    /// <c>voucher_inventory_lines.godown_id</c>, <c>inventory_allocations.godown_id</c>,
+    /// <c>order_lines.godown_id</c>, <c>physical_stock_lines.godown_id</c>, <c>batch_masters.godown_id</c>,
+    /// <c>bom_lines.godown_id</c>, <c>pos_voucher_type_config.default_godown_id</c>,
+    /// <c>job_work_orders.fg_godown_id</c> or <c>job_work_order_lines.godown_id</c> — so a godown holding every
+    /// movement the business had made was deletable, and the next Save would fail its foreign key and keep
+    /// failing. The vendor's own wording is the plainest statement that this was wrong: a godown may be deleted
+    /// only if it <i>"does not store any stock items"</i> and <i>"was not used in any transaction"</i>.</para>
     /// </summary>
     public void DeleteGodown(Guid godownId)
     {
         var godown = _company.FindGodown(godownId)
             ?? throw new InvalidOperationException($"Godown {godownId} not found.");
-        if (godown.IsMainLocation)
-            throw new InvalidOperationException("The default 'Main Location' godown cannot be deleted.");
-        if (_company.Godowns.Any(g => g.ParentId == godownId))
-            throw new InvalidOperationException($"Godown '{godown.Name}' has child godowns and cannot be deleted.");
-        if (_company.StockOpeningBalances.Any(b => b.GodownId == godownId))
-            throw new InvalidOperationException($"Godown '{godown.Name}' holds opening stock and cannot be deleted.");
+        MasterDeletionRules.EnsureGodownDeletable(_company, godown);
         _company.RemoveGodown(godown);
     }
 

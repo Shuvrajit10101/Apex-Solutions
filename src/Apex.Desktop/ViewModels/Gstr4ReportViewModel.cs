@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Linq;
@@ -30,7 +31,7 @@ public sealed class Gstr4QuarterRowVm
 /// <para>Gated: only reachable when the company is a Composition dealer (byte-identical for a Regular company,
 /// ER-13). MVVM boundary: engine only, no Avalonia types (headlessly testable); deterministic (no clock/RNG).</para>
 /// </summary>
-public sealed partial class Gstr4ReportViewModel : ViewModelBase
+public sealed partial class Gstr4ReportViewModel : ViewModelBase, IMasterListExportSource
 {
     private readonly Company _company;
 
@@ -142,6 +143,61 @@ public sealed partial class Gstr4ReportViewModel : ViewModelBase
         AnnualTotalText = A(new Money(ret.AnnualCompositionTax.Amount + ret.AnnualRcmTax.Amount));
 
         StatusText = $"Annual tax ₹{AnnualTotalText} (composition ₹{AnnualCompositionTaxText} + inward RCM ₹{AnnualRcmTaxText}); reconciles to Σ of the four quarters.";
+    }
+
+    /// <summary>
+    /// <b>Census 6.11 — the second half of that row's output gap.</b> CMP-08 gained E / Alt+E and P / Ctrl+P
+    /// through <see cref="IMasterListExportSource"/>; row 6.11 covers <b>both</b> composition returns, so GSTR-4
+    /// without an export path would have left the row exactly as PARTIAL as it started.
+    ///
+    /// <para><b>Two columns, and the quarter grid is unrolled into them on purpose.</b> The screen shows Table 5
+    /// as a five-column grid, so the obvious move is a five-column snapshot. It is rejected: only the Table-5
+    /// rows have five figures — the Table 4A–4D inward values and the Table 6 annual figures are single amounts,
+    /// and they would sit under a column captioned <i>"Turnover Base"</i> or <i>"Outward Tax"</i>, which is a
+    /// caption that lies about the figure beneath it. That is the precise defect census 6.9 was filed for on the
+    /// GSTR-3B screen, and it is not worth re-introducing here to save sixteen rows.</para>
+    ///
+    /// <para><b>Mirrors <see cref="Cmp08ReportViewModel.ToMasterListSnapshot"/> deliberately.</b> CMP-08 and
+    /// GSTR-4 are the same dealer's quarterly and annual returns, reconciled against each other at year end —
+    /// Table 6 reconciles to Σ Table 5 by construction. An accountant laying the two exports side by side must
+    /// not have to re-learn the layout to do that reconciliation.</para>
+    ///
+    /// <para><b>The sub-type leads the snapshot</b> for the same reason it leads the CMP-08 one: the composition
+    /// rate depends on it, so a page of figures without it is ambiguous once it leaves this screen.</para>
+    /// </summary>
+    public MasterListSnapshot ToMasterListSnapshot()
+    {
+        var rows = new List<IReadOnlyList<string>>
+        {
+            new[] { "Period", Subtitle },
+            new[] { "Composition sub-type", SubTypeText },
+        };
+
+        // Table 5 — the four quarters' self-assessed CMP-08 liability, unrolled one figure per row.
+        foreach (var q in Quarters)
+        {
+            rows.Add(new[] { $"5  {q.Quarter} — turnover base", q.TurnoverBase });
+            rows.Add(new[] { $"5  {q.Quarter} — outward tax on turnover", q.OutwardTax });
+            rows.Add(new[] { $"5  {q.Quarter} — inward reverse-charge tax", q.InwardRcmTax });
+            rows.Add(new[] { $"5  {q.Quarter} — total tax payable", q.TotalPayable });
+        }
+
+        // Tables 4A–4D — inward supplies, value only (a composition dealer claims no ITC).
+        rows.Add(new[] { "4A  Inward supplies from a registered supplier — value", RegisteredValueText });
+        rows.Add(new[] { "4B  Inward supplies liable to reverse charge — value", ReverseChargeValueText });
+        rows.Add(new[] { "4B  Inward supplies liable to reverse charge — tax paid in cash", ReverseChargeTaxText });
+        rows.Add(new[] { "4C  Inward supplies from an unregistered supplier — value", UnregisteredValueText });
+        rows.Add(new[] { "4D  Import of service — value", ImportServiceValueText });
+
+        // Table 6 — the annual liability. Reconciles to Σ Table 5 by construction.
+        rows.Add(new[] { "6  Annual composition tax on turnover", AnnualCompositionTaxText });
+        rows.Add(new[] { "6  Annual inward reverse-charge tax", AnnualRcmTaxText });
+        rows.Add(new[] { "6  Annual total tax payable", AnnualTotalText });
+
+        return new MasterListSnapshot(
+            Title,
+            new[] { MasterListColumn.Text("Particulars"), MasterListColumn.Number("Amount") },
+            rows);
     }
 
     private void SetNotApplicable()

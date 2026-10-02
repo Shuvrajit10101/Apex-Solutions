@@ -965,6 +965,23 @@ public sealed record StockItemDto
     public string? HsnSacCode { get; init; }
     public bool IsTaxable { get; init; }
     public long? StandardCostPaisa { get; init; }
+
+    // ── census 3.4 / user ruling 26 (schema v65): the MARKET VALUATION dimension ──────────────────────────────
+    // 🔴 All three are OPTIONAL so a canonical file written before v65 still reads: absent ⇒ AtZeroPrice, which
+    // auto-fills nothing and is exactly what such a file meant. They are a separate dimension from
+    // ValuationMethod above — that one values closing stock, these derive a SELLING price and never reach the
+    // Balance Sheet. StandardPricePaisa is deliberately NOT StandardCostPaisa; folding them would rebuild the
+    // conflation ruling 26 exists to undo.
+    public string? MarketValuationMethod { get; init; }   // MarketValuationMethod name; null ⇒ AtZeroPrice
+    public long? StandardPricePaisa { get; init; }        // the standard SELLING rate (never a cost)
+
+    /// <summary>
+    /// 🔴 The costing method schema v65 migrated this item AWAY from (<c>LastSaleCost</c>), or null if it was
+    /// never remediated. It must survive export/import: it is the only thing that lets an upgraded book tell its
+    /// operator that its closing stock value moved, and a round trip that dropped it would silence the warning
+    /// for exactly the books that owe one.
+    /// </summary>
+    public string? ValuationRemediatedFrom { get; init; }
     public decimal? ReorderLevel { get; init; }
     public decimal? MinimumOrderQuantity { get; init; }
     public StockItemGstDto? Gst { get; init; }
@@ -1268,6 +1285,16 @@ public sealed record PayHeadComputationSlabDto
     public long ValuePaisa { get; init; }
     public long? FromAmountPaisa { get; init; }
     public long? ToAmountPaisa { get; init; }
+
+    /// <summary>The slab's "Effective From" (ISO yyyy-MM-dd), schema v63 / census 7.19; <c>null</c> = no lower
+    /// bound. Both this and <see cref="EffectiveTo"/> are OMITTED from the XML when null, so a book whose pay
+    /// heads carry no dates exports byte-identically to a pre-v63 export (ER-13).</summary>
+    public string? EffectiveFrom { get; init; }
+
+    /// <summary>The slab's last in-force date (ISO yyyy-MM-dd); <c>null</c> = no upper bound. 🔴 Losing this on a
+    /// round-trip would turn a Labour Welfare Fund deduction taken in one month into one taken every month, so it
+    /// is carried through export, import and the SQLite store alike.</summary>
+    public string? EffectiveTo { get; init; }
 }
 
 /// <summary>A dated Salary Structure ("Salary Details") for an employee or employee group, with ordered lines.</summary>

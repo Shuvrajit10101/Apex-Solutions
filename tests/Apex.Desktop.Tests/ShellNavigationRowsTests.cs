@@ -438,8 +438,19 @@ public sealed class ShellNavigationRowsTests : IDisposable
             // W-I1 / census 16.2: the vendor's two user-management rows joined this menu, which is exactly
             // where the vendor reaches them ("Press Alt+K (Company) > Users and Passwords" / "> Password
             // Policy"). Both open a real screen — see SecurityControlScreenTests.
+            //
+            // Census 16.1 added "Data Vault" last — OUR name for the vendor's data-vault row, whose own label
+            // is a product name carrying a brand this application never renders (CompanyMenuViewModel
+            // .DataVaultVerb). It opens a real screen; see CompanyVaultReachabilityTests.
+            //
+            // 🔴 This list is RESTATED rather than derived from the menu builder on purpose: deriving it would
+            // make the assertion agree with any row anybody adds. Restating it means a new row has to be
+            // justified here, which is what just happened. `CompanyMenu.OfferedVerbs` is checked against the
+            // built column by the honest-omission test below; that is a drift lock between the list and the
+            // builder, and is a different job from this one.
             Assert.Equal(
-                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy" },
+                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy",
+                        "Data Vault" },
                 CompanyMenu.VerbsOf(column));
 
             // The keyboard cursor lands on a selectable row, not on a header.
@@ -449,27 +460,62 @@ public sealed class ShellNavigationRowsTests : IDisposable
     }
 
     /// <summary>
-    /// 🔴 <b>THE INCUMBENT-PRESERVATION LOCK.</b> Saved Views (census 14.7) is bound to <c>Alt+K</c> on a
-    /// report and has no menu row anywhere, so that chord is its ONLY door. The company menu is scoped OUT of
-    /// report context precisely so claiming <c>Alt+K</c> does not delete a shipped feature. This passes before
-    /// and after; the day it goes red, a feature lost its only route in.
+    /// 🔴 <b>THE INCUMBENT-PRESERVATION LOCK, DISCHARGED — AND REWRITTEN RATHER THAN DELETED.</b>
+    ///
+    /// <para>This test used to be <c>Alt_K_on_a_report_still_opens_saved_views</c>, and it was RIGHT for as long
+    /// as its premise held: Saved Views (census 14.7) had <c>Alt+K</c> as its only door, so the company menu was
+    /// scoped out of report context to avoid deleting a shipped feature, and this test was the tripwire on that
+    /// bargain. <b>The premise no longer holds.</b> Saved Views now hangs off the vendor's own Ctrl+H (Change
+    /// View) menu — help.tallysolutions.com/use-save-view-feature-in-tallyprime/: "press Ctrl+H (Change View),
+    /// and select the view" — so the chord can go back to the feature the vendor documents on it
+    /// (keyboard-shortcuts-tally/, <c>Alt+K</c>: "To open the company menu with the list of actions related to
+    /// managing your company").</para>
+    ///
+    /// <para>🔴 <b>The tripwire is not weakened, it is MOVED: this test now asserts BOTH halves.</b> Alt+K must
+    /// reach the company menu on a report (the fix), and Saved Views must still be reachable from that same
+    /// report by keyboard (the thing the old test protected). If a later change breaks either one, this goes
+    /// red — which is exactly what the old test existed to do.</para>
     /// </summary>
     [AvaloniaFact]
-    public void Alt_K_on_a_report_still_opens_saved_views()
+    public void Alt_K_on_a_report_opens_the_company_menu_and_saved_views_keeps_a_keyboard_door()
     {
-        var (window, vm) = OpenWindow("Saved Views Preserved Co");
+        var (window, vm) = OpenWindow("Saved Views Rehomed Co");
         try
         {
             vm.OpenReport(ReportKind.BalanceSheet);
             Pump(window);
             Assert.True(vm.IsReportContext);
 
+            // HALF ONE — the vendor's chord reaches the vendor's menu, on a report. This is the assertion that
+            // fails on today's main, where a report-scoped Alt+K arm opened Saved Views instead.
             window.KeyPressQwerty(PhysicalKey.K, RawInputModifiers.Alt);
             Pump(window);
+            Assert.Equal(Screen.CompanyMenu, vm.CurrentScreen);
+            Assert.Null(vm.SavedViews);
+            Assert.Equal(
+                new[] { "Create", "Alter", "Select", "Shut", "Users and Passwords", "Password Policy",
+                        "Data Vault" },
+                CompanyMenu.VerbsOf(vm.Columns[^1]));
 
+            // HALF TWO — the feature the old test protected still has a keyboard route from a report, and it is
+            // the vendor's: Ctrl+H (Change View) > Saved Views, driven entirely from the keyboard.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            vm.OpenReport(ReportKind.BalanceSheet);
+            Pump(window);
+
+            window.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(Screen.ChangeViewMenu, vm.CurrentScreen);
+            Assert.Equal(
+                new[] { "Saved Views", "Delete Saved Views", "Show Original View" },
+                ChangeViewMenu.VerbsOf(vm.Columns[^1]));
+            Assert.True(vm.Columns[^1].Selected?.IsSelectable == true);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
             Assert.NotNull(vm.SavedViews);
             Assert.Equal(Screen.SavedViews, vm.CurrentScreen);
-            Assert.NotEqual(Screen.CompanyMenu, vm.CurrentScreen);
         }
         finally { window.Close(); }
     }
@@ -498,27 +544,30 @@ public sealed class ShellNavigationRowsTests : IDisposable
     }
 
     /// <summary>
-    /// The three rows of the vendor's Alt+K list this build does not have. They live HERE, in the test, and
-    /// deliberately not in <c>src</c>: the first is a vendor product name carrying the "Tally" brand, and
-    /// <see cref="No_rendered_text_in_the_company_menu_carries_the_reference_products_brand"/> is the test
-    /// that stops it reaching a screen. Naming the reference product in a test file is correct; shipping it
-    /// in a rendered string is not.
-    /// </summary>
     /// <summary>
-    /// The vendor rows this menu still withholds. 🔴 <b>The list SHRANK on 2026-09-07 (census 16.2, W-I1)</b>:
-    /// "Users and Passwords" and "Password Policy" are now built and now offered, so keeping them here would
-    /// assert the opposite of what shipped. What remains withheld is the data-vault row (census 16.1, whose
-    /// page-encryption half needs a new native dependency and a user ruling), "Change User" (which needs a
-    /// signed-in session, deferred with the actor work) and "Edit Log" (census 16.4, reachable elsewhere).
-    /// Naming the reference product is correct HERE, in the test file, and nowhere in <c>src/</c>.
+    /// Vendor Alt+K row LABELS that must never appear in this menu. 🔴 <b>What this list means CHANGED with
+    /// census 16.1</b>, and the change matters: it used to be "rows this build does not have", and
+    /// "TallyVault" was on it for that reason. <b>This build now HAS the data-vault capability</b> — reached
+    /// from this very menu — so the entry no longer records an absent feature. It records an absent NAME: the
+    /// vendor's label for it is a product name carrying the "Tally" brand, this application renders that word
+    /// nowhere (R7), and our row is called "Data Vault" instead. The assertion below is therefore a DE-BRAND
+    /// lock on a shipped row, not an omission lock on a missing one.
+    ///
+    /// <para>Genuinely still withheld: "Change User" (needs a signed-in session, deferred with the actor work)
+    /// and "Edit Log" (census 16.4, reachable elsewhere).</para>
+    ///
+    /// <para>These strings live HERE, in the test, and deliberately not in <c>src/</c>. Naming the reference
+    /// product in a test file is correct; shipping it in a rendered string is not.</para>
     /// </summary>
     private static readonly string[] WithheldVendorRows = { "TallyVault", "Change User", "Edit Log" };
 
     /// <summary>
     /// 🔴 <b>THE HONEST-OMISSION LOCK.</b> The vendor's Alt+K list is Create · Alter · Select · TallyVault ·
-    /// Change User · Edit Log. The last three are security &amp; audit, which this build does not have, and a
-    /// row that opens a "not available" message is worse than no row. So they must be ABSENT as rows and the
-    /// gap must be PRESENT as a disclosure the operator can read.
+    /// Change User · Edit Log. Two of those last three — "Change User" and "Edit Log" — are still not in this
+    /// build, and a row that opens a "not available" message is worse than no row, so they must be ABSENT as
+    /// rows while the gap is PRESENT as a disclosure the operator can read. The third is now built and offered
+    /// under OUR name (census 16.1), so what is asserted about it here is that the VENDOR'S label never
+    /// appears — see <see cref="WithheldVendorRows"/>, whose meaning changed with it.
     /// </summary>
     [AvaloniaFact]
     public void The_company_menu_offers_only_verbs_this_application_has_and_says_what_it_withholds()
@@ -536,8 +585,10 @@ public sealed class ShellNavigationRowsTests : IDisposable
 
             // The disclosure is ON SCREEN. The cascade draws header rows through an uppercasing converter, so
             // the comparison is case-insensitive by necessity, not by laziness — the shipped glyphs really are
-            // "COMPANY DATA ENCRYPTION IS NOT IN THIS BUILD" (narrowed from the security-and-audit wording when
-            // census 16.2 shipped and made the broader claim false).
+            // "AUDIT TRAIL OF EDITS IS NOT ON THIS MENU". It has narrowed TWICE as the gap it describes
+            // shrank: from the security-and-audit wording when census 16.2 shipped the user rows, and again
+            // when census 16.1 shipped the vault and made "company data encryption is not in this build"
+            // false. A disclosure that outlives the gap is a lie with a test holding it in place.
             Assert.Contains(
                 VisibleText(window),
                 t => t.Contains(CompanyMenu.Disclosure, StringComparison.OrdinalIgnoreCase));

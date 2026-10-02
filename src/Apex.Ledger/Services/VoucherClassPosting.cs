@@ -80,9 +80,18 @@ public static class VoucherClassPosting
     /// <para>A class with no allocations and no additional entries returns two empty lists — that is the shipped
     /// Stock Journal transfer class (census 9.9), which posts no ledger entry at all, and it must keep posting
     /// none.</para>
+    ///
+    /// <para>🔴 <b><paramref name="otherCharges"/> IS THE REST OF THE INVOICE, AND OMITTING IT ROUNDS THE WRONG
+    /// NUMBER.</b> GST, cess, TCS and the additional-cost pool all sit on the invoice but are computed by their own
+    /// engines and are NOT this class's to allocate. The vendor's round-off nevertheless makes the <i>invoice</i>
+    /// total round — <c>help.tallysolutions.com/tally-prime/accounting/round-off-invoice-and-ledger-values/</c>
+    /// works the example on the invoice value, not on a pre-tax subtotal. So those charges are added into the
+    /// running total the rounding entry snaps, and into nothing else: they are never allocated (the pre-map splits
+    /// the ITEM value) and they never become a leg here (their own engines already posted them). Left at zero, this
+    /// is the pre-tax behaviour and every existing caller is byte-identical.</para>
     /// </summary>
     public static VoucherClassPostingResult Compute(
-        VoucherClass voucherClass, Money itemValue, decimal totalBaseQuantity)
+        VoucherClass voucherClass, Money itemValue, decimal totalBaseQuantity, Money otherCharges = default)
     {
         ArgumentNullException.ThrowIfNull(voucherClass);
 
@@ -125,7 +134,12 @@ public static class VoucherClassPosting
 
         if (rounding is not null)
         {
-            var running = allocations.Sum(l => l.Amount.Amount) + additional.Sum(l => l.Amount.Amount);
+            // The INVOICE total: what this class allocated, plus what it added, plus everything else already on the
+            // invoice (tax, cess, TCS, additional cost). See the parameter note — the difference has to be measured
+            // against the figure the operator is asked to pay, or the invoice does not come out round.
+            var running = allocations.Sum(l => l.Amount.Amount)
+                          + additional.Sum(l => l.Amount.Amount)
+                          + otherCharges.Amount;
             var rounded = VoucherClassRounding.Apply(running, rounding.RoundingMethod, rounding.RoundingLimit);
             var difference = new Money(rounded.Amount - running);
 

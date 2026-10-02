@@ -40,8 +40,23 @@ public sealed record Form16(
     string? EmployeePan,
     Form24QDeductor Deductor,
     IReadOnlyList<Form16QuarterRow> PartA,
-    Form24QAnnexureIIRow? PartB)
+    Form24QAnnexureIIRow? PartB,
+    string RateBasisNote,
+    string? ProvisionalRatesNote)
 {
+    /// <summary>
+    /// 🔴 <b>True when Part B was priced on a financial year whose own rates are not notified in this build</b>, a
+    /// neighbouring year's having been carried over — <see cref="ProvisionalRatesNote"/> says which and why.
+    ///
+    /// <para><b>Why a CERTIFICATE carries this and not merely an internal report.</b> Part B is the document an
+    /// employee files their return from. Defect T1-26 made the substitution of one year's tax law for another
+    /// silent and undiscoverable; a Form 16 is the last place that silence is acceptable, because its reader has no
+    /// access to the book that produced it and cannot tell a figure priced on the right year from one priced on the
+    /// wrong year. The <b>arithmetic</b> was already dated once <c>BuildAnnexureII</c> resolved the table — this
+    /// adds the <b>disclosure</b>, which was reaching only the Income Tax Computation report.</para>
+    /// </summary>
+    public bool RatesAreProvisional => ProvisionalRatesNote is not null;
+
     /// <summary>The financial-year label (e.g. "2025-26").</summary>
     public string FinancialYearLabel => $"{FinancialYearStartYear}-{(FinancialYearStartYear + 1) % 100:00}";
 
@@ -90,9 +105,14 @@ public sealed record Form16(
         var partB = Form24Q.BuildAnnexureII(company, fyStartYear)
             .FirstOrDefault(r => r.EmployeeId == employeeId);
 
+        // 🔴 T1-26: read the rate basis from the SAME resolution that priced Part B, so the certificate's disclosure
+        // cannot disagree with the certificate's figures. `AnnexureIIRates` is a pure function of the company and
+        // the year and is the one call `BuildAnnexureII` itself uses.
+        var rates = Form24Q.AnnexureIIRates(company, fyStartYear);
+
         return new Form16(
             fyStartYear, employeeId, employee.Name, employee.Pan,
             deductor ?? new Form24QDeductor(string.Empty, DeductorType.Company, null, null, null, null),
-            partA, partB);
+            partA, partB, rates.BasisNote, rates.ProvisionalNote);
     }
 }
