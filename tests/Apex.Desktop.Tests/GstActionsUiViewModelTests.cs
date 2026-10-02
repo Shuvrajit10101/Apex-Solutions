@@ -696,6 +696,126 @@ public sealed class GstActionsUiViewModelTests : IDisposable
 
     // ================================================================ Screen 3: Post ITC Reversal
 
+    /// <summary>
+    /// 🔴 <b>THE REGISTRATION SCOPE MUST TRAVEL — the third and fourth sites of a drop that was fixed one layer in.</b>
+    ///
+    /// <para><c>ItcGateView.Build</c> now scopes its own reconciler and GSTR-3B legs, but it takes
+    /// <c>registrationId</c> as an OPTIONAL parameter and both Desktop callers omitted it. With a null scope the
+    /// engine's <c>EnsureRegistrationScoped</c> refuses the projection for any <c>IsMultiRegistration</c> book — which
+    /// is every book with a branch and <b>every ISD company, which holds at least two registrations by
+    /// construction</b> — and each screen's own <c>catch</c> turned that refusal into a message. So the whole
+    /// gate-candidate surface was not merely mis-scoped, it was <b>unreachable</b>: on the POSTING screen
+    /// <c>_rawCandidates</c> stayed empty, <c>HasCandidates</c> was false, and an operator could not post any
+    /// gate-surfaced reversal at all.</para>
+    ///
+    /// <para>Measured on the standard fixture: a ₹5,000 intra purchase at 18% ⇒ ITC 450.00 + 450.00 = <b>₹900.00</b>,
+    /// with a 2B snapshot carrying NO matching line, so the purchase is <c>InBooksOnly</c> and its whole ₹900.00 is a
+    /// §16(2)(aa) candidate. Before the fix: zero candidates and the "must name the registration" refusal in
+    /// <c>Message</c>. The assertion is ABSOLUTE on the candidate's own suggested figure.</para>
+    /// </summary>
+    [Fact]
+    public void Reversal_candidates_are_reachable_on_a_multi_registration_book_not_refused_for_want_of_a_scope()
+    {
+        var vm = NewRegularGstCompany("Reversal Multi Reg Co");
+        var c = vm.Company!;
+        AddSecondRegistration(c);                 // ⇒ IsMultiRegistration, which is what triggered the refusal
+        Import2b(c);                              // a snapshot with NO lines ⇒ the purchase is InBooksOnly
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+
+        Assert.Null(page.Message);                // was the "a GST return must name the registration" refusal
+        Assert.True(page.HasSnapshot);
+        Assert.True(page.HasCandidates, "the gate's candidates must reach the posting screen");
+
+        var deferral = Assert.Single(
+            page.RawCandidates, x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+        Assert.Equal(900m, deferral.SuggestedReversal.Amount);   // 450.00 CGST + 450.00 SGST, hand-computed
+        Assert.Equal(45_000L, deferral.CgstPaisa);
+        Assert.Equal(45_000L, deferral.SgstPaisa);
+    }
+
+    /// <summary>
+    /// The same drop on the <b>read-only</b> ITC-reversal report screen (the second caller). A multi-registration
+    /// book must see the candidate rows rather than the engine's refusal text.
+    /// </summary>
+    [Fact]
+    public void Reversal_report_surfaces_candidates_on_a_multi_registration_book()
+    {
+        var vm = NewRegularGstCompany("Reversal Report Multi Reg Co");
+        var c = vm.Company!;
+        AddSecondRegistration(c);
+        Import2b(c);
+
+        vm.OpenItcReversalReport();
+        var page = vm.ItcReversalReport!;
+
+        Assert.Null(page.Message);
+        Assert.NotEmpty(page.Candidates);
+        Assert.Contains(page.Candidates, r => r.Suggested.Contains("900.00", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 🔴 <b>T1-72 on the POSTING screen, end to end: a purchase return must not leave the operator posting a
+    /// reversal the return already made.</b>
+    ///
+    /// <para>The ₹5,000 purchase's ITC is ₹900.00; a ₹2,000 purchase return on a Debit Note takes back
+    /// 180.00 + 180.00 = <b>₹360.00</b>, so the credit actually held and unmatched in 2B is
+    /// 900.00 − 360.00 = <b>₹540.00</b>. The candidate the screen offers must be ₹540.00. Before the fix it offered
+    /// the whole ₹900.00 — and for a blocked/ineligible purchase that same un-netted figure POSTS a real journal
+    /// entry (asserted in <c>PurchaseReturnDirectionTests</c>).</para>
+    /// </summary>
+    [Fact]
+    public void Reversal_candidate_on_the_posting_screen_is_netted_by_a_purchase_return()
+    {
+        var vm = NewRegularGstCompany("Reversal Return Netting Co");
+        var c = vm.Company!;
+        AddSecondRegistration(c);
+        AddPurchaseReturn(c, 2_000m);             // ⇒ 180.00 + 180.00 = ₹360.00 taken back
+        Import2b(c);
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+
+        var deferral = Assert.Single(
+            page.RawCandidates, x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+        Assert.Equal(540m, deferral.SuggestedReversal.Amount);   // was 900.00 — over by the whole return
+        Assert.Equal(27_000L, deferral.CgstPaisa);
+        Assert.Equal(27_000L, deferral.SgstPaisa);
+    }
+
+    /// <summary>Adds a second GST registration, which is all it takes to make the book
+    /// <c>IsMultiRegistration</c> and so subject to the engine's scope refusal.</summary>
+    private static void AddSecondRegistration(Company c)
+    {
+        c.Gst!.AddRegistration(new GstRegistration(
+            Guid.NewGuid(), "Gujarat Branch", "24", "24AAACC1206D1Z" + Gstin.ComputeCheckDigit("24AAACC1206D1Z0"),
+            GstRegistrationType.Regular, FyStart));
+        c.Gst!.EnsureValid();
+    }
+
+    /// <summary>Posts a purchase return of <paramref name="value"/> on the seeded Debit-Note type against the same
+    /// supplier and purchases ledger as the fixture's original purchase, at the same 18% intra rate.</summary>
+    private static void AddPurchaseReturn(Company c, decimal value)
+    {
+        var gst = new GstService(c);
+        var ledgers = new LedgerService(c);
+        var purchases = c.FindLedgerByName("Purchases")!;
+        var supplier = c.FindLedgerByName("Local Supplier")!;
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(value), 1800) }, false, GstTaxDirection.Input);
+        var gross = value + tax.TaxLines.Sum(l => l.Amount.Amount);
+        var lines = new List<EntryLine>
+        {
+            new(purchases.Id, Money.FromRupees(value), DrCr.Debit),
+            new(supplier.Id, Money.FromRupees(gross), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        ledgers.Post(new Voucher(
+            Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.DebitNote).Id,
+            PurchaseDate, lines, partyId: supplier.Id));
+    }
+
     /// <summary>(a) Opening the Post-ITC-Reversal screen posts NOTHING — it only projects the (zero) ECRS balance.</summary>
     [Fact]
     public void Reversal_opening_the_screen_posts_nothing()

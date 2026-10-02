@@ -341,6 +341,295 @@ public class PurchaseReturnDirectionTests
         Assert.Equal(5_400m, gate.BooksEligibleTotal.Amount);
     }
 
+    // ==============================================================================================================
+    //  2a. T1-72 — the OVER-REVERSAL the T1-64 fix introduced one layer out
+    // ==============================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>T1-72, MEASURED. The identity <c>BooksEligible = Claimable + NotInPortal</c> broke by exactly the
+    /// return, and the screen rendered a sub-row LARGER THAN ITS OWN TOTAL.</b>
+    ///
+    /// <para><b>The mechanism.</b> The T1-64 fix signed the return into <c>BooksEligible</c>, but the
+    /// Claimable / NotInPortal split is keyed on the reconciler's matched / in-books-only sets — and the same slice
+    /// correctly EXCLUDED the return from the books register (it is not a supplier invoice), so the return is in
+    /// NEITHER set. It carries the supplier's GSTIN, so the <c>!HasSupplierGstin</c> fallback does not catch it
+    /// either. The eligible pool was netted; neither sub-pool was.</para>
+    ///
+    /// <para><b>The hand arithmetic.</b> ₹50,000 @ 18% intra ⇒ 4,500.00 + 4,500.00 = ₹9,000.00 received, the 2B
+    /// snapshot is empty so the invoice is <c>InBooksOnly</c> ⇒ the whole 9,000.00 is not-in-portal. ₹20,000 returned
+    /// ⇒ 1,800.00 + 1,800.00 = ₹3,600.00. Net eligible = 18% of ₹30,000 = <b>₹5,400.00</b>, and because the invoice
+    /// is still the only 2B-less document, the not-in-portal pool is the SAME ₹5,400.00. Before the fix:
+    /// BooksEligible 5,400.00 but NotInPortal 9,000.00 — broken by exactly the ₹3,600.00 return, with
+    /// "<i>of which not in 2B 9,000.00</i>" rendered directly under "<i>ITC in books — eligible 5,400.00</i>"
+    /// (<c>ItcGateReportViewModel</c>), arithmetically impossible on its face.</para>
+    /// </summary>
+    [Fact]
+    public void A_purchase_return_keeps_the_itc_gate_identity_books_eligible_equals_claimable_plus_not_in_portal()
+    {
+        var f = Build();
+        PostPurchaseReturn(f);
+
+        var gate = ItcGateView.Build(f.Company, EmptySnapshot(), From, To, f.Isd.Id);
+
+        // ABSOLUTE, hand-computed — not a relative assertion that would move with the bug.
+        Assert.Equal(5_400m, gate.BooksEligibleTotal.Amount);
+        Assert.Equal(0m, gate.ClaimableTotal.Amount);
+        Assert.Equal(5_400m, gate.NotInPortalTotal.Amount);     // was 9,000.00 — the whole invoice, un-netted
+        Assert.Equal(2_700m, gate.NotInPortal.Cgst.Amount);
+        Assert.Equal(2_700m, gate.NotInPortal.Sgst.Amount);
+
+        // The identity itself, which is what the screen renders as a total and its two sub-rows.
+        Assert.Equal(
+            gate.BooksEligibleTotal.Amount,
+            gate.ClaimableTotal.Amount + gate.NotInPortalTotal.Amount);
+
+        // No sub-row may exceed its own total.
+        Assert.True(gate.NotInPortalTotal.Amount <= gate.BooksEligibleTotal.Amount,
+            $"not-in-2B {gate.NotInPortalTotal.Amount} exceeds books-eligible {gate.BooksEligibleTotal.Amount}");
+    }
+
+    /// <summary>
+    /// 🔴 <b>T1-72, the candidate half: the §16(2)(aa) candidate advised reversing the WHOLE invoice, ignoring the
+    /// return that had already removed part of that credit.</b> The candidate list is what the S7 poster consumes, so
+    /// a candidate larger than the pool it came out of is advice to remove the same money twice.
+    ///
+    /// <para>Σ of the §16(2)(aa) candidates must equal <c>NotInPortal</c> exactly — that identity holds on main
+    /// pre-return (both are the same sum over the same vouchers) and the return broke it. Measured: ONE candidate
+    /// suggesting ₹9,000.00 against a not-in-portal pool of ₹5,400.00, a ₹3,600.00 overstatement.</para>
+    /// </summary>
+    [Fact]
+    public void A_purchase_return_nets_the_section_16_2aa_candidate_it_already_removed_the_credit_from()
+    {
+        var f = Build();
+        PostPurchaseReturn(f);
+
+        var gate = ItcGateView.Build(f.Company, EmptySnapshot(), From, To, f.Isd.Id);
+
+        var deferrals = gate.ReversalCandidates
+            .Where(x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal).ToList();
+
+        // ABSOLUTE assertion on SuggestedReversal — hand-computed 18% of the ₹30,000 retained.
+        var only = Assert.Single(deferrals);
+        Assert.Equal(f.Purchase.Id, only.VoucherId);
+        Assert.Equal(5_400m, only.SuggestedReversal.Amount);     // was 9,000.00
+        Assert.Equal(270_000L, only.CgstPaisa);                  // was 450,000 paisa
+        Assert.Equal(270_000L, only.SgstPaisa);
+        Assert.Equal(0L, only.IgstPaisa);
+
+        // The candidate pool may never advise more than the pool it is drawn from.
+        Assert.Equal(
+            gate.NotInPortalTotal.Amount,
+            deferrals.Sum(x => x.SuggestedReversal.Amount));
+
+        // A return is never itself a candidate (it is a reduction of the claim, already netted).
+        Assert.DoesNotContain(gate.ReversalCandidates, x => x.VoucherId is { } v && v != f.Purchase.Id);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T1-72, THE POSTED ENTRY — and a CORRECTION to the finding as filed.</b> The finding said
+    /// <c>PostItcReversalViewModel</c> posts the over-reversal into the books from a §16(2)(aa) candidate. It does
+    /// not: <see cref="GstReversalService.PostFromCandidate"/> returns <c>null</c> for
+    /// <see cref="ItcReversalReason.Section16_2aaNotInPortal"/> because §16(2)(aa) is a <b>deferral</b>, and the
+    /// screen says so. Asserted here so the claim is pinned by behaviour rather than repeated.
+    ///
+    /// <para><b>But the over-reversal DOES post — through the blocked / ineligible pools, which are the candidates
+    /// that carry a rule.</b> Flag the same input service §17(5)-blocked and the whole ₹9,000.00 lands in the blocked
+    /// pool; the ₹20,000 return takes it to <b>₹5,400.00</b>; the candidate stayed at ₹9,000.00; and
+    /// <c>PostFromCandidate</c> posts THAT head-for-head as a real journal entry — CGST 4,500.00 + SGST 4,500.00
+    /// reversed where 2,700.00 + 2,700.00 of blocked credit exists. <b>₹3,600.00 of credit reversed that the return
+    /// had already removed</b>, in the books, not on a screen.</para>
+    /// </summary>
+    [Fact]
+    public void A_purchase_return_nets_the_blocked_candidate_so_the_POSTED_reversal_entry_is_not_a_double_removal()
+    {
+        var f = BuildWithBlockedInputService(out var purchaseId);
+        // The ₹20,000 return of the same §17(5)-blocked service.
+        PostServiceLeg(f.Ledgers, f.Gst, f.DebitNoteTypeId, f.Services, f.Creditor, 20_000m, f.Isd.Id, ReturnDate);
+
+        var gate = ItcGateView.Build(f.Company, EmptySnapshot(), From, To, f.Isd.Id);
+
+        // The pool: 9,000.00 blocked less the 3,600.00 returned.
+        Assert.Equal(5_400m, gate.BlockedTotal.Amount);
+        Assert.Equal(0m, gate.BooksEligibleTotal.Amount);        // all of it is blocked, none eligible
+
+        var blocked = Assert.Single(
+            gate.ReversalCandidates, x => x.Reason == ItcReversalReason.Section17_5Blocked);
+        Assert.Equal(purchaseId, blocked.VoucherId);
+        Assert.Equal(5_400m, blocked.SuggestedReversal.Amount);  // was 9,000.00
+        Assert.Equal(
+            gate.BlockedTotal.Amount,
+            gate.ReversalCandidates.Where(x => x.Reason == ItcReversalReason.Section17_5Blocked)
+                .Sum(x => x.SuggestedReversal.Amount));
+
+        // 🔴 THE POSTED ENTRY, not the screen. This is the one that changes the books.
+        var reversal = new GstReversalService(f.Company);
+        var posted = reversal.PostFromCandidate(blocked, "2025-05", To);
+        Assert.NotNull(posted);
+        Assert.Equal(270_000L, posted!.CgstPaisa);               // was 450,000 — a 180,000-paisa over-reversal per head
+        Assert.Equal(270_000L, posted.SgstPaisa);
+        Assert.Equal(0L, posted.IgstPaisa);
+        Assert.Equal(0L, posted.CessPaisa);
+
+        // And the posted JOURNAL ENTRY's own legs, read back off the voucher the engine posted.
+        var entry = f.Company.FindVoucher(posted.ReversalVoucherId);
+        Assert.NotNull(entry);
+        var inputLegs = entry!.Lines.Where(l => l.Gst is not null).ToList();
+        Assert.Equal(5_400m, inputLegs.Sum(l => l.Amount.Amount));
+        Assert.All(inputLegs, l => Assert.Equal(DrCr.Credit, l.Side));   // a Cr leg reverses the input-credit pool
+
+        // The §16(2)(aa) candidate, by contrast, posts NOTHING — it is a deferral (the correction above).
+        var f2 = Build();
+        PostPurchaseReturn(f2);
+        var gate2 = ItcGateView.Build(f2.Company, EmptySnapshot(), From, To, f2.Isd.Id);
+        var deferral = gate2.ReversalCandidates
+            .Single(x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+        var reversal2 = new GstReversalService(f2.Company);
+        Assert.Null(reversal2.PostFromCandidate(deferral, "2025-05", To));
+    }
+
+    /// <summary>
+    /// The routing half of the T1-72 fix, and the case the fixture above cannot show: when the original invoice IS
+    /// reflected in 2B, the credit the return cancels was <b>claimable</b>, so the return must come out of
+    /// <c>Claimable</c> and <c>NotInPortal</c> must NOT be driven negative.
+    ///
+    /// <para>₹9,000.00 matched in 2B ⇒ Claimable 9,000.00 / NotInPortal 0.00. The ₹3,600.00 return nets Claimable to
+    /// <b>₹5,400.00</b>, NotInPortal stays 0.00, and there is no §16(2)(aa) candidate at all. A naive "a return is
+    /// never in 2B, so put it in not-in-portal" rule would have produced NotInPortal = −3,600.00 here.</para>
+    /// </summary>
+    [Fact]
+    public void A_purchase_return_against_an_invoice_reflected_in_2b_nets_the_claimable_pool_not_the_not_in_portal_pool()
+    {
+        var f = Build();
+        PostPurchaseReturn(f);
+
+        // A 2B line matching the ₹50,000 invoice: CGST 4,500 + SGST 4,500 intra-Karnataka.
+        var matching = new Gstr2bLine(
+            Guid.NewGuid(), GstinSupplier, null, Gstr2bDocType.B2b,
+            f.Company.FormatVoucherNumber(f.Purchase),
+            Gstr2bReconciler.NormaliseDocNo(f.Company.FormatVoucherNumber(f.Purchase)),
+            PurchaseDate, Karnataka,
+            5_000_000L, 0L, 450_000L, 450_000L, 0L, true, null, false);
+        var snapshot = new Gstr2bSnapshot(
+            Guid.NewGuid(), GstStatementType.Gstr2b, "2025-05", GstinIsd, new DateOnly(2025, 6, 14),
+            "HASH", DateTimeOffset.UnixEpoch, 0, 0, 0, 0, new[] { matching });
+
+        var gate = ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id);
+
+        Assert.Equal(5_400m, gate.BooksEligibleTotal.Amount);
+        Assert.Equal(5_400m, gate.ClaimableTotal.Amount);        // the netting landed HERE
+        Assert.Equal(0m, gate.NotInPortalTotal.Amount);          // and did NOT go negative
+        Assert.Equal(
+            gate.BooksEligibleTotal.Amount,
+            gate.ClaimableTotal.Amount + gate.NotInPortalTotal.Amount);
+        Assert.DoesNotContain(gate.ReversalCandidates,
+            x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The EXACT-ATTRIBUTION path — the branch the pro-rata fallback must not be allowed to hide.</b> When the
+    /// §34 note NAMES its original (<c>GstCreditDebitNoteLink.OriginalInvoiceVoucherId</c>, which is what the entry
+    /// screen records whenever the operator picks the invoice rather than the "Consolidated…" option), the pool to net
+    /// is the pool THAT invoice fell into — no apportionment, no guessing.
+    ///
+    /// <para>The fixture makes the two answers differ, so the test can tell them apart: the returned ₹50,000 invoice
+    /// is <b>matched in 2B</b> (⇒ Claimable 9,000.00) while a SECOND, unmatched ₹10,000 purchase sits beside it
+    /// (18% ⇒ 900.00 + 900.00 = ₹1,800.00 ⇒ NotInPortal 1,800.00). The ₹3,600.00 return names the matched invoice, so
+    /// ALL of it must come off Claimable: Claimable 5,400.00 and NotInPortal untouched at <b>1,800.00</b>. A pro-rata
+    /// split of the same ₹3,600.00 over (9,000 : 1,800) would instead have taken 3,000.00 and 600.00 — leaving
+    /// NotInPortal at 1,200.00 and under-advising the §16(2)(aa) reversal by ₹600.00 against an invoice the return
+    /// never touched. BooksEligible is 10,800.00 − 3,600.00 = <b>7,200.00</b> either way, which is exactly why the
+    /// total alone cannot police this.</para>
+    /// </summary>
+    [Fact]
+    public void A_linked_purchase_return_nets_the_pool_its_OWN_original_fell_into_not_a_pro_rata_share()
+    {
+        var f = Build();
+        var secondPurchase = PostServiceLeg(
+            f.Ledgers, f.Gst, f.Company.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id,
+            f.Services, f.Creditor, 10_000m, f.Isd.Id, PurchaseDate);
+        var returnNote = PostPurchaseReturn(f);
+
+        // The §34 link the entry screen writes when the operator picks the original invoice.
+        f.Company.AddCreditDebitNoteLink(new GstCreditDebitNoteLink(
+            Guid.NewGuid(), returnNote.Id, CdnType.Debit, f.Purchase.Id,
+            f.Company.FormatVoucherNumber(f.Purchase), PurchaseDate, "01"));
+
+        // 2B reflects ONLY the ₹50,000 invoice the return adjusts.
+        var matching = new Gstr2bLine(
+            Guid.NewGuid(), GstinSupplier, null, Gstr2bDocType.B2b,
+            f.Company.FormatVoucherNumber(f.Purchase),
+            Gstr2bReconciler.NormaliseDocNo(f.Company.FormatVoucherNumber(f.Purchase)),
+            PurchaseDate, Karnataka,
+            5_000_000L, 0L, 450_000L, 450_000L, 0L, true, null, false);
+        var snapshot = new Gstr2bSnapshot(
+            Guid.NewGuid(), GstStatementType.Gstr2b, "2025-05", GstinIsd, new DateOnly(2025, 6, 14),
+            "HASH", DateTimeOffset.UnixEpoch, 0, 0, 0, 0, new[] { matching });
+
+        var gate = ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id);
+
+        Assert.Equal(7_200m, gate.BooksEligibleTotal.Amount);
+        Assert.Equal(5_400m, gate.ClaimableTotal.Amount);     // 9,000.00 less the WHOLE 3,600.00 return
+        Assert.Equal(1_800m, gate.NotInPortalTotal.Amount);   // the OTHER invoice, untouched (pro rata gave 1,200.00)
+        Assert.Equal(
+            gate.BooksEligibleTotal.Amount,
+            gate.ClaimableTotal.Amount + gate.NotInPortalTotal.Amount);
+
+        // The second invoice's §16(2)(aa) candidate keeps its FULL figure — the return was not against it.
+        var deferral = Assert.Single(
+            gate.ReversalCandidates, x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+        Assert.Equal(secondPurchase.Id, deferral.VoucherId);
+        Assert.Equal(1_800m, deferral.SuggestedReversal.Amount);
+        Assert.Equal(90_000L, deferral.CgstPaisa);
+        Assert.Equal(90_000L, deferral.SgstPaisa);
+    }
+
+    /// <summary>
+    /// The over-return boundary, pinned rather than left to chance: a return LARGER than the period's credit drives
+    /// <c>BooksEligible</c> negative (the already-disclosed negative-received case, reported and never floored), and
+    /// a candidate list cannot advise a negative reversal, so the candidate clamps at zero and disappears. ₹60,000
+    /// returned against a ₹50,000 service ⇒ 10,800.00 against 9,000.00 ⇒ net −1,800.00.
+    /// </summary>
+    [Fact]
+    public void A_return_exceeding_the_period_credit_drives_the_gate_negative_and_surfaces_no_candidate()
+    {
+        var f = Build();
+        PostServiceLeg(f.Ledgers, f.Gst, f.DebitNoteTypeId, f.Services, f.Creditor, 60_000m, f.Isd.Id, ReturnDate);
+
+        var gate = ItcGateView.Build(f.Company, EmptySnapshot(), From, To, f.Isd.Id);
+
+        Assert.Equal(-1_800m, gate.BooksEligibleTotal.Amount);
+        Assert.Equal(-1_800m, gate.NotInPortalTotal.Amount);
+        Assert.Equal(0m, gate.ClaimableTotal.Amount);
+        Assert.Equal(
+            gate.BooksEligibleTotal.Amount,
+            gate.ClaimableTotal.Amount + gate.NotInPortalTotal.Amount);
+        Assert.DoesNotContain(gate.ReversalCandidates,
+            x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+    }
+
+    /// <summary>The empty 2B snapshot the gate tests project against (no portal line ⇒ every booked purchase is
+    /// <c>InBooksOnly</c>, which is what puts the whole credit in the not-in-portal pool).</summary>
+    private static Gstr2bSnapshot EmptySnapshot() => new(
+        Guid.NewGuid(), GstStatementType.Gstr2b, "2025-05", GstinOperating, new DateOnly(2025, 6, 14),
+        "HASH", DateTimeOffset.UnixEpoch, 0, 0, 0, 0, Array.Empty<Gstr2bLine>());
+
+    /// <summary>
+    /// The same fixture with the input service flagged <b>§17(5)-blocked</b>, so the whole ₹9,000.00 lands in the
+    /// blocked pool — the pool whose candidate carries a rule and therefore POSTS a real journal entry.
+    /// </summary>
+    private static Fixture BuildWithBlockedInputService(out Guid purchaseId)
+    {
+        var f = Build();
+        f.Services.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "9973", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            ItcEligibility = ItcEligibility.BlockedSection17_5,
+            BlockedCreditCategory = BlockedCreditCategory.MotorVehicles,
+        };
+        purchaseId = f.Purchase.Id;
+        return f;
+    }
+
     /// <summary>
     /// 🔴 <b>A SEPARATE DEFECT, FOUND BY THE MEASUREMENT ABOVE: the ITC gate dropped the registration scope twice,
     /// and on a multi-registration book that made it UNREACHABLE.</b>

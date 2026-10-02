@@ -85,6 +85,8 @@ public sealed record ItcGateView(
         decimal clCgst = 0m, clSgst = 0m, clIgst = 0m;   // claimable (eligible ∩ in-2B)
         decimal npCgst = 0m, npSgst = 0m, npIgst = 0m;   // eligible not-in-portal (§16(2)(aa))
         var candidates = new List<ItcReversalCandidate>();
+        // 🔴 T1-72. The returns are STAGED here and applied after the sweep — see the long note at the staging site.
+        var returns = new List<ReturnedCredit>();
 
         foreach (var (voucher, type) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
         {
@@ -140,24 +142,55 @@ public sealed record ItcGateView(
             var notInPortal = inBooksOnlyIds.Contains(voucher.Id)
                 || (!inPortal && !HasSupplierGstin(company, voucher));
 
-            // Every pool carries the sign: a purchase return nets the claim DOWN in whichever pool its own lines
-            // classify into, so a returned blocked item reduces the blocked pool and a returned eligible item reduces
-            // the eligible pool. Netting per pool rather than against the eligible total is what keeps
-            // BooksEligible = Claimable + NotInPortal true after a return.
+            // Every TOTAL pool carries the sign: a purchase return nets the claim DOWN in whichever pool its own
+            // lines classify into, so a returned blocked item reduces the blocked pool and a returned eligible item
+            // reduces the eligible pool.
             // §17(5)-blocked pool (Table 4(B)(1)).
             blCgst += sign * blC.Amount; blSgst += sign * blS.Amount; blIgst += sign * blI.Amount;
             // Table-4(D) ineligible pool.
             ieCgst += sign * ieC.Amount; ieSgst += sign * ieS.Amount; ieIgst += sign * ieI.Amount;
-            // Eligible pool + its §16(2)(aa) claimable / not-in-portal split.
+            // Eligible pool (its §16(2)(aa) claimable / not-in-portal split is below).
             bkCgst += sign * eC.Amount; bkSgst += sign * eS.Amount; bkIgst += sign * eI.Amount;
-            if (inPortal) { clCgst += sign * eC.Amount; clSgst += sign * eS.Amount; clIgst += sign * eI.Amount; }
-            else if (notInPortal) { npCgst += sign * eC.Amount; npSgst += sign * eS.Amount; npIgst += sign * eI.Amount; }
 
-            // 🔴 A RETURN IS NOT A REVERSAL CANDIDATE. The candidates below are advice to reverse ITC that was
-            // availed and should not have been; a purchase return is a reduction of the claim itself, already netted
-            // above. Surfacing it as a candidate too would advise reversing the same money twice — and because the
-            // candidate list is what S7 posts from, that would be a double reduction in the books.
-            if (sign < 0) continue;
+            // 🔴🔴 T1-72, MEASURED. A RETURN IS NOT A REVERSAL CANDIDATE — AND IT IS NOT IN EITHER §16(2)(aa)
+            // BUCKET EITHER. Both facts have the SAME cause, and getting the first right without the second is what
+            // broke the identity this comment used to claim it preserved.
+            //
+            // `inPortal` / `notInPortal` above are keyed on the reconciler's matched / in-books-only sets, and the
+            // same slice CORRECTLY excluded a return from the books register (Gstr2bReconciler.BuildBooksRegister:
+            // our own purchase-return debit note is not a supplier invoice and has no 2B line to pair with). So a
+            // return is in NEITHER set — and because it carries the supplier's GSTIN, the `!HasSupplierGstin`
+            // fallback does not catch it either. The eligible TOTAL netted; neither sub-pool did.
+            //
+            // MEASURED on a ₹50,000 input service at 18% (₹9,000 ITC) with ₹20,000 returned (₹3,600) and an empty
+            // 2B: BooksEligible 5,400.00 but NotInPortal 9,000.00 — broken by exactly the return, and the gate
+            // screen renders "of which not in 2B 9,000.00" directly beneath "ITC in books — eligible 5,400.00"
+            // (ItcGateReportViewModel), a part larger than its whole. The candidate list was worse: it is built from
+            // the ORIGINAL invoice's un-netted share, so it advised reversing the whole ₹9,000.00 out of a pool
+            // holding ₹5,400.00. With the same service flagged §17(5)-blocked that candidate carries a RULE, so
+            // GstReversalService.PostFromCandidate POSTS it head-for-head — a ₹3,600.00 over-reversal in the BOOKS,
+            // removing credit the return had already removed. (A §16(2)(aa) candidate posts nothing — it is a
+            // deferral and PostFromCandidate returns null for it — so the posted money travels by the blocked /
+            // ineligible route, not that one.)
+            //
+            // Both halves are deferred to a post-sweep pass because the routing question cannot be answered inside
+            // the loop: the proportional fallback below needs the FINAL pool sizes, and the candidate a return nets
+            // against may not have been built yet.
+            if (sign < 0)
+            {
+                returns.Add(new ReturnedCredit(
+                    GstReportSupport.CdnLinkFor(company, voucher)?.OriginalInvoiceVoucherId,
+                    eC.Amount, eS.Amount, eI.Amount,
+                    ToPaisa(eC), ToPaisa(eS), ToPaisa(eI), ToPaisa(eCess),
+                    ToPaisa(blC), ToPaisa(blS), ToPaisa(blI), ToPaisa(blCess),
+                    ToPaisa(ieC), ToPaisa(ieS), ToPaisa(ieI), ToPaisa(ieCess)));
+                continue;
+            }
+
+            // The §16(2)(aa) claimable / not-in-portal split of the eligible pool (forward documents only; `sign` is
+            // provably 1 here — 0 and negative both `continue` above).
+            if (inPortal) { clCgst += eC.Amount; clSgst += eS.Amount; clIgst += eI.Amount; }
+            else if (notInPortal) { npCgst += eC.Amount; npSgst += eS.Amount; npIgst += eI.Amount; }
 
             // Reversal candidates — no longer mutually exclusive: a mixed bill surfaces a blocked AND an ineligible AND
             // (for its eligible-not-in-portal share) a §16(2)(aa) candidate. S7 decides the actual reversal.
@@ -179,6 +212,106 @@ public sealed record ItcGateView(
                     ItcReversalReason.Section16_2aaNotInPortal, voucher.Id, null, new Money(vElig),
                     "§16(2)(aa) — booked ITC not reflected in GSTR-2B this period.",
                     ToPaisa(eC), ToPaisa(eS), ToPaisa(eI), ToPaisa(eCess)));
+        }
+
+        // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+        //  🔴 T1-72 — APPLY THE STAGED RETURNS to the §16(2)(aa) split and to the candidate list.
+        //
+        //  The invariants this pass exists to hold, both of which a return broke:
+        //    1. BooksEligible = Claimable + NotInPortal — the gate screen renders the first as a total and the other
+        //       two as its sub-rows, so a break makes a sub-row exceed its own total on the face of the report.
+        //    2. Σ candidates(reason) = the pool that reason is drawn from. S7 POSTS from this list, so a candidate
+        //       larger than its pool is an instruction to remove money that is no longer there. This identity holds
+        //       on main before any return (both sides are the same sum over the same vouchers) and is restored here.
+        //
+        //  ATTRIBUTION, and the one honest limit of it. A return reduces the credit on its ORIGINAL invoice, so the
+        //  pool to net is the pool that invoice fell into — exactly resolvable when the §34 note names the original
+        //  (GstCreditDebitNoteLink.OriginalInvoiceVoucherId, what the entry screen records when the operator picks
+        //  the invoice). It is NOT resolvable for the "Consolidated…" note shape the same screen offers, which
+        //  leaves that id null by design, nor for a return whose original was bought in an earlier period and so is
+        //  not in this sweep at all. For those the reduction is split across the two pools PRO RATA to their own
+        //  sizes, paisa-exact on the shared largest-remainder engine: a neutral allocation that asserts nothing
+        //  about which invoice was returned, reproduces the unambiguous answer exactly whenever one pool is empty
+        //  (all of a return against a fully-2B-matched book lands on Claimable; all of one against a book with no
+        //  2B line lands on NotInPortal), and can never invent a pool out of nothing. 🔴 DIVERGENCE, LABELLED AS
+        //  OURS (R7): neither CBIC Rule 39 nor the GSTN documentation says how an unattributed return should be
+        //  apportioned between a claimable and a not-yet-in-2B pool, because the portal has no such advisory view —
+        //  the pro rata is our choice, not a cited rule, and the exact attribution above is preferred wherever the
+        //  link makes it available.
+        // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+        if (returns.Count > 0)
+        {
+            // (a) The blocked and Table-4(D) pools have no portal question at all — their candidates net directly.
+            foreach (var r in returns)
+            {
+                NetCandidates(candidates, ItcReversalReason.Section17_5Blocked, r.OriginalVoucherId,
+                    r.BlockedCgstPaisa, r.BlockedSgstPaisa, r.BlockedIgstPaisa, r.BlockedCessPaisa);
+                NetCandidates(candidates, ItcReversalReason.Ineligible, r.OriginalVoucherId,
+                    r.IneligCgstPaisa, r.IneligSgstPaisa, r.IneligIgstPaisa, r.IneligCessPaisa);
+            }
+
+            // (b) The eligible share: route each head between Claimable and NotInPortal, then net the §16(2)(aa)
+            //     candidates by the part that came out of the not-in-portal pool (the part that came out of
+            //     Claimable was never a candidate — a matched invoice raises no §16(2)(aa) advice).
+            //     Exactly-attributed returns are applied FIRST so the pro-rata ones see the pools as they then
+            //     stand, which keeps a mixed book's answer independent of voucher order within each group.
+            foreach (var r in returns.Where(x => x.OriginalVoucherId is not null))
+            {
+                var oid = r.OriginalVoucherId!.Value;
+                bool? toClaimable =
+                    matchedVoucherIds.Contains(oid) ? true
+                    : inBooksOnlyIds.Contains(oid) ? false
+                    : company.FindVoucher(oid) is { } orig && !HasSupplierGstin(company, orig) ? false
+                    : null;   // the original is outside this sweep — fall through to the pro rata below
+                if (toClaimable is null) continue;
+
+                if (toClaimable.Value)
+                {
+                    clCgst -= r.EligCgst; clSgst -= r.EligSgst; clIgst -= r.EligIgst;
+                }
+                else
+                {
+                    npCgst -= r.EligCgst; npSgst -= r.EligSgst; npIgst -= r.EligIgst;
+                    NetCandidates(candidates, ItcReversalReason.Section16_2aaNotInPortal, oid,
+                        r.EligCgstPaisa, r.EligSgstPaisa, r.EligIgstPaisa, r.EligCessPaisa);
+                }
+                r.Applied = true;
+            }
+
+            // The pro-rata remainder: summed per head first, so the allocation is computed ONCE against one set of
+            // pool sizes and is therefore order-independent across the unattributed returns.
+            decimal rtCgst = 0m, rtSgst = 0m, rtIgst = 0m;
+            foreach (var r in returns.Where(x => !x.Applied))
+            {
+                rtCgst += r.EligCgst; rtSgst += r.EligSgst; rtIgst += r.EligIgst;
+            }
+            if (rtCgst > 0m || rtSgst > 0m || rtIgst > 0m)
+            {
+                var (clC2, npC2) = RouteReturnedHead(rtCgst, clCgst, npCgst);
+                var (clS2, npS2) = RouteReturnedHead(rtSgst, clSgst, npSgst);
+                var (clI2, npI2) = RouteReturnedHead(rtIgst, clIgst, npIgst);
+                clCgst -= clC2; clSgst -= clS2; clIgst -= clI2;
+                npCgst -= npC2; npSgst -= npS2; npIgst -= npI2;
+
+                // Net the §16(2)(aa) candidates by the not-in-portal part. The cess reduction rides with the GST
+                // heads in the same proportion the routing produced, so a ring-fenced cess candidate (ER-2) cannot
+                // outlive the GST credit it was blocked alongside.
+                long rtCessPaisa = 0L;
+                foreach (var r in returns.Where(x => !x.Applied)) rtCessPaisa += r.EligCessPaisa;
+                var returnedGst = rtCgst + rtSgst + rtIgst;
+                var npGst = npC2 + npS2 + npI2;
+                var npCessPaisa = returnedGst > 0m
+                    ? (long)Math.Round(rtCessPaisa * npGst / returnedGst, MidpointRounding.AwayFromZero)
+                    : 0L;
+                NetCandidates(candidates, ItcReversalReason.Section16_2aaNotInPortal, preferVoucherId: null,
+                    ToPaisa(new Money(npC2)), ToPaisa(new Money(npS2)), ToPaisa(new Money(npI2)), npCessPaisa);
+            }
+
+            // A candidate netted to nothing is no longer advice — drop it. Only VOUCHER-keyed candidates are
+            // considered: a 2B-line-keyed credit-note candidate is legitimately zero when the recipient declared
+            // no reversal, and the screen is meant to show that one (PostFromCandidate posts nothing for it).
+            candidates.RemoveAll(c => c.VoucherId is not null
+                && c.CgstPaisa <= 0 && c.SgstPaisa <= 0 && c.IgstPaisa <= 0 && c.CessPaisa <= 0);
         }
 
         // Portal 2B ITC-Available figure (§16(2)(aa) basis). Exclude the supplier-flagged RCM lines (they bypass 2B ITC).
@@ -316,6 +449,89 @@ public sealed record ItcGateView(
         if (blockedBase <= 0m && ineligBase <= 0m) return (new Money(headTax), Money.Zero, Money.Zero);
         var shares = AdditionalCostApportionment.Allocate(new[] { eligBase, blockedBase, ineligBase }, new Money(headTax));
         return (shares[0], shares[1], shares[2]);
+    }
+
+    /// <summary>
+    /// 🔴 One staged purchase-return (T1-72): the per-pool credit a return takes back OUT, carried from the sweep to
+    /// the post-sweep pass that routes it. Rupee fields drive the <see cref="Claimable"/> / <see cref="NotInPortal"/>
+    /// pools; the paisa fields net the matching reversal candidates head-for-head, which is how S7 posts.
+    /// <paramref name="OriginalVoucherId"/> is the §34-linked original when the note names one, and <c>null</c> for
+    /// the supported "Consolidated…" shape — the two cases the routing treats differently.
+    /// </summary>
+    private sealed record ReturnedCredit(
+        Guid? OriginalVoucherId,
+        decimal EligCgst, decimal EligSgst, decimal EligIgst,
+        long EligCgstPaisa, long EligSgstPaisa, long EligIgstPaisa, long EligCessPaisa,
+        long BlockedCgstPaisa, long BlockedSgstPaisa, long BlockedIgstPaisa, long BlockedCessPaisa,
+        long IneligCgstPaisa, long IneligSgstPaisa, long IneligIgstPaisa, long IneligCessPaisa)
+    {
+        /// <summary>Set once the eligible share has been attributed exactly, so the pro-rata pass skips it.</summary>
+        public bool Applied { get; set; }
+    }
+
+    /// <summary>
+    /// Nets a return's per-head paisa reduction out of the candidates carrying one <paramref name="reason"/>, in
+    /// place. The candidate naming <paramref name="preferVoucherId"/> — the invoice the return actually adjusts — is
+    /// reduced FIRST, so an exactly-attributed return lands on its own document; whatever a candidate cannot absorb
+    /// spills to the next candidate of the same reason in the sweep's deterministic order. Each head clamps at zero:
+    /// a candidate is advice to reverse credit, and there is no such thing as advice to reverse a negative amount
+    /// (the over-return case shows on the POOL, which may go negative, and is reported there).
+    /// </summary>
+    private static void NetCandidates(
+        List<ItcReversalCandidate> candidates, ItcReversalReason reason, Guid? preferVoucherId,
+        long cgst, long sgst, long igst, long cess)
+    {
+        if (cgst <= 0 && sgst <= 0 && igst <= 0 && cess <= 0) return;
+
+        var order = Enumerable.Range(0, candidates.Count)
+            .Where(i => candidates[i].Reason == reason && candidates[i].VoucherId is not null)
+            .OrderBy(i => preferVoucherId is { } p && candidates[i].VoucherId == p ? 0 : 1)
+            .ToList();
+
+        foreach (var i in order)
+        {
+            if (cgst <= 0 && sgst <= 0 && igst <= 0 && cess <= 0) return;
+            var c = candidates[i];
+            var takeC = Math.Min(Math.Max(cgst, 0), c.CgstPaisa);
+            var takeS = Math.Min(Math.Max(sgst, 0), c.SgstPaisa);
+            var takeI = Math.Min(Math.Max(igst, 0), c.IgstPaisa);
+            var takeCess = Math.Min(Math.Max(cess, 0), c.CessPaisa);
+            if (takeC == 0 && takeS == 0 && takeI == 0 && takeCess == 0) continue;
+
+            cgst -= takeC; sgst -= takeS; igst -= takeI; cess -= takeCess;
+            var newC = c.CgstPaisa - takeC;
+            var newS = c.SgstPaisa - takeS;
+            var newI = c.IgstPaisa - takeI;
+            candidates[i] = c with
+            {
+                CgstPaisa = newC,
+                SgstPaisa = newS,
+                IgstPaisa = newI,
+                CessPaisa = c.CessPaisa - takeCess,
+                // SuggestedReversal is DEFINED as Cgst+Sgst+Igst (÷100, cess ring-fenced out, ER-2) — recomputed
+                // rather than adjusted, so the record cannot drift out of agreement with its own per-head profile,
+                // which is what PostFromCandidate posts from.
+                SuggestedReversal = new Money((newC + newS + newI) / 100m),
+            };
+        }
+    }
+
+    /// <summary>
+    /// Splits one head's RETURNED eligible tax between the claimable and not-in-portal pools, paisa-exact and
+    /// pro rata to the pools as they stand (the shared largest-remainder engine, so the two parts sum EXACTLY to the
+    /// returned amount and the identity cannot leak a paisa). When neither pool can absorb it — both non-positive,
+    /// i.e. the period's returns exceed its credit — the whole reduction stays on the not-in-portal side: that is
+    /// where a credit with no 2B line belongs, and it is the side that may legitimately read negative, which this
+    /// build reports rather than floors (the disclosed negative-received decision).
+    /// </summary>
+    private static (decimal FromClaimable, decimal FromNotInPortal) RouteReturnedHead(
+        decimal returned, decimal claimablePool, decimal notInPortalPool)
+    {
+        if (returned <= 0m) return (0m, 0m);
+        if (claimablePool <= 0m && notInPortalPool <= 0m) return (0m, returned);
+        var shares = AdditionalCostApportionment.Allocate(
+            new[] { claimablePool, notInPortalPool }, new Money(returned));
+        return (shares[0].Amount, shares[1].Amount);
     }
 
     /// <summary>True iff the purchase's supplier (party ledger) carries a GSTIN — a no-GSTIN purchase can never appear in

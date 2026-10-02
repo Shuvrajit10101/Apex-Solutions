@@ -295,7 +295,14 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
             var (from, to) = GstAdvancedSnapshots.Window(snapshot.ReturnPeriod, _company.FinancialYearStart);
             try
             {
-                var gate = ItcGateView.Build(_company, snapshot, from, to);
+                // 🔴 THE REGISTRATION SCOPE MUST TRAVEL — the FOURTH site of the same drop, and the one that
+                // mattered most: this is the POSTING screen. With no registrationId the engine's
+                // EnsureRegistrationScoped throws for any IsMultiRegistration book, the catch below turned it into
+                // a message, and `_rawCandidates` stayed EMPTY — so HasCandidates was false and an operator on a
+                // multi-registration book could not post ANY gate-surfaced reversal at all. Scoped to the primary
+                // registration rather than null (GstOfflineReturnsViewModel.ScopedRegistrationId's rule);
+                // byte-identical for a single-registration book.
+                var gate = ItcGateView.Build(_company, snapshot, from, to, GstRegistration.PrimaryId);
                 _rawCandidates = gate.ReversalCandidates.ToList();
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)

@@ -89,7 +89,17 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterL
         ItcGateView gate;
         try
         {
-            gate = ItcGateView.Build(_company, snapshot, from, to);
+            // 🔴 THE REGISTRATION SCOPE MUST TRAVEL — a THIRD site of the drop the engine fixed internally.
+            // ItcGateView.Build scopes its own three legs correctly now, but a caller that passes no
+            // registrationId hands all three a null, and GstReportSupport.EnsureRegistrationScoped turns that into
+            // a throw for any IsMultiRegistration book — which is EVERY book with a branch and every ISD company,
+            // which has at least two registrations by construction. The catch below then swallowed it into a
+            // message, so this whole candidate surface was simply unreachable for those books rather than wrong.
+            // Falls back to the PRIMARY registration, never to null, exactly as GstOfflineReturnsViewModel's
+            // ScopedRegistrationId does — the screen must never ask the engine for the projection the engine
+            // refuses to build. Byte-identical for a single-registration book (PrimaryId is the id every voucher
+            // in such a book already attributes to, ER-13).
+            gate = ItcGateView.Build(_company, snapshot, from, to, GstRegistration.PrimaryId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
