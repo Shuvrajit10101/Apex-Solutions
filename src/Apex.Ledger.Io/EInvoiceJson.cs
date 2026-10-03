@@ -388,6 +388,10 @@ public static class EInvoiceJson
             // Ledger-only voucher. An ACCOUNTING (service) invoice's income legs carry a SAC, so each rate group is
             // expanded into one item PER SERVICE LEG bearing its own HsnCd. A plain As-Voucher sale has no SAC-bearing
             // leg and keeps the original single synthetic item per rate group (HsnCd "") — byte-identical, ER-13.
+            // 🔴 T1-79 / T1-80 / T1-81 — REFUSE BEFORE BUILDING, not after. Runs first so no later line of this
+            // method can read a leg the document may not register. See the method for all three grounds.
+            RefuseUnregistrableLedgerInvoice(company, voucher);
+
             var serviceLegs = ServiceLegsByRate(company, voucher, groups);
             // "Is this voucher a SERVICE invoice?" is a VOUCHER-level question, and the app already has exactly one
             // answer to it. It is the fallback only: where a leg declares its own supply type, that wins (below).
@@ -615,6 +619,90 @@ public static class EInvoiceJson
         GstReportSupport.BucketingRateOf(company, voucher, company.FindStockItem(il.StockItemId), valueLedger);
 
     /// <summary>
+    /// 🔴 <b>T1-79 / T1-80 / T1-81 — THE LEDGER-ONLY PATH'S PRE-FLIGHT: refuse to mint an INV-01 this document cannot
+    /// lawfully carry, instead of emitting one and telling the operator to upload it.</b> Throws
+    /// <see cref="InvalidOperationException"/> naming the ledger at fault; <c>GenerateEInvoiceViewModel</c> already
+    /// catches that type off <see cref="BuildInv01"/> and shows the message, so each refusal reaches the operator as a
+    /// correctable instruction rather than as an IRP rejection days later.
+    ///
+    /// <para><b>T1-80 — there were TWO footing mechanisms here and they disagreed.</b> This method already computed
+    /// <see cref="GstReportSupport.IsServiceAccountingInvoice"/> and used it ONLY to pick <c>IsServc</c> "Y"/"N",
+    /// discarding the reconciliation inside it; the payload's own footing was structural self-consistency (T1-73 made
+    /// <c>AssVal</c> be Σ <c>ItemList.AssAmt</c> by construction — correct, necessary, and true of EVERY payload, so
+    /// it says nothing about the books). The two now resolve to ONE:
+    /// <see cref="GstReportSupport.ServiceProjectionFoots"/>, the same general-ledger reconciliation already trusted
+    /// to gate the PRINTED tax invoice. Scoped two ways, both deliberate: only when the voucher actually has a SAC
+    /// service leg (a plain As-Voucher sale has none and projects nothing, so it is untouched — ER-13), and on that
+    /// one conjunct rather than the whole six-conjunct predicate, so a pre-v49 voucher that carries no
+    /// <see cref="Voucher.IsAccountingInvoice"/> flag is still emitted exactly as before.</para>
+    ///
+    /// <para>🔴 <b>T1-79 — what the footing gate catches, measured.</b> On Consultancy ₹7,500 Cr @ 18% (CGST 675 +
+    /// SGST 675) with an EXEMPT SAC leg of ₹1,000 posted <b>Dr</b>, the correct invoice is <c>AssVal</c> ₹6,500 and
+    /// <c>TotInvVal</c> ₹7,850 — the posted party debit. The payload declared ₹8,500 and ₹9,850: <b>overstated by
+    /// ₹2,000, twice the leg</b>, because <see cref="Gstr1.ServiceLegs"/> yields a MAGNITUDE and the correct
+    /// contribution is −1,000. Σ <c>AssAmt</c> equalled <c>AssVal</c>, so the IRP would have ACCEPTED the overstated
+    /// invoice — this project's own worst class of defect. The gate is a COMPLETE detector rather than a heuristic:
+    /// double-entry balance means a deduction leg of D lowers the party leg by D while the magnitude projection rises
+    /// by D, so the two differ by exactly 2D for every D &gt; 0 and the shape can never coincidentally foot. And there
+    /// is no correct payload to emit instead — NIC types <c>"AssAmt": { "type": "number", "minimum": 0, … }</c>, so a
+    /// line that subtracts cannot be expressed at all. <see cref="Gstr1.IsDeductionServiceLeg"/> is asserted here as
+    /// well, so the refusal can NAME the offending ledger; the footing test alone would only say the totals disagree.
+    /// </para>
+    ///
+    /// <para>🔴 <b>T1-81 — a blank <c>HsnCd</c> is a mandatory field left empty, and NIC leaves no room for a
+    /// reading.</b> Retrieved and checked by content at
+    /// <c>https://einv-apisandbox.nic.in/version1.03/generate-irn.html</c> (HTTP 200, 82,078 bytes): the item object's
+    /// own <c>"required": ["SlNo","IsServc","HsnCd","UnitPrice","TotAmt","AssAmt","GstRt","TotItemVal"]</c> lists it
+    /// for EVERY line unconditionally — there is no conditional limb — and it is typed
+    /// <c>"HsnCd": { "type": "string", "minLength": 4, "maxLength": 8,
+    /// "pattern": "^(?!0+$)([0-9]{4}|[0-9]{6}|[0-9]{8})$" }</c>, which <c>""</c> fails on all three counts. The same
+    /// page's validations say it in prose: <i>"Each item needs to have valid HSN code with at least 4 digits. HSN Code
+    /// should be valid as per the GST master."</i> So the payload is refused rather than emitted.
+    ///
+    /// <para><b>Scoped to a ledger that DECLARES a GST block, and that line is drawn on the domain model rather than
+    /// on convenience.</b> Where a ledger carries a <c>SalesPurchaseGst</c> block with a blank <c>HsnSac</c> (both the
+    /// taxable and the exempt service branches) the SAC is a field the operator can fill, so a blank is a correctable
+    /// master-data defect and naming the ledger is actionable. The plain As-Voucher synthetic line is NOT touched: its
+    /// sales ledger declares no GST block at all, so there is nowhere in the model to put a code, and refusing would
+    /// remove the ability to e-invoice a plain ledger-only sale outright. That remains the standing, documented
+    /// divergence pinned by
+    /// <c>EInvoiceInv01SchemaConformanceTests.PINNED_an_income_ledger_with_no_declared_HSN_or_SAC_still_emits_an_empty_HsnCd</c>,
+    /// and withdrawing a shipped capability is a user decision, not this writer's.</para></para>
+    /// </summary>
+    private static void RefuseUnregistrableLedgerInvoice(Company company, Voucher voucher)
+    {
+        var sawServiceLeg = false;
+
+        foreach (var (ledger, _, side) in Gstr1.ServiceLegs(company, voucher))
+        {
+            sawServiceLeg = true;
+
+            // T1-79 — named, so the operator learns WHICH leg is wrong rather than that the totals disagree.
+            if (Gstr1.IsDeductionServiceLeg(company, voucher, side))
+                throw new InvalidOperationException(
+                    $"'{ledger.Name}' is posted on the {side} side, which reduces this invoice rather than adding to " +
+                    "it. An e-invoice line cannot carry a negative assessable value (the NIC INV-01 schema types " +
+                    "AssAmt with a minimum of 0), so this voucher cannot be registered as it stands. Record the " +
+                    "reduction as a credit note against the invoice instead.");
+
+            // T1-81 — the ledger declares a GST block, so the HSN/SAC is a field that can be filled.
+            if (Gstr1.ServiceSacOf(ledger) is null)
+                throw new InvalidOperationException(
+                    $"'{ledger.Name}' declares no HSN/SAC code. The NIC INV-01 schema makes HsnCd mandatory on every " +
+                    "item line (minimum 4 digits), so an e-invoice cannot be generated for this voucher. Enter the " +
+                    $"HSN/SAC on the '{ledger.Name}' ledger and generate it again.");
+        }
+
+        // T1-80 — the ONE footing mechanism, and the only reconciliation of this document against the books. Scoped
+        // to a voucher that actually projects service legs (a plain As-Voucher sale projects none).
+        if (sawServiceLeg && !GstReportSupport.ServiceProjectionFoots(company, voucher))
+            throw new InvalidOperationException(
+                "This voucher's service legs and posted tax do not add up to the amount recorded against the party, " +
+                "so an e-invoice generated from it would state a different total from the books. Correct the voucher " +
+                "before generating an e-invoice.");
+    }
+
+    /// <summary>
     /// The TAXABLE service-income ledger legs of a ledger-only voucher, bucketed into the posted rate group each
     /// belongs to — the e-invoice mirror of <c>Gstr1.AccumulateServiceHsn</c>'s bucketing, reading the SAME
     /// <see cref="Gstr1.ServiceLegs"/> definition so the payload's <c>HsnCd</c> cannot drift from the SAC the return
@@ -639,7 +727,9 @@ public static class EInvoiceJson
         var byRate = new Dictionary<int, List<(Domain.Ledger, long)>>();
         // Single-rate collapse, scoped to TAXABLE legs only (a non-taxable leg is never a group member).
         var singleRate = groups.Count == 1 ? groups[0].Rate : (int?)null;
-        foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
+        // T1-79 sweep: magnitudes, and safely so — RefuseUnregistrableLedgerInvoice has already run for this voucher
+        // (BuildItems calls it before this method), so no deduction leg can reach here.
+        foreach (var (ledger, value, _) in Gstr1.ServiceLegs(company, voucher))
         {
             if (Gstr1.IsNonTaxableServiceLedger(ledger)) continue;
             // T0-17: the ONE bucketing rule, not a direct read of the ledger's SAC block. A leg whose declared rate
@@ -665,7 +755,11 @@ public static class EInvoiceJson
     private static IEnumerable<(Domain.Ledger Ledger, long Paisa)> NonTaxableServiceLegs(
         Company company, Voucher voucher)
     {
-        foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
+        // T1-79 sweep: magnitudes, and safely so — see ServiceLegsByRate. This was the site where a ServiceLegs
+        // magnitude FIRST became an INV-01 line's own value and flowed straight into ValDtls, which is what turned a
+        // latent sign-blindness into an overstated registered invoice; RefuseUnregistrableLedgerInvoice now runs
+        // before it.
+        foreach (var (ledger, value, _) in Gstr1.ServiceLegs(company, voucher))
             if (Gstr1.IsNonTaxableServiceLedger(ledger))
                 yield return (ledger, MoneyCodec.ToPaisa(new Money(value)));
     }

@@ -643,7 +643,10 @@ public sealed record Gstr1(
             // misstatement. The IsTaxable:false gate is the discriminator the flag-less structural signal otherwise
             // lacks. Gated on InventoryLines.Count==0 so an existing exempt item invoice is never double-counted.
             if (voucher.InventoryLines.Count == 0)
-                foreach (var (ledger, value) in ServiceLegs(company, voucher))
+                // T1-79 sweep: Side read and DELIBERATELY not applied here. The exempt-turnover sign on a mixed-side
+                // ledger document is a GSTR-1 question of its own (reported, out of this slice's scope); narrowing it
+                // here without the Table-12 fixtures to pin it would be an unmeasured change to a filed return.
+                foreach (var (ledger, value, _) in ServiceLegs(company, voucher))
                     if (IsNonTaxableServiceLedger(ledger))
                     {
                         exempt += value;
@@ -941,8 +944,29 @@ public sealed record Gstr1(
     /// to send <c>HsnCd = ""</c> on the ledger-only path while this method filed SAC 998311 in Table 12 for the very
     /// same voucher — a blank mandatory HsnCd is an IRP rejection, and two parallel implementations would drift again.
     /// One definition, two readers.</para>
+    ///
+    /// <para>🔴 <b>T1-79 — <c>Value</c> IS A MAGNITUDE, AND THE POSTED <c>Side</c> IS NOW YIELDED BESIDE IT SO NO
+    /// READER CAN BE SIGN-BLIND BY ACCIDENT.</b> This method used to yield <c>line.Amount.Amount</c> alone and drop
+    /// <see cref="EntryLine.Side"/> on the floor. Every consumer then added the magnitude as a positive contribution,
+    /// so a leg posted on the side OPPOSING the document's natural one — a deduction — was counted as an addition.
+    /// Measured off the emitted INV-01 bytes on Consultancy ₹7,500 Cr @ 18% (CGST 675 + SGST 675) with an EXEMPT SAC
+    /// leg of ₹1,000 posted <b>Dr</b>: the correct document is <c>AssVal</c> ₹6,500 / <c>TotInvVal</c> ₹7,850 (the
+    /// posted party debit); the payload declared <c>AssVal</c> ₹8,500 / <c>TotInvVal</c> ₹9,850 — <b>overstated by
+    /// ₹2,000, twice the leg</b>, because the correct contribution is −1,000 and +1,000 was emitted. Σ <c>AssAmt</c>
+    /// still equalled <c>AssVal</c>, so the IRP would have ACCEPTED the larger figure.</para>
+    ///
+    /// <para>🔴 <b>THE SIGN IS EXPOSED, NOT APPLIED, AND THAT IS DELIBERATE — SIGNING IT HERE WOULD HAVE REMOVED THE
+    /// ONLY GUARD THAT CATCHES THE SHAPE.</b> <see cref="GstReportSupport.ServiceProjectionFoots"/> sums these
+    /// magnitudes and compares them against the posted party leg, and double-entry balance makes that comparison a
+    /// COMPLETE detector: a deduction leg of D forces the party leg down by D while the magnitude sum goes UP by D, so
+    /// the projection exceeds the party leg by exactly 2D for every D &gt; 0 (measured: 9,850 against 7,850, 2 × 1,000).
+    /// Had this method returned a signed value, the projection would have footed, the guard would have fallen silent,
+    /// and the document would have been admitted — and no correct INV-01 exists for it anyway, because NIC types
+    /// <c>"AssAmt": { "type": "number", "minimum": 0, … }</c> and so admits no negative line. The consumers' verdicts
+    /// are recorded one by one at <see cref="GstReportSupport.ServiceProjectionFoots"/>.</para>
     /// </summary>
-    public static IEnumerable<(Domain.Ledger Ledger, decimal Value)> ServiceLegs(Company company, Voucher voucher)
+    public static IEnumerable<(Domain.Ledger Ledger, decimal Value, DrCr Side)> ServiceLegs(
+        Company company, Voucher voucher)
     {
         foreach (var line in voucher.Lines)
         {
@@ -950,9 +974,58 @@ public sealed record Gstr1(
             var led = company.FindLedger(line.LedgerId);
             if (led?.SalesPurchaseGst is null) continue;    // not a service-income / SAC-bearing ledger
             if (led.GstClassification is not null) continue; // a GST (Duties &amp; Taxes) tax ledger
-            yield return (led, line.Amount.Amount);
+            yield return (led, line.Amount.Amount, line.Side);
         }
     }
+
+    /// <summary>
+    /// The side a service leg of <paramref name="voucher"/> posts on when it <b>ADDS</b> to the document's value. A leg
+    /// on the other side is a DEDUCTION (<see cref="IsDeductionServiceLeg"/>). <c>null</c> for a base type that carries
+    /// no such orientation, where "natural side" has no meaning — and on that reading NO leg is ever called a deduction,
+    /// which is the conservative direction.
+    ///
+    /// <para>🔴 <b>THIS IS NOT <see cref="GstReportSupport.DirectionOf"/>, AND THE DIFFERENCE IS THE WHOLE POINT. The
+    /// first cut of this method delegated to it and was WRONG ON THE NOTES — caught by probing a credit note rather
+    /// than by reasoning about one.</b> <c>DirectionOf</c> groups <b>Sales with CreditNote</b> (both are outward
+    /// supplies for tax purposes) and <b>Purchase with DebitNote</b>. The side a VALUE leg posts on groups them the
+    /// OTHER way, because a note REVERSES its invoice:</para>
+    /// <list type="bullet">
+    /// <item><b>Sales</b> — Dr party, Cr income ⇒ value leg <b>Credit</b>.</item>
+    /// <item><b>Debit Note</b> (purchase return we issue) — Dr party, Cr expense ⇒ value leg <b>Credit</b>.</item>
+    /// <item><b>Purchase</b> — Dr expense, Cr party ⇒ value leg <b>Debit</b>.</item>
+    /// <item><b>Credit Note</b> (sales return we issue) — Cr party, Dr income ⇒ value leg <b>Debit</b>.</item>
+    /// </list>
+    /// <para>So the rule is "the opposite of the side the PARTY leg takes", and <c>CreditNote</c> sits with
+    /// <c>Purchase</c> here while <c>DirectionOf</c> puts it with <c>Sales</c>. MEASURED: delegating to
+    /// <c>DirectionOf</c> made every leg of an ordinary ledger-only service credit note (Dr Consultancy 7,500,
+    /// Cr party 8,850, Dr CGST/SGST 675 each — <c>CoverageOf == Covered</c>, <c>DocDtls.Typ "CRN"</c>, and
+    /// <see cref="GstReportSupport.ServiceProjectionFoots"/> <b>True</b>, i.e. a perfectly sound document) look like a
+    /// deduction, and the INV-01 was REFUSED. That is a sign error of exactly the class this slice exists to end, and
+    /// it is written down here so the next reader does not "simplify" this back into <c>DirectionOf</c>.</para>
+    /// </summary>
+    public static DrCr? NaturalServiceLegSide(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return company.FindVoucherType(voucher.TypeId)?.BaseType switch
+        {
+            VoucherBaseType.Sales or VoucherBaseType.DebitNote => DrCr.Credit,
+            VoucherBaseType.Purchase or VoucherBaseType.CreditNote => DrCr.Debit,
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// 🔴 <b>T1-79 — whether a service leg posted on the side OPPOSING its document's natural one</b>, i.e. a leg that
+    /// REDUCES the invoice rather than adding to it. The single predicate every reader of
+    /// <see cref="ServiceLegs"/> asks, so the sign question is answered in one place rather than re-derived (this
+    /// project has had the sign-of-a-reducing-entry wrong in four separate reports, each fixed at one call site).
+    /// <para>Conservative by construction: when the document's natural side cannot be established
+    /// (<see cref="NaturalServiceLegSide"/> is <c>null</c>) no leg is called a deduction, so this can only ever
+    /// identify a leg whose orientation is known to oppose a known natural side.</para>
+    /// </summary>
+    public static bool IsDeductionServiceLeg(Company company, Voucher voucher, DrCr side) =>
+        NaturalServiceLegSide(company, voucher) is DrCr natural && side != natural;
 
     /// <summary>
     /// Attributes an accounting (service) invoice's posted tax to its service-income ledger legs, grouped by SAC —
@@ -987,16 +1060,20 @@ public sealed record Gstr1(
         var rateGroups = ReadInvoiceRateGroups(voucher);
 
         // Split first: exempt/nil/non-GST legs out of the rate machinery entirely, taxable legs into it.
+        //
+        // T1-79 sweep: the posted Side is now VISIBLE here and is deliberately NOT applied — see the note at the
+        // ServiceLegs loop in the Table-12 pass above. Table 12 and the exempt bucket are a filed return with their
+        // own fixtures; the magnitude reading is REPORTED as an exposure rather than changed unmeasured.
         var taxableLegs = new List<(Domain.Ledger Ledger, decimal Value)>();
-        foreach (var leg in ServiceLegs(company, voucher))
+        foreach (var (ledger, value, _) in ServiceLegs(company, voucher))
         {
-            if (IsNonTaxableServiceLedger(leg.Ledger))
+            if (IsNonTaxableServiceLedger(ledger))
             {
-                exempt += leg.Value;
-                AddServiceHsnRow(leg.Ledger, leg.Value, 0m, 0m, 0m, hsnAcc);
+                exempt += value;
+                AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc);
                 continue;
             }
-            taxableLegs.Add(leg);
+            taxableLegs.Add((ledger, value));
         }
 
         // The single-rate collapse is now scoped to the TAXABLE legs: when the invoice posted exactly one rate group,
