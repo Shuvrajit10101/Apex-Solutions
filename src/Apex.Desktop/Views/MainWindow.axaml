@@ -14250,7 +14250,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcReversalReport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ItcReversalReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -14266,9 +14266,30 @@
                                 <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                               </Grid>
                             </Border>
-                            <TextBlock Grid.Row="3" Text="{Binding CandidatesHeader}" FontWeight="Bold" FontSize="12"
+                            <!-- 🔴 WHICH REGISTRATION (census 6.23). The ECRS balance above and the candidate list
+                                 below are BOTH read under this one id — a whole-book balance printed beside a
+                                 registration-scoped list would be two populations in one frame. Hidden on a
+                                 single-GSTIN book, so that page is unchanged. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#777777" TextTrimming="CharacterEllipsis"
+                                         Text="The ECRS balance and the candidates below both cover only the selected registration."/>
+                            </Grid>
+                            <TextBlock Grid.Row="4" Text="{Binding CandidatesHeader}" FontWeight="Bold" FontSize="12"
                                        Foreground="{StaticResource BrandNavy}" Margin="0,0,0,4"/>
-                            <Grid Grid.Row="4" RowDefinitions="Auto,*">
+                            <Grid Grid.Row="5" RowDefinitions="Auto,*">
                               <Border Grid.Row="0" Background="{StaticResource BrandNavy}"
                                       IsVisible="{Binding HasSnapshot}">
                                 <Grid ColumnDefinitions="140,*,90,90,90,90">
@@ -14634,7 +14655,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).PostItcReversal}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PostItcReversalViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -14651,9 +14672,33 @@
                                 <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Total ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="12.5" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                               </Grid>
                             </Border>
-                            <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                            <!-- 🔴 WHICH REGISTRATION THIS SCREEN POSTS UNDER (census 6.23) — the one control on a
+                                 posting path that must never be a hard-coded primary. A reversal reduces exactly
+                                 one GSTIN's credit ledger and lands in exactly one return's Table 4(B), so posting
+                                 it against the wrong registration is a wrong posted entry AND a wrong filed figure
+                                 on two returns at once. The ECRS balance, the candidates, the source-voucher picker
+                                 and the posted history are ALL read under this selection. Hidden on a single-GSTIN
+                                 book, whose only registration it already is. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,6"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#7A5B00" TextTrimming="CharacterEllipsis"
+                                         Text="Reversals post against this registration and appear in its GSTR-3B Table 4(B) only."/>
+                            </Grid>
+                            <TextBlock Grid.Row="4" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
                                        Foreground="#555555" Margin="0,0,0,4" TextWrapping="Wrap"/>
-                            <ScrollViewer Grid.Row="4">
+                            <ScrollViewer Grid.Row="5">
                               <StackPanel Spacing="6">
                                 <!-- The 2B candidates (one-click postable). -->
                                 <TextBlock Text="Reversal candidates from the latest GSTR-2B" FontWeight="Bold" FontSize="11.5"
@@ -14704,7 +14749,7 @@
                               </StackPanel>
                             </ScrollViewer>
                             <!-- The explicit action bar. -->
-                            <Border Grid.Row="5" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                            <Border Grid.Row="6" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="8" Margin="0,6,0,0">
                               <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="Auto,150,Auto,100">
@@ -14757,7 +14802,7 @@
                                 </StackPanel>
                               </StackPanel>
                             </Border>
-                            <Border Grid.Row="6" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                            <Border Grid.Row="7" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
                                     Padding="10,6" Margin="0,6,0,0"
                                     IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                               <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
@@ -15212,7 +15257,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcGateReport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ItcGateReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -15231,7 +15276,31 @@
                                 </ComboBox.ItemTemplate>
                               </ComboBox>
                             </Grid>
-                            <ScrollViewer Grid.Row="3">
+
+                            <!-- 🔴 WHICH REGISTRATION'S GATE (census 6.23). §16(2)(aa) is decided per registration —
+                                 a 2B statement is issued against ONE GSTIN and the claim lands in ONE return's
+                                 section 4. Hidden entirely on a single-GSTIN company (ShowsRegistrationPicker), so
+                                 that book's page is unchanged; REQUIRED on a multi-registration one, where this
+                                 screen previously refused to open at all because it named no registration. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#777777" TextTrimming="CharacterEllipsis"
+                                         Text="The ITC gate is read per registration — every figure below covers only the selected one."/>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="4">
                               <StackPanel Spacing="8">
                                 <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding HasSnapshot}">
                                   <!-- The numeric columns are kept narrow so the "*" label column has room: the row

@@ -51,12 +51,28 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
     /// <summary>The reversal candidates surfaced for the S7 poster (advisory).</summary>
     public ObservableCollection<ItcReversalCandidateRowVm> Candidates { get; } = new();
 
+    /// <summary>
+    /// The registrations this company holds (census 6.23) — its own first, then any additional. A single-GSTIN book
+    /// has exactly one entry and <see cref="ShowsRegistrationPicker"/> hides the picker, so that book's page is
+    /// unchanged.
+    /// </summary>
+    public ObservableCollection<GstRegistration> Registrations { get; } = new();
+
+    /// <summary>Whether the registration picker is worth showing — only once the company holds more than one.</summary>
+    public bool ShowsRegistrationPicker => Registrations.Count > 1;
+
+    private GstRegistration? _selectedRegistration;
+
     public ItcGateReportViewModel(Company company)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
 
         foreach (var snap in GstAdvancedSnapshots.Gstr2b(company))
             Snapshots.Add(new Gstr2bSnapshotOption { Snapshot = snap });
+
+        foreach (var registration in company.Gst?.AllRegistrations ?? [])
+            Registrations.Add(registration);
+        _selectedRegistration = Registrations.FirstOrDefault();
 
         _selectedSnapshot = Snapshots.FirstOrDefault();
         Rebuild();
@@ -68,6 +84,30 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
         get => _selectedSnapshot;
         set { if (SetProperty(ref _selectedSnapshot, value)) Rebuild(); }
     }
+
+    /// <summary>
+    /// 🔴 <b>The registration this gate is read for.</b> §16(2)(aa) is decided per registration — a 2B statement is
+    /// issued against ONE GSTIN and the claim lands in ONE return's section 4 — so the projection is scoped to this
+    /// one; changing it re-projects.
+    /// </summary>
+    public GstRegistration? SelectedRegistration
+    {
+        get => _selectedRegistration;
+        set { if (SetProperty(ref _selectedRegistration, value)) Rebuild(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>The id every projection on this screen is scoped by — and the reason this screen was reachable at all
+    /// for a multi-registration book.</b> It fell back to <c>null</c>, which
+    /// <c>GstReportSupport.EnsureRegistrationScoped</c> refuses for any book holding more than one registration, and
+    /// the <c>catch</c> below turned the refusal into a message: so for every book with a branch — and every ISD
+    /// company, which holds two registrations BY CONSTRUCTION, and whose row 6.24 this gate is part of — all seven
+    /// comparison rows and the whole candidate list were replaced by refusal text and the §16(2)(aa) claim decision
+    /// had NO SURFACE AT ALL. It falls back to the primary, never to <c>null</c>: the screen must never ask the
+    /// engine for a projection the engine refuses to build. Byte-identical on a single-registration book, where the
+    /// primary is the registration every voucher already attributes to (ER-13).
+    /// </summary>
+    private Guid ScopedRegistrationId => _selectedRegistration?.Id ?? GstRegistration.PrimaryId;
 
     /// <summary>The currently-built ITC-gate view, or null when no 2B is imported.</summary>
     public ItcGateView? View { get; private set; }
@@ -84,7 +124,7 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
         if (snap is null)
         {
             View = null;
-            Subtitle = $"{_company.Name}  —  no GSTR-2B imported";
+            Subtitle = $"{_company.Name}{RegistrationSuffix}  —  no GSTR-2B imported";
             StatusText = "No GSTR-2B imported yet — import a 2B statement to gate the period's ITC (§16(2)(aa)).";
             Message = "No GSTR-2B imported.";
             return;
@@ -94,7 +134,7 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
         ItcGateView gate;
         try
         {
-            gate = ItcGateView.Build(_company, snap, from, to);
+            gate = ItcGateView.Build(_company, snap, from, to, ScopedRegistrationId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
@@ -128,11 +168,21 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
                 Suggested = A(c.SuggestedReversal),
             });
 
-        Subtitle = $"{_company.Name}  —  GSTR-2B {snap.ReturnPeriod} " +
+        Subtitle = $"{_company.Name}{RegistrationSuffix}  —  GSTR-2B {snap.ReturnPeriod} " +
                    $"({ApexDate.Format(from)} to {ApexDate.Format(to)})  —  advisory only, posts nothing";
         StatusText = $"Books eligible ₹{A(gate.BooksEligibleTotal)}  ·  claimable ₹{A(gate.ClaimableTotal)}  ·  " +
                      $"not-in-portal ₹{A(gate.NotInPortalTotal)}  ·  blocked ₹{A(gate.BlockedTotal)}  ·  {Candidates.Count} reversal candidate(s).";
     }
+
+    /// <summary>
+    /// 🔴 <b>Names the registration ON the page whenever there is more than one to name</b> — the scope of every
+    /// figure above has to be readable from the page itself, not inferred from a combo box the reader may not have
+    /// looked at. Empty on a single-registration book, so that book's subtitle is byte-identical (ER-13).
+    /// </summary>
+    private string RegistrationSuffix =>
+        ShowsRegistrationPicker && _selectedRegistration is { } r
+            ? $"  —  {r.Name}" + (string.IsNullOrWhiteSpace(r.Gstin) ? string.Empty : $" ({r.Gstin})")
+            : string.Empty;
 
     private static ItcGateTripleRowVm Triple(string label, ItcTriple t, bool emphasise = false) => new()
     {

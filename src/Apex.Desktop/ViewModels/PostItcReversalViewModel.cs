@@ -153,6 +153,14 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
     /// voucher / 2B line it is about.</summary>
     public IReadOnlyList<ItcReversalCandidate> RawCandidates => _rawCandidates;
 
+    /// <summary>The registrations this company holds (census 6.23) — its own first, then any additional.</summary>
+    public ObservableCollection<GstRegistration> Registrations { get; } = new();
+
+    /// <summary>Whether the registration picker is worth showing — only once the company holds more than one.</summary>
+    public bool ShowsRegistrationPicker => Registrations.Count > 1;
+
+    private GstRegistration? _selectedRegistration;
+
     public PostItcReversalViewModel(Company company, CompanyStorage storage, Action? onChanged = null)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
@@ -160,8 +168,40 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         _onChanged = onChanged ?? (() => { });
         _reversal = new Reversal(company);
         _period = company.FinancialYearStart.ToString("yyyy-MM", CultureInfo.InvariantCulture);
+
+        foreach (var registration in company.Gst?.AllRegistrations ?? [])
+            Registrations.Add(registration);
+        _selectedRegistration = Registrations.FirstOrDefault();
+
         Rebuild();
     }
+
+    /// <summary>
+    /// 🔴 <b>The registration this screen POSTS UNDER — the one thing on a posting path that must never be
+    /// hard-coded.</b> A reversal reduces exactly one GSTIN's electronic credit ledger and lands in exactly one
+    /// return's Table 4(B), so a reversal posted against the wrong registration is a wrong posted entry AND a wrong
+    /// filed figure on two returns at once: missing from the one that owed it, present on the one that did not.
+    /// It used to be the literal primary, with no picker and the registration named nowhere on the page, which also
+    /// meant a branch registration's blocked credit could never be surfaced as a candidate and therefore could
+    /// never be reversed at all. Changing it re-projects everything on the screen.
+    /// </summary>
+    public GstRegistration? SelectedRegistration
+    {
+        get => _selectedRegistration;
+        set { if (SetProperty(ref _selectedRegistration, value)) Rebuild(); }
+    }
+
+    /// <summary>The scope every figure, every candidate, every offered source voucher and every posting on this
+    /// screen is read and written under. Falls back to the primary, never to <c>null</c> (the engine refuses an
+    /// unscoped projection); byte-identical on a single-registration book (ER-13).</summary>
+    private Guid ScopedRegistrationId => _selectedRegistration?.Id ?? GstRegistration.PrimaryId;
+
+    /// <summary>Names the registration on the page whenever there is more than one to name; empty otherwise, so a
+    /// single-registration book's subtitle is unchanged (ER-13).</summary>
+    private string RegistrationSuffix =>
+        ShowsRegistrationPicker && _selectedRegistration is { } r
+            ? $"  —  {r.Name}" + (string.IsNullOrWhiteSpace(r.Gstin) ? string.Empty : $" ({r.Gstin})")
+            : string.Empty;
 
     /// <summary>The highlighted already-posted reversal (what <see cref="Reclaim"/> acts on).</summary>
     public PostedReversalRowVm? HighlightedRow =>
@@ -233,8 +273,13 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
 
         if (NeedsSourceVoucher)
         {
+            // 🔴 Only purchases recorded under the SELECTED registration are offered as an anchor. A reversal
+            // follows its source purchase's own registration (the engine reads it from the voucher, not from a
+            // combo box), so offering another registration's purchase here would post, correctly, into a return
+            // this screen is not showing — the row would vanish from the history the operator is looking at.
             foreach (var v in _company.Vouchers
                          .Where(v => !v.Cancelled && IsPurchase(v))
+                         .Where(v => GstReportSupport.RegistrationOf(v) == ScopedRegistrationId)
                          .Where(v => Kind == ItcReversalPostKind.Rule43 || v.PartyId is not null)
                          .OrderBy(v => v.Date).ThenBy(v => v.Number))
             {
@@ -274,6 +319,18 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         return total;
     }
 
+    /// <summary>
+    /// Whether a posted reversal row belongs to the registration this screen is showing — read from the row's own
+    /// stat-adjustment voucher, which is where the attribution lives (the <c>ItcReversal</c> row carries no
+    /// registration column, and none was added: no track in this wave takes a migration). A row whose voucher has
+    /// gone reads as the primary, the same normalisation <see cref="GstReportSupport.RegistrationOf"/> applies to a
+    /// null. On a single-registration book every row resolves to the primary and nothing is filtered out (ER-13).
+    /// </summary>
+    private bool RowIsInScope(ItcReversal row) =>
+        (_company.FindVoucher(row.ReversalVoucherId) is { } v
+            ? GstReportSupport.RegistrationOf(v)
+            : GstRegistration.PrimaryId) == ScopedRegistrationId;
+
     /// <summary>(Re)projects the ECRS balance, the 2B candidates and the posted-reversal history. Posts nothing.</summary>
     public void Rebuild()
     {
@@ -281,7 +338,10 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         Candidates.Clear();
         Posted.Clear();
 
-        var balance = _reversal.OutstandingReversalBalance();
+        // 🔴 The ECRS balance of the SELECTED registration — the same population as the candidates and the history
+        // below it, and the same balance the engine caps a reclaim against. A whole-book figure printed beside a
+        // registration-scoped list is two populations in one frame, on the screen that posts.
+        var balance = _reversal.OutstandingReversalBalance(ScopedRegistrationId);
         BalanceCgstText = R(balance.CgstPaisa); BalanceSgstText = R(balance.SgstPaisa);
         BalanceIgstText = R(balance.IgstPaisa); BalanceCessText = R(balance.CessPaisa);
         BalanceTotalText = R(balance.TotalPaisa);
@@ -295,14 +355,15 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
             var (from, to) = GstAdvancedSnapshots.Window(snapshot.ReturnPeriod, _company.FinancialYearStart);
             try
             {
-                // 🔴 THE REGISTRATION SCOPE MUST TRAVEL — the FOURTH site of the same drop, and the one that
-                // mattered most: this is the POSTING screen. With no registrationId the engine's
-                // EnsureRegistrationScoped throws for any IsMultiRegistration book, the catch below turned it into
-                // a message, and `_rawCandidates` stayed EMPTY — so HasCandidates was false and an operator on a
-                // multi-registration book could not post ANY gate-surfaced reversal at all. Scoped to the primary
-                // registration rather than null (GstOfflineReturnsViewModel.ScopedRegistrationId's rule);
-                // byte-identical for a single-registration book.
-                var gate = ItcGateView.Build(_company, snapshot, from, to, GstRegistration.PrimaryId);
+                // 🔴 THE REGISTRATION SCOPE MUST TRAVEL, AND ON THIS SCREEN IT MUST BE A CHOICE. With no
+                // registrationId the engine's EnsureRegistrationScoped throws for any IsMultiRegistration book, the
+                // catch below turned it into a message, and `_rawCandidates` stayed EMPTY — so HasCandidates was
+                // false and an operator on a multi-registration book could not post ANY gate-surfaced reversal at
+                // all. Pinning it to the primary instead made the list reachable but silently incomplete on the
+                // screen that POSTS: a branch registration's §17(5)-blocked and Table-4(D) ineligible credit never
+                // appeared, so it could never be reversed. It is now the operator's own selection, printed in the
+                // subtitle; byte-identical for a single-registration book (ER-13).
+                var gate = ItcGateView.Build(_company, snapshot, from, to, ScopedRegistrationId);
                 _rawCandidates = gate.ReversalCandidates.ToList();
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -333,7 +394,9 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
             .Select(r => r.ReclaimOfId!.Value)
             .ToHashSet();
 
-        foreach (var r in _company.ItcReversals.OrderByDescending(r => r.Period, StringComparer.Ordinal))
+        foreach (var r in _company.ItcReversals
+                     .Where(RowIsInScope)
+                     .OrderByDescending(r => r.Period, StringComparer.Ordinal))
         {
             var isReclaim = r.ReclaimOfId is not null;
             var reclaimable = !isReclaim
@@ -360,7 +423,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         HighlightedIndex = Posted.Count == 0 ? -1 : Math.Clamp(keepIndex < 0 ? 0 : keepIndex, 0, Posted.Count - 1);
         OnHighlightedIndexChanged(HighlightedIndex);
 
-        Subtitle = $"{_company.Name}  —  outstanding reclaimable reversal balance (ECRS) ₹{BalanceTotalText}";
+        Subtitle = $"{_company.Name}{RegistrationSuffix}  —  outstanding reclaimable reversal balance (ECRS) ₹{BalanceTotalText}";
         StatusText = $"ECRS balance ₹{BalanceTotalText}  ·  {Candidates.Count} candidate(s) from the latest GSTR-2B  ·  " +
                      $"{Posted.Count} reversal row(s) posted. A reclaim can never exceed the ECRS balance.";
     }
@@ -418,8 +481,13 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                     if (!TryParseTurnover(out var exempt, out var total, out var tErr)) return Fail(tErr!);
                     var basis = new Reversal.Rule42Basis(amount, exempt, total);
                     posted = Kind == ItcReversalPostKind.Rule42
-                        ? _reversal.PostRule42(Period.Trim(), basis, date.Value)
-                        : _reversal.PostRule42AnnualTrueUp(Period.Trim(), basis, date.Value);
+                        // 🔴 Rule 42 apportions a POOL, so it is one of the only two reversals with no source
+                        // document for the engine to read its registration from — the screen's own selection is
+                        // the only thing that can say which GSTIN's credit pool is being apportioned.
+                        ? _reversal.PostRule42(Period.Trim(), basis, date.Value,
+                            registrationId: ScopedRegistrationId)
+                        : _reversal.PostRule42AnnualTrueUp(Period.Trim(), basis, date.Value,
+                            registrationId: ScopedRegistrationId);
                     break;
                 }
                 case ItcReversalPostKind.Rule43:
@@ -500,7 +568,12 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
         var candidate = _rawCandidates[CandidateIndex];
         try
         {
-            var posted = _reversal.PostFromCandidate(candidate, Period.Trim(), date.Value);
+            // 🔴 The registration travels with the posting. A voucher-keyed candidate — which every POSTING
+            // candidate is — carries its own source purchase, and the engine reads the registration off THAT, so
+            // this argument only decides the 2B-line-keyed credit-note candidate, which has no voucher in the
+            // books. Either way the reversal can no longer land on the primary's return by default.
+            var posted = _reversal.PostFromCandidate(candidate, Period.Trim(), date.Value,
+                registrationId: ScopedRegistrationId);
             if (posted is null)
                 return Fail(candidate.Reason == ItcReversalReason.Section16_2aaNotInPortal
                     ? "§16(2)(aa) is a DEFERRAL, not a reversal — the credit is simply not claimable this period and " +

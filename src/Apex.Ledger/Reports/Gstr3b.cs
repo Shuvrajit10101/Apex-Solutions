@@ -248,7 +248,11 @@ public sealed record Gstr3b(
         // Phase 9 slice 7b: Table 4(B)/4(D) ITC-reversal projection — Σ the posted stat-adjustment reversal/reclaim
         // lines by their GstAdjustmentKind tag (routed to 4(B)(1) / 4(B)(2) / 4(D)(1)). Zero when no reversal was
         // posted ⇒ byte-identical (ER-13). These vouchers are Journal base ⇒ already out of the 3.1/4(A) sums.
-        var rev = ReadReversals(company, from, to);
+        // 🔴 THE SCOPE MUST TRAVEL HERE TOO — this was the ONE leg of Build that took no registrationId, while
+        // ReadSide, ReadRcm, ReadCdn and ExemptOutwardValue all take it. On a multi-registration book that meant
+        // EVERY registration's Table 4(B)(1) / 4(B)(2) / 4(D)(1) carried the WHOLE BOOK's reversals, so one
+        // branch's §17(5) reversal was filed twice — once on its own return and once on every sister return.
+        var rev = ReadReversals(company, from, to, registrationId);
 
         return new Gstr3b(from, to,
             new Money(taxable), new Money(exempt),
@@ -274,11 +278,18 @@ public sealed record Gstr3b(
     /// whose <see cref="GstLineTax.Adjustment"/> is a reversal (Rule 37/37A/42/43/§17(5)/Ineligible/CreditNote) or a
     /// reclaim, routed to 4(B)(1) (non-reclaimable) / 4(B)(2) (reclaimable) / 4(D)(1) (reclaim) by the tag. A pure
     /// projection over the posted adjustment vouchers, never recomputed (ER-9). No reversal posted ⇒ all zero (ER-13).
+    ///
+    /// <para>🔴 <b>Scoped to <paramref name="registrationId"/> (census 6.23), like every other leg of
+    /// <see cref="Build"/>.</b> A reversal belongs to exactly one registration — the one its stat-adjustment voucher
+    /// is recorded under, which <see cref="GstReversalService"/> stamps from the source purchase (or from the
+    /// registration the operator named) — because Table 4(B) is a figure on a return filed against ONE GSTIN.
+    /// Unscoped, a branch's reversal was folded into every registration's 3B. <c>null</c> ⇒ the whole book, which is
+    /// exactly what a single-registration book has always been, so that book is byte-identical (ER-13).</para>
     /// </summary>
     private static (decimal B1Cgst, decimal B1Sgst, decimal B1Igst, decimal B1Cess,
         decimal B2Cgst, decimal B2Sgst, decimal B2Igst, decimal B2Cess,
         decimal D1Cgst, decimal D1Sgst, decimal D1Igst, decimal D1Cess) ReadReversals(
-        Company company, DateOnly from, DateOnly to)
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         decimal b1C = 0m, b1S = 0m, b1I = 0m, b1Cess = 0m;
         decimal b2C = 0m, b2S = 0m, b2I = 0m, b2Cess = 0m;
@@ -287,6 +298,7 @@ public sealed record Gstr3b(
         foreach (var v in company.Vouchers)
         {
             if (v.Date < from) continue;
+            if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
 

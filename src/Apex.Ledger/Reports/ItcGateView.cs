@@ -230,14 +230,34 @@ public sealed record ItcGateView(
         //  the invoice). It is NOT resolvable for the "Consolidated…" note shape the same screen offers, which
         //  leaves that id null by design, nor for a return whose original was bought in an earlier period and so is
         //  not in this sweep at all. For those the reduction is split across the two pools PRO RATA to their own
-        //  sizes, paisa-exact on the shared largest-remainder engine: a neutral allocation that asserts nothing
-        //  about which invoice was returned, reproduces the unambiguous answer exactly whenever one pool is empty
-        //  (all of a return against a fully-2B-matched book lands on Claimable; all of one against a book with no
-        //  2B line lands on NotInPortal), and can never invent a pool out of nothing. 🔴 DIVERGENCE, LABELLED AS
-        //  OURS (R7): neither CBIC Rule 39 nor the GSTN documentation says how an unattributed return should be
-        //  apportioned between a claimable and a not-yet-in-2B pool, because the portal has no such advisory view —
-        //  the pro rata is our choice, not a cited rule, and the exact attribution above is preferred wherever the
-        //  link makes it available.
+        //  sizes, paisa-exact on the shared largest-remainder engine: an allocation that asserts nothing about
+        //  WHICH invoice was returned, reproduces the unambiguous answer exactly whenever one pool is empty (all of
+        //  a return against a fully-2B-matched book lands on Claimable; all of one against a book with no 2B line
+        //  lands on NotInPortal), and can never invent a pool out of nothing.
+        //  🔴 DIVERGENCE, LABELLED AS OURS (R7), AND ITS GOVERNING PROVISIONS NAMED CORRECTLY. This engine's
+        //  provisions are §16(2)(aa) and rules 36 / 37 / 37A — NOT Rule 39, which an earlier draft of this note
+        //  named. VERIFIED BY CONTENT: Rule 39 opens "Procedure for distribution of input tax credit by Input
+        //  Service Distributor.—(1) An Input Service Distributor shall distribute input tax credit in the manner and
+        //  subject to the following conditions", so it governs ISD DISTRIBUTION and is cited elsewhere in this build
+        //  for exactly that; the strings "2B" and "GSTR-2B" appear NOWHERE in it, and its one credit-note clause (n)
+        //  apportions a reduction AMONG RECIPIENTS "in the same ratio in which the input tax credit contained in the
+        //  original invoice was distributed" — a different dimension entirely from the one below. Nothing published
+        //  says how an unattributed purchase return should be apportioned between a claimable and a not-yet-in-2B
+        //  pool, because the portal publishes no such advisory view at all. So the negative claim is ours to make,
+        //  and the rule we ship in its place is ours too.
+        //  (Rule 39: taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/
+        //  rule39_v1.00.html — §16(2)(aa): …/gst/acts/2017_CGST_act/active/chapter5/section16_v1.00.html, whose
+        //  clause (aa) conditions the credit on "the details of the invoice or debit note referred to in clause (a)
+        //  has been furnished by the supplier in the statement of outward supplies" — the reflected-in-2B basis the
+        //  whole gate rests on.)
+        //  🔴 AND THE PRO RATA IS NOT NEUTRAL — it asserts PROPORTIONALITY, which is wrong whenever a real return
+        //  is concentrated on one invoice, and the "Consolidated…" note shape that leaves the link null is a
+        //  SUPPORTED default rather than an edge case. Measured: two invoices, 1,800 claimable and 9,000 not in 2B,
+        //  with the whole of the second returned unlinked, reports Claimable 300 / NotInPortal 1,500 where the truth
+        //  is 1,800 / 0 — 1,500.00 of genuinely 2B-reflected credit misreported, invisible to the identity because
+        //  BooksEligible is right either way. It is held to be acceptable ONLY because §16(2)(aa) posts nothing and
+        //  this screen is advisory; the exact attribution above is preferred wherever the §34 link makes it
+        //  available, and making that link mandatory on a purchase return is an open decision for the user.
         // ══════════════════════════════════════════════════════════════════════════════════════════════════════════
         if (returns.Count > 0)
         {
@@ -278,6 +298,25 @@ public sealed record ItcGateView(
                 r.Applied = true;
             }
 
+            // ══════════════════════════════════════════════════════════════════════════════════════════════════════
+            // 🔴 EXACT ATTRIBUTION IS RIGHT ABOUT THE POOL AND CAN STILL BE WRONG ABOUT ITS SIZE — so spill, never
+            // clamp. A §34-linked return is attributed to the pool its OWN original fell into, which is the correct
+            // pool; but the return's eligible share is classified from the RETURN document, and it can exceed what
+            // that pool holds. Measured: a mixed item invoice whose §17(5)-blocked item keeps only 1,080.00 in
+            // Claimable, returned voucher-mode on the unblocked purchases ledger, classifies 1,800.00 as eligible —
+            // leaving Claimable at −720.00 beside NotInPortal 9,000.00 under a BooksEligible of 8,280.00. That is a
+            // NEGATIVE sub-row AND a sub-row larger than its own total: an impossible face, reached while the
+            // identity itself stayed true, which is exactly why no identity test could see it.
+            //
+            // The deficit is moved onto the sister pool rather than clamped away, so BooksEligible = Claimable +
+            // NotInPortal is preserved EXACTLY (the two legs are only redistributed, never created or destroyed) and
+            // the over-return case is untouched: when the two pools together are negative the period really did
+            // return more credit than it took, and the gate must keep saying so rather than flatter the books.
+            // ══════════════════════════════════════════════════════════════════════════════════════════════════════
+            SpillNegativePool(ref clCgst, ref npCgst);
+            SpillNegativePool(ref clSgst, ref npSgst);
+            SpillNegativePool(ref clIgst, ref npIgst);
+
             // The pro-rata remainder: summed per head first, so the allocation is computed ONCE against one set of
             // pool sizes and is therefore order-independent across the unattributed returns.
             decimal rtCgst = 0m, rtSgst = 0m, rtIgst = 0m;
@@ -307,12 +346,18 @@ public sealed record ItcGateView(
                     ToPaisa(new Money(npC2)), ToPaisa(new Money(npS2)), ToPaisa(new Money(npI2)), npCessPaisa);
             }
 
-            // A candidate netted to nothing is no longer advice — drop it. Only VOUCHER-keyed candidates are
-            // considered: a 2B-line-keyed credit-note candidate is legitimately zero when the recipient declared
-            // no reversal, and the screen is meant to show that one (PostFromCandidate posts nothing for it).
-            candidates.RemoveAll(c => c.VoucherId is not null
-                && c.CgstPaisa <= 0 && c.SgstPaisa <= 0 && c.IgstPaisa <= 0 && c.CessPaisa <= 0);
         }
+
+        // A candidate netted to nothing is no longer advice — drop it. Only VOUCHER-keyed candidates are
+        // considered: a 2B-line-keyed credit-note candidate is legitimately zero when the recipient declared
+        // no reversal, and the screen is meant to show that one (PostFromCandidate posts nothing for it).
+        // 🔴 OUTSIDE the returns block on purpose. "A zero candidate is not advice" is a property of the candidate
+        // list, not of a period that happens to contain a return; applied only inside the block, two otherwise
+        // identical periods would answer differently the moment any reason admits a zero-head candidate. It is a
+        // no-op today — the vBlocked/vInelig/vElig > 0 guards make an all-zero candidate unconstructible — which is
+        // precisely why it costs nothing to make the rule unconditional before something else changes those guards.
+        candidates.RemoveAll(c => c.VoucherId is not null
+            && c.CgstPaisa <= 0 && c.SgstPaisa <= 0 && c.IgstPaisa <= 0 && c.CessPaisa <= 0);
 
         // Portal 2B ITC-Available figure (§16(2)(aa) basis). Exclude the supplier-flagged RCM lines (they bypass 2B ITC).
         decimal p2bCgst = 0m, p2bSgst = 0m, p2bIgst = 0m;
@@ -532,6 +577,29 @@ public sealed record ItcGateView(
         var shares = AdditionalCostApportionment.Allocate(
             new[] { claimablePool, notInPortalPool }, new Money(returned));
         return (shares[0].Amount, shares[1].Amount);
+    }
+
+    /// <summary>
+    /// Moves a NEGATIVE pool's deficit onto its sister pool, as far as the sister can absorb it — the
+    /// per-pool half of the gate's shape contract, beside the identity. <b>Σ is invariant</b>: exactly the amount
+    /// taken off one leg is put onto the other, so <c>BooksEligible = Claimable + NotInPortal</c> survives
+    /// untouched; only the split between the two legs moves. It is a SPILL and not a clamp for that reason — a
+    /// clamp would invent credit. When the two together are negative (the period's returns exceeded its credit)
+    /// neither can be made non-negative and the residual deliberately stays where it is, so the over-return case
+    /// still reads negative rather than being flattered to zero.
+    /// </summary>
+    private static void SpillNegativePool(ref decimal a, ref decimal b)
+    {
+        if (a < 0m && b > 0m)
+        {
+            var move = Math.Min(-a, b);
+            a += move; b -= move;
+        }
+        else if (b < 0m && a > 0m)
+        {
+            var move = Math.Min(-b, a);
+            b += move; a -= move;
+        }
     }
 
     /// <summary>True iff the purchase's supplier (party ledger) carries a GSTIN — a no-GSTIN purchase can never appear in
