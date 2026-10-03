@@ -198,8 +198,14 @@ public sealed class ChallanReconOutputTests : IDisposable
         var vm = TdsCompanyWithAWithholding();
         var win = Show(vm);
 
+        // 🔴 W-Y4 RE-HOMED WHAT ALT+R OPENS, AND THIS ASSERTION FOLLOWED IT. The reconciliation moved off its
+        // own page Screen onto ReportKind.TdsChallanReconciliation, so Alt+R now lands on Screen.Report. What
+        // census 6.31 is graded on is untouched and is what the rest of this test still measures: the
+        // reconciliation can leave the screen. It now does so through the REPORT egress path (the matrix's live
+        // column band) rather than through IMasterListExportSource — and the gate is still IsExportablePage,
+        // still evaluated inside MainWindow's own key tunnel, which is why this presses keys.
         Press(win, Key.R, KeyModifiers.Alt);
-        Assert.Equal(Screen.ChallanReconciliation, vm.CurrentScreen);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
         Assert.True(vm.IsExportablePage);
         Assert.True(vm.IsPrintablePage);
 
