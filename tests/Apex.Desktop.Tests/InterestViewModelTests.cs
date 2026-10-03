@@ -221,27 +221,33 @@ public sealed class InterestViewModelTests : IDisposable
                 hub.SetSelected(i);
                 break;
             }
+        // 🔴 W-Y4 RE-HOMED THIS ROW AND THIS TEST FOLLOWED IT, RATHER THAN THE REVERSE. Census 11.11's first
+        // gap was that the Interest Calculation lived on its own page Screen, which leaves the shell's report
+        // context null and switches off Ctrl+P, Ctrl+E, F2/Alt+F2, F12, Alt+F12 and Alt+K at once. The row now
+        // opens ReportKind.InterestCalculation on Screen.Report. What this test still guards is unchanged and is
+        // the reason it exists: the row is nested under the Statements-of-Accounts hub, it opens exactly ONE page
+        // column, and the menu columns to its left persist. See RehomedReportSurfaceY4Tests for the figures,
+        // the captions and the chords.
         vm.DrillIn();
-        Assert.Equal(Screen.InterestReport, vm.CurrentScreen);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.NotNull(vm.InterestReport);
-        Assert.Same(vm.InterestReport, vm.Columns[^1].InterestReport);
+        Assert.NotNull(vm.Reports);
+        Assert.Equal("Interest Calculation", vm.Reports!.Title);
+        Assert.Null(vm.InterestReport);          // the superseded page is not opened by any route any more
 
         // The menu columns to its left stay visible (root + Statements-of-Accounts hub).
         Assert.True(vm.Columns[0].IsMenu);
         Assert.Contains(vm.Columns, c => c.IsMenu && c.Title == "Statements of Accounts");
 
-        // Opening another report REPLACES the Interest page — still exactly one page column.
+        // Opening another report REPLACES the Interest report — still exactly one page column.
         vm.OpenReport(ReportKind.BalanceSheet);
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.Null(vm.InterestReport);
-        Assert.NotNull(vm.Reports);
+        Assert.Equal("Balance Sheet", vm.Reports!.Title);
 
-        // Reopening the Interest report REPLACES the Balance Sheet page (never stacks).
-        vm.OpenInterestReport();
+        // Reopening the Interest report REPLACES the Balance Sheet (never stacks).
+        vm.OpenInterestCalculationReport();
         Assert.Equal(1, vm.Columns.Count(c => c.IsPage));
-        Assert.NotNull(vm.InterestReport);
-        Assert.Null(vm.Reports);
+        Assert.Equal("Interest Calculation", vm.Reports!.Title);
 
         // The root Gateway nests Statements of Accounts under REPORTS (professional hierarchy).
         vm.ShowGateway();
