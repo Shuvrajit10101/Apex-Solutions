@@ -2339,11 +2339,22 @@ public partial class MainWindow : Window
     private void OnAddSingleEntryParticularClick(object? sender, RoutedEventArgs e) =>
         Vm?.VoucherEntry?.AddSingleEntryParticular();
 
+    // 🔴 Both of these called Create() unconditionally while their Ctrl+A arms branched on IsAltering, so the
+    // pointer path on either ALTERATION screen tried to create a duplicate and failed on the name clash. Same
+    // defect, same fix, same reason as the account group below: the button and the accelerator must run the
+    // same verb. Budget and Scenario deliberately keep a bare Create() — neither has a ForAlter factory, so
+    // neither can be altering, and giving them this branch would imply a verb that does not exist.
     private void OnCreateCostCategoryClick(object? sender, RoutedEventArgs e)
-        => Vm?.CostCategoryMaster?.Create();
+    {
+        if (Vm?.CostCategoryMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateCostCentreClick(object? sender, RoutedEventArgs e)
-        => Vm?.CostCentreMaster?.Create();
+    {
+        if (Vm?.CostCentreMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     /// <summary>
     /// The Outstandings "Settle Bills (Alt+A)" button — the same route the Alt+A key takes, so the button and the
@@ -2352,8 +2363,16 @@ public partial class MainWindow : Window
     private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSettlementVoucherFromOutstandings();
 
+    // 🔴 THE SAME DEFECT THE ACCOUNT-GROUP COMMENT BELOW DESCRIBES, STILL LIVE ON THE LEDGER. It called Create()
+    // unconditionally, so on the Ledger ALTERATION screen (Ctrl+Enter from the ledger list) the pointer path
+    // tried to create a SECOND ledger with the same name and printed "a ledger named 'X' already exists" over a
+    // valid alteration. Ctrl+A branched correctly the whole time (MainWindowViewModel.cs, the LedgerMaster arm),
+    // so the button and the accelerator did two different things — exactly what that comment forbids.
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
-        => Vm?.LedgerMaster?.Create();
+    {
+        if (Vm?.LedgerMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     // 🔴 The button must branch the SAME way Ctrl+A does. It did not: it called Create() unconditionally, so on
     // the Group ALTERATION screen the pointer path tried to create a second group with the same name and printed
