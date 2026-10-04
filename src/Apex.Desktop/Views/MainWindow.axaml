@@ -5311,7 +5311,11 @@
                                nothing ever overflows so no scrollbar can appear. A * track constrains the
                                row, so the ScrollViewer below sees real overflow and scrolls. -->
                           <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Ledger Creation"
+                            <!-- 🔴 BOUND. This was the literal "Ledger Creation" in BOTH modes, so Ctrl+Enter →
+                                 Ledger Alteration opened a screen titled "Ledger Creation" over a ledger that
+                                 already existed. IsAltering's own remark claimed it "drives the screen
+                                 title/caption"; no caption existed to drive. -->
+                            <TextBlock Grid.Row="0" Name="LedgerMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -5331,6 +5335,26 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. State Bank of India"/>
+                                </Grid>
+
+                                <!-- census 2.3 — the ALIAS, between Name and Under, which is the field order the
+                                     Opening Balance comment below already states ("Name, alias, Under, Opening
+                                     Balance").
+                                     🔴 OURS, NOT THE VENDOR'S SHAPE: TallyPrime's ledger page documents the
+                                     ledger alias only as a LANGUAGE alias behind F12 "Provide language aliases
+                                     for Name". This is a plain always-visible alias with no language tag. The
+                                     full reading, and why the enumeration's unconditional quote was from
+                                     Tally.ERP 9 rather than TallyPrime, is on LedgerMasterViewModel.Alias. -->
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="LedTopL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Alias" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="LedgerAliasBox"
+                                           Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional alternative name, e.g. SBI"/>
                                 </Grid>
                                 <Grid>
                                   <Grid.ColumnDefinitions>
@@ -6208,7 +6232,8 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Name="LedgerCommitButton"
+                                          Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateLedgerClick"/>
                                 </Grid>
@@ -6473,7 +6498,8 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:CostCategoryMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Cost Category Creation"
+                            <!-- 🔴 BOUND, was the literal "Cost Category Creation" in both modes. -->
+                            <TextBlock Grid.Row="0" Name="CostCategoryMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -6497,7 +6523,8 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Name="CostCategoryCommitButton"
+                                          Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateCostCategoryClick"/>
                                 </Grid>
@@ -6543,7 +6570,12 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:CostCentreMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Cost Centre Creation"
+                            <!-- 🔴 BOUND, not the literal "Cost Centre Creation" it used to be. Ctrl+Enter on the
+                                 list below opens this same page in ALTER mode, and a hardcoded heading told the
+                                 operator they were creating a second centre while they were editing an existing
+                                 one. The VM has carried `Caption` ("Cost Centre Creation" / "Cost Centre
+                                 Alteration") since the alter route shipped; nothing was reading it. -->
+                            <TextBlock Grid.Row="0" Name="CostCentreMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -6561,6 +6593,25 @@
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Sales Team A"/>
+                                </Grid>
+
+                                <!-- census 2.8 — the ALIAS. Vendor: "Name & alias: Provide a name. As in other
+                                     masters, you can specify multiple aliases."
+                                     (help.tallysolutions.com/cost-centre-or-profit-centre-tally/, read
+                                     2026-10-04). Directly under Name because it is an alternative FOR the name.
+                                     🔴 One box, not many: the vendor allows multiple aliases and
+                                     cost_centres.alias is one TEXT column. That limit is ours, and it is
+                                     recorded on CostCentreMasterViewModel.Alias rather than implied here. -->
+                                <Grid>
+                                  <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="CcL"/>
+                                    <ColumnDefinition Width="*"/>
+                                  </Grid.ColumnDefinitions>
+                                  <TextBlock Grid.Column="0" Text="Alias" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="CostCentreAliasBox"
+                                           Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional short name, e.g. STA"/>
                                 </Grid>
                                 <Grid>
                                   <Grid.ColumnDefinitions>
@@ -6603,7 +6654,8 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Name="CostCentreCommitButton"
+                                          Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateCostCentreClick"/>
                                 </Grid>
@@ -6612,10 +6664,14 @@
 
                             <!-- Existing centres header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,180,160">
+                              <!-- Alias is column 1, beside the name. The three fixed tracks were 180+160 and are
+                                   now 150+150+150: the * name track still absorbs the remainder, so the alias
+                                   column is paid for out of Category/Under rather than off the right edge. -->
+                              <Grid ColumnDefinitions="*,150,150,150">
                                 <TextBlock Grid.Column="0" Text="Cost Centre" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="Category" Classes="colHdr"/>
-                                <TextBlock Grid.Column="2" Text="Under" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="1" Text="Alias" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Category" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Under" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
 
@@ -6624,14 +6680,20 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:CostCentreListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,180,160" Height="24">
+                                      <Grid ColumnDefinitions="*,150,150,150" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Category}"
-                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Under}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Alias}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Category}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Under}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
-                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
@@ -7160,7 +7222,10 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:AccountGroupMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Group Creation"
+                            <!-- 🔴 BOUND. The slice that fixed this page's BUTTON to branch on IsAltering left the
+                                 heading a literal, so the alteration behaved correctly while still announcing
+                                 "Group Creation". -->
+                            <TextBlock Grid.Row="0" Name="AccountGroupMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -7311,7 +7376,8 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Name="AccountGroupCommitButton"
+                                          Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateAccountGroupClick"/>
                                 </Grid>
