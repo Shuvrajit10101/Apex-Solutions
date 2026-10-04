@@ -11439,14 +11439,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     };
 
     /// <summary>
-    /// <b>Ctrl+Enter on one of the SEVEN master lists this switch resolves — open the highlighted master for
+    /// <b>Ctrl+Enter on one of the EIGHT master lists this switch resolves — open the highlighted master for
     /// ALTERATION.</b> Returns false (a quiet no-op) on every other screen, and while the screen is already
     /// mid-alteration, so the chord stays free elsewhere.
     ///
     /// <para>🔴 <b>COUNTED FROM THE CASES BELOW, NOT FROM THE LAST REPORT.</b> This sentence read "one of the six
     /// W29 master lists" until W33 C3 added the <b>price level</b> (census 3.10) and the <b>currency</b> (census
-    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. The list
-    /// is: Godown, Unit, Stock Category, Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3).
+    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. It then
+    /// read SEVEN until census 3.11 added the <b>price list</b> version. The list is: Godown, Unit, Stock Category,
+    /// Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3), Price List (3.11).
     /// <c>IPayrollMasterList</c>'s own remarks record what a stale count in a doc comment like this one costs.</para>
     ///
     /// <para><b>Its own arm rather than a member of <see cref="IMasterListScreen"/></b> for the reason
@@ -11518,16 +11519,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // master means. Two do: the price level ("Change the names of the Price Levels and press Ctrl+A to
             // save" — help.tallysolutions.com/selling-buying-prices/) and the currency ("Alt+G > Alter Master >
             // Currency", altering symbol / formal name / ISO code / decimal places —
-            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. The other six
-            // (batch, BOM, budget, scenario, price list, reorder) keep create+delete only and their census rows
-            // stay PARTIAL. Inventing an alter shape for a master no source describes is how this project has
-            // previously shipped a verb nobody asked for.
+            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. 🔴 The "other six"
+            // this comment named are now FIVE — the price list left the list at census 3.11, on its own vendor
+            // page; see the arm below. Batch, BOM, budget, scenario and reorder keep create+delete only and their
+            // census rows stay PARTIAL. Inventing an alter shape for a master no source describes is how this
+            // project has previously shipped a verb nobody asked for.
             case Screen.PriceLevelsMaster:
             {
                 if (PriceLevelsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
                     is not { } m) return false;
                 OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceLevelsMaster, m.Caption,
                     () => PriceLevels = m);
+                return true;
+            }
+            // ───────────────────────────────────────────────── census 3.11: the price-list version Alter arm
+            //
+            // 🔴 THE W33 C3 BLOCK ABOVE LISTED "price list" AMONG THE SIX THAT KEEP CREATE+DELETE ONLY BECAUSE NO
+            // VENDOR PAGE HAD THEN BEEN FOUND DESCRIBING WHAT ALTERING ONE MEANS. A page does:
+            // "You can alter a price list by overwriting the details entered in the Price List screen", reached via
+            // "Press Alt+G (Go To) > Alter Master > Price List"
+            // [help.tallysolutions.com/selling-buying-prices/, opened and read by content 2026-10-04]. The list in
+            // that block is now FIVE (batch, BOM, budget, scenario, reorder); the reorder page 404s, so reorder
+            // alter stays withheld rather than invented.
+            //
+            // The row the arrows walk here is the dated VERSION history, so Ctrl+Enter opens one version for
+            // correction — see PriceListService.AlterList for why overwriting a version is not a breach of the
+            // append-only revision history.
+            case Screen.PriceListsMaster:
+            {
+                if (PriceListsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceListsMaster, m.Caption,
+                    () => PriceLists = m);
                 return true;
             }
             case Screen.CurrencyMaster:
@@ -12083,7 +12106,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 else PriceLevels?.Create();
                 return;
             case Screen.PriceListsMaster:
-                PriceLists?.Save();
+                // Census 3.11: the same screen now serves Save (append a dated revision) and Alter (overwrite the
+                // version it was opened over). Without this branch a Price List Alteration screen's Ctrl+A would
+                // run Save() and be refused by AddOrReviseList's strictly-later-date rule — the correction would
+                // bounce off an "already has an Applicable-From of ... or later" with the operator's fix unsaved.
+                if (PriceLists is { IsAltering: true }) PriceLists.Alter();
+                else PriceLists?.Save();
                 return;
             case Screen.ReorderLevelsMaster:
                 ReorderLevels?.Create();
