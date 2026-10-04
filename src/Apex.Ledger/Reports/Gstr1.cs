@@ -254,30 +254,71 @@ public sealed record Gstr1(
         var exempt = 0m;
         var totalCgst = 0m; var totalSgst = 0m; var totalIgst = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output, registrationId))
+        foreach (var (voucher, voucherType) in GstReportSupport.PostedDirectionalVouchers(company, from, to, GstTaxDirection.Output, registrationId))
         {
             // Phase 9 slice 2b: a formalised §34 credit/debit note is a first-class outward document projected by Table 9B
             // (signed by note type) and folded — signed — into the output totals below. Exclude it from the ordinary
             // invoice sweep so its tax is not double-counted (mirrors the RCM / outward-4B exclusions, risk #4). A company
             // with no §34 note never enters this branch (byte-identical, ER-13).
+            //
+            // 🔴 THIS EXCLUSION IS LOAD-BEARING AND MUST STAY FIRST, now more than before: the sign below would
+            // otherwise net a LINKED note into the aggregates while BuildTable9B ALSO folds it into the totals,
+            // double-reducing the return. Pinned by
+            // Gstr1UnlinkedReturnNoteSignTests.A_linked_section_34_note_is_still_projected_once_through_Table_9B.
             if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
+
+            // 🔴 T2-59 — THE OUTWARD SIGN OF THIS DOCUMENT, and the one fact the whole sweep used to ignore.
+            // Every amount below is read as a POSITIVE MAGNITUDE off EntryLine.Amount; the direction lives in
+            // EntryLine.Side, which none of these readers looks at. A Sales voucher raises outward supply (+1); a
+            // Credit Note REVERSES one (-1), and the engine has already posted it that way —
+            // ComputeItemInvoiceGst passes `reverseSides: IsReturnNote`, so the note genuinely DEBITS Output CGST.
+            // Without the sign the report re-added a sales return as though it were a sale: measured on the
+            // fixture in the owning test, a ₹10,000 + ₹5,000 return made Table 12 file ₹60,000 taxable / ₹5,400
+            // per head / 3,000 Nos and an exempt bucket of ₹25,000, against an Output CGST ledger of ₹3,600 —
+            // breaking this type's own documented invariant that "the section totals reconcile to the Output
+            // tax-ledger postings for the period".
+            //
+            // 🔴 IT READS THE EXISTING ONE HOME, VoucherEffects.IsReturnNote, AND DOES NOT INVENT A SECOND
+            // PREDICATE. There is no shared sign helper in this codebase (a prior report claimed a
+            // `GstReportSupport.SignOf`; grep returns zero hits in src/ and tests/ — it never existed), and the
+            // sign-of-a-note defect has already been fixed one-call-site-at-a-time four times here. IsReturnNote
+            // is the declared home for "this carrier reverses an earlier document" and is derived from the BASE
+            // TYPE alone — wholly independent of the opt-in §34 toggle, which is exactly why it is the right
+            // source: the toggle is an annotation about REPORTING, not about which way the money moved.
+            var sign = VoucherEffects.IsReturnNote(voucherType.BaseType) ? -1m : 1m;
 
             // Per-invoice posted tax by head (read off the tax lines — never recomputed).
             var invoice = ReadInvoiceHeads(voucher);
             var hasTax = invoice.Cgst != 0m || invoice.Sgst != 0m || invoice.Igst != 0m;
-            totalCgst += invoice.Cgst; totalSgst += invoice.Sgst; totalIgst += invoice.Igst;
+            totalCgst += sign * invoice.Cgst; totalSgst += sign * invoice.Sgst; totalIgst += sign * invoice.Igst;
 
             // An outward reverse-charge supply (zero forward tax; sales ledger flagged ReverseChargeApplicable) belongs
             // ONLY in Table 4B (Rcm4BOutwardValue) — never the exempt/nil/non-GST bucket or the HSN sweep, else it is
             // double-represented (its value would appear in both 4B and exempt). Skip it here (Phase 9 slice 2; RQ-7).
             if (!hasTax && GstReportSupport.IsOutwardReverseChargeSupply(company, voucher)) continue;
 
-            // HSN summary + exempt bucket — every other outward supply (taxable AND exempt/nil) contributes here.
-            AccumulateHsn(company, voucher, invoice, hsnAcc, ref exempt);
+            // HSN summary + exempt bucket — every other outward supply (taxable AND exempt/nil) contributes here,
+            // SIGNED: a sales return nets its HSN row's value, tax, cess AND filed quantity down, and nets the
+            // exempt bucket down when the returned supply was exempt (T2-59's own half of the defect).
+            AccumulateHsn(company, voucher, invoice, hsnAcc, ref exempt, sign);
 
             // A no-tax supply (exempt/nil/non-GST) belongs only in the HSN summary + exempt bucket, not in the
             // B2B/B2C tax rows or the taxable rate-wise summary.
             if (!hasTax) continue;
+
+            // 🔴 THE LINE THIS SWEEP DRAWS, and it is drawn once here rather than per table: an AGGREGATE cell
+            // nets a reversal (the output totals, Table 12, the exempt bucket above, and the rate-wise summary
+            // below — all signed); a DOCUMENT-level table does not, because a reversal is not an invoice.
+            // Vendor-attested — help.tallysolutions.com's GSTR-1 page states notes under "Credit or Debit Notes
+            // (Registered) – 9B" and "(Unregistered) – 9B", never in 4A/7. Before this, the note was emitted as a
+            // second POSITIVE B2B invoice row carrying the returned value (measured: 2 rows for 1 invoice).
+            //
+            // 🔴 AND IT IS NOT SIGNED INTO B2B/B2C INSTEAD. A negative invoice in a document-level table is a
+            // different wrong document, not a fix. The honest residue is reported rather than papered over: an
+            // unlinked note gets NO Table 9B row either, because 9B requires the original-invoice reference the
+            // user declined to give by leaving the §34 toggle off. Its money is in the return; its document is
+            // not itemised. That is a known divergence, recorded in the owning test.
+            var isInvoiceDocument = sign > 0m;
 
             var party = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
             // W0-15: the place of supply an ISSUED document states — the s.10(1)(ca) ladder RECONCILED to the tax the
@@ -292,9 +333,18 @@ public sealed record Gstr1(
             // one entry per rate to the rate-wise summary / B2C consolidation (never a blended 0% row).
             var rateGroups = ReadInvoiceRateGroups(voucher);
 
-            // B2B when the party carries a GSTIN (registered); else B2C (DP-8).
+            // B2B when the party carries a GSTIN (registered); else B2C (DP-8). Both are DOCUMENT-level tables, so
+            // only a real invoice reaches them (see isInvoiceDocument above).
+            // 🔴 Note the shape: a reversal falls past BOTH invoice branches but is deliberately NOT `continue`d,
+            // because the rate-wise summary below is an AGGREGATE and must still net this note down — otherwise it
+            // would disagree with the Table 12 and the output totals that already have.
+            // 🔴 BOTH branches are gated on isInvoiceDocument, and that is not belt-and-braces. Gating only the
+            // B2B arm sends a reversal down the `else` into the B2C consolidation, where it is accumulated
+            // POSITIVELY — trading one wrong filed table for another. I wrote exactly that bug while tidying this
+            // block and my own tests stayed green, because the fixture's party is registered and nothing asserted
+            // B2C was empty. The B2C emptiness assertion added in the owning test is what closes it.
             var isB2B = party?.PartyGst is { } pg && !pg.IsB2C;
-            if (isB2B)
+            if (isInvoiceDocument && isB2B)
             {
                 // One B2B invoice row carrying the whole-invoice taxable value and both heads' total tax. Phase 9
                 // slice 4a: additively annotate it with the IRN of a Generated e-invoice for the voucher (null when the
@@ -308,7 +358,7 @@ public sealed record Gstr1(
                     taxable, new Money(invoice.Cgst), new Money(invoice.Sgst), new Money(invoice.Igst))
                     { Irn = irn, RawNumber = voucher.Number });
             }
-            else
+            else if (isInvoiceDocument)
             {
                 foreach (var (rate, g) in rateGroups)
                 {
@@ -318,11 +368,13 @@ public sealed record Gstr1(
                 }
             }
 
-            // Rate-wise summary (taxable outward, by integrated rate) — one contribution per rate group.
+            // Rate-wise summary (taxable outward, by integrated rate) — one contribution per rate group, SIGNED so
+            // a sales return nets its rate down. This is an aggregate, so it follows the aggregate rule: leaving it
+            // unsigned while Table 12 and the output totals net would make the return internally inconsistent.
             foreach (var (rate, g) in rateGroups)
             {
                 var (t, x) = rateAcc.TryGetValue(rate, out var cur) ? cur : (0m, 0m);
-                rateAcc[rate] = (t + g.Taxable, x + g.Cgst + g.Sgst + g.Igst);
+                rateAcc[rate] = (t + sign * g.Taxable, x + sign * (g.Cgst + g.Sgst + g.Igst));
             }
         }
 
@@ -620,9 +672,14 @@ public sealed record Gstr1(
     /// <see cref="GstReportSupport.IsNonTaxableStockLine"/>. Every non-taxable line is now split out BEFORE the rate
     /// machinery, into the exempt bucket + a zero-tax HSN row.</para>
     /// </summary>
+    /// <param name="sign">🔴 T2-59 — the outward sign of the carrying document: <c>+1</c> for a Sales invoice,
+    /// <c>-1</c> for a Credit Note (a sales return), from <see cref="VoucherEffects.IsReturnNote"/>. Applied to the
+    /// value, each tax head, the cess AND the filed quantity, so a return nets its Table-12 row down instead of
+    /// adding to it. Every amount here is a positive magnitude off <c>EntryLine.Amount</c> / the inventory line —
+    /// the posted SIDE is never read — which is precisely why the sign has to be carried in.</param>
     private static void AccumulateHsn(
         Company company, Voucher voucher, (decimal Cgst, decimal Sgst, decimal Igst) invoice,
-        Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt)
+        Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign)
     {
         var invoiceTax = invoice.Cgst == 0m && invoice.Sgst == 0m && invoice.Igst == 0m;
         if (invoiceTax)
@@ -630,10 +687,10 @@ public sealed record Gstr1(
             // An all-exempt/nil outward supply: record its value against exempt + its HSN row (zero tax).
             foreach (var il in voucher.InventoryLines)
             {
-                exempt += il.Value.Amount;
+                exempt += sign * il.Value.Amount;
                 // An exempt/nil supply bears no cess either — ResolveCess short-circuits on a non-taxable block
                 // ("cess never over-collects on an exempt supply"), so a zero here is the engine's own answer.
-                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc);
+                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc, sign);
             }
 
             // Accounting (service) invoice with no stock lines: attribute the service-income LEDGER legs to the exempt
@@ -646,8 +703,8 @@ public sealed record Gstr1(
                 foreach (var (ledger, value) in ServiceLegs(company, voucher))
                     if (IsNonTaxableServiceLedger(ledger))
                     {
-                        exempt += value;
-                        AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc);
+                        exempt += sign * value;
+                        AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc, sign);
                     }
             return;
         }
@@ -659,7 +716,7 @@ public sealed record Gstr1(
             // existing item invoice's HSN summary is never double-counted (its stock lines carry the tax below). A
             // plain As-Voucher sale with posted tax legs (unusual) still finds no SAC-bearing service leg here and is
             // simply not attributed to HSN, exactly as before.
-            AccumulateServiceHsn(company, voucher, hsnAcc, ref exempt);
+            AccumulateServiceHsn(company, voucher, hsnAcc, ref exempt, sign);
             return;
         }
 
@@ -682,8 +739,8 @@ public sealed record Gstr1(
         {
             if (GstReportSupport.IsNonTaxableStockLine(company, voucher, valueLedger, il))
             {
-                exempt += il.Value.Amount;
-                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc);
+                exempt += sign * il.Value.Amount;
+                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc, sign);
                 continue;
             }
             taxableLines.Add(il);
@@ -746,7 +803,7 @@ public sealed record Gstr1(
                     igst = Apportion(group.Igst, value, groupValue);
                     runCgst += cgst; runSgst += sgst; runIgst += igst;
                 }
-                AddHsnRow(company, il, value, cgst, sgst, igst, cessPerLine[i], hsnAcc);
+                AddHsnRow(company, il, value, cgst, sgst, igst, cessPerLine[i], hsnAcc, sign);
             }
         }
     }
@@ -880,9 +937,14 @@ public sealed record Gstr1(
     private static decimal Apportion(decimal total, decimal value, decimal totalValue) =>
         ProRata.Rupees(total, value, totalValue);
 
+    /// <param name="sign">🔴 T2-59 — <c>+1</c> for a supply, <c>-1</c> for a reversal (see
+    /// <see cref="AccumulateHsn"/>). Applied ONLY at the accumulation below, deliberately: the UQC declaration and
+    /// the commensurability checks above are about unit IDENTITY, which a reversal does not change, and declaring a
+    /// NEGATIVE quantity into <c>UqcResolver.Declare</c> would push a sign through a resolver that has no business
+    /// seeing one.</param>
     private static void AddHsnRow(
         Company company, VoucherInventoryLine il, decimal value, decimal cgst, decimal sgst, decimal igst,
-        decimal cess, Dictionary<string, HsnAcc> hsnAcc)
+        decimal cess, Dictionary<string, HsnAcc> hsnAcc, decimal sign)
     {
         var item = company.FindStockItem(il.StockItemId);
         // Resolution order is the ONE rule (GstReportSupport.HsnSacOf, drift lock D7); the "(none)" bucket label
@@ -926,10 +988,10 @@ public sealed record Gstr1(
             acc.MixedUnits = true;
         // The degrade TARGET is only commensurable when the items share a base unit; see Gstr1HsnRow.MixedBases.
         if (acc.BaseUnitId != decl.BaseUnitId) acc.MixedBases = true;
-        acc.Quantity += decl.Quantity;
-        acc.BaseQuantity += decl.BaseQuantity;
-        acc.Taxable += value;
-        acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst; acc.Cess += cess;
+        acc.Quantity += sign * decl.Quantity;
+        acc.BaseQuantity += sign * decl.BaseQuantity;
+        acc.Taxable += sign * value;
+        acc.Cgst += sign * cgst; acc.Sgst += sign * sgst; acc.Igst += sign * igst; acc.Cess += sign * cess;
     }
 
     /// <summary>
@@ -981,8 +1043,11 @@ public sealed record Gstr1(
     /// legs only. A wholly-exempt invoice never reaches here (it has no posted tax); a wholly-taxable one behaves
     /// exactly as before.</para>
     /// </summary>
+    /// <param name="sign">🔴 T2-59 — <c>+1</c> for a supply, <c>-1</c> for a reversal; see
+    /// <see cref="AccumulateHsn"/>. Threaded through to <see cref="AddServiceHsnRow"/> and the exempt bucket so a
+    /// service credit note nets its SAC row and its exempt turnover down.</param>
     private static void AccumulateServiceHsn(
-        Company company, Voucher voucher, Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt)
+        Company company, Voucher voucher, Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign)
     {
         var rateGroups = ReadInvoiceRateGroups(voucher);
 
@@ -992,8 +1057,8 @@ public sealed record Gstr1(
         {
             if (IsNonTaxableServiceLedger(leg.Ledger))
             {
-                exempt += leg.Value;
-                AddServiceHsnRow(leg.Ledger, leg.Value, 0m, 0m, 0m, hsnAcc);
+                exempt += sign * leg.Value;
+                AddServiceHsnRow(leg.Ledger, leg.Value, 0m, 0m, 0m, hsnAcc, sign);
                 continue;
             }
             taxableLegs.Add(leg);
@@ -1039,7 +1104,7 @@ public sealed record Gstr1(
                     igst = Apportion(group.Igst, value, groupValue);
                     runCgst += cgst; runSgst += sgst; runIgst += igst;
                 }
-                AddServiceHsnRow(ledger, value, cgst, sgst, igst, hsnAcc);
+                AddServiceHsnRow(ledger, value, cgst, sgst, igst, hsnAcc, sign);
             }
         }
     }
@@ -1073,9 +1138,13 @@ public sealed record Gstr1(
     /// the ledger name, taxable = the leg value, tax = the attributed heads. A service carries no unit, so the row
     /// declares a blank UQC and zero quantity (Table-12 rows for services have no quantity).
     /// </summary>
+    /// <param name="sign">🔴 T2-59 — <c>+1</c> for a supply, <c>-1</c> for a reversal (a service credit note). The
+    /// SAC path needs the identical treatment to the goods path in <see cref="AddHsnRow"/>: a returned service that
+    /// ADDED to its SAC row files the same overstatement, and fixing only the goods half is exactly how the
+    /// sign-of-a-note defect came back four times on this project.</param>
     private static void AddServiceHsnRow(
         Domain.Ledger ledger, decimal value, decimal cgst, decimal sgst, decimal igst,
-        Dictionary<string, HsnAcc> hsnAcc)
+        Dictionary<string, HsnAcc> hsnAcc, decimal sign)
     {
         var sac = ledger.SalesPurchaseGst?.HsnSac ?? "(none)";
         if (!hsnAcc.TryGetValue(sac, out var acc))
@@ -1083,8 +1152,8 @@ public sealed record Gstr1(
             acc = new HsnAcc { HsnSac = sac, Description = ledger.Name };
             hsnAcc[sac] = acc;
         }
-        acc.Taxable += value;
-        acc.Cgst += cgst; acc.Sgst += sgst; acc.Igst += igst;
+        acc.Taxable += sign * value;
+        acc.Cgst += sign * cgst; acc.Sgst += sign * sgst; acc.Igst += sign * igst;
     }
 
     private sealed class HeadAmounts
