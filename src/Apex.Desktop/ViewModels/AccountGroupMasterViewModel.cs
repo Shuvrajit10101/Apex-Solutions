@@ -146,6 +146,21 @@ public sealed partial class AccountGroupMasterViewModel : ViewModelBase, IMaster
     public bool IsAltering => _editingId != Guid.Empty;
 
     /// <summary>
+    /// The screen heading — it says which VERB is running, because the form is identical in both modes.
+    ///
+    /// <para>🔴 <b>THIS SCREEN HAD NO CAPTION AT ALL and its page printed the literal "Group Creation" in both
+    /// modes</b>, which is why the omission survived the slice that fixed the button beneath it: that fix made
+    /// the ALTERATION behave correctly (<c>OnCreateAccountGroupClick</c> branches on
+    /// <see cref="IsAltering"/>) while leaving the screen still announcing a creation. Behaviour and label were
+    /// corrected in two different waves, and only the first was reported.</para>
+    /// </summary>
+    public string Caption => IsAltering ? "Group Alteration" : "Group Creation";
+
+    /// <summary>The commit button's label, matching the verb <see cref="Caption"/> names. See
+    /// <see cref="CostCentreMasterViewModel.CommitLabel"/>.</summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
     /// Opens this master in <b>Alter</b> mode over an existing group (WI-3) — the same form, pre-filled.
     /// Returns <c>null</c> if the id does not resolve.
     /// </summary>
@@ -159,6 +174,8 @@ public sealed partial class AccountGroupMasterViewModel : ViewModelBase, IMaster
         vm._editingId = groupId;
         vm.LoadFrom(group);
         vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
     }
 
