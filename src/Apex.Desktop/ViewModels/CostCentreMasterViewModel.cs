@@ -18,6 +18,12 @@ public sealed partial class CostCentreListRow : ObservableObject, IMasterListRow
     public string Category { get; init; } = string.Empty;
     public string Under { get; init; } = string.Empty;
 
+    /// <summary>The centre's alias, or an empty string when it has none (census 2.8).
+    /// <para>On the list rather than only in the form so a captured alias is VISIBLE without opening the master
+    /// for alteration — the alias exists to let an operator recognise a centre by its short name, which a value
+    /// you can only see by altering the record cannot do.</para></summary>
+    public string Alias { get; init; } = string.Empty;
+
     /// <inheritdoc/>
     public Guid MasterId { get; init; }
 
@@ -69,6 +75,18 @@ public sealed partial class CostCentreMasterViewModel
     public string Caption => IsAltering ? "Cost Centre Alteration" : "Cost Centre Creation";
 
     /// <summary>
+    /// The commit button's label, matching the verb <see cref="Caption"/> names.
+    ///
+    /// <para>🔴 <b>Why a second property and not just the heading.</b> The commit control on every one of these
+    /// master pages was the literal string <i>"Create (Ctrl+A)"</i>, on the alteration screen as well as the
+    /// creation screen. The pointer path and the Ctrl+A chord now both branch on
+    /// <see cref="IsAltering"/> — so pressing it on an alteration SAVES — but a button that says "Create" while
+    /// it alters is the same lie the heading was, and it is the half an operator actually looks at before
+    /// committing. Both are bound, so neither can drift from the verb that will run.</para>
+    /// </summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
     /// Opens this master in <b>Alter</b> mode over an existing cost centre — the same form, pre-filled. Returns
     /// <c>null</c> if the id does not resolve.
     /// </summary>
@@ -83,6 +101,7 @@ public sealed partial class CostCentreMasterViewModel
         vm.LoadFrom(centre);
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
     }
 
@@ -102,6 +121,7 @@ public sealed partial class CostCentreMasterViewModel
     {
         ArgumentNullException.ThrowIfNull(centre);
         Name = centre.Name;
+        Alias = centre.Alias ?? string.Empty;
         SelectedCategory = Categories.FirstOrDefault(c => c.Id == centre.CategoryId) ?? SelectedCategory;
         SelectedParent = ParentOptions.FirstOrDefault(o => o.Centre?.Id == centre.ParentId)
             ?? ParentOptions.FirstOrDefault(o => o.IsPrimary);
@@ -129,7 +149,7 @@ public sealed partial class CostCentreMasterViewModel
         try
         {
             var altered = new CostMasterService(_company).AlterCostCentre(
-                _editingId, Name, SelectedCategory.Id, SelectedParent?.Centre?.Id);
+                _editingId, Name, SelectedCategory.Id, SelectedParent?.Centre?.Id, Alias);
             _storage.Save(_company);
             var underLabel = SelectedParent is { IsPrimary: false } p ? p.Centre!.Name : "Primary";
             Message = $"Cost centre '{altered.Name}' altered — under {underLabel} ({SelectedCategory.Name}).";
@@ -183,10 +203,17 @@ public sealed partial class CostCentreMasterViewModel
     public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
+    /// <remarks>Alias is the SECOND column, beside the name it is an alternative for, and it is exported as well
+    /// as displayed: a master list the operator exports should carry the same fields the screen shows, or the
+    /// export quietly becomes a different report from the one on screen.</remarks>
     public MasterListSnapshot ToMasterListSnapshot() => new(
         "Cost Centres",
-        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Category"), MasterListColumn.Text("Under") },
-        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Category, r.Under }).ToList());
+        new[]
+        {
+            MasterListColumn.Text("Name"), MasterListColumn.Text("Alias"),
+            MasterListColumn.Text("Category"), MasterListColumn.Text("Under"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Alias, r.Category, r.Under }).ToList());
 
     /// <summary>The cost categories the Category picker offers (company order; Primary first).</summary>
     public ObservableCollection<CostCategory> Categories { get; } = new();
@@ -198,6 +225,42 @@ public sealed partial class CostCentreMasterViewModel
     public ObservableCollection<CostCentreListRow> Existing { get; } = new();
 
     [ObservableProperty] private string _name = string.Empty;
+
+    /// <summary>
+    /// The centre's optional <b>alias</b> — a short alternative name (census 2.8).
+    ///
+    /// <para><b>Vendor-attested verbatim</b> on the Cost Centre screen: <i>"Name &amp; alias: Provide a name. As
+    /// in other masters, you can specify multiple aliases."</i>
+    /// (<c>help.tallysolutions.com/cost-centre-or-profit-centre-tally/</c>, read 2026-10-04).</para>
+    ///
+    /// <para>🔴 <b>DIVERGENCE, OURS, LABELLED:</b> the vendor permits <b>multiple</b> aliases per master; this
+    /// build captures <b>one</b>, because <c>cost_centres.alias</c> is a single <c>TEXT</c> column
+    /// (<c>Schema.cs:1474</c>) and widening it to a child table is a migration this slice does not own. One
+    /// alias is our limit, not the vendor's rule.</para>
+    ///
+    /// <para><b>This is not a field nothing reads.</b> Two production paths already consume it and were waiting
+    /// on the capture: <see cref="Company.FindCostCentreByName"/> resolves a centre by alias as well as by name
+    /// (<c>Company.cs:1555-1557</c>), so a captured alias immediately becomes a working lookup key for import
+    /// and for every name-resolution path; and the list column beside this form shows it back. An empty box is
+    /// stored as <c>null</c>, never <c>""</c>, so a cleared alias cannot be matched by an empty search.</para>
+    ///
+    /// <para>🔴 <b>WHAT THIS SLICE DELIBERATELY DOES NOT DO, stated so the row is not read as closed.</b> The
+    /// alias is <b>NOT checked for uniqueness</b> — not against other aliases and not against other masters'
+    /// NAMES. So an operator can give centre B the alias "A" while a centre named "A" exists, and
+    /// <see cref="Company.FindCostCentreByName"/>("A") then returns whichever of the two comes first in company
+    /// order, because its predicate is <c>name == x || alias == x</c> evaluated per item.
+    /// <b>This is pre-existing and product-wide, not introduced here:</b> stock group, stock category, godown,
+    /// stock item, accounting group and employee group all capture an alias through the same unvalidated
+    /// assignment (<c>InventoryService.cs:77, 182, 405</c>, <c>GroupService.cs:204</c>,
+    /// <c>PayrollService.cs:372</c>). <b>It is NOT fixed here on purpose:</b> a cross-master alias-uniqueness
+    /// rule is a decision over eight masters, it would newly refuse books that already hold colliding aliases,
+    /// and <b>no vendor page states the rule</b> — the Cost Centre page says only that multiple aliases may be
+    /// specified and is silent on collision. Inventing the rule here would be exactly the unsourced constraint
+    /// this project has twice had to strip back out. It is reported as an open cross-cutting item and a user
+    /// decision instead.</para>
+    /// </summary>
+    [ObservableProperty] private string _alias = string.Empty;
+
     [ObservableProperty] private CostCategory? _selectedCategory;
     [ObservableProperty] private ParentCentreOption? _selectedParent;
     [ObservableProperty] private string? _message;
@@ -257,7 +320,12 @@ public sealed partial class CostCentreMasterViewModel
         }
 
         var parentId = SelectedParent?.Centre?.Id;
-        var centre = new CostCentre(Guid.NewGuid(), name, SelectedCategory.Id, parentId);
+
+        // Normalised the same way the service normalises it on ALTER, so "created blank" and "cleared on alter"
+        // store the identical null. Were this to store "", FindCostCentreByName's alias leg would match an empty
+        // search string against every centre created without an alias.
+        var alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
+        var centre = new CostCentre(Guid.NewGuid(), name, SelectedCategory.Id, parentId, alias);
 
         _company.AddCostCentre(centre);
         _storage.Save(_company);
@@ -267,6 +335,10 @@ public sealed partial class CostCentreMasterViewModel
         RefreshList();
         Message = $"Cost centre '{name}' created under {underLabel} ({SelectedCategory.Name}).";
         Name = string.Empty;
+        // The alias must clear with the name. Leaving it on screen would hand the NEXT centre the previous
+        // centre's short name — and because the alias is a lookup key, two centres sharing one would make
+        // FindCostCentreByName's result depend on company order.
+        Alias = string.Empty;
         _onChanged();
         return true;
     }
@@ -287,6 +359,7 @@ public sealed partial class CostCentreMasterViewModel
             {
                 MasterId = centre.Id,
                 Name = centre.Name,
+                Alias = centre.Alias ?? string.Empty,
                 Category = category?.Name ?? "—",
                 Under = under,
             });

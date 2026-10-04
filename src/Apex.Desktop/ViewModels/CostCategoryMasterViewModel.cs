@@ -59,6 +59,11 @@ public sealed partial class CostCategoryMasterViewModel
     /// modes.</summary>
     public string Caption => IsAltering ? "Cost Category Alteration" : "Cost Category Creation";
 
+    /// <summary>The commit button's label, matching the verb <see cref="Caption"/> names. See
+    /// <see cref="CostCentreMasterViewModel.CommitLabel"/> for why the button carries its own bound label
+    /// rather than the literal "Create (Ctrl+A)" it used to show on the alteration screen.</summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
     /// <summary>
     /// Opens this master in <b>Alter</b> mode over an existing cost category — the same form, pre-filled.
     /// Returns <c>null</c> if the id does not resolve.
@@ -74,6 +79,7 @@ public sealed partial class CostCategoryMasterViewModel
         vm.LoadFrom(category);
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
     }
 
