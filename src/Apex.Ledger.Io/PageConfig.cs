@@ -197,6 +197,14 @@ public sealed class PageConfig
     ///
     /// <para>Set it false to pin an orientation absolutely — a pre-printed stationery run, or a regression test
     /// that means to assert the portrait geometry itself.</para>
+    ///
+    /// <para>🔴 <b>THE OPERATOR MUST BE ABLE TO SET IT FALSE, AND FOR ONE REVISION NOBODY COULD.</b> It shipped
+    /// true-by-default with no caller passing false anywhere in the product, so the preview's visible
+    /// <i>Landscape</i> checkbox could neither refuse the turn nor report it: a wide report came out sideways with
+    /// the box still reading unchecked. <c>PrintPreviewViewModel.BuildConfig</c> now passes
+    /// <c>AutoFitOrientation = false</c> as soon as the operator touches that box, so an explicit choice wins and
+    /// this default only decides the case nobody has decided. A default that no operator can override is not a
+    /// default, it is a hard-coding.</para>
     /// </summary>
     public bool AutoFitOrientation { get; init; } = true;
 

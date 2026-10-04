@@ -45,10 +45,8 @@ public static class ReportPdf
             // Each document carries its OWN effective page: a report too wide for portrait is turned onto its
             // side rather than printed with its figures cut. The orientation is per document because the column
             // geometry already is — a ledger account and a nine-column GST return do not share a page shape.
-            var effective = FitOrientation(report, config);
+            var (effective, pages) = LayOutCore(report, config);
             double[] colX = ComputeColumnX(report, effective);
-            var pages = Paginate(report, effective);
-            if (pages.Count == 0) pages.Add(new List<PrintRow>());
             foreach (var rows in pages) laid.Add((report, effective, colX, rows));
         }
         int total = laid.Count == 0 ? 1 : laid.Count;
@@ -84,6 +82,50 @@ public static class ReportPdf
         writer.RepeatAllPages(config.EffectiveCopies);
 
         return writer.Build();
+    }
+
+    /// <summary>
+    /// The page this document will actually be printed on, and the rows that fall on each of its sheets —
+    /// <b>the very layout <see cref="Render(IReadOnlyList{PrintReport}, PageConfig)"/> is about to draw</b>,
+    /// because both go through <c>LayOutCore</c> and there is no second copy of the arithmetic.
+    ///
+    /// <para>🔴 <b>WHY IT IS PUBLIC: A PREVIEW THAT PAGINATES A DIFFERENT DOCUMENT FROM THE ONE IT PRINTS TELLS
+    /// THE OPERATOR THE WRONG NUMBER OF SHEETS.</b> <c>PrintPreviewViewModel.PaginateForPreview</c> used to
+    /// re-derive rows-per-page from the config it was handed. That was close enough while the renderer always
+    /// honoured that config verbatim, and became wrong the moment <see cref="FitOrientation"/> started turning a
+    /// wide report onto its side: the pane and its visible "Pages: N" counted 53 rows to a portrait sheet while
+    /// the emitted PDF was landscape at 34, so a 40-row return showed ONE sheet and printed TWO. An operator
+    /// counting sheets or setting a page range off that readout sets it off a wrong number. Asking the renderer
+    /// is the only answer that cannot drift — a change to the pitch, the banner or the orientation rule moves
+    /// both at once.</para>
+    ///
+    /// <para>Presentation only: the <b>bytes</b> still come from <c>Render</c>, which is called separately. This
+    /// method draws nothing and allocates no PDF.</para>
+    /// </summary>
+    public static (PageConfig Page, IReadOnlyList<IReadOnlyList<PrintRow>> Sheets) LayOut(
+        PrintReport report, PageConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(config);
+
+        var (page, sheets) = LayOutCore(report, config);
+        return (page, sheets.ConvertAll(rows => (IReadOnlyList<PrintRow>)rows));
+    }
+
+    /// <summary>
+    /// The effective page and the sheet-by-sheet row split for one document. The single place that pairing is
+    /// computed, so <see cref="Render(IReadOnlyList{PrintReport}, PageConfig)"/> and <see cref="LayOut"/> cannot
+    /// disagree about how many sheets a document occupies or which way up they are.
+    ///
+    /// <para>A document with no rows still gets ONE sheet: a PDF page is emitted for it, so a preview must show
+    /// one too.</para>
+    /// </summary>
+    private static (PageConfig Page, List<List<PrintRow>> Sheets) LayOutCore(PrintReport report, PageConfig config)
+    {
+        var effective = FitOrientation(report, config);
+        var sheets = Paginate(report, effective);
+        if (sheets.Count == 0) sheets.Add(new List<PrintRow>());
+        return (effective, sheets);
     }
 
     /// <summary>
