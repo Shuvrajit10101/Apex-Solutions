@@ -38,14 +38,18 @@ public static class ReportPdf
         // First pass: paginate EVERY document so the footer can show the job-wide "Page x of N". Each document's
         // pages are kept with the document they belong to, because the column geometry is per document (a ledger
         // account and a reminder letter do not share a column layout).
-        var laid = new List<(PrintReport Report, double[] ColX, List<PrintRow> Rows)>();
+        var laid = new List<(PrintReport Report, PageConfig Config, double[] ColX, List<PrintRow> Rows)>();
         foreach (var report in documents)
         {
             if (report is null) continue;
-            double[] colX = ComputeColumnX(report, config);
-            var pages = Paginate(report, config);
+            // Each document carries its OWN effective page: a report too wide for portrait is turned onto its
+            // side rather than printed with its figures cut. The orientation is per document because the column
+            // geometry already is — a ledger account and a nine-column GST return do not share a page shape.
+            var effective = FitOrientation(report, config);
+            double[] colX = ComputeColumnX(report, effective);
+            var pages = Paginate(report, effective);
             if (pages.Count == 0) pages.Add(new List<PrintRow>());
-            foreach (var rows in pages) laid.Add((report, colX, rows));
+            foreach (var rows in pages) laid.Add((report, effective, colX, rows));
         }
         int total = laid.Count == 0 ? 1 : laid.Count;
 
@@ -63,9 +67,9 @@ public static class ReportPdf
         for (int p = 0; p < laid.Count; p++)
         {
             if (!config.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn at all
-            var (report, colX, rows) = laid[p];
-            writer.BeginPage(config.PageWidth, config.PageHeight);
-            DrawPage(writer, report, config, colX, rows, firstNumber + p, lastNumber, isFirstPage: p == 0);
+            var (report, pageConfig, colX, rows) = laid[p];
+            writer.BeginPage(pageConfig.PageWidth, pageConfig.PageHeight);
+            DrawPage(writer, report, pageConfig, colX, rows, firstNumber + p, lastNumber, isFirstPage: p == 0);
             drawn++;
         }
 
@@ -80,6 +84,70 @@ public static class ReportPdf
         writer.RepeatAllPages(config.EffectiveCopies);
 
         return writer.Build();
+    }
+
+    /// <summary>
+    /// The page this document will actually be drawn on: the configured one, or the same page turned onto its
+    /// side when the columns cannot otherwise hold their contents.
+    ///
+    /// <para>🔴 <b>WHY REDISTRIBUTING THE WIDTH IS NOT ALWAYS ENOUGH, MEASURED.</b>
+    /// <see cref="ComputeColumnX"/> can abbreviate prose to free width for the figures, but it cannot create
+    /// page. GSTR-1 asks for more than exists: four label columns at the <see cref="MinProseWidth"/> floor plus
+    /// five figure columns that must each hold <c>99,99,99,999.00</c> at 69pt come to ~585pt against A4
+    /// portrait's 523.276pt of content, and with the captions at full width ~535pt even before the prose is
+    /// counted. No allocation of 523.276pt fits that. Turning the sheet gives 769.89pt and the return prints
+    /// whole, so this is a PAGE-SIZE answer to a page-size problem.</para>
+    ///
+    /// <para><b>The four cases where this deliberately does nothing.</b> The content already fits (the common
+    /// case — the orientation is untouched and the bytes are byte-identical to before this existed, ER-13); the
+    /// caller pinned the orientation with <c>AutoFitOrientation = false</c>, or had already asked for landscape;
+    /// the paper is PRE-PRINTED stationery, which must never be turned (see the guard below for why); or the
+    /// document would not fit sideways either, where turning the page would change the output's shape without
+    /// curing the cut. In that last case the portrait page is kept and the shortfall is left visible in the
+    /// output rather than half-hidden by a rotation that did not work.</para>
+    /// </summary>
+    private static PageConfig FitOrientation(PrintReport report, PageConfig config)
+    {
+        if (!config.AutoFitOrientation) return config;
+        if (config.Orientation != PageOrientation.Portrait) return config;
+        if (report.Columns.Count == 0) return config;
+
+        // 🔴 NEVER TURN PRE-PRINTED STATIONERY. The sheet is already in the tray the right way up with a
+        // letterhead and a ruled grid printed on it, and the operator aligned it there. Rotating the image we
+        // send would print the report across the letterhead sideways — a worse outcome than the clipped figure
+        // it was trying to avoid, and one the operator cannot correct from the application. On pre-printed paper
+        // the width redistribution still applies (a cut figure is wrong on any paper); only the rotation is off.
+        if (config.Paper == PaperKind.PrePrinted) return config;
+
+        double required = MinimumViableWidth(report, config);
+        if (required <= config.ContentWidth) return config;        // fits as configured — change nothing
+
+        var landscape = config.WithOrientation(PageOrientation.Landscape);
+        return required <= landscape.ContentWidth ? landscape : config;
+    }
+
+    /// <summary>
+    /// The narrowest page on which this report can be drawn with <b>every figure whole</b>: each figure column's
+    /// full requirement, plus each prose column's requirement capped at <see cref="MinProseWidth"/>.
+    ///
+    /// <para>🔴 <b>IT IS DELIBERATELY NOT THE SUM OF EVERY COLUMN'S IDEAL WIDTH, AND USING THAT TURNED THE WRONG
+    /// PAGES.</b> With a realistic 42-character party name in four label columns the ideal sum is over 1100pt,
+    /// which exceeds even A4 landscape's 769.89pt — so an ideal-width test concludes "it will not fit either
+    /// way", keeps portrait, and the figures cut. But the report fits landscape perfectly well once the prose is
+    /// allowed to abbreviate, which is exactly what <see cref="ComputeColumnX"/> will then do. The question this
+    /// method is asked is not "can every column have everything it wants" but "is there a page on which no
+    /// FIGURE has to be cut", and those have different answers.</para>
+    ///
+    /// <para>Measured UNCAPPED (<c>double.MaxValue</c>), because <see cref="MeasureRequirements"/> otherwise caps
+    /// each column at the content width and summing capped figures would understate a genuine overflow.</para>
+    /// </summary>
+    private static double MinimumViableWidth(PrintReport report, PageConfig config)
+    {
+        var need = MeasureRequirements(report, config, double.MaxValue);
+        double total = 0;
+        for (int i = 0; i < need.Length; i++)
+            total += IsFigureColumn(report.Columns[i]) ? need[i] : Math.Min(need[i], MinProseWidth);
+        return total;
     }
 
     /// <summary>The /Title for a job: the lone document's title, or a neutral label for a set.</summary>
@@ -136,6 +204,78 @@ public static class ReportPdf
 
     // ---- column geometry ----
 
+    /// <summary>The padding inside each cell, on both sides. Shared with <see cref="DrawRowCells"/> so the width a
+    /// column is MEASURED against is the width its text is actually DRAWN into — the two drifting apart is how a
+    /// figure that "fits" gets clipped anyway.</summary>
+    private const double CellPad = 2;
+
+    /// <summary>
+    /// A hair of width added to every measured requirement, on top of the padding.
+    ///
+    /// <para>🔴 <b>GRANTING A COLUMN EXACTLY ITS MEASURED WIDTH IS NOT ENOUGH, MEASURED.</b> Two reasons, and the
+    /// first was observed rather than predicted: topping a column up by <c>(need − share) ÷ deficit × take</c> is a
+    /// divide followed by a multiply, so when <c>take == deficit</c> the result is <i>almost</i> but not exactly
+    /// <c>need</c>, and <see cref="PdfWriter.FitToWidth"/> clips on <c>&lt;=</c>. Five of Reorder Status's six
+    /// figure columns drew <c>99,99,99,999....</c> — the figure short by its paise alone — while the sixth drew
+    /// whole. Second, and more fundamental: <see cref="PdfWriter.MeasureHelvetica"/> documents itself as a coarse
+    /// per-class average, not the real font's advance widths, so a requirement derived from it is an estimate and
+    /// budgeting zero margin against an estimate is the wrong side of the error to stand on. One point is far below
+    /// a glyph and cannot change a layout that already fits.</para>
+    /// </summary>
+    private const double MeasureSafety = 1.0;
+
+    /// <summary>
+    /// The least width a prose (left-aligned) column is squeezed to when the page cannot hold every column's full
+    /// requirement: 60pt, about thirteen characters of 9pt Helvetica.
+    ///
+    /// <para><b>Why prose has a floor at all and figures do not.</b> A figure column's floor is its full
+    /// requirement, because a clipped figure is a wrong figure. Prose is the opposite — a party name or a
+    /// narration has no correct width, and a reader who sees "Brightline Ind…" can ask for the rest — so prose is
+    /// what gives way. But it may not give way to NOTHING: a label column squeezed to zero prints an empty cell,
+    /// and a row that does not say what it is about is worse than a row whose subject is abbreviated. Thirteen
+    /// characters is enough to tell two parties apart in practice, which is the job this floor has.</para>
+    /// </summary>
+    private const double MinProseWidth = 60.0;
+
+    /// <summary>
+    /// The x boundary of every column, left to right.
+    ///
+    /// <para>🔴 <b>THE WEIGHTS ALONE CUT MONEY FIGURES MID-NUMBER, SO THEY ARE NO LONGER THE LAST WORD.</b> A
+    /// <see cref="PrintColumn.Weight"/> is a fixed relative number chosen when a band was written; it knows nothing
+    /// about how wide a rupee figure is. Splitting the content width purely in proportion to those weights and then
+    /// clipping each cell with <see cref="PdfWriter.FitToWidth"/> — which appends an ellipsis — meant that on a band
+    /// with enough columns the figure column came out narrower than the figure, and the number was cut mid-number
+    /// on the printed page. Measured at the shipped A4-portrait default (523.276pt of content, 9pt Helvetica):
+    /// <c>99,99,99,999.00</c> needs 64.04pt, and <b>26 of the 37 banded report kinds gave their figure columns
+    /// less</b>. GSTR-1 gave them 41.90pt, so a filed return printed its taxable value and all four tax figures cut
+    /// from <c>1,00,000.00</c> upward. Eight kinds also cut their own column CAPTIONS ("Order to be Placed",
+    /// "Below Threshold"), so a reader could not tell which figure a column held.</para>
+    ///
+    /// <para><b>The rule now applied.</b> The weights still set the opening share, and when that share already
+    /// gives every column what it needs this method takes an exact FAST PATH and returns it unchanged — so the
+    /// overwhelming majority of reports render byte-identically to before any of this existed (ER-13). If nothing
+    /// is short, nothing moves. Otherwise priority decides, through a FLOOR per column: a figure column's floor is
+    /// its <i>full requirement</i>, a prose column's floor is <see cref="MinProseWidth"/>. Every column starts at
+    /// its floor, the surplus is handed out by weight with no column taking more than it needs, and any residue
+    /// goes out by weight so a short report still looks as it always did.</para>
+    ///
+    /// <para><b>Why the floors are asymmetric.</b> A clipped party name or narration is prose a reader can ask for
+    /// again; a clipped figure is a WRONG figure — <c>99,99,99,999.00</c> drawn as <c>99,99,99,...</c> reads as a
+    /// real, smaller amount on a document that goes to a bank, an auditor or a tax officer. So prose is what gives
+    /// way. 🔴 <b>AN EARLIER VERSION OF THIS METHOD REDISTRIBUTED ONLY THE SLACK</b> — width held by columns
+    /// needing less than their share — and that is NOT enough: on real data with real party names the prose
+    /// columns hold no slack at all, so there is nothing to move and the figures cut anyway. It passed a 112-case
+    /// suite that happened to feed it short labels.
+    /// <c>PrintedMoneyColumnWidthTests.Every_banded_report_prints_the_widest_money_figure_whole_beside_realistic_labels</c>
+    /// is the case that catches it, and it fails on 28 kinds if the prose floor is removed.</para>
+    ///
+    /// <para><b>What this cannot do, stated rather than hidden.</b> It abbreviates prose to free width for the
+    /// figures; it does not create page. Where even the floors exceed the content width — nine columns of which
+    /// five must each hold a crore — nothing can be printed whole, and the columns share the page in proportion to
+    /// what they asked for. <see cref="FitOrientation"/> has already had its chance to turn the sheet by then, so
+    /// reaching that branch means sideways would not have fitted either. That residual is a PAGE-SIZE limit, not a
+    /// weighting one, and it is left visible in the output rather than papered over by starving the captions.</para>
+    /// </summary>
     private static double[] ComputeColumnX(PrintReport report, PageConfig config)
     {
         int n = report.Columns.Count;
@@ -147,17 +287,156 @@ public static class ReportPdf
             xs[1] = left + config.ContentWidth;
             return xs;
         }
+
+        double content = config.ContentWidth;
+        var weight = new double[n];
         double totalWeight = 0;
-        foreach (var c in report.Columns) totalWeight += c.Weight <= 0 ? 1 : c.Weight;
+        for (int i = 0; i < n; i++)
+        {
+            weight[i] = report.Columns[i].Weight <= 0 ? 1 : report.Columns[i].Weight;
+            totalWeight += weight[i];
+        }
+
+        // The opening share: exactly what the weights have always produced.
+        var width = new double[n];
+        for (int i = 0; i < n; i++) width[i] = content * (weight[i] / totalWeight);
+
+        var need = MeasureRequirements(report, config, content);
+
+        // ---- fast path: the weights already give every column what it needs -------------------------------
+        // This is the overwhelming majority of reports, and taking it means their bytes are IDENTICAL to what
+        // this renderer produced before any of this existed (ER-13). It is an exact test, not an approximation:
+        // if nothing is short, nothing moves.
+        bool allFit = true;
+        for (int i = 0; i < n; i++) if (need[i] > width[i]) { allFit = false; break; }
+
+        if (!allFit)
+        {
+            // ---- the page cannot satisfy every column from its weight share, so PRIORITY decides ----------
+            //
+            // 🔴 THE FLOOR IS WHERE THE INVARIANT LIVES. A figure column's floor is its full requirement: a
+            // clipped figure is a WRONG figure — 99,99,99,999.00 drawn as 99,99,99,... reads as a real, smaller
+            // amount. A prose column's floor is MinProseWidth, because a party name or a narration has no
+            // correct width and a reader who sees its first dozen characters can ask for the rest; it is the one
+            // thing on the page that can give way. Redistributing only the SLACK (which is what this method did
+            // first) was not enough — when the prose columns hold no slack, as they do not on real data with
+            // real party names, there is nothing to move and the figures cut anyway.
+            var floor = new double[n];
+            double sumFloor = 0;
+            for (int i = 0; i < n; i++)
+            {
+                floor[i] = IsFigureColumn(report.Columns[i]) ? need[i] : Math.Min(need[i], MinProseWidth);
+                sumFloor += floor[i];
+            }
+
+            if (sumFloor >= content)
+            {
+                // Not even the floors fit. Nothing can be printed whole, so share the page in proportion to what
+                // each column asked for and let the clipping fall where it must. FitOrientation has already had
+                // its chance to turn the page; reaching here means sideways would not have fitted either, and
+                // that residual is reported as a page-size limit rather than disguised.
+                for (int i = 0; i < n; i++) width[i] = content * (floor[i] / sumFloor);
+            }
+            else
+            {
+                // Everyone starts at their floor; the surplus is then handed out BY WEIGHT, no column taking
+                // more than it needs, until either the page or the appetite runs out.
+                Array.Copy(floor, width, n);
+                double remaining = content - sumFloor;
+
+                // Capping redistributes, so this iterates: a column that hits its need stops taking and its
+                // share passes to the others. Bounded by n + 1 rounds — each round retires at least one column
+                // or exhausts the remainder.
+                for (int round = 0; round <= n && remaining > 1e-9; round++)
+                {
+                    double hungryWeight = 0;
+                    for (int i = 0; i < n; i++)
+                        if (need[i] - width[i] > 1e-9) hungryWeight += weight[i];
+                    if (hungryWeight <= 0) break;
+
+                    double handedOut = 0;
+                    for (int i = 0; i < n; i++)
+                    {
+                        double capacity = need[i] - width[i];
+                        if (capacity <= 1e-9) continue;
+                        double grant = Math.Min(capacity, remaining * (weight[i] / hungryWeight));
+                        width[i] += grant;
+                        handedOut += grant;
+                    }
+                    if (handedOut <= 1e-9) break;
+                    remaining -= handedOut;
+                }
+
+                // Every column is at its need and the page is still not full: the leftover goes out by weight,
+                // which is what the weights are for and keeps a short report looking as it always did.
+                if (remaining > 1e-9)
+                    for (int i = 0; i < n; i++) width[i] += remaining * (weight[i] / totalWeight);
+            }
+        }
+
         double x = left;
         xs[0] = x;
         for (int i = 0; i < n; i++)
         {
-            double w = report.Columns[i].Weight <= 0 ? 1 : report.Columns[i].Weight;
-            x += config.ContentWidth * (w / totalWeight);
+            x += width[i];
             xs[i + 1] = x;
         }
+        // The widths sum to the content width by construction; pin the right edge so accumulated floating-point
+        // drift can never place the last column a hair past the right margin.
+        xs[n] = left + content;
         return xs;
+    }
+
+    /// <summary>
+    /// A figure column: right-aligned. Every money and quantity column of every band and of the accounting and
+    /// payroll projections is right-aligned, and nothing else is, which is why alignment is the test rather than a
+    /// second flag that could disagree with it.
+    /// </summary>
+    private static bool IsFigureColumn(PrintColumn column) => column.Align == CellAlign.Right;
+
+    /// <summary>
+    /// The width each column actually requires: the widest of its caption and all of its cells, measured through
+    /// the same <see cref="PdfWriter.MeasureHelvetica"/> the renderer aligns and clips by, at the same font sizes
+    /// this configuration will draw them, plus the cell padding. Capped at the content width so one very long
+    /// narration cannot ask for more page than exists.
+    /// </summary>
+    private static double[] MeasureRequirements(PrintReport report, PageConfig config, double content)
+    {
+        int n = report.Columns.Count;
+        var need = new double[n];
+        double headerSize = config.FormattedHeaderFontSize;
+        double bodySize = config.FormattedBodyFontSize;
+
+        bool drawsHeaders = config.DrawsColumnHeaderBand;
+        for (int i = 0; i < n; i++)
+        {
+            // A pre-printed run draws no header band, so a caption that is never printed must not claim width.
+            double header = drawsHeaders
+                ? PdfWriter.MeasureHelvetica(Scrub(report.Columns[i].Header), headerSize)
+                : 0;
+            need[i] = header;
+        }
+
+        foreach (var row in report.Rows)
+        {
+            if (row is null) continue;
+            int cells = Math.Min(n, row.Cells.Count);
+            for (int i = 0; i < cells; i++)
+            {
+                string text = row.Cells[i] ?? string.Empty;
+                if (text.Length == 0) continue;
+                if (i == 0 && row.Indent > 0) text = new string(' ', row.Indent) + text;
+                double w = PdfWriter.MeasureHelvetica(text, bodySize);
+                if (w > need[i]) need[i] = w;
+            }
+        }
+
+        for (int i = 0; i < n; i++)
+        {
+            need[i] += CellPad * 2 + MeasureSafety;
+            if (need[i] > content) need[i] = content;
+        }
+        return need;
     }
 
     // ---- drawing ----
@@ -243,7 +522,9 @@ public static class ReportPdf
         PrintRow row, double baseline, double fontSize)
     {
         int n = report.Columns.Count;
-        double pad = 2;
+        // 🔴 The SAME constant ComputeColumnX measures against. These were two independent literal 2s; a column
+        // measured against one padding and drawn into another is a figure that "fits" and is clipped anyway.
+        double pad = CellPad;
         // Section headers and total rows render bold so they stand out from body rows (RQ-9 fidelity).
         bool bold = row.IsHeader || row.IsTotal;
         for (int i = 0; i < n; i++)

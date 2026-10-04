@@ -182,4 +182,56 @@ public sealed class PageConfig
 
     /// <summary>Width available for content between the left and right margins.</summary>
     public double ContentWidth => PageWidth - MarginLeft - MarginRight;
+
+    /// <summary>
+    /// Whether a tabular report whose columns cannot fit the configured portrait width may be turned onto its
+    /// side rather than printed with its figures cut. <b>True by default</b>, because the alternative default is a
+    /// wrong number on a document that leaves the building.
+    ///
+    /// <para><b>What it costs when it fires, and when it cannot fire.</b> It only ever applies to a page that
+    /// does not fit: <see cref="ReportPdf"/> measures each document's real column requirement and leaves the
+    /// orientation alone when the content fits, so every report that fits today renders byte-identically
+    /// (ER-13). It never applies to a configuration that is <i>already</i> landscape, and never to a document
+    /// that would still not fit sideways — turning the page would then change the shape of the output without
+    /// curing anything, and the shortfall is reported rather than disguised.</para>
+    ///
+    /// <para>Set it false to pin an orientation absolutely — a pre-printed stationery run, or a regression test
+    /// that means to assert the portrait geometry itself.</para>
+    /// </summary>
+    public bool AutoFitOrientation { get; init; } = true;
+
+    /// <summary>
+    /// This configuration with a different <see cref="Orientation"/> and every other knob carried over.
+    ///
+    /// <para>🔴 <b>EVERY INIT PROPERTY MUST BE COPIED HERE, AND A TEST HOLDS THAT.</b> A hand-written copy of a
+    /// settings object is a silent-drop waiting to happen: add a knob to this class, forget this method, and the
+    /// knob is quietly lost on exactly the wide reports that take this path — the operator's copy count, page
+    /// range or paper choice ignored with nothing failing. <c>PageConfigWithOrientationTests</c> walks the
+    /// public init properties by reflection and fails by name when one is missing, so the omission is caught at
+    /// the moment it is written rather than by a customer holding the wrong stationery.</para>
+    /// </summary>
+    public PageConfig WithOrientation(PageOrientation orientation) => new()
+    {
+        Size = Size,
+        Orientation = orientation,
+        MarginLeft = MarginLeft,
+        MarginRight = MarginRight,
+        MarginTop = MarginTop,
+        MarginBottom = MarginBottom,
+        HeaderText = HeaderText,
+        FooterText = FooterText,
+        TitleFontSize = TitleFontSize,
+        SubtitleFontSize = SubtitleFontSize,
+        HeaderFontSize = HeaderFontSize,
+        BodyFontSize = BodyFontSize,
+        FooterFontSize = FooterFontSize,
+        RowHeight = RowHeight,
+        Format = Format,
+        Paper = Paper,
+        Copies = Copies,
+        FirstPage = FirstPage,
+        LastPage = LastPage,
+        StartPageNumber = StartPageNumber,
+        AutoFitOrientation = AutoFitOrientation,
+    };
 }
