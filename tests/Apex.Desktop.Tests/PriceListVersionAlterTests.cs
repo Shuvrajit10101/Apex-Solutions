@@ -410,4 +410,197 @@ public sealed class PriceListVersionAlterTests
         }
         finally { Cleanup(dir); }
     }
+
+    // ================================================== T2-99 / T2-100: THE POINTER PATH, AND THE MESSAGE
+
+    /// <summary>The realised, on-screen accept button of the price-list form — found by its rendered content and
+    /// asserted visible, so a button inside a collapsed pane cannot stand in for the one the operator clicks.</summary>
+    private static Button AcceptButton(MainWindow w)
+    {
+        var button = Descendants(w).OfType<Button>()
+            .FirstOrDefault(b => b.Content as string == "Save (Ctrl+A)" && b.IsEffectivelyVisible);
+        Assert.NotNull(button);
+        return button!;
+    }
+
+    /// <summary>The pointer path as the product wires it: the Button carries a XAML <c>Click</c> handler, not a
+    /// Command, so raising <c>ClickEvent</c> is the route a mouse takes through
+    /// <c>MainWindow.OnSavePriceListClick</c>.</summary>
+    private static void ClickAccept(MainWindow window)
+    {
+        AcceptButton(window).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        Dispatcher.UIThread.RunJobs();
+    }
+
+    /// <summary>The realised notice line, found by its rendered text and asserted on screen.</summary>
+    private static TextBlock RealisedTextContaining(MainWindow w, string fragment)
+    {
+        var block = Descendants(w).OfType<TextBlock>()
+            .FirstOrDefault(t => t.Text is { } s && s.Contains(fragment, StringComparison.Ordinal)
+                                 && t.IsEffectivelyVisible);
+        Assert.NotNull(block);
+        return block!;
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-99 — THE ALTERATION SCREEN'S ONLY ON-SCREEN BUTTON MUST RUN THE <i>ALTER</i> VERB.</b>
+    /// The Ctrl+A arm was wired for alteration but <c>OnSavePriceListClick</c> was left as the bare
+    /// <c>Save()</c> — the CREATE verb. An operator who corrected a fat-fingered slab rate and then CLICKED
+    /// instead of pressing the chord hit <c>AddOrReviseList</c>, which refuses a same-or-earlier date, and
+    /// <b>the correction was lost</b> while the screen stayed captioned <i>Alteration</i>.
+    ///
+    /// <para>🔴 <b>WHY THIS NEEDED ITS OWN TEST.</b> All five pre-existing tests in this file drive the KEYBOARD
+    /// and all five stayed green while the pointer path created. A COMPLETE verb row does not certify that the
+    /// two routes agree, so the pointer path is asserted here separately and the money is asserted through the
+    /// production resolver, not from a view-model flag.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Clicking_the_on_screen_accept_button_on_the_alteration_screen_alters_and_does_not_lose_the_correction()
+    {
+        var k = NewKit("Z3 PL Pointer Co");
+        try
+        {
+            OpenPriceListMaster(k.Window, k.Vm);
+            ArrowToVersion(k.Window, k.Vm);
+
+            var versionId = k.Vm.MasterListScreen!.HighlightedMasterRow!.MasterId;
+            AlterHighlighted(k.Window);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(k.Vm.PriceLists!.IsAltering);
+
+            // The operator fixes the fat-fingered top slab, then uses the MOUSE.
+            var filled = k.Vm.PriceLists.Slabs.Where(s => !s.IsBlank).ToList();
+            Assert.Equal("14850.00", filled[1].RateText);
+            filled[1].RateText = "14500.00";
+            ClickAccept(k.Window);
+
+            // 🔴 NOT a refusal. On main the click reaches AddOrReviseList, which answers "a revision must carry a
+            // strictly later date (append-only history)" and the correction never lands.
+            var message = k.Vm.PriceLists.Message ?? string.Empty;
+            Assert.DoesNotContain("strictly later date", message);
+            Assert.Contains("altered", message);
+
+            // ONE version, same Guid — an alteration, not a revision and not a second row.
+            var live = k.Vm.Company!.PriceListsFor(k.LevelId, k.ItemId).ToList();
+            Assert.Single(live);
+            Assert.Equal(versionId, live[0].Id);
+
+            // 🔴 THE MONEY, re-read from SQLite and taken through the production resolver. Hand-computed: qty 5
+            // falls in the 2+ band with no discount, so the effective unit rate is exactly the corrected
+            // 14,500.00; qty 1 falls in the untouched 0–2 band at exactly 16,000.00.
+            var reloaded = LoadBack(k.Dir, k.CompanyName);
+            var persisted = reloaded.PriceListsFor(k.LevelId, k.ItemId).ToList();
+            Assert.Single(persisted);
+            Assert.Equal(versionId, persisted[0].Id);
+            Assert.Equal(14500m, persisted[0].Slabs[1].Rate.Amount);
+
+            var band2 = PriceResolver.Resolve(reloaded, k.LevelId, k.ItemId, 5m, reloaded.BooksBeginFrom);
+            Assert.NotNull(band2);
+            Assert.Equal(14500m, band2!.Value.EffectiveUnitRate.Amount);
+
+            var band1 = PriceResolver.Resolve(reloaded, k.LevelId, k.ItemId, 1m, reloaded.BooksBeginFrom);
+            Assert.NotNull(band1);
+            Assert.Equal(16000m, band1!.Value.EffectiveUnitRate.Amount);
+        }
+        finally { k.Window.Close(); Cleanup(k.Dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-99, THE WORSE HALF: THE CLICK MUST NOT APPEND A SECOND VERSION AND REPORT SUCCESS.</b>
+    /// When the operator also moves Applicable-From forward, main's create verb ACCEPTS — <c>AddOrReviseList</c>
+    /// appends a new dated version and the screen says "saved" — so the wrong rate stays live for every invoice
+    /// dated inside the ORIGINAL version's window while the operator believes the correction landed. That is
+    /// precisely the wrong-money gap census row 3.11 claims to close.
+    /// </summary>
+    [AvaloniaFact]
+    public void Clicking_accept_after_moving_Applicable_From_forward_alters_in_place_and_appends_no_second_version()
+    {
+        var k = NewKit("Z3 PL Pointer Append Co");
+        try
+        {
+            OpenPriceListMaster(k.Window, k.Vm);
+            ArrowToVersion(k.Window, k.Vm);
+
+            var versionId = k.Vm.MasterListScreen!.HighlightedMasterRow!.MasterId;
+            AlterHighlighted(k.Window);
+            Dispatcher.UIThread.RunJobs();
+
+            var moved = k.Vm.Company!.BooksBeginFrom.AddMonths(3);
+            k.Vm.PriceLists!.ApplicableFromText = ApexDate.Format(moved);
+            k.Vm.PriceLists.Slabs.Where(s => !s.IsBlank).ToList()[1].RateText = "14500.00";
+            ClickAccept(k.Window);
+
+            Assert.Contains("altered", k.Vm.PriceLists.Message ?? string.Empty);
+
+            // 🔴 EXACTLY ONE version on disk. On main there are TWO and the screen reported success.
+            var reloaded = LoadBack(k.Dir, k.CompanyName);
+            var persisted = reloaded.PriceListsFor(k.LevelId, k.ItemId).ToList();
+            Assert.Single(persisted);
+            Assert.Equal(versionId, persisted[0].Id);
+            Assert.Equal(moved, persisted[0].ApplicableFrom);
+            Assert.Equal(14500m, persisted[0].Slabs[1].Rate.Amount);
+
+            // Hand-computed: qty 5 on the moved date is the 2+ band at exactly 14,500.00.
+            var resolved = PriceResolver.Resolve(reloaded, k.LevelId, k.ItemId, 5m, moved);
+            Assert.NotNull(resolved);
+            Assert.Equal(14500m, resolved!.Value.EffectiveUnitRate.Amount);
+        }
+        finally { k.Window.Close(); Cleanup(k.Dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-100 — THE SUCCESS MESSAGE MUST NAME THE RECORD THAT WAS ALTERED.</b> The level and item pickers
+    /// stay live TwoWay ComboBoxes on the alteration screen, while <c>AlterList</c> deliberately keeps the
+    /// STORED (level, item) of the version being corrected. The message was built from the pickers, so an
+    /// operator who nudged the Item picker mid-alteration overwrote <i>Widget</i> and was told
+    /// <i>"Price list for 'Gadget' … altered"</i> — while looking at Gadget's history, which does not contain the
+    /// change. <b>A message naming the wrong record is how an operator believes a correction landed when it did
+    /// not.</b> Asserted on the REALISED notice line, not the view-model string.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_alteration_message_names_the_altered_record_not_whichever_item_the_pickers_now_show()
+    {
+        var k = NewKit("Z3 PL Message Co");
+        try
+        {
+            // A second item, so the Item picker has somewhere to go.
+            var c = k.Vm.Company!;
+            var masters = new InventoryService(c);
+            var other = masters.CreateStockItem(
+                "Gadget", c.StockGroups.First(g => g.Name == "Goods").Id, c.Units.First().Id);
+            new CompanyStorage(k.Dir).Save(c);
+
+            OpenPriceListMaster(k.Window, k.Vm);
+
+            // With two items the default pick is no longer Widget, so the operator picks the list they came for.
+            k.Vm.PriceLists!.SelectedItem = k.Vm.PriceLists.Items.First(i => i.Id == k.ItemId);
+            Dispatcher.UIThread.RunJobs();
+
+            ArrowToVersion(k.Window, k.Vm);
+            var versionId = k.Vm.MasterListScreen!.HighlightedMasterRow!.MasterId;
+            AlterHighlighted(k.Window);
+            Dispatcher.UIThread.RunJobs();
+
+            // The operator nudges the Item picker, then corrects the rate and accepts.
+            k.Vm.PriceLists!.SelectedItem = k.Vm.PriceLists.Items.First(i => i.Id == other.Id);
+            Dispatcher.UIThread.RunJobs();
+            k.Vm.PriceLists.Slabs.Where(s => !s.IsBlank).ToList()[1].RateText = "14500.00";
+            Accept(k.Window);
+
+            // 🔴 THE REALISED NOTICE names Widget — the record actually overwritten — and never names Gadget.
+            var notice = RealisedTextContaining(k.Window, "altered (applicable from");
+            Assert.Contains("'Widget'", notice.Text!);
+            Assert.DoesNotContain("Gadget", notice.Text!);
+            Assert.Contains("'Retail'", notice.Text!);
+
+            // 🔴 AND THE MESSAGE IS TRUE: Widget's version is the one overwritten, in place, and Gadget has none.
+            var reloaded = LoadBack(k.Dir, k.CompanyName);
+            var widget = reloaded.PriceListsFor(k.LevelId, k.ItemId).ToList();
+            Assert.Single(widget);
+            Assert.Equal(versionId, widget[0].Id);
+            Assert.Equal(14500m, widget[0].Slabs[1].Rate.Amount);
+            Assert.Empty(reloaded.PriceListsFor(k.LevelId, other.Id));
+        }
+        finally { k.Window.Close(); Cleanup(k.Dir); }
+    }
 }

@@ -285,9 +285,10 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
         }
         if (!TryBuildEntry(out var applicableFrom, out var slabs)) return false;
 
+        PriceList altered;
         try
         {
-            new PriceListService(_company).AlterList(_editingId, applicableFrom, slabs);
+            altered = new PriceListService(_company).AlterList(_editingId, applicableFrom, slabs);
             _storage.Save(_company);
         }
         catch (InvalidOperationException ex)
@@ -297,8 +298,18 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
         }
 
         RefreshHistory();
-        Message = $"Price list for '{SelectedItem!.Name}' under '{SelectedLevel!.Name}' " +
-                  $"altered (applicable from {applicableFrom:dd-MMM-yyyy}).";
+
+        // 🔴 T2-100: THE MESSAGE NAMES THE RECORD THAT WAS ACTUALLY ALTERED, not whatever the pickers show now.
+        // It used to read SelectedItem/SelectedLevel. Those are live TwoWay pickers on this screen, while
+        // AlterList deliberately keeps the STORED (level, item) of the version being corrected — so an operator
+        // who nudged the Item picker mid-alteration overwrote Widget-A and was told "Price list for 'Widget B'
+        // … altered", looking at Widget-B's history, which does not contain the change. A message naming the
+        // wrong record is how an operator believes a correction landed when it did not. The names are resolved
+        // from the ids on the returned row, which are the ids the engine wrote.
+        var alteredLevel = _company.FindPriceLevel(altered.PriceLevelId)?.Name ?? altered.PriceLevelId.ToString();
+        var alteredItem = _company.FindStockItem(altered.StockItemId)?.Name ?? altered.StockItemId.ToString();
+        Message = $"Price list for '{alteredItem}' under '{alteredLevel}' " +
+                  $"altered (applicable from {altered.ApplicableFrom:dd-MMM-yyyy}).";
         _onChanged();
         return true;
     }
