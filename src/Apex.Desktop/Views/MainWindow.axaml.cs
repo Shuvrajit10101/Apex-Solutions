@@ -1036,10 +1036,16 @@ public partial class MainWindow : Window
         // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
         // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
         // Not while typing in a field, and not with Ctrl held.
+        //
+        // 🔴 W-Y4 RE-POINTED THIS ARM, AND IT IS THE HALF OF A RE-HOME THAT GETS FORGOTTEN. The menu row and this
+        // accelerator are TWO doors onto the same report; re-pointing the menu row alone leaves Alt+R opening the
+        // superseded page, so the operator reaches a surface with the chords dead depending on which door they
+        // used. That is the "one shipped report nobody can reach" failure in its other direction, and the only
+        // guard against it is grepping every route before deleting anything.
         if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
-            vm.OpenChallanReconciliation();
+            vm.OpenTdsChallanReconciliationReport();
             e.Handled = true;
             return;
         }
