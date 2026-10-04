@@ -325,6 +325,8 @@ public sealed class MasterListExportViewModelTests : IDisposable
         var m = shell.CostCentreMaster!;
         m.Name = "Head Office";
         m.SelectedCategory = m.Categories.Single(c => c.Name == "Departments");
+        // census 2.8 — the centre now carries an ALIAS, so this export pins it as well as the other columns.
+        m.Alias = "HO";
         Assert.True(m.Create());
         Assert.Contains(m.Existing, r => r.Name == "Head Office");
 
@@ -336,14 +338,25 @@ public sealed class MasterListExportViewModelTests : IDisposable
         Assert.Equal("Cost Centres", shell.ExportPanel!.DocumentTitle);
 
         // The projected CSV carries the master's captions + the seeded row.
+        //
+        // 🔴 "Alias" IS THE SECOND COLUMN AS OF census 2.8, and this expectation was updated rather than
+        // loosened. The screen gained an Alias field and an Alias list column, and this projector is the single
+        // source for every export format — so had this array been relaxed to a Contains, the export could have
+        // silently dropped a column the screen displays and nothing would have said so.
         var export = MasterListTabularProjector.ProjectSource(m);
-        Assert.Equal(new[] { "Name", "Category", "Under" }, export.Columns.Select(c => c.Header).ToArray());
+        Assert.Equal(
+            new[] { "Name", "Alias", "Category", "Under" },
+            export.Columns.Select(c => c.Header).ToArray());
 
         var vm = Capture("Cost Centres", () => export, out var cap, ExportFormat.Csv);
         Assert.True(vm.Apply());
         var records = ParseCsv(cap.Bytes);
-        Assert.Equal(new[] { "Name", "Category", "Under" }, records[0].ToArray());
+        Assert.Equal(new[] { "Name", "Alias", "Category", "Under" }, records[0].ToArray());
         Assert.Contains(records.Skip(1), r => r.Count > 0 && r[0] == "Head Office");
+
+        // The alias reaches the EMITTED BYTES, not merely the snapshot object.
+        var headOffice = records.Skip(1).Single(r => r.Count > 0 && r[0] == "Head Office");
+        Assert.Equal("HO", headOffice[1]);
         Assert.DoesNotContain("tally", Encoding.UTF8.GetString(cap.Bytes), StringComparison.OrdinalIgnoreCase);
     }
 
