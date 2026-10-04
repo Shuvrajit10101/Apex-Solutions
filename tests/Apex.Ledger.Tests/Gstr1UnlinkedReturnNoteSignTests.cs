@@ -45,10 +45,16 @@ namespace Apex.Ledger.Tests;
 /// <para><b>🔴 Grounding, and what is OURS.</b> <c>help.tallysolutions.com</c>'s GSTR-1 page attests the sections
 /// "Credit or Debit Notes (Registered) – 9B" and "(Unregistered) – 9B", and its HSN/SAC Summary page describes
 /// the report as displaying "the tax details for all the HSNs/SACs used in your transactions". The vendor is
-/// <b>SILENT</b> on whether a note nets the HSN summary down, and it has no opt-in §34 toggle to be silent about —
-/// in the vendor product a note missing its original-invoice details is held in "Transactions with
-/// Incomplete/Mismatch in Information" and excluded from the return until resolved. We have no such exceptions
-/// surface, so <b>netting the aggregates is OURS</b>, chosen because this module's own documented invariant
+/// <b>SILENT</b> on whether a note nets the HSN summary down, and it has no opt-in §34 toggle to be silent about.
+/// 🔴 <b>A CLAIM WAS STRUCK FROM THIS PARAGRAPH 2026-10-04 BY A12 BECAUSE IT WAS NOT PUBLISHED AND WOULD HAVE
+/// BEEN THE FIFTH FABRICATED VENDOR CLAIM CAUGHT ON THIS PROJECT.</b> It read, as vendor fact, that
+/// <i>"in the vendor product a note missing its original-invoice details is held in 'Transactions with
+/// Incomplete/Mismatch in Information' and excluded from the return until resolved."</i> The wave-42 reviewer
+/// opened that page BY CONTENT: it is titled <b>Exception Types</b> and publishes <b>no such rule and no such
+/// section name</b>; the GSTR-1 page says <b>"Uncertain Transactions (Corrections needed)"</b>. The sentence is
+/// deleted rather than re-pointed, because <b>the netting rule below does not depend on it</b> — it is labelled
+/// OURS and stands on this module's own invariant. <b>Do not reinstate it without a by-content citation.</b>
+/// So <b>netting the aggregates is OURS</b>, chosen because this module's own documented invariant
 /// (reconcile to the Output tax-ledger postings) admits no other answer, and because the alternative — silently
 /// dropping the note — would hide a reversal that actually traded. <b>The remaining divergence is reported, not
 /// hidden:</b> an unlinked note gets no Table 9B row of its own, because 9B needs the original-invoice reference
