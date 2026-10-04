@@ -87,10 +87,19 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
     /// <inheritdoc/>
     public string MasterKindLabel => "price list";
 
+    /// <summary>The dated version this screen is correcting in place, or <see cref="Guid.Empty"/> when creating.
+    /// Set only by <see cref="ForAlter"/>.</summary>
+    private Guid _editingId;
+
     /// <inheritdoc/>
-    /// <remarks>Create-only screen — a revision is a NEW dated version, not an Alter mode — so it is never
-    /// mid-alteration.</remarks>
-    public bool IsAltering => false;
+    /// <remarks>🔴 Was the constant <c>false</c> with a remark saying this screen is "create-only — a revision is
+    /// a NEW dated version, not an Alter mode" until census 3.11 wired <see cref="ForAlter"/>. That remark was
+    /// true of REVISION and wrongly generalised to ALTERATION; the vendor documents both. See
+    /// <see cref="PriceListService.AlterList"/> for the distinction and the citation.</remarks>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>Screen caption — mirrors the vendor's Creation / Alteration pair.</summary>
+    public string Caption => IsAltering ? "Price List Alteration" : "Price List Creation";
 
     /// <inheritdoc/>
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
@@ -183,6 +192,126 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
     public bool Save()
     {
         Message = null;
+        if (!TryBuildEntry(out var applicableFrom, out var slabs)) return false;
+
+        try
+        {
+            var service = new PriceListService(_company);
+            service.AddOrReviseList(SelectedLevel!.Id, SelectedItem!.Id, applicableFrom, slabs);
+            _storage.Save(_company);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshHistory();
+        Message = $"Price list for '{SelectedItem!.Name}' under '{SelectedLevel!.Name}' " +
+                  $"saved (applicable from {applicableFrom:dd-MMM-yyyy}).";
+
+        // Reset the slab grid for the next entry (keep the level/item/date so a quick revision is easy).
+        Slabs.Clear();
+        AddSlabRow();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Opens an EXISTING dated version for <b>alteration</b> (census 3.11), loading its level, item,
+    /// applicable-from date and slab rows into the screen; returns <c>null</c> when the id does not resolve.
+    /// Mirrors <c>PriceLevelsViewModel.ForAlter</c>.
+    ///
+    /// <para>🔴 <b>The level and item pickers are loaded but the PAIR is not alterable</b> — moving a priced
+    /// version onto a different item is not an edit of that version, it is a different price list, and
+    /// <see cref="PriceListService.AlterList"/> keeps both ids from the stored row rather than from the screen.
+    /// Changing the pickers mid-alteration therefore rebuilds the history and <see cref="Alter"/> still corrects
+    /// the version it was opened over.</para>
+    /// </summary>
+    public static PriceListsViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid priceListId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        var list = company.PriceLists.FirstOrDefault(pl => pl.Id == priceListId);
+        if (list is null) return null;
+
+        var vm = new PriceListsViewModel(company, storage, onChanged);
+        vm._editingId = priceListId;
+        vm.SelectedLevel = vm.Levels.FirstOrDefault(l => l.Id == list.PriceLevelId);
+        vm.SelectedItem = vm.Items.FirstOrDefault(i => i.Id == list.StockItemId);
+        vm.ApplicableFromText = ApexDate.Format(list.ApplicableFrom);
+
+        // Load the stored slabs into editable rows, then the single blank trailing row the grid contract wants.
+        //
+        // 🔴 THE GRID IS NORMALISED AFTERWARDS RATHER THAN BUILT PERFECTLY, and that is deliberate: every text
+        // setter raises OnSlabChanged, which appends a blank row the moment the LAST row stops being blank. Filling
+        // row N therefore grows a blank row that filling row N+1 then strands in the MIDDLE of the band list. The
+        // parse ignores blanks, so this would not have produced a wrong price — it would have shown the operator a
+        // gap in the middle of a contiguous slab ladder, on a screen whose whole contract is that the bands are
+        // contiguous. Stripping blanks once at the end and re-adding exactly one trailing row is immune to the
+        // ordering of the notifications.
+        vm.Slabs.Clear();
+        foreach (var slab in list.Slabs)
+        {
+            var row = vm.AddSlabRow();
+            row.FromText = slab.FromQty.ToString("0.######", CultureInfo.InvariantCulture);
+            row.ToText = slab.ToQty is { } to ? to.ToString("0.######", CultureInfo.InvariantCulture) : string.Empty;
+            row.RateText = slab.Rate.Amount.ToString("0.00", CultureInfo.InvariantCulture);
+            row.DiscountText = slab.DiscountPercent > 0m
+                ? slab.DiscountPercent.ToString("0.###", CultureInfo.InvariantCulture)
+                : string.Empty;
+        }
+        for (var i = vm.Slabs.Count - 1; i >= 0; i--)
+            if (vm.Slabs[i].IsBlank) vm.Slabs.RemoveAt(i);
+        vm.AddSlabRow();
+
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: overwrites the dated version this screen was opened over, via
+    /// <see cref="PriceListService.AlterList"/>. Any domain refusal (bad slab set, or another version already on
+    /// that date) is surfaced to <see cref="Message"/> without crashing the UI, exactly as <see cref="Save"/> does.
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing price list.";
+            return false;
+        }
+        if (!TryBuildEntry(out var applicableFrom, out var slabs)) return false;
+
+        try
+        {
+            new PriceListService(_company).AlterList(_editingId, applicableFrom, slabs);
+            _storage.Save(_company);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshHistory();
+        Message = $"Price list for '{SelectedItem!.Name}' under '{SelectedLevel!.Name}' " +
+                  $"altered (applicable from {applicableFrom:dd-MMM-yyyy}).";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Shared parse for <see cref="Save"/> and <see cref="Alter"/>: the level + item pickers, the day-first
+    /// Applicable-From date and the non-blank slab rows. Sets <see cref="Message"/> and returns false on the first
+    /// problem. Extracted at census 3.11 so the two verbs cannot drift apart in what they accept.
+    /// </summary>
+    private bool TryBuildEntry(out DateOnly applicableFrom, out List<PriceListSlab> slabs)
+    {
+        applicableFrom = default;
+        slabs = new List<PriceListSlab>();
 
         if (SelectedLevel is null)
         {
@@ -195,13 +324,12 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
             return false;
         }
         // WI-5: shared DAY-FIRST parse (was a bare InvariantCulture parse — the MM/dd misread).
-        if (!ApexDate.TryParse(ApplicableFromText, out var applicableFrom))
+        if (!ApexDate.TryParse(ApplicableFromText, out applicableFrom))
         {
             Message = $"Applicable-From: {ApexDate.ErrorFor(ApplicableFromText)}";
             return false;
         }
 
-        var slabs = new List<PriceListSlab>();
         foreach (var row in Slabs.Where(r => !r.IsBlank))
         {
             if (!TryParseDecimal(row.FromText, out var from))
@@ -240,26 +368,6 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
             return false;
         }
 
-        try
-        {
-            var service = new PriceListService(_company);
-            service.AddOrReviseList(SelectedLevel.Id, SelectedItem.Id, applicableFrom, slabs);
-            _storage.Save(_company);
-        }
-        catch (InvalidOperationException ex)
-        {
-            Message = ex.Message;
-            return false;
-        }
-
-        RefreshHistory();
-        Message = $"Price list for '{SelectedItem.Name}' under '{SelectedLevel.Name}' " +
-                  $"saved (applicable from {applicableFrom:dd-MMM-yyyy}).";
-
-        // Reset the slab grid for the next entry (keep the level/item/date so a quick revision is easy).
-        Slabs.Clear();
-        AddSlabRow();
-        _onChanged();
         return true;
     }
 
