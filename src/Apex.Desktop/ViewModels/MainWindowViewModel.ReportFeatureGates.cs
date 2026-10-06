@@ -62,6 +62,12 @@ public enum ReportFeatureGate
     /// Accounts.</summary>
     CostCentres,
 
+    /// <summary>F11 → Accounting → <b>Enable Interest Calculation</b> (census row 1.7). Gates the Interest
+    /// Calculation row under Statements of Accounts — the row is a conditional <c>col.Add</c>, so W-Y4's re-home
+    /// of that report onto <see cref="ReportKind.InterestCalculation"/> needed a gate of its own or the saved-view
+    /// door would have reached a report whose menu row this company does not have.</summary>
+    InterestCalculation,
+
     /// <summary>F11 → Enable TDS. Gates the "TDS Reports" group.</summary>
     Tds,
 
@@ -138,6 +144,13 @@ public sealed partial class MainWindowViewModel
     /// <summary>F11 → Accounting → Enable Cost Centres (census row 1.7). <c>!= false</c> rather than
     /// <c>== true</c> because the flag's own shipped convention is that an unset company is ON.</summary>
     internal bool CostCentresFeatureOn => Company?.EnableCostCentres != false;
+
+    /// <summary>F11 → Accounting → Enable Interest Calculation (census row 1.7). <c>!= false</c> rather than
+    /// <c>== true</c> for the same reason <see cref="CostCentresFeatureOn"/> is written that way — the flag's own
+    /// shipped convention is that an unset company is ON. <c>BuildStatementsOfAccountsColumn</c> branches on THIS
+    /// property for the Interest Calculation row, so the row and <see cref="ReportFeatureGate.InterestCalculation"/>
+    /// are the same expression and cannot answer differently about the same company.</summary>
+    internal bool InterestCalculationFeatureOn => Company?.EnableInterestCalculation != false;
 
     /// <summary>F11 → Enable TDS.</summary>
     internal bool TdsFeatureOn => Company is { TdsEnabled: true };
@@ -315,6 +328,19 @@ public sealed partial class MainWindowViewModel
             [ReportKind.BudgetVariance] = ReportFeatureGate.None,
             [ReportKind.GratuityProvisionRegister] = ReportFeatureGate.GratuityEnrolment,
             [ReportKind.BonusRegister] = ReportFeatureGate.BonusEnrolment,
+
+            // ---- W-Y4, the three further re-homed rows (census 11.11 + area 6). Each gate is the expression its
+            // own MENU ROW branches on, read off the builder rather than guessed:
+            //   • Interest Calculation — BuildStatementsOfAccountsColumn adds the row under
+            //     InterestCalculationFeatureOn.
+            //   • Challan Reconciliation / TCS Challan Reconciliation — BuildGstReportsColumn adds each under its
+            //     tax's own header, inside `if (TdsFeatureOn)` and `if (TcsFeatureOn)` respectively. These two are
+            //     the strongest case in the table for the saved-view door needing the same gate: a company that
+            //     has switched TDS off has no section-wise deduction position to show and no menu row to reach it
+            //     by, and a saved view must not be the third door that does.
+            [ReportKind.InterestCalculation] = ReportFeatureGate.InterestCalculation,
+            [ReportKind.TdsChallanReconciliation] = ReportFeatureGate.Tds,
+            [ReportKind.TcsChallanReconciliation] = ReportFeatureGate.Tcs,
         };
 
     /// <summary>
@@ -338,6 +364,7 @@ public sealed partial class MainWindowViewModel
         ReportFeatureGate.GratuityEnrolment => GratuityRegisterFeatureOn,
         ReportFeatureGate.BonusEnrolment => BonusRegisterFeatureOn,
         ReportFeatureGate.CostCentres => CostCentresFeatureOn,
+        ReportFeatureGate.InterestCalculation => InterestCalculationFeatureOn,
         ReportFeatureGate.Tds => TdsFeatureOn,
         ReportFeatureGate.Tcs => TcsFeatureOn,
         ReportFeatureGate.TdsOrTcs => TdsFeatureOn || TcsFeatureOn,

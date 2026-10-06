@@ -63,11 +63,19 @@ public sealed partial class TcsChallanReconciliationViewModel : ViewModelBase, I
     /// read here as outstanding for the earlier window. The period-attributed (compliance) position lives in
     /// Form 27EQ and the TCS Outstandings report. Constant text, surfaced as a band under the totals.
     /// </summary>
-    public string BasisNote =>
+    /// <para>🔴 A <c>const</c> rather than an expression for the reason its TDS twin records: W-Y4 re-homed this
+    /// reconciliation onto <see cref="ReportKind.TcsChallanReconciliation"/>, whose builder appends this sentence
+    /// through <c>ReportsViewModel.Footnote</c>, so the caveat now has two readers and must have one
+    /// definition.</para>
+    public const string CashBasisNote =
         "Deposits are shown on a cash basis, by challan deposit date. A collection deposited in a later " +
         "period (e.g. collected in March, deposited in April) may appear here as outstanding for the earlier " +
         "window even though it is compliant — see Form 27EQ and the TCS Outstandings report for the " +
         "period-attributed position.";
+
+    /// <summary>The page's own binding onto <see cref="CashBasisNote"/> (the XAML binds a property, not a
+    /// const).</summary>
+    public string BasisNote => CashBasisNote;
 
     public TcsChallanReconciliationViewModel(Company company)
     {

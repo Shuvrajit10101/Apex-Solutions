@@ -160,6 +160,49 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     public ObservableCollection<LedgerListRow> Existing { get; } = new();
 
     [ObservableProperty] private string _name = string.Empty;
+
+    /// <summary>
+    /// The ledger's optional <b>alias</b> — an alternative name the ledger can also be found and recognised by
+    /// (census 2.3).
+    ///
+    /// <para>🔴 <b>WHAT THE VENDOR ACTUALLY PUBLISHES, because the gap this closes was written up as a plain
+    /// alias field and it is not quite that.</b> TallyPrime's own ledger page
+    /// (<c>help.tallysolutions.com/ledgers-in-tallyprime/</c>, read 2026-10-04) documents the ledger alias only
+    /// as a <b>language</b> alias behind an F12 toggle: <i>"To print the ledger name in your preferred language,
+    /// provide language alias for name"</i> — <i>"Press F12 (Configure) and enable Provide language aliases for
+    /// Name"</i>. The unconditional <i>"enter the alias of the ledger account if required"</i> that the
+    /// enumeration quoted is from the <b>Tally.ERP 9</b> documentation, a different and older product, which R7
+    /// does not make ground truth. <b>So this box is OURS and is labelled as such:</b> a single plain alias,
+    /// always visible, with no language tag and no F12 gate. It is not a reproduction of the vendor's
+    /// language-alias feature and must not be reported as one.</para>
+    ///
+    /// <para><b>It is a capture with two production readers already waiting on it</b>, which is the whole reason
+    /// it is worth shipping rather than a field that would sit inert:</para>
+    /// <list type="number">
+    ///   <item><see cref="Company.FindLedgerByName"/> matches on the alias as well as the name
+    ///     (<c>Company.cs:1540-1543</c>), so a captured alias becomes a working lookup key.</item>
+    ///   <item><c>PickerDisplayTextConverter</c> (<c>:72-74</c>) returns <c>Name (Alias)</c> for an aliased
+    ///     ledger, and <c>PickerTextSearch.Register</c> binds that converter to <c>TextSearch</c> on EVERY
+    ///     <c>ComboBox</c> in the app — so the alias becomes TYPE-AHEAD text and the operator can jump to a
+    ///     ledger by typing its alias. The converter's own comment says the alias "is what keeps two
+    ///     same-prefix parties apart in the list", a benefit no operator could obtain because nothing could set
+    ///     one.</item>
+    /// </list>
+    ///
+    /// <para>🔴 <b>AND PRECISELY WHAT IT DOES NOT DO, because the first draft of this comment claimed it.</b>
+    /// It does NOT change the painted picker row. <c>PickerDisplayTextConverter</c>'s own remarks state that a
+    /// picker's <c>ItemTemplate</c> "does NOT participate — it only paints the row", and the ledger pickers'
+    /// item templates bind <c>Name</c>. So the alias is searchable, not displayed, inside a dropdown. It IS
+    /// displayed on the Cost Centre master's own list column; there is no equivalent ledger list column here.
+    /// Saying "renders in every ledger picker" would have been an overstatement of exactly the kind this
+    /// project grades as a false closure.</para>
+    ///
+    /// <para>Stored as <c>null</c> when blank, never <c>""</c>: <see cref="Company.FindLedgerByName"/> guards
+    /// its alias leg with <c>Alias is not null</c>, so an empty string would make a lookup for "" match the
+    /// first ledger ever saved through this screen.</para>
+    /// </summary>
+    [ObservableProperty] private string _alias = string.Empty;
+
     [ObservableProperty] private Group? _selectedGroup;
     [ObservableProperty] private string? _message;
 
@@ -971,6 +1014,21 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     public DomainLedger? EditingLedger => _editingId == Guid.Empty ? null : _company.FindLedger(_editingId);
 
     /// <summary>
+    /// The screen heading — it says which VERB is running, because the form is identical in both modes.
+    ///
+    /// <para>🔴 <b>THE REMARK ABOVE <see cref="IsAltering"/> CLAIMED THIS ALREADY EXISTED</b> — it says the flag
+    /// "drives the screen title/caption". It drove no caption: there was no <c>Caption</c> property on this view
+    /// model and the page printed the literal "Ledger Creation" in both modes, so the operator who pressed
+    /// Ctrl+Enter to alter a ledger was told they were creating one. The claim is left in place above because it
+    /// is now true; it was not when it was written.</para>
+    /// </summary>
+    public string Caption => IsAltering ? "Ledger Alteration" : "Ledger Creation";
+
+    /// <summary>The commit button's label, matching the verb <see cref="Caption"/> names. See
+    /// <see cref="CostCentreMasterViewModel.CommitLabel"/>.</summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
     /// Opens this master in <b>Alter</b> mode over an existing ledger (WI-3): the same form, pre-filled from the
     /// ledger's current values, saving back against its stable Guid. Returns <c>null</c> if the id does not resolve.
     /// </summary>
@@ -984,6 +1042,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         vm._editingId = ledgerId;
         vm.LoadFrom(ledger);
         vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         // v57 (census 8.5): the Cheque Books list is only meaningful over a ledger that exists, so it is filled
         // here rather than in LoadFrom — and ShowChequeBooks is raised with it, or the block would stay hidden
         // until some unrelated property happened to notify.
@@ -1276,6 +1336,12 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
 
         SelectedGroup = Groups.FirstOrDefault(g => g.Id == ledger.GroupId) ?? SelectedGroup;
         Name = ledger.Name;
+
+        // census 2.3 — the alias. Loaded for the same reason this method's header gives for every other field:
+        // the screen now WRITES the alias, so a screen that did not load it would blank the alias of every
+        // ledger altered for an unrelated reason. That is the exact "omission here shows the user a default, and
+        // accepting then writes that default back" failure named above.
+        Alias = ledger.Alias ?? string.Empty;
 
         // Opening Balance. A nil opening shows as BLANK, not "0.00", so the round-trip is exact: the form re-writes
         // the same Money.Zero and an untouched ledger persists byte-identically (ER-13).
@@ -1882,10 +1948,20 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             target.BankIfsc = Blank(BankIfsc);
         }
 
+        // census 2.3 — the ALIAS. Written through this shared mapping, so Create and Alter cannot disagree about
+        // it, and normalised to null when blank so a cleared box and a never-filled box store the same value.
+        // Company.FindLedgerByName's alias leg is guarded by `Alias is not null`, which "" would defeat.
+        target.Alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
+
         // NOT written, on purpose — this screen does not own them, so an ALTER must leave them exactly as they
-        // were: Alias, IsPredefined, SalesPurchaseGst, GstClassification and TdsTcsClassification (engine-managed
+        // were: IsPredefined, SalesPurchaseGst, GstClassification and TdsTcsClassification (engine-managed
         // tags). OpeningBalance / OpeningIsDebit USED to be on this list — the screen could not capture them, so
         // leaving them alone was all it could do. It owns them now (see the write above).
+        //
+        // 🔴 ALIAS WAS ON THIS LIST UNTIL census 2.3 SHIPPED, described as something "this screen does not own".
+        // It is removed rather than struck through because the list is read as the authoritative set of fields an
+        // alter preserves, and a stale entry in it is an instruction to a future reader not to capture a field
+        // the screen now writes four lines above.
         return true;
     }
 
@@ -1894,6 +1970,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     private void ResetForNextEntry()
     {
         Name = string.Empty;
+        // census 2.3 — the alias clears with the name it is an alias FOR. Carrying it into the next ledger would
+        // give two ledgers the same alias, and because Company.FindLedgerByName resolves on the alias, which of
+        // them a lookup returned would then depend on company order.
+        Alias = string.Empty;
         // The opening must NOT carry into the next ledger — leaving it on screen would silently give the following
         // master the previous one's day-one balance. Clearing the latch re-arms the nature proposal, and because
         // SelectedGroup deliberately survives a create (the operator usually enters a run of ledgers under one

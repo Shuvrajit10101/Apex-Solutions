@@ -2004,7 +2004,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CostCentresFeatureOn)
             col.Add(new MenuItemViewModel("Cost Centres", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Budgets", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
-        if (Company?.EnableInterestCalculation != false)
+        // 🔴 W-Y4: this row branches on InterestCalculationFeatureOn rather than re-inlining
+        // `Company?.EnableInterestCalculation != false`, because the report it opens is now a ReportKind and the
+        // saved-view door asks ReportFeatureGate.InterestCalculation — which is defined AS this property. Two
+        // copies of the same condition is exactly the drift MainWindowViewModel.ReportFeatureGates.cs was written
+        // to make impossible, and a re-inlined condition at a report-menu site re-opens it.
+        if (InterestCalculationFeatureOn)
             col.Add(new MenuItemViewModel("Interest Calculation", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Forex Gain/Loss", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // W2-12 (census 11.8): Statistics — the counts of vouchers entered and masters created. The vendor
@@ -7434,6 +7439,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Reconciliation; Phase 7 slice 3) as a page column: the per-section deposited-vs-deducted match and remaining
     /// payable over the financial year. A no-op unless TDS is enabled (the menu item + Alt+R are gated on
     /// <see cref="Company.TdsEnabled"/>), so a non-TDS company never reaches it (ER-13).
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-Y4 AND CURRENTLY UNREACHABLE FROM THE PRODUCT — DELETE IT, DO NOT WIRE IT
+    /// BACK UP.</b> The reconciliation was re-homed onto <see cref="ReportKind.TdsChallanReconciliation"/>
+    /// (<see cref="OpenTdsChallanReconciliationReport"/>), and <b>BOTH</b> doors that used to land here now call
+    /// it: the "Challan Reconciliation" menu row and the <b>Alt+R</b> accelerator in
+    /// <c>MainWindow.axaml.cs</c>. This method, <see cref="ChallanReconciliationViewModel"/> as a PAGE,
+    /// <see cref="Screen.ChallanReconciliation"/> and <see cref="IsChallanReconciliationScreen"/> therefore have
+    /// <b>zero production callers</b>. (The view model's own
+    /// <see cref="ChallanReconciliationViewModel.ToMasterListSnapshot"/> and
+    /// <see cref="ChallanReconciliationViewModel.CashBasisNote"/> are still live — the latter is read by the
+    /// re-homed builder, which is the whole point of its being a const.)</para>
+    ///
+    /// <para>Left standing for one wave under this banner, exactly as the W-V2 re-homes were and for the same
+    /// stated reason: the wave that re-homes is told not to delete a screen until its replacement route is
+    /// PROVEN, and the proof is the test suite that ships with the re-home rather than this method. Removing
+    /// these is a named follow-up. The banner is the point — unreachable code with no notice on it is this
+    /// repository's own filed defect.</para>
     /// </summary>
     public void OpenChallanReconciliation()
     {
@@ -7703,6 +7725,42 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         OpenReport(ReportKind.BonusRegister);
     }
 
+    // ---------------------------------------------------------- W-Y4: three MORE re-homes (census 11.11 + area 6)
+    //
+    // The same three facts as the W-V2 block above: the projections already shipped and are unchanged, the page
+    // Screen was what switched the gestures off, and each opener keeps its page's own ER-13 guard so re-homing
+    // cannot widen reachability. Each guard is the named feature property, which is also what
+    // ReportFeatureGates maps the kind to — so the menu row, this opener and the Alt+K saved view ask ONE
+    // question.
+
+    /// <summary>
+    /// Opens the re-homed <b>Interest Calculation</b> report (census 11.11, gap 1). Gated exactly as the menu row
+    /// is, on F11 → Accounting → Enable Interest Calculation.
+    /// </summary>
+    public void OpenInterestCalculationReport()
+    {
+        if (!InterestCalculationFeatureOn) return;
+        OpenReport(ReportKind.InterestCalculation);
+    }
+
+    /// <summary>
+    /// Opens the re-homed <b>TDS Challan Reconciliation</b> (area 6). Gated on F11 → Enable TDS, which is the
+    /// condition its menu row's enclosing <c>if</c> already carried and which the dedicated page's opener also
+    /// checked — so a non-TDS company reaches it by no door, exactly as before.
+    /// </summary>
+    public void OpenTdsChallanReconciliationReport()
+    {
+        if (!TdsFeatureOn) return;
+        OpenReport(ReportKind.TdsChallanReconciliation);
+    }
+
+    /// <summary>Opens the re-homed <b>TCS Challan Reconciliation</b> (area 6). Gated on F11 → Enable TCS.</summary>
+    public void OpenTcsChallanReconciliationReport()
+    {
+        if (!TcsFeatureOn) return;
+        OpenReport(ReportKind.TcsChallanReconciliation);
+    }
+
     /// <summary>
     /// <b>Ctrl+A on the re-homed Gratuity Provision report</b> — posts the period-end provision voucher for the
     /// delta over the prior posted balance (Dr Gratuity Expense / Cr Gratuity Provision, or the reverse
@@ -7932,6 +7990,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Reconciliation; Phase 7 slice 6) as a page column: the per-code deposited-vs-collected match and remaining
     /// payable over the financial year. A no-op unless TCS is enabled (the menu item is gated on
     /// <see cref="Company.TcsEnabled"/>), so a non-TCS company never reaches it (ER-13).
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-Y4 AND CURRENTLY UNREACHABLE FROM THE PRODUCT — DELETE IT, DO NOT WIRE IT
+    /// BACK UP.</b> Re-homed onto <see cref="ReportKind.TcsChallanReconciliation"/>
+    /// (<see cref="OpenTcsChallanReconciliationReport"/>). This report had exactly ONE door — the "TCS Challan
+    /// Reconciliation" menu row, with no accelerator of its own by deliberate choice (Alt+R stays the TDS recon
+    /// even when both taxes are on) — and that row now calls the report opener. See the identical banner on
+    /// <see cref="OpenChallanReconciliation"/>.</para>
     /// </summary>
     public void OpenTcsChallanReconciliation()
     {
@@ -8095,6 +8160,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Opens the Interest Calculation report (Reports → Statements of Accounts → Interest Calculation) as a
     /// page column: each interest-enabled ledger's accrued interest (principal / rate / days / interest,
     /// right-aligned) over the company period, plus the total. A projection over the posted vouchers.
+    ///
+    /// <para>🔴🔴 <b>SUPERSEDED BY W-Y4 AND CURRENTLY UNREACHABLE FROM THE PRODUCT — DELETE IT, DO NOT WIRE IT
+    /// BACK UP.</b> Census row 11.11's first gap was re-homed onto <see cref="ReportKind.InterestCalculation"/>
+    /// (<see cref="OpenInterestCalculationReport"/>), and <b>both</b> doors that used to land here now call it:
+    /// the "Interest Calculation" menu row and the <b>"Int"</b> quick-button on the button bar. This method,
+    /// <see cref="InterestReportViewModel"/> and <see cref="Screen.InterestReport"/> therefore have <b>zero
+    /// production callers</b>. See the identical banner on <see cref="OpenChallanReconciliation"/>.</para>
+    ///
+    /// <para>The re-home changes no figure by default: this page computed its window as books-begin → last
+    /// voucher date (or the financial-year end on an empty book), which is the SAME expression
+    /// <c>ReportsViewModel.ComputeAsOf</c> evaluates for the report's default as-of.</para>
     /// </summary>
     public void OpenInterestReport()
     {
@@ -11363,14 +11439,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     };
 
     /// <summary>
-    /// <b>Ctrl+Enter on one of the SEVEN master lists this switch resolves — open the highlighted master for
+    /// <b>Ctrl+Enter on one of the EIGHT master lists this switch resolves — open the highlighted master for
     /// ALTERATION.</b> Returns false (a quiet no-op) on every other screen, and while the screen is already
     /// mid-alteration, so the chord stays free elsewhere.
     ///
     /// <para>🔴 <b>COUNTED FROM THE CASES BELOW, NOT FROM THE LAST REPORT.</b> This sentence read "one of the six
     /// W29 master lists" until W33 C3 added the <b>price level</b> (census 3.10) and the <b>currency</b> (census
-    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. The list
-    /// is: Godown, Unit, Stock Category, Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3).
+    /// 2.11) — and the word "six" was already describing five cases plus the Stock Group's separate arm. It then
+    /// read SEVEN until census 3.11 added the <b>price list</b> version. The list is: Godown, Unit, Stock Category,
+    /// Cost Category, Cost Centre (W29 U1), Price Level and Currency (W33 C3), Price List (3.11).
     /// <c>IPayrollMasterList</c>'s own remarks record what a stale count in a doc comment like this one costs.</para>
     ///
     /// <para><b>Its own arm rather than a member of <see cref="IMasterListScreen"/></b> for the reason
@@ -11442,16 +11519,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // master means. Two do: the price level ("Change the names of the Price Levels and press Ctrl+A to
             // save" — help.tallysolutions.com/selling-buying-prices/) and the currency ("Alt+G > Alter Master >
             // Currency", altering symbol / formal name / ISO code / decimal places —
-            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. The other six
-            // (batch, BOM, budget, scenario, price list, reorder) keep create+delete only and their census rows
-            // stay PARTIAL. Inventing an alter shape for a master no source describes is how this project has
-            // previously shipped a verb nobody asked for.
+            // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. 🔴 The "other six"
+            // this comment named are now FIVE — the price list left the list at census 3.11, on its own vendor
+            // page; see the arm below. Batch, BOM, budget, scenario and reorder keep create+delete only and their
+            // census rows stay PARTIAL. Inventing an alter shape for a master no source describes is how this
+            // project has previously shipped a verb nobody asked for.
             case Screen.PriceLevelsMaster:
             {
                 if (PriceLevelsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
                     is not { } m) return false;
                 OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceLevelsMaster, m.Caption,
                     () => PriceLevels = m);
+                return true;
+            }
+            // ───────────────────────────────────────────────── census 3.11: the price-list version Alter arm
+            //
+            // 🔴 THE W33 C3 BLOCK ABOVE LISTED "price list" AMONG THE SIX THAT KEEP CREATE+DELETE ONLY BECAUSE NO
+            // VENDOR PAGE HAD THEN BEEN FOUND DESCRIBING WHAT ALTERING ONE MEANS. A page does:
+            // "You can alter a price list by overwriting the details entered in the Price List screen", reached via
+            // "Press Alt+G (Go To) > Alter Master > Price List"
+            // [help.tallysolutions.com/selling-buying-prices/, opened and read by content 2026-10-04]. The list in
+            // that block is now FIVE (batch, BOM, budget, scenario, reorder); the reorder page 404s, so reorder
+            // alter stays withheld rather than invented.
+            //
+            // The row the arrows walk here is the dated VERSION history, so Ctrl+Enter opens one version for
+            // correction — see PriceListService.AlterList for why overwriting a version is not a breach of the
+            // append-only revision history.
+            case Screen.PriceListsMaster:
+            {
+                if (PriceListsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.PriceListsMaster, m.Caption,
+                    () => PriceLists = m);
                 return true;
             }
             case Screen.CurrencyMaster:
@@ -12007,7 +12106,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 else PriceLevels?.Create();
                 return;
             case Screen.PriceListsMaster:
-                PriceLists?.Save();
+                // Census 3.11: the same screen now serves Save (append a dated revision) and Alter (overwrite the
+                // version it was opened over). Without this branch a Price List Alteration screen's Ctrl+A would
+                // run Save() and be refused by AddOrReviseList's strictly-later-date rule — the correction would
+                // bounce off an "already has an Applicable-From of ... or later" with the operator's fix unsaved.
+                if (PriceLists is { IsAltering: true }) PriceLists.Alter();
+                else PriceLists?.Save();
                 return;
             case Screen.ReorderLevelsMaster:
                 ReorderLevels?.Create();
@@ -12691,14 +12795,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Attendance / Production": ShowAttendanceVoucher(); break;
             case "Payroll": ShowPayrollVoucher(); break;
             case "TDS Stat Payment": ShowTdsStatPayment(); break;
-            case "Challan Reconciliation": OpenChallanReconciliation(); break;
+            // W-Y4 (area 6) — RE-HOMED off Screen.ChallanReconciliation onto ReportKind. Same projection, same
+            // ER-13 gate; what changes is that the report-parameter chords are alive on it.
+            case "Challan Reconciliation": OpenTdsChallanReconciliationReport(); break;
             // CA S9 — each return/certificate answers to BOTH its 1961-Act and its confirmed 2025-Act number, because
             // FormMenuLabel picks the label by financial year and this switch dispatches on that label. Omitting a
             // renumbered case would leave the menu item present but DEAD from FY 2026-27 onward. The dual-form labels
             // ("Form 26Q / 140") are matched too, for the no-company-in-scope fallback.
             case "Form 26Q" or "Form 140" or "Form 26Q / 140": OpenForm26Q(); break;
             case "TCS Stat Payment": ShowTcsStatPayment(); break;
-            case "TCS Challan Reconciliation": OpenTcsChallanReconciliation(); break;
+            // W-Y4 (area 6) — RE-HOMED off Screen.TcsChallanReconciliation onto ReportKind.
+            case "TCS Challan Reconciliation": OpenTcsChallanReconciliationReport(); break;
             case "Form 27EQ" or "Form 143" or "Form 27EQ / 143": OpenForm27EQ(); break;
             case "Form 16A" or "Form 131" or "Form 16A / 131": OpenForm16A(); break;
             case "Form 27D" or "Form 133" or "Form 27D / 133": OpenForm27D(); break;
@@ -12717,7 +12824,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // project's canonical unreachable-delivered-code example.
             case "Ledger Break-up": OpenReport(ReportKind.CostCentreLedgerBreakup); break;
             case "Budget Variance": OpenReport(ReportKind.BudgetVariance); break;
-            case "Interest Calculation": OpenInterestReport(); break;
+            // W-Y4 (census 11.11, gap 1) — RE-HOMED off Screen.InterestReport onto ReportKind. The default window
+            // is unchanged (both compute books-begin → last-voucher-date), so no figure moves; F2/Alt+F2 now act.
+            case "Interest Calculation": OpenInterestCalculationReport(); break;
             case "Forex Gain/Loss": OpenForexReport(); break;
             case "Stock Summary": OpenReport(ReportKind.StockSummary); break;
             case "Godown Summary": OpenReport(ReportKind.GodownSummary); break;
@@ -13692,8 +13801,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // and one click on the bar still opens the report the company switched off).
         ButtonBar.Add(new ButtonBarItem("C", "Cost Centres", () => OpenReport(ReportKind.CostCentreBreakup),
             hasCompany && CostCentresFeatureOn));
-        ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestReport,
-            hasCompany && Company?.EnableInterestCalculation != false));
+        // W-Y4 (census 11.11): routed to the REPORT for the same reason "Outs" and "C" above are, and the F11
+        // Interest Calculation gate on the button is unchanged. It now reads the named property rather than
+        // re-inlining `Company?.EnableInterestCalculation != false`, so the button, the menu row and the saved-view
+        // gate are one expression. 🔴 This button is the THIRD door onto this report (menu row, this bar, and
+        // Alt+K) and it was the one a route-grep nearly missed: re-pointing the menu row alone would have left one
+        // click on the bar opening the superseded page, so the same figures would have had a printable copy and an
+        // unprintable copy depending on which door the operator used.
+        ButtonBar.Add(new ButtonBarItem("Int", "Interest", OpenInterestCalculationReport,
+            hasCompany && InterestCalculationFeatureOn));
         ButtonBar.Add(new ButtonBarItem("SS", "Stock Summary", () => OpenReport(ReportKind.StockSummary), hasCompany));
         ButtonBar.Add(new ButtonBarItem("B", "Balance Sheet", () => OpenReport(ReportKind.BalanceSheet), hasCompany));
         ButtonBar.Add(new ButtonBarItem("P", "Profit & Loss", () => OpenReport(ReportKind.ProfitAndLoss), hasCompany));

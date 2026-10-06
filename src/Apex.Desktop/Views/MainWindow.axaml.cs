@@ -1036,10 +1036,16 @@ public partial class MainWindow : Window
         // Alt+R opens the Challan Reconciliation report (Phase 7 slice 3) — deposits vs deductions per section.
         // Gated internally on TDS being enabled (a no-op otherwise), so a non-TDS company is unaffected (ER-13).
         // Not while typing in a field, and not with Ctrl held.
+        //
+        // 🔴 W-Y4 RE-POINTED THIS ARM, AND IT IS THE HALF OF A RE-HOME THAT GETS FORGOTTEN. The menu row and this
+        // accelerator are TWO doors onto the same report; re-pointing the menu row alone leaves Alt+R opening the
+        // superseded page, so the operator reaches a surface with the chords dead depending on which door they
+        // used. That is the "one shipped report nobody can reach" failure in its other direction, and the only
+        // guard against it is grepping every route before deleting anything.
         if (e.Key == Key.R && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control) && !IsTyping(e))
         {
-            vm.OpenChallanReconciliation();
+            vm.OpenTdsChallanReconciliationReport();
             e.Handled = true;
             return;
         }
@@ -2333,11 +2339,22 @@ public partial class MainWindow : Window
     private void OnAddSingleEntryParticularClick(object? sender, RoutedEventArgs e) =>
         Vm?.VoucherEntry?.AddSingleEntryParticular();
 
+    // 🔴 Both of these called Create() unconditionally while their Ctrl+A arms branched on IsAltering, so the
+    // pointer path on either ALTERATION screen tried to create a duplicate and failed on the name clash. Same
+    // defect, same fix, same reason as the account group below: the button and the accelerator must run the
+    // same verb. Budget and Scenario deliberately keep a bare Create() — neither has a ForAlter factory, so
+    // neither can be altering, and giving them this branch would imply a verb that does not exist.
     private void OnCreateCostCategoryClick(object? sender, RoutedEventArgs e)
-        => Vm?.CostCategoryMaster?.Create();
+    {
+        if (Vm?.CostCategoryMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateCostCentreClick(object? sender, RoutedEventArgs e)
-        => Vm?.CostCentreMaster?.Create();
+    {
+        if (Vm?.CostCentreMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     /// <summary>
     /// The Outstandings "Settle Bills (Alt+A)" button — the same route the Alt+A key takes, so the button and the
@@ -2346,8 +2363,16 @@ public partial class MainWindow : Window
     private void OnSettleBillsClick(object? sender, RoutedEventArgs e)
         => Vm?.OpenSettlementVoucherFromOutstandings();
 
+    // 🔴 THE SAME DEFECT THE ACCOUNT-GROUP COMMENT BELOW DESCRIBES, STILL LIVE ON THE LEDGER. It called Create()
+    // unconditionally, so on the Ledger ALTERATION screen (Ctrl+Enter from the ledger list) the pointer path
+    // tried to create a SECOND ledger with the same name and printed "a ledger named 'X' already exists" over a
+    // valid alteration. Ctrl+A branched correctly the whole time (MainWindowViewModel.cs, the LedgerMaster arm),
+    // so the button and the accelerator did two different things — exactly what that comment forbids.
     private void OnCreateLedgerClick(object? sender, RoutedEventArgs e)
-        => Vm?.LedgerMaster?.Create();
+    {
+        if (Vm?.LedgerMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     // 🔴 The button must branch the SAME way Ctrl+A does. It did not: it called Create() unconditionally, so on
     // the Group ALTERATION screen the pointer path tried to create a second group with the same name and printed
@@ -2514,8 +2539,21 @@ public partial class MainWindow : Window
     private void OnCreateReorderLevelClick(object? sender, RoutedEventArgs e)
         => Vm?.ReorderLevels?.Create();
 
+    // 🔴 T2-99 (census 3.11): BRANCHES, exactly as the Ctrl+A arm in
+    // MainWindowViewModel.AcceptCurrentPage does — see OnCreatePriceLevelClick for why the pointer route and the
+    // keyboard route must agree rather than one of them always creating. This handler used to be a bare
+    // `Save()`, i.e. the CREATE verb, on the one button the Price List ALTERATION screen renders: an operator who
+    // corrected a fat-fingered slab rate and then CLICKED instead of pressing Ctrl+A either lost the correction
+    // (AddOrReviseList refuses a same-or-earlier date) or, having also moved Applicable-From forward, APPENDED A
+    // SECOND VERSION while the screen reported success — leaving the wrong rate live for every invoice dated
+    // inside the original version's window. A price-list rate is money on every subsequent invoice, so the two
+    // routes are now tested separately (PriceListVersionAlterTests): a COMPLETE verb row does not certify that
+    // the pointer and the keyboard agree.
     private void OnSavePriceListClick(object? sender, RoutedEventArgs e)
-        => Vm?.PriceLists?.Save();
+    {
+        if (Vm?.PriceLists is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Save();
+    }
 
     private void OnAddPriceListSlabClick(object? sender, RoutedEventArgs e)
         => Vm?.PriceLists?.AddSlabRow();
