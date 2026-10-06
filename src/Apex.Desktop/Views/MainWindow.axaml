@@ -10106,7 +10106,10 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PriceListsViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Price List Creation"
+                            <!-- census 3.11: bound, not the literal "Price List Creation" it was, so the
+                                 ALTERATION screen does not render the Creation title. The view-model Caption is
+                                 the single source; the sibling masters above already bind it this way. -->
+                            <TextBlock Grid.Row="0" Name="PriceListMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,8"/>
 

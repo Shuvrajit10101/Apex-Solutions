@@ -108,6 +108,60 @@ public sealed class PriceListService
     }
 
     /// <summary>
+    /// <b>Corrects ONE existing dated version in place</b> — census 3.11. Keeps the version's
+    /// <see cref="PriceList.Id"/>, <see cref="PriceList.PriceLevelId"/> and <see cref="PriceList.StockItemId"/>
+    /// and replaces its <see cref="PriceList.ApplicableFrom"/> and slab set.
+    ///
+    /// <para><b>FIDELITY (R7): VENDOR-ATTESTED.</b> TallyPrime states plainly
+    /// <i>"You can alter a price list by overwriting the details entered in the Price List screen"</i>, reached via
+    /// <i>"Press Alt+G (Go To) &gt; Alter Master &gt; Price List"</i>
+    /// [<c>help.tallysolutions.com/selling-buying-prices/</c>, opened and read by content 2026-10-04]. 🔴 This
+    /// closes the exact gap the W33 C3 block in <c>MainWindowViewModel.AlterHighlightedMasterListRow</c> recorded
+    /// — it withheld a price-list Alter because no page had then been found describing what altering one means.
+    /// The page describes overwriting, which is what this does; the append-only REVISION path
+    /// (<see cref="AddOrReviseList"/>) is untouched and remains how a price legitimately changes over time.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS IS NOT A BREACH OF THE APPEND-ONLY HISTORY (RQ-27).</b> The two acts are different and
+    /// both are the vendor's. A <b>revision</b> adds a new dated version because the price genuinely changed from
+    /// that date on; the older version stays correct for the window it governed. An <b>alteration</b> says the
+    /// version was <i>entered wrongly and never governed anything correctly</i> — a fat-fingered slab rate. Before
+    /// this, the operator's only recourse was to supersede it, which leaves the wrong rate live for every
+    /// back-dated invoice inside its window, or to delete and re-key it. 🔴 <b>RISK CLOSED: WRONG-MONEY</b>
+    /// (a price list sets invoice rates).</para>
+    ///
+    /// <para><b>Nothing already posted is re-priced.</b> <c>PriceResolver</c> reads a price list at ENTRY time and
+    /// the resolved rate is stored on the voucher line itself, so altering a version changes what the NEXT invoice
+    /// is offered — exactly as <see cref="DeleteList"/>'s remarks derive for the delete.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// No version with that id exists; the slabs fail <see cref="ValidateSlabs"/>; or ANOTHER version of the same
+    /// (level, item) already carries <paramref name="applicableFrom"/> — two versions sharing one date would make
+    /// <c>PriceResolver</c>'s "latest ApplicableFrom ≤ voucher date" pick arbitrary between them, which is a
+    /// wrong-rate path and is refused rather than ordered by luck. There is no unique index behind this
+    /// (<c>ix_price_lists_level_item</c> is non-unique), so the guard is the only thing enforcing it.
+    /// </exception>
+    public PriceList AlterList(Guid priceListId, DateOnly applicableFrom, IReadOnlyList<PriceListSlab> slabs)
+    {
+        var existing = _company.PriceLists.FirstOrDefault(pl => pl.Id == priceListId)
+            ?? throw new InvalidOperationException($"Price list {priceListId} not found.");
+
+        ValidateSlabs(slabs);
+
+        foreach (var other in _company.PriceListsFor(existing.PriceLevelId, existing.StockItemId))
+            if (other.Id != priceListId && other.ApplicableFrom == applicableFrom)
+                throw new InvalidOperationException(
+                    $"Another price list version for this level/item is already applicable from " +
+                    $"{applicableFrom:yyyy-MM-dd}; two versions cannot share one date.");
+
+        var altered = new PriceList(
+            existing.Id, existing.PriceLevelId, existing.StockItemId, applicableFrom, slabs);
+
+        _company.RemovePriceList(existing);
+        _company.AddPriceList(altered);
+        return altered;
+    }
+
+    /// <summary>
     /// Deletes a <see cref="PriceLevel"/>, blocked while any <see cref="PriceList"/> row or any ledger's
     /// <see cref="Ledger.DefaultPriceLevelId"/> references it (so no list version or party default is orphaned).
     /// </summary>

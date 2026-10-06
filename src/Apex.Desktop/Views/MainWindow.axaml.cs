@@ -2539,8 +2539,21 @@ public partial class MainWindow : Window
     private void OnCreateReorderLevelClick(object? sender, RoutedEventArgs e)
         => Vm?.ReorderLevels?.Create();
 
+    // 🔴 T2-99 (census 3.11): BRANCHES, exactly as the Ctrl+A arm in
+    // MainWindowViewModel.AcceptCurrentPage does — see OnCreatePriceLevelClick for why the pointer route and the
+    // keyboard route must agree rather than one of them always creating. This handler used to be a bare
+    // `Save()`, i.e. the CREATE verb, on the one button the Price List ALTERATION screen renders: an operator who
+    // corrected a fat-fingered slab rate and then CLICKED instead of pressing Ctrl+A either lost the correction
+    // (AddOrReviseList refuses a same-or-earlier date) or, having also moved Applicable-From forward, APPENDED A
+    // SECOND VERSION while the screen reported success — leaving the wrong rate live for every invoice dated
+    // inside the original version's window. A price-list rate is money on every subsequent invoice, so the two
+    // routes are now tested separately (PriceListVersionAlterTests): a COMPLETE verb row does not certify that
+    // the pointer and the keyboard agree.
     private void OnSavePriceListClick(object? sender, RoutedEventArgs e)
-        => Vm?.PriceLists?.Save();
+    {
+        if (Vm?.PriceLists is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Save();
+    }
 
     private void OnAddPriceListSlabClick(object? sender, RoutedEventArgs e)
         => Vm?.PriceLists?.AddSlabRow();
