@@ -2181,9 +2181,16 @@ public sealed class ReportChordFidelityTests : IDisposable
             var menuDepth = vm.Columns.Count;
 
             // A page column lands ON TOP of the modal menu — the pre-existing unguarded arm.
+            //
+            // 🔴 W-Y4 moved what Alt+R OPENS, not whether it is guarded. The Challan Reconciliation was re-homed
+            // off its own page Screen onto ReportKind.TdsChallanReconciliation, so the arm now pushes a
+            // Screen.Report column instead of a Screen.ChallanReconciliation one. The defect class this test
+            // pins is untouched: Alt+R still carries no screen guard, so it still stacks a page column over a
+            // modal menu, which is the only property the assertion needs.
             window.KeyPressQwerty(PhysicalKey.R, RawInputModifiers.Alt);
             Pump(window);
-            Assert.Equal(Screen.ChallanReconciliation, vm.CurrentScreen);
+            Assert.Equal(Screen.Report, vm.CurrentScreen);
+            Assert.Equal(ReportKind.TdsChallanReconciliation, vm.Reports!.Kind);
             Assert.Equal(menuDepth + 1, vm.Columns.Count);
 
             // …and popping it rehydrates onto the menu column beneath.

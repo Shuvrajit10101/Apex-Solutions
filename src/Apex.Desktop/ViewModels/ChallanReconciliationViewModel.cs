@@ -61,12 +61,23 @@ public sealed partial class ChallanReconciliationViewModel : ViewModelBase, IMas
     /// deduction deposited in a later period (deducted in March, deposited in April) is fully compliant yet can
     /// read here as outstanding for the earlier window. The period-attributed (compliance) position lives in
     /// Form 26Q and the TDS Outstandings report. Constant text, surfaced as a band under the totals.
+    ///
+    /// <para>🔴 <b>A <c>const</c> RATHER THAN AN EXPRESSION, BECAUSE W-Y4 GAVE IT A SECOND READER.</b> The
+    /// reconciliation was re-homed onto <see cref="ReportKind.TdsChallanReconciliation"/>, whose builder appends
+    /// this sentence through <c>ReportsViewModel.Footnote</c> so it reaches that report's screen, export and
+    /// printed page. Two copies of a caveat drift, and a caveat that drifts is worse than one that is missing —
+    /// a reader who has seen the sentence once trusts the version in front of them. There is one string and both
+    /// surfaces read it.</para>
     /// </summary>
-    public string BasisNote =>
+    public const string CashBasisNote =
         "Deposits are shown on a cash basis, by challan deposit date. A deduction deposited in a later " +
         "period (e.g. deducted in March, deposited in April) may appear here as outstanding for the earlier " +
         "window even though it is compliant — see Form 26Q and the TDS Outstandings report for the " +
         "period-attributed position.";
+
+    /// <summary>The page's own binding onto <see cref="CashBasisNote"/> (the XAML binds a property, not a
+    /// const). Kept so the shipped template and the export snapshot below are untouched by the re-home.</summary>
+    public string BasisNote => CashBasisNote;
 
     public ChallanReconciliationViewModel(Company company)
     {

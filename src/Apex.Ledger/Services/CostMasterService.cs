@@ -44,8 +44,18 @@ public sealed class CostMasterService
     ///
     /// <para>The vendor's Cost Category screen carries <i>Name &amp; alias</i>, <i>Allocate Revenue Items</i> and
     /// <i>Allocate Non-revenue items</i> (help.tallysolutions.com/cost-centre-or-profit-centre-tally/, fetched
-    /// 2026-09-14). <b>Alias is not altered here because the domain type has no alias field</b> — capturing it is
-    /// its own gap, recorded against row 2.7 and deliberately not smuggled into this verb.</para>
+    /// 2026-09-14, re-read 2026-10-04). <b>Alias is not altered here because the domain type has no alias
+    /// field</b> — capturing it is its own gap, recorded against row 2.7 and deliberately not smuggled into
+    /// this verb.
+    ///
+    /// <para>🔴 <b>AND UNLIKE THE COST CENTRE, THIS ONE REALLY DOES NEED A MIGRATION — the two are not the same
+    /// shape and were previously described as if they were.</b> <see cref="CostCentre"/> has carried
+    /// <c>Alias</c> and a <c>cost_centres.alias</c> column since v3, so its capture shipped with no schema
+    /// change. <see cref="CostCategory"/> has NEITHER: no <c>Alias</c> property (<c>CostCategory.cs:16-31</c> is
+    /// Id / Name / AllocateRevenueItems / AllocateNonRevenueItems / IsPredefined) and no <c>alias</c> column in
+    /// the <c>cost_categories</c> DDL (<c>Schema.cs:1459-1466</c>, and the v3 re-create at <c>:2395</c>).
+    /// Closing row 2.7's alias therefore costs <c>ALTER TABLE cost_categories ADD COLUMN alias TEXT NULL</c>
+    /// plus a domain property, a mapper leg and a reader. No wave has owned that migration.</para>
     ///
     /// <para><b>The "at least one must be Yes" rule is re-checked on alter.</b> The constructor enforces it at
     /// create time, but an alter writes the two flags straight onto an existing object and would otherwise be the
@@ -97,8 +107,25 @@ public sealed class CostMasterService
     /// <summary>
     /// <b>Alters</b> a cost centre in place — rename, re-categorise and re-parent — resolved by its stable
     /// <paramref name="centreId"/>. The vendor's Cost Centre screen is <i>Name &amp; alias</i>, <i>Under</i>
-    /// (Primary or an existing centre) and <i>Category</i>; alias is again absent from the domain type and is
-    /// recorded as row 2.8's own gap rather than invented here.
+    /// (Primary or an existing centre) and <i>Category</i> — all four are altered here.
+    ///
+    /// <para>🔴 <b>THE SENTENCE THAT USED TO SIT HERE WAS FALSE, and it is corrected rather than deleted because
+    /// it is why row 2.8 sat PARTIAL for several waves.</b> It read: <i>"alias is again absent from the domain
+    /// type and is recorded as row 2.8's own gap rather than invented here."</i> <see cref="CostCentre.Alias"/>
+    /// has existed on the domain type all along (<c>CostCentre.cs:29</c>, with a constructor parameter), and
+    /// <c>cost_centres.alias</c> has been in the DDL since v3. Nothing was missing but the capture. A reader who
+    /// trusted that sentence would have scheduled a migration this row never needed.</para>
+    ///
+    /// <para><b>Alias is vendor-attested verbatim</b> on the Cost Centre screen:
+    /// <i>"Name &amp; alias: Provide a name. As in other masters, you can specify multiple aliases."</i>
+    /// (<c>help.tallysolutions.com/cost-centre-or-profit-centre-tally/</c>, read 2026-10-04). 🔴 <b>The vendor
+    /// permits MULTIPLE aliases; this build stores ONE</b>, because <c>cost_centres.alias</c> is a single
+    /// <c>TEXT</c> column and widening it to a child table is a migration this slice does not own. The
+    /// one-alias limit is OURS and is labelled as such — it is not a vendor rule.</para>
+    ///
+    /// <para><paramref name="alias"/> is normalised exactly as every other master's alias is: blank or
+    /// whitespace becomes <c>null</c>, so "cleared" and "never set" are the same stored value and the
+    /// alias-resolution path in <see cref="Company.FindCostCentreByName"/> cannot be made to match on "".</para>
     ///
     /// <para><b>Three guards, and the second and third are the ones that matter.</b></para>
     /// <list type="number">
@@ -117,7 +144,8 @@ public sealed class CostMasterService
     /// </summary>
     /// <exception cref="InvalidOperationException">The centre or category does not exist, the name is empty or
     /// clashes, the parent is in another category, or the re-parent would form a cycle.</exception>
-    public CostCentre AlterCostCentre(Guid centreId, string name, Guid categoryId, Guid? parentId)
+    public CostCentre AlterCostCentre(
+        Guid centreId, string name, Guid categoryId, Guid? parentId, string? alias = null)
     {
         var centre = _company.FindCostCentre(centreId)
             ?? throw new InvalidOperationException($"Cost centre {centreId} not found.");
@@ -146,6 +174,7 @@ public sealed class CostMasterService
         centre.Name = trimmed;
         centre.CategoryId = categoryId;
         centre.ParentId = parentId;
+        centre.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
         return centre;
     }
 
