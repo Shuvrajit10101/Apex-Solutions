@@ -427,12 +427,34 @@ public sealed record Gstr3b(
     {
         var cgst = 0m; var sgst = 0m; var igst = 0m; var taxable = 0m; var exempt = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
+        foreach (var (voucher, voucherType) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
         {
             // Phase 9 slice 2b: a formalised §34 credit/debit note is projected — signed — into 3.1(a) by ReadCdn; exclude
             // it from BOTH the ordinary outward and the "all other ITC" sweeps so it is never double-counted (risk #4). A
             // §34 debit note's base type maps to Input, so this exclusion also keeps it out of ITC. No CDN ⇒ no exclusion.
+            // 🔴 THIS EXCLUSION IS LOAD-BEARING AND MUST STAY FIRST, now more than before: the sign below would otherwise
+            // reduce a LINKED note a SECOND time on top of ReadCdn's own signed projection (4,500 − 900 − 900 = 2,700).
+            // Pinned by Gstr3bUnlinkedReturnNoteSignTests.A_linked_section_34_note_is_still_reduced_exactly_once.
             if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
+
+            // 🔴 T2-92 — THE OUTWARD SIGN. This sweep reads `line.Amount.Amount`, a positive MAGNITUDE, and never the
+            // posted SIDE; before this fix Gstr3b.cs contained ZERO references to IsReturnNote or EntryLine.Side, so an
+            // UNLINKED Credit Note (the §34 link is opt-in, so this is the ordinary keyboard-entered shape) was re-added
+            // to §3.1(a) as though it were a fresh supply. Measured on main: CGST 5,400 filed against an Output CGST
+            // ledger that had itself netted to 3,600, and taxable value 60,000 against 40,000. The POSTING was always
+            // correct — ComputeItemInvoiceGst passes `reverseSides: IsReturnNote`, independent of the §34 toggle — only
+            // this projection re-added it. Identical in shape to the T2-59 fix in Gstr1.Build, and it READS THE SAME ONE
+            // HOME, VoucherEffects.IsReturnNote, rather than inventing a parallel predicate: there is no shared sign
+            // helper in this codebase (a prior report claimed a `GstReportSupport.SignOf`; literal grep returns zero
+            // hits — it never existed), and this sign-of-a-note class has already been closed one-call-site-at-a-time
+            // four times here.
+            //
+            // 🔴 GATED TO THE OUTWARD DIRECTION, DELIBERATELY. ReadSide is SHARED with the inward (ITC) sweep, and
+            // IsReturnNote is true for a DEBIT NOTE as well — so signing unconditionally would change filed ITC
+            // figures in §4. A purchase return re-added to ITC is the same defect class and is REAL, but the ITC
+            // surface is owned by a sibling branch; it is reported for that owner, NOT silently changed here.
+            var sign = direction == GstTaxDirection.Output && VoucherEffects.IsReturnNote(voucherType.BaseType)
+                ? -1m : 1m;
 
             var hasTax = false;
             foreach (var line in voucher.Lines)
@@ -444,13 +466,13 @@ public sealed record Gstr3b(
                 hasTax = true;
                 switch (g.TaxHead)
                 {
-                    case GstTaxHead.Central: cgst += line.Amount.Amount; break;
-                    case GstTaxHead.State: sgst += line.Amount.Amount; break;
-                    case GstTaxHead.Integrated: igst += line.Amount.Amount; break;
+                    case GstTaxHead.Central: cgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.State: sgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.Integrated: igst += sign * line.Amount.Amount; break;
                 }
             }
             if (hasTax)
-                taxable += GstReportSupport.InvoiceTaxableValue(voucher).Amount;
+                taxable += sign * GstReportSupport.InvoiceTaxableValue(voucher).Amount;
         }
 
         // Exempt/nil/non-GST outward value: outward vouchers with a stock/sales leg but NO tax line. These are
@@ -480,15 +502,41 @@ public sealed record Gstr3b(
             // PostedDirectionalVouchers, so it needs the registration filter applied here too — otherwise a
             // registration-scoped 3B would carry its own taxable supplies and EVERY registration's exempt ones.
             if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
-            if (v.Lines.Any(l => l.HasGst)) continue;   // taxable vouchers already counted
             // An outward reverse-charge supply carries zero tax too, but it belongs only in 3.1(d)-value / GSTR-1 4B —
             // NOT the exempt/nil/non-GST bucket (else it is double-represented). Exclude it (Phase 9 slice 2; RQ-7).
             if (GstReportSupport.IsOutwardReverseChargeSupply(company, v)) continue;
             // A §34 CDN-linked voucher is projected — signed — by its own table (3.1(a) via ReadCdn / GSTR-1 Table 9B),
             // so a zero-tax (exempt) §34 note must NOT also land in the exempt/nil/non-GST bucket, else GSTR-3B over-states
             // exempt outward and diverges from the GSTR-1 main sweep (which already skips CDN-linked vouchers). Finding #6.
+            // 🔴 THE RCM AND §34 GUARDS STAY AHEAD OF THE MIXED-INVOICE BRANCH BELOW, deliberately: before T2-93 a
+            // taxable voucher short-circuited on `Any(l => l.HasGst)` before ever reaching them, so admitting mixed
+            // vouchers without this ordering would newly feed an RCM or linked-§34 voucher's exempt leg into 3.1(c) —
+            // a behaviour change well beyond this defect. Both orders give the same answer for a wholly-exempt
+            // voucher; only the new branch is affected.
             if (GstReportSupport.CdnLinkFor(company, v) is not null) continue;
-            exempt += v.InventoryLinesValue.Amount;
+
+            // 🔴 T2-93 — a RETURN of an exempt supply reduces exempt turnover. Same one home as the 3.1(a) sign above.
+            var sign = VoucherEffects.IsReturnNote(type.BaseType) ? -1m : 1m;
+
+            // 🔴 T2-93 — THE MIXED INVOICE. This line used to read `if (v.Lines.Any(l => l.HasGst)) continue;` with the
+            // comment "taxable vouchers already counted", which is true of the voucher's TAXED lines and false of its
+            // exempt ones: a single invoice carrying one taxed line and one exempt line lost its WHOLE exempt leg, so
+            // §3.1(c) filed ZERO while GSTR-1 declared the real exempt turnover off the same books (measured: 3B 0
+            // against GSTR-1 15,000, and GSTR-9 Table 5N 60,000 against Table 17 85,000). The split is per LINE, using
+            // the same shared engine predicate GSTR-1's Table 12 already uses (GstReportSupport.IsNonTaxableStockLine
+            // — ER-5: an UNRESOLVED rate is not an exemption), so the two returns cannot drift. The taxed lines'
+            // value is still counted exactly once, by ReadSide via InvoiceTaxableValue, which reads the POSTED tax
+            // lines' TaxableValue and therefore never includes an exempt line — so there is no double count.
+            if (v.Lines.Any(l => l.HasGst))
+            {
+                var valueLedger = GstReportSupport.BucketingValueLedger(company, v);
+                foreach (var il in v.InventoryLines)
+                    if (GstReportSupport.IsNonTaxableStockLine(company, v, valueLedger, il))
+                        exempt += sign * il.Value.Amount;
+                continue;
+            }
+
+            exempt += sign * v.InventoryLinesValue.Amount;
         }
         return exempt;
     }
