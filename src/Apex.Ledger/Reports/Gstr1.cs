@@ -462,7 +462,7 @@ public sealed record Gstr1(
         // projected off the advance records. All skipped byte-identically when the collections are empty (ER-13).
         var table9B = BuildTable9B(
             company, from, to, registrationId, unlinked9B, ref totalCgst, ref totalSgst, ref totalIgst);
-        var (table11A, table11B) = BuildAdvanceTables(company, from, to);
+        var (table11A, table11B) = BuildAdvanceTables(company, from, to, registrationId);
 
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
             new Money(exempt), new Money(totalCgst), new Money(totalSgst), new Money(totalIgst))
@@ -616,11 +616,32 @@ public sealed record Gstr1(
     /// <b>adjustment</b> (invoice) <b>or Rule-51 refund</b> voucher falls in the window (a refund reverses the advance
     /// exactly like an adjustment). Each group's CGST/SGST/IGST split is reproduced from the record's net advance + rate +
     /// POS via the same total-then-split rule (paisa-exact). Empty when unused (ER-13).
+    ///
+    /// <para>🔴 <b>A11 REVIEW (census 6.23) — THE ADVANCE TABLES ARE SCOPED TOO, AND THEY WERE THE SECOND
+    /// UNSCOPED LEG OF THIS BUILD.</b> Like <see cref="BuildTable9B"/> this method walks a record collection
+    /// (<c>company.AdvanceReceipts</c>) instead of <c>GstReportSupport.PostedDirectionalVouchers</c>, so it has to
+    /// apply the registration filter itself. Unscoped, a Tamil Nadu advance appeared in the Karnataka return:
+    /// measured on <c>Gstr1AdvanceTableRegistrationScopeTests</c>, Karnataka's Table 11A carried the branch's
+    /// ₹1,00,000 advance and ₹18,000 of IGST advance tax against a true empty table — and from this wave that
+    /// figure reaches the EMITTED <c>at</c>/<c>atadj</c> payload, which previously refused to build at all on a
+    /// multi-registration book.</para>
+    ///
+    /// <para><b>The record is attributed through its RECEIPT voucher</b> — the registration that collected the
+    /// advance is the one that owes the tax on it (CGST Act §13(2); the receipt voucher of Rule 50 is issued by
+    /// that registration), so both 11A and 11B follow the receipt rather than being split between registrations.
+    /// Under an explicit scope a record whose receipt voucher cannot be found is unattributable and is skipped.
+    /// <c>null</c> ⇒ no filter, so every single-registration book is byte-identical (ER-13).</para>
+    ///
+    /// <para><b>Vendor-attested (R7, opened by content):</b> "<i>Press F3 (Company/Tax Registration) and select the
+    /// registration for which you want to view the report</i>" — <c>help.tallysolutions.com/gstr-1-report-in-tallyprime/</c>.</para>
     /// </summary>
     private static (IReadOnlyList<Gstr1AdvanceRow> Table11A, IReadOnlyList<Gstr1AdvanceAdjustedRow> Table11B)
-        BuildAdvanceTables(Company company, DateOnly from, DateOnly to)
+        BuildAdvanceTables(Company company, DateOnly from, DateOnly to, Guid? registrationId)
     {
         if (company.AdvanceReceipts.Count == 0) return ([], []);
+
+        // Normalised exactly as PostedDirectionalVouchers and BuildTable9B do it.
+        var scope = registrationId is { } req ? (Guid?)(req == Guid.Empty ? GstRegistration.PrimaryId : req) : null;
 
         var received = new Dictionary<(int Rate, bool Inter), (decimal Adv, decimal Cgst, decimal Sgst, decimal Igst)>();
         var adjusted = new Dictionary<(int Rate, bool Inter), (decimal Adv, decimal Cgst, decimal Sgst, decimal Igst)>();
@@ -645,6 +666,11 @@ public sealed record Gstr1(
         foreach (var a in company.AdvanceReceipts)
         {
             if (!a.IsService || a.AdvanceTax.Amount == 0m) continue; // goods advances are de-taxed — no 11A/11B
+            // 🔴 A11 review (census 6.23): the advance belongs to the registration whose receipt voucher collected
+            // it — another registration's advance must not appear in, or add tax to, this return's 11A/11B.
+            if (scope is { } s
+                && (company.FindVoucher(a.ReceiptVoucherId) is not { } rv || GstReportSupport.RegistrationOf(rv) != s))
+                continue;
             if (InWindow(a.ReceiptVoucherId)) Accumulate(received, a);
             if (InWindow(a.AdjustedAgainstInvoiceVoucherId)) Accumulate(adjusted, a);
             // A Rule-51 REFUND reverses the advance: net it back out in the refund period exactly like an adjustment

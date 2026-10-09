@@ -357,7 +357,10 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         // Cleared FIRST, on every path, so an applicability statement can never linger over a form it does not
         // describe. Only ProjectGstr9a re-raises it.
         ApplicabilityNoteText = string.Empty;
-        GstinText = string.IsNullOrWhiteSpace(_company.Gst?.Gstin) ? "GSTIN —" : $"GSTIN {_company.Gst!.Gstin}";
+        // 🔴 A11 review: the header names the registration the figures below BELONG TO. It read
+        // `_company.Gst!.Gstin` — always the PRIMARY — so selecting the Tamil Nadu registration projected Tamil
+        // Nadu's figures under the Maharashtra GSTIN on screen. Same wrong-taxpayer shape as the export file name.
+        GstinText = string.IsNullOrWhiteSpace(FiledGstin) ? "GSTIN —" : $"GSTIN {FiledGstin}";
 
         // Both are computed from the selected form + period and are BOUND in the view (the file-name placeholder).
         // Raised here — on every path, including the no-return-applies early return below — so the placeholder can
@@ -577,8 +580,21 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
     public string ExportFileName =>
         SelectedReturn is null || SelectedPeriod is null
             ? string.Empty
-            : $"{SelectedReturn.Label}_{(string.IsNullOrWhiteSpace(_company.Gst?.Gstin) ? "NOGSTIN" : _company.Gst!.Gstin)}" +
+            : $"{SelectedReturn.Label}_{(string.IsNullOrWhiteSpace(FiledGstin) ? "NOGSTIN" : FiledGstin)}" +
               $"_{FinancialPeriodCode}.json";
+
+    /// <summary>
+    /// 🔴 <b>A11 review (T2-119 ii): the GSTIN THIS FILE IS FILED UNDER — the SELECTED registration's, not always
+    /// the primary's.</b> Until the GSTR-1 payload took a registration, a multi-registration company's export threw
+    /// <c>EnsureRegistrationScoped</c>'s refusal and no file was produced; now that it emits, the name mattered and
+    /// was wrong. Measured on a Maharashtra primary + Tamil Nadu branch book with the branch selected: the payload
+    /// correctly declared <c>gstin</c> 33AABCC1206D1ZM while the file was written as
+    /// <c>GSTR-1_27AAPFU0939F1ZV_042024.json</c> — a return whose contents belong to one taxpayer, named after
+    /// another. Falls back to the company GSTIN when the registration cannot be resolved, so a single-registration
+    /// book's name is unchanged (ER-13).
+    /// </summary>
+    private string? FiledGstin =>
+        _company.Gst?.FindRegistration(ScopedRegistrationId)?.Gstin ?? _company.Gst?.Gstin;
 
     /// <summary>Builds the offline JSON bytes for the selected return + period. Pure — writes nothing.</summary>
     public byte[] BuildJson()
