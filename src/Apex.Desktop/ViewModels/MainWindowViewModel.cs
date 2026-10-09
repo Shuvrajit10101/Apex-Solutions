@@ -50,10 +50,15 @@ public enum Screen
     ExceptionReportsPicker,
 
     // census 11.4 gap (a) — the Day-Book "Voucher Type" (F4) FILTER picker: a menu column of "All Vouchers" plus
-    // every voucher type that the live book actually lists, appended to the RIGHT of the report exactly like the
+    // every ACTIVE voucher type the company holds, appended to the RIGHT of the report exactly like the
     // two pickers above (Reports stays bound beneath, Esc pops back to the same book). Vendor, verbatim:
     // "Day Book > F4 (Voucher Type), and select the Debit Note voucher type." and "Press F4 (Voucher Type) >
     // Purchase." (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+    // 🔴 CORRECTED 2026-10-09 (A12, wave 45): this comment used to say "every voucher type that the live book
+    // actually lists". It is neither that set nor a superset of it — OpenVoucherTypeFilterPicker lists
+    // Company.VoucherTypes.Where(t => t.IsActive), while DayBook.Build has NO IsActive test at all (grep over
+    // DayBook.cs = 0 hits). So a DEACTIVATED type whose historical vouchers still list in the book cannot be
+    // narrowed to, and an active type with no voucher in the window IS offered and opens an empty book.
     VoucherTypeFilterPicker,
 
     ReportConfig,
@@ -6125,9 +6130,25 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// disjoint (a live report has <see cref="Reports"/> bound; opening a voucher runs <c>ClearSubScreens</c>,
     /// which nulls it), so neither side is rebound.</para>
     ///
-    /// <para><b>A bare letter FILTERS in this column rather than activating a row</b> (<c>DataDriven</c>), for the
-    /// reason the Alt+A picker records: these rows are the COMPANY'S own voucher types, so a computed hotkey would
-    /// paint an arbitrary mid-word letter on a name nobody at build time has seen.</para>
+    /// <para><b>No row in this column carries a computed hotkey</b> (<c>DataDriven</c>), for the reason the Alt+A
+    /// picker records: these rows are the COMPANY'S own voucher types, so a computed hotkey would paint an
+    /// arbitrary mid-word letter on a name nobody at build time has seen.</para>
+    ///
+    /// <para>🔴 <b>CORRECTED 2026-10-09 (A12, wave 45) — THE ORIGINAL SENTENCE CLAIMED "a bare letter FILTERS in
+    /// this column rather than activating a row", AND THAT IS FALSE FOR <c>P</c>, <c>E</c>, <c>M</c> AND
+    /// <c>W</c>.</b> Measured: with this picker open, <c>P</c> lands on <see cref="Screen.PrintPreview"/>, not on
+    /// the filter box. The mechanism, read end to end: this column is pushed by <c>PushMenuColumn</c>, the path
+    /// that deliberately does NOT null <see cref="Reports"/>, so <c>IsPrintablePage</c> /
+    /// <c>IsExportablePage</c> / <c>IsShareablePage</c> stay TRUE — and
+    /// <see cref="IsActionMenuColumn"/> (<c>:3630</c>) names only <c>ChangeViewMenu</c>, <c>PrintMenu</c>,
+    /// <c>ExportMenu</c> and <c>ShareMenu</c>, so it does NOT cover this screen. The bare P/E/M/W arms in
+    /// <c>MainWindow.axaml.cs</c> therefore match FIRST and swallow the letter — including the initials of
+    /// <b>Payment</b> and <b>Purchase</b>, the vendor's own two F4 examples.
+    /// <b>NOT FIXED HERE:</b> the repair belongs in that shared predicate, whose NAME would become wrong, and
+    /// <c>GatewayColumn.ReservedLetters</c>' own remarks already say "Adding letters to this array is therefore
+    /// NOT the fix" — a design call, not a comment fix. The same hole exists on all THREE <c>DataDriven</c>
+    /// pickers that sit over a live report (<c>AddVoucherPicker</c>, this one, <c>InsertVoucher</c>), none of
+    /// which is in <see cref="IsActionMenuColumn"/>.</para>
     /// </summary>
     public void OpenVoucherTypeFilterPicker()
     {
@@ -6139,11 +6160,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var picker = new GatewayColumn("Voucher Type") { Kind = GatewayColumnKind.DataDriven };
         picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
 
-        // 🔴 "All Vouchers" IS THE VENDOR'S OWN LABEL FOR THE UNFILTERED BOOK, not an invented clear-row: the Day
-        // Book page's view knob offers "All Vouchers" — "displays Day Book for all the vouchers, irrespective of
-        // the type of voucher" — and DayBook.cs's class summary already cites it. Without a row back to it an F4
-        // press would be a ONE-WAY narrowing, which is the dead-end class, so it is listed FIRST and is where the
-        // column's highlight lands.
+        // "All Vouchers" is the vendor's own WORDING for the unfiltered book, not an invented label: the Day Book
+        // page carries "All Vouchers" — "displays Day Book for all the vouchers, irrespective of the type of
+        // voucher" — and DayBook.cs's class summary already cites it. Without a row back to it an F4 press would
+        // be a ONE-WAY narrowing, which is the dead-end class, so it is listed FIRST and is where the column's
+        // highlight lands.
+        // 🔴 CORRECTED 2026-10-09 (A12, wave 45) — MIS-CITATION, RIGHT SUBSTANCE, WRONG CONTROL. This comment used
+        // to assert that label is "THE VENDOR'S OWN LABEL" for THIS picker. The words are verbatim on the page but
+        // they belong to a DIFFERENT control: Ctrl+B (Basis of Values) > Type of Voucher entries, a three-way of
+        // Accounting Entries Only / All Vouchers / Inventory Entries Only ("In Day Book, press Ctrl + B (Basis of
+        // Values)"). DayBook.cs cites them correctly as "its view knob"; this comment repurposed them. The F4
+        // picker's own vendor grounding is the two F4 sentences quoted on Screen.VoucherTypeFilterPicker; the
+        // clear-row itself is OURS, kept for the one-way-narrowing reason above and labelled as ours here.
         picker.Add(new MenuItemViewModel(
             "All Vouchers",
             () => PickVoucherTypeFilter(null, null),

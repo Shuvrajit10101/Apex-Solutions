@@ -1370,8 +1370,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <para>🔴 <b>Not decoration, and it is the same argument <see cref="ScaleSuffix"/> makes.</b> A Day Book
     /// listing six of nineteen vouchers while its header still reads "Day Book — 01-Apr-2024 to 31-Mar-2025" is a
     /// register that misstates its own contents, and this report is printed, exported and shared. The clause is
-    /// built into <see cref="Subtitle"/>, which every one of those surfaces reads, rather than painted into the
-    /// pane — so no output channel can show the narrowed rows without the sentence that explains them.</para>
+    /// built into <see cref="Subtitle"/> rather than painted into the pane, so the PRINT and SHARE artefacts carry
+    /// it (<c>ReportPrintProjector</c> reads <c>Subtitle</c>; the e-mail payload renders that same print artefact).
+    ///
+    /// <para>🔴 <b>CORRECTED 2026-10-09 (A12, wave 45) — THE EXPORT DOES NOT CARRY IT, AND THE ORIGINAL SENTENCE
+    /// SAID IT DID.</b> This doc used to claim <c>Subtitle</c> is read by "every one of those surfaces". It is not:
+    /// <c>ReportTabularProjector.Project</c> builds a <c>TabularExport</c>, and <c>TabularExport</c> has
+    /// <b>NO <c>Subtitle</c> field at all</b> — measured, <c>grep -c Subtitle</c> returns <b>4</b> in
+    /// <c>ReportPrintProjector</c> and <b>0</b> in both <c>ReportTabularProjector</c> and <c>TabularExport</c>. So
+    /// <b>Ctrl+E / Alt+E of a narrowed Day Book emits the narrowed SUBSET under a bare "Day Book" heading</b>, in
+    /// HTML, XML, JSON and XLSX alike — a subset with no sentence explaining it, which is the exact failure this
+    /// clause exists to prevent, on the one channel that leaves the building as a file. The narrowed ROWS are
+    /// right on every channel (the narrowing is applied in the engine); it is the CLAUSE that is missing. The
+    /// export header never carried the period either, so this is a pre-existing shape and its repair is its own
+    /// slice — filed, not fixed here.</para>
     /// </summary>
     private string VoucherTypeFilterSuffix => _voucherTypeFilterId is null || _voucherTypeFilterName.Length == 0
         ? string.Empty
@@ -2610,7 +2622,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var from = _options.Period?.From ?? _company.BooksBeginFrom;
         // census 11.4 gap (a): the vendor's F4 (Voucher Type) narrowing is applied IN THE ENGINE, so the
         // projection, the Alt+F12 view beneath it, the print artefact, the export and the share payload all see
-        // the same rows. Filtering in the loop below instead would have left every output channel to re-derive it.
+        // the same ROWS. Filtering in the loop below instead would have left every output channel to re-derive it.
+        // 🔴 "The same rows" is all this sentence claims, and it is measured. It does NOT extend to the subtitle
+        // CLAUSE: the export carries no Subtitle at all — see VoucherTypeFilterSuffix's own corrected remarks.
         var built = DayBook.Build(_company, from, _asOf, _voucherTypeFilterId);
         Title = "Day Book";
         Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}{VoucherTypeFilterSuffix}";

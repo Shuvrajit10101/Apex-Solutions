@@ -188,9 +188,14 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         if (SupportsDetailToggle && _report.Detailed != Detailed)
             _report.ToggleDetailed();
 
-        // census 11.4 gap (a): Show narration BEFORE the single re-projection below, so one Apply re-runs the
-        // projection once rather than twice. SetShowNarration re-projects only when the value actually changed and
-        // only where the knob is live, so an Apply with the box untouched is still a single build.
+        // census 11.4 gap (a): Show narration is applied BEFORE the re-projection below.
+        // 🔴 CORRECTED 2026-10-09 (A12, wave 45). This comment used to claim the ordering makes "one Apply re-run
+        // the projection once rather than twice". IT DOES NOT, in the one case the sentence is about: when the box
+        // ACTUALLY CHANGED, SetShowNarration (ReportsViewModel.cs:1363) calls Show(Kind) and ApplyConfiguration
+        // then calls Show(Kind) again at its tail — TWO re-projections, both read first-hand. What IS true is the
+        // narrower half: SetShowNarration re-projects only when the value changed and only where the knob is live,
+        // so an Apply with the box UNTOUCHED is a single build. The double build is a wasted projection, not a
+        // wrong figure (the second build is over the same state), so it is recorded rather than fixed here.
         if (SupportsNarration) _report.SetShowNarration(ShowNarration);
 
         // RQ-6: hide-zero / percentages / closing-stock basis (a single re-projection).
