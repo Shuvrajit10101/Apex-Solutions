@@ -1267,10 +1267,24 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool SupportsDetailToggle => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary;
 
-    /// <summary>True for the reports the RQ-3 sort/filter VIEW acts on (the row-bearing accounting + Stock
-    /// Summary reports). On any other report kind the Alt+F12 view is inert (rows pass through unchanged).</summary>
+    /// <summary>
+    /// True for the reports the RQ-3 sort/filter VIEW acts on (the row-bearing accounting + Stock
+    /// Summary reports). On any other report kind the Alt+F12 view is inert (rows pass through unchanged).
+    ///
+    /// <para>🔴 <b>THE THREE Ctrl+J EXCEPTION REGISTERS WERE MISSING FROM THIS LIST, AND THE DEFECT IS THE
+    /// MIRROR-IMAGE OF THE DEAD KNOB — A LIVE CAPABILITY BEHIND A DISABLED DOOR.</b>
+    /// <c>BuildExceptionRegister</c> calls <c>_sortFilter.Apply</c> over the same two projections the Day Book
+    /// uses and even renders the "No rows match the current filter." empty state, so the view demonstrably ACTS
+    /// on all three — while this predicate excluded them, which made <c>ReportSortFilterViewModel.Apply</c> take
+    /// its refusal branch and tell the operator the report cannot be sorted or filtered, and disabled every
+    /// editable control on the Alt+F12 panel through <c>IsEnabled="{Binding SupportsSortFilter}"</c>.
+    /// <b>The builder's own comment asserted the opposite in writing</b> — "the same sort/filter view the Day Book
+    /// offers … so Alt+F12 behaves identically on a register and on the book it was opened from" — so this is a
+    /// shipped comment that was simply false, the species this file has had to correct before. Adding the three
+    /// makes the door agree with the capability rather than the other way round.</para>
+    /// </summary>
     public bool SupportsSortFilter => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
-        or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.DayBook;
+        or ReportKind.ProfitAndLoss or ReportKind.StockSummary || IsDayBookFamily;
 
     // =============================================================== census 11.4 gap (a): F4 (Voucher Type) + narration
 
@@ -1536,6 +1550,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsDayBookFamily));
         OnPropertyChanged(nameof(SupportsVoucherTypeFilter));
         OnPropertyChanged(nameof(SupportsNarration));
+        // SupportsSortFilter was never raised here at all. It is a function of Kind, so a viewer that moved from
+        // one kind to another left the Alt+F12 panel's IsEnabled bindings stale — benign only because the panel
+        // is constructed per-open today. Raised now that this predicate is no longer a flat kind list.
+        OnPropertyChanged(nameof(SupportsSortFilter));
         if (!SupportsVoucherTypeFilter && _voucherTypeFilterId is not null)
         {
             _voucherTypeFilterId = null;

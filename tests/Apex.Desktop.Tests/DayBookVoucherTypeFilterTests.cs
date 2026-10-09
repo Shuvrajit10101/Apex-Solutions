@@ -506,6 +506,73 @@ public sealed class DayBookVoucherTypeFilterTests : IDisposable
         finally { window.Close(); }
     }
 
+    // ============================================================ Alt+F12 on the Ctrl+J registers
+
+    /// <summary>
+    /// 🔴 <b>A LIVE CAPABILITY BEHIND A DISABLED DOOR — THE MIRROR-IMAGE OF THE DEAD KNOB, FOUND WHILE MEASURING
+    /// THIS AREA AND FIXED HERE.</b> <c>BuildExceptionRegister</c> calls <c>_sortFilter.Apply</c> over the Day
+    /// Book's own two projections and renders the "No rows match the current filter." empty state, so the Alt+F12
+    /// view really does act on all three registers — and its own comment says so in writing: "the same sort/filter
+    /// view the Day Book offers … so Alt+F12 behaves identically on a register and on the book it was opened
+    /// from". <c>ReportsViewModel.SupportsSortFilter</c> nonetheless listed only the Day Book, so the panel took
+    /// its REFUSAL branch ("does not act on this report") and every editable control on it was disabled through
+    /// <c>IsEnabled="{Binding SupportsSortFilter}"</c>. A shipped comment that was false.
+    ///
+    /// <para>Asserted in BOTH directions: the panel must not refuse on a register, AND the filter must actually
+    /// narrow its rows — "stop refusing" alone would satisfy half of this and leave a door onto nothing.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_sort_filter_panel_acts_on_a_Ctrl_J_register_instead_of_refusing_it()
+    {
+        var (window, vm) = NewWindow();
+        try
+        {
+            var c = vm.Company!;
+            var cash = c.FindLedgerByName("Cash")!;
+            var rent = c.FindLedgerByName("Office Rent")!;
+            var payment = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Payment).Id;
+            var receipt = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Receipt).Id;
+            var svc = new LedgerService(c);
+
+            Voucher Cancelled(int number, Guid typeId) => new(
+                Guid.NewGuid(), typeId, Day,
+                new[]
+                {
+                    new EntryLine(rent.Id, new Money(900m), DrCr.Debit),
+                    new EntryLine(cash.Id, new Money(900m), DrCr.Credit),
+                },
+                number: number, narration: null, partyId: null, cancelled: true);
+
+            svc.Post(Cancelled(821, payment));
+            svc.Post(Cancelled(822, receipt));
+
+            vm.OpenReport(ReportKind.DayBook);
+            Dispatcher.UIThread.RunJobs();
+            Key(window, PhysicalKey.J, RawInputModifiers.Control);
+            ArrowToAndEnter(window, vm, "Cancelled Vouchers");
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(ReportKind.CancelledVouchersRegister, vm.Reports!.Kind);
+            Assert.Contains(821, ListedNumbers(vm));
+            Assert.Contains(822, ListedNumbers(vm));
+
+            var panel = new ReportSortFilterViewModel(vm.Reports!);
+            Assert.False(panel.CannotSortOrFilter,
+                "the Alt+F12 panel refuses on a register whose builder honours the view — a live capability "
+                + "behind a disabled door, and the builder's own comment says the opposite");
+
+            // The register's particulars read "<Type> No. <n>", so a name filter on the type narrows it.
+            panel.NameContains = "Receipt";
+            panel.Apply();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Contains("Applied", panel.Status);
+            var narrowed = ListedNumbers(vm);
+            Assert.Contains(822, narrowed);
+            Assert.DoesNotContain(821, narrowed);
+        }
+        finally { window.Close(); }
+    }
+
     // ============================================================ F12: Show narration
 
     /// <summary>
