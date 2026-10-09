@@ -560,12 +560,41 @@ public sealed class VoucherAlterForAlterTests
     }
 
     /// <summary>
-    /// 🔴 And the mirror, which is what makes the carry provable rather than incidental: an operator who presses
-    /// Ctrl+L on an altering screen is REFUSED BY NAME, and the books do not move. Design §12.8 is explicit that
-    /// this must not be silently ignored either — the refusal names the verb that owns the toggle.
+    /// 🔴 <b>THIS TEST WAS INVERTED 2026-10-09, AND THE INVERSION IS A DESIGN DECISION A12 AND THE USER MUST
+    /// RATIFY — IT IS NOT A TEST TIDY-UP.</b> It is written out in full rather than deleted, because what it used
+    /// to assert was deliberate and documented, and a reader has to be able to see what changed and why.
+    ///
+    /// <para><b>What it asserted before.</b> That an operator who presses Ctrl+L on an altering screen is REFUSED
+    /// BY NAME and the books do not move — the §12.8 divergence, pinned at the SCREEN level:
+    /// <c>Assert.False(open.Entry.AcceptAlteration())</c>, the message containing "provisional state", and the
+    /// canonical export byte-identical afterwards.</para>
+    ///
+    /// <para>🔴 <b>WHY IT IS NOW THE OPPOSITE.</b> The behaviour it pinned contradicts the vendor, and §7.4's own
+    /// banner says so in as many words: <i>"this is OUR DELIBERATE NARROWING OF AN ATTESTED BEHAVIOUR, and NOT a
+    /// 'corpus silent' case. TallyPrime genuinely does attest Ctrl+L (Optional) and Ctrl+T (Post-Dated) as
+    /// ALTERATION-TIME verbs, so refusing the change here is an infidelity."</i> The vendor page, opened by
+    /// content 2026-10-09 (<c>help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/</c>), states
+    /// the route this test used to forbid: <i>"Once the actual date of such transaction occurs you can regularise
+    /// the transaction by opening it and pressing Ctrl+L (Regular)."</i> So a test that required the refusal was
+    /// pinning the wrong answer, and would have REJECTED the correct fix — which is exactly what it did when the
+    /// fix landed.</para>
+    ///
+    /// <para><b>What did NOT change, and is pinned harder than before.</b> §7.4's refusal in
+    /// <c>LedgerService.Replace</c> is untouched and still throws for every caller —
+    /// <c>VoucherOptionalStateVerbTests.Replace_still_REFUSES_a_replacement_that_moves_the_Optional_flag</c> is
+    /// the engine-level pin, added alongside this change precisely so the guard cannot be quietly relaxed later.
+    /// §12.8's instruction was <i>"a UI that wants Ctrl+L / Ctrl+T must call THAT verb rather than Replace"</i>,
+    /// and the screen now calls <c>LedgerService.SetOptional</c>. The divergence that ends is the SCREEN's
+    /// refusal, not the engine primitive's.</para>
+    ///
+    /// <para><b>Ctrl+T is deliberately NOT changed in the same way</b> — see the post-dated sibling below, which
+    /// still asserts a refusal. The two are not symmetrical: a post-dated voucher releases itself when its date is
+    /// reached (<c>LedgerBalances.CountsAsOf</c>: <c>if (v.PostDated &amp;&amp; v.Date &gt; asOf) return false;</c>),
+    /// which is what the vendor describes as happening "automatically", so no operator verb is owed. An Optional
+    /// voucher releases on nothing at all, which is why it needed one.</para>
     /// </summary>
     [Fact]
-    public void Constraint2_turning_an_Optional_voucher_live_during_an_alteration_is_refused_by_name()
+    public void Constraint2_turning_an_Optional_voucher_live_during_an_alteration_REGULARISES_it()
     {
         using var book = AlterationBook.New("optionalmove");
         var dr = book.Ledger("Dr Leg", "Indirect Expenses");
@@ -580,11 +609,22 @@ public sealed class VoucherAlterForAlterTests
         open.Entry!.ToggleOptional();
         Assert.False(open.Entry.IsOptional);
 
-        Assert.False(open.Entry.AcceptAlteration());
-        Assert.Contains("provisional state", open.Entry.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("Optional", open.Entry.Message!, StringComparison.Ordinal);
-        Assert.Equal(before, book.Export());
-        Assert.True(book.Company.FindVoucher(posted.Id)!.Optional);
+        Assert.True(open.Entry.AcceptAlteration(), open.Entry.Message);
+
+        // The voucher read back off the book is REGULAR, and it kept its own number and identity.
+        var live = book.Company.FindVoucher(posted.Id)!;
+        Assert.False(live.Optional);
+        Assert.Equal(posted.Number, live.Number);
+
+        // 🔴 THE EXPORT MUST NOW DIFFER, AND THE OLD TEST'S `Assert.Equal(before, …)` IS THEREFORE INVERTED
+        // RATHER THAN DROPPED: the canonical export is the instrument that proves the book actually moved, so it
+        // is still asserted — just in the other direction, which is the stronger claim of the two.
+        Assert.NotEqual(before, book.Export());
+
+        // And the audit trail says what moved: the flag verb's before-state, then the content replace's.
+        Assert.Equal(2, book.Company.VoucherEditLog.Count);
+        Assert.Contains("\"Optional\":true",
+            book.Company.VoucherEditLog[0].BeforeSnapshot, StringComparison.Ordinal);
     }
 
     /// <summary>Dropping a Memorandum's Post-Dated flag mid-alteration is refused by name (row 28's stated
