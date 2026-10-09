@@ -1240,14 +1240,28 @@ public partial class MainWindow : Window
         // 🔴 THE ARM BELOW IS NOT NARROWED, AND THAT IS DELIBERATE. Breaking a shipped voucher chord to fix a
         // report chord would be a straight regression, and this project has shipped exactly that kind of
         // regression under a fully green gate before. Nothing about the voucher's Ctrl+L changes: this arm is
-        // ADDITIVE and its guard is disjoint from the screen ToggleOptional acts on. `IsReportContext` requires
-        // a non-null `Reports`, and opening a voucher runs `ClearSubScreens`, which nulls it — so on
-        // Screen.VoucherEntry this arm cannot match and control falls straight through to the incumbent.
+        // ADDITIVE and its guard is disjoint from the screen ToggleOptional acts on.
         // ReportChordFidelityTests pins both halves.
         // The `Company is not null` clause mirrors OpenSaveView's OWN refusal, so the key is never consumed on a
         // screen where the verb would silently decline — the same rule the Ctrl+B and Ctrl+J arms below follow.
+        //
+        // 🔴 W45 REVIEW (2026-10-09) — THE `Screen.VoucherEntry` EXCLUSION IS NOT BELT-AND-BRACES; IT IS THE
+        // CLAUSE THIS ARM WAS MISSING. The comment here used to argue the exclusion was unnecessary because
+        // "`IsReportContext` requires a non-null `Reports`, and opening a voucher runs `ClearSubScreens`, which
+        // nulls it — so on Screen.VoucherEntry this arm cannot match". THAT PREMISE IS FALSE FOR VOUCHER
+        // ALTERATION. `MainWindowViewModel.ShowVoucherAlteration` arrives through `OpenDrillColumn`, which
+        // deliberately does NOT call `ClearSubScreens` (the Miller cascade keeps the Day Book alive underneath),
+        // so `Reports` stays bound, `CurrentScreen` becomes `Screen.VoucherEntry`, and `IsReportContext` is TRUE.
+        // MEASURED on the alteration opened by real Ctrl+Enter from the Day Book: Ctrl+L matched HERE, pushed
+        // `Screen.SaveView`, and `ToggleOptional` never ran — while the button bar directly above the screen was
+        // painting "Ctrl+L  Optional". So the vendor's own regularise route — *"you can regularise the
+        // transaction by opening it and pressing Ctrl+L (Regular)"*
+        // (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/, opened by content 2026-10-09)
+        // — was unreachable from the keyboard on the one screen it exists for.
+        // The exclusion cannot regress the report chord: a report screen is never `Screen.VoucherEntry`.
         if (e.Key == Key.L && e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && vm.CurrentScreen is not Screen.VoucherEntry
             && vm.IsReportContext && vm.Company is not null)
         {
             vm.OpenSaveView();
