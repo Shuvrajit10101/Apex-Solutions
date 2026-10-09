@@ -121,6 +121,107 @@ public sealed class Gstr1UnlinkedReturnNoteEmittedJsonTests
         Assert.Equal(2, doc.RootElement.GetProperty("hsn").GetArrayLength());
     }
 
+    /// <summary>
+    /// 🔴 <b>W42-F1 — THE FILED HEADER MUST EQUAL THE SUM OF THE FILED DETAIL SECTIONS, asserted on the EMITTED
+    /// BYTES.</b> This is the invariant a filer or an auditor actually applies: rebuild the declared total from the
+    /// document rows and it must come back. It was BROKEN by the netting fix as first written — the header filed
+    /// <c>total_cgst_paisa</c> 360000 (correctly net of the ₹900 return) while <c>b2b</c> carried one row of 450000,
+    /// <c>b2cs</c> was empty and <c>cdnr</c> was empty, leaving ₹900 per head of declared liability with no document
+    /// behind it and an upload that could not reproduce its own total.
+    ///
+    /// <para><b>🔴 WHAT THIS DOES AND DOES NOT CATCH — MEASURED AGAINST main, NOT ASSERTED FROM READING IT.</b>
+    /// Measured by swapping <c>Gstr1.cs</c> for <c>origin/main</c>'s copy and running this test: it fails, but
+    /// <b>NOT on the identity</b> — it fails at the explicit-figures line below with
+    /// <c>Expected: 360000 / Actual: 540000</c>. The Σ identity itself PASSES on main, because main sums
+    /// magnitudes and so files a header of 540000 against a <c>b2b</c> of 540000 — self-consistent and WRONG.
+    /// So the identity half is a GUARD, not the proof: it pins the property the intermediate fix destroyed, and
+    /// the explicit-figures half is what makes the test redden on main. An earlier revision of this comment said
+    /// the test "PASSES on origin/main too"; that was wrong about the test as a whole and is corrected here.
+    /// It remains the sibling of <see cref="The_emitted_GSTR1_totals_reconcile_to_the_Output_tax_ledger"/>, which
+    /// pins the FIGURES against the ledger. Neither property alone is enough: the identity admits a
+    /// self-consistently wrong return, the ledger check admits a correct total with no document behind it. Both
+    /// together force a return that is right AND adds up.</para>
+    ///
+    /// <para>The identity is over the three DOCUMENT sections only. Advance tax (Tables 11A/11B) is carried
+    /// separately by <c>Gstr1</c> and is never folded into <c>TotalCgst</c>; this fixture posts no advance, so
+    /// <c>at</c>/<c>atadj</c> are empty and the identity is exact here. It is asserted, not assumed.</para>
+    /// </summary>
+    [Fact]
+    public void The_emitted_GSTR1_header_equals_the_sum_of_its_own_detail_sections()
+    {
+        using var doc = JsonDocument.Parse(GstReturnJson.Gstr1(BuildBook(), From, To));
+        var root = doc.RootElement;
+
+        Assert.Equal(0, root.GetProperty("at").GetArrayLength());        // the identity's precondition, held here
+        Assert.Equal(0, root.GetProperty("atadj").GetArrayLength());
+
+        foreach (var (head, total) in new[]
+                 {
+                     ("camt_paisa", "total_cgst_paisa"),
+                     ("samt_paisa", "total_sgst_paisa"),
+                     ("iamt_paisa", "total_igst_paisa"),
+                 })
+        {
+            var sections = SectionSum(root, "b2b", head) + SectionSum(root, "b2cs", head) + SectionSum(root, "cdnr", head);
+            Assert.Equal(root.GetProperty(total).GetInt64(), sections);
+        }
+
+        // And the figures the identity resolves to, spelled out so a mutual-cancellation "fix" cannot satisfy it.
+        Assert.Equal(360_000L, root.GetProperty("total_cgst_paisa").GetInt64());
+        Assert.Equal(450_000L, SectionSum(root, "b2b", "camt_paisa"));
+        Assert.Equal(-90_000L, SectionSum(root, "cdnr", "camt_paisa"));
+    }
+
+    /// <summary>
+    /// 🔴 <b>W42-F1 — THE UNLINKED NOTE IS EMITTED AS ITS OWN DOCUMENT ROW, in <c>cdnr</c>, with a NULL
+    /// original-invoice reference.</b> It is not an invoice, so it may not go in <c>b2b</c>/<c>b2cs</c>; but it IS a
+    /// document whose money is in the declared total, so it must be itemised somewhere. <b>Reddens on origin/main</b>
+    /// twice over: main emits <c>cdnr</c> EMPTY (nothing at all reaches Table 9B without a
+    /// <c>GstCreditDebitNoteLink</c>) and files the note as a second positive <c>b2b</c> object instead.
+    ///
+    /// <para><b>Figures by hand:</b> the return is Widget 500 × ₹20 = ₹10,000 @ 18% ⇒ CGST ₹900 + SGST ₹900 on the
+    /// DEBIT side, so in integer paisa the row carries <c>txval_paisa</c> −1000000 and <c>camt_paisa</c>/
+    /// <c>samt_paisa</c> −90000. The exempt Milk ₹5,000 on the same note is NOT in <c>txval</c> — a 9B taxable value
+    /// is the taxable value, and the exempt leg is in the Table 12 / <c>nil_exempt_nongst_paisa</c> aggregate, which
+    /// the sibling tests above pin at 1500000.</para>
+    ///
+    /// <para><b>🔴 OURS, NOT VENDOR-ATTESTED — and the test says so rather than the commit message.</b> Opened by
+    /// content: help.tallysolutions.com/gstr-1-report-in-tallyprime/ ("GSTR-1 Report in TallyPrime", product
+    /// TallyPrime) publishes the section names "Credit or Debit Notes (Registered) – 9B" and "Credit or Debit Notes
+    /// (Unregistered) – 9B" verbatim, which grounds a note belonging to a 9B section. The vendor page is <b>SILENT</b>
+    /// on a note whose original-invoice details are absent — it states no treatment for that case — so the NULL
+    /// reference and the EMPTY reason code are this project's own documented divergence. The reason code is left
+    /// empty deliberately: the user declined to declare one by leaving the §34 toggle off, and inventing
+    /// "01 Sales return" would put a §34 reason on the return that nobody stated.</para>
+    /// </summary>
+    [Fact]
+    public void The_unlinked_note_is_emitted_as_a_cdnr_row_with_a_null_original_invoice_reference()
+    {
+        using var doc = JsonDocument.Parse(GstReturnJson.Gstr1(BuildBook(), From, To));
+        var cdnr = doc.RootElement.GetProperty("cdnr");
+
+        Assert.Equal(1, cdnr.GetArrayLength());                                   // was 0 — no document at all
+        var note = cdnr[0];
+
+        Assert.Equal("Credit", note.GetProperty("ntty").GetString());
+        Assert.Equal(JsonValueKind.Null, note.GetProperty("orig_inum").ValueKind);  // declined, so declared absent
+        Assert.Equal(JsonValueKind.Null, note.GetProperty("orig_idt").ValueKind);
+        Assert.Equal("2025-04-20", note.GetProperty("ndt").GetString());
+        Assert.Equal("27", note.GetProperty("pos").GetString());
+        Assert.Equal(string.Empty, note.GetProperty("rsn").GetString());
+
+        Assert.Equal(-1_000_000L, note.GetProperty("txval_paisa").GetInt64());
+        Assert.Equal(-90_000L, note.GetProperty("camt_paisa").GetInt64());
+        Assert.Equal(-90_000L, note.GetProperty("samt_paisa").GetInt64());
+        Assert.Equal(0L, note.GetProperty("iamt_paisa").GetInt64());
+
+        // 🔴 AND THE TAX IS DISCLOSED ONCE, NOT FOLDED TWICE. The sweep already signed the note into the totals;
+        // re-folding it in BuildTable9B would file 270000 instead of 360000. This is the assertion that fails if
+        // the new 9B row is ever "tidied" into the linked notes' fold.
+        Assert.Equal(360_000L, doc.RootElement.GetProperty("total_cgst_paisa").GetInt64());
+        Assert.Equal(360_000L, doc.RootElement.GetProperty("total_sgst_paisa").GetInt64());
+    }
+
     /// <summary><b>ER-13</b> — a book with no return note must emit exactly what it emitted before, since the sign
     /// is +1 on every Sales voucher. Without this a sign-threading error on the invoice path would hide behind the
     /// netted assertions above.</summary>
@@ -135,9 +236,18 @@ public sealed class Gstr1UnlinkedReturnNoteEmittedJsonTests
         Assert.Equal(2_000_000L, Hsn(doc, "040110").GetProperty("txval_paisa").GetInt64());
         Assert.Equal(2_000_000L, doc.RootElement.GetProperty("nil_exempt_nongst_paisa").GetInt64());
         Assert.Equal(450_000L, doc.RootElement.GetProperty("total_cgst_paisa").GetInt64());
+
+        // 🔴 ER-13 for the NEW section too: a book with no note must still emit cdnr EMPTY. The unlinked-9B block
+        // is reached only when sign < 0, and a plain sales book never gets there — asserted, not assumed.
+        Assert.Equal(0, doc.RootElement.GetProperty("cdnr").GetArrayLength());
     }
 
     // ================================================================ fixture
+
+    /// <summary>Σ one money key over one emitted section — the auditor's own arithmetic, done on the BYTES rather
+    /// than on a projection, so a header that does not add up cannot hide behind a correct report object.</summary>
+    private static long SectionSum(JsonElement root, string section, string moneyKey) =>
+        root.GetProperty(section).EnumerateArray().Sum(e => e.GetProperty(moneyKey).GetInt64());
 
     private static JsonElement Hsn(JsonDocument doc, string hsnSac) =>
         doc.RootElement.GetProperty("hsn").EnumerateArray()

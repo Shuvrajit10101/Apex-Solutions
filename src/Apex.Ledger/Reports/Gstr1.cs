@@ -248,6 +248,10 @@ public sealed record Gstr1(
             return new Gstr1(from, to, [], [], [], [], Money.Zero, Money.Zero, Money.Zero, Money.Zero);
 
         var b2b = new List<Gstr1B2BRow>();
+        // Table 9B rows for the §34 notes the user did NOT formalise with a link (see the unlinked-9B block in the
+        // sweep). Folded into Table9B by BuildTable9B so both kinds sort through one comparator; their tax is NOT
+        // re-folded into the totals, because the sweep below has already signed it in.
+        var unlinked9B = new List<Gstr1Table9BRow>();
         var b2cAcc = new Dictionary<int, HeadAmounts>();       // by integrated rate
         var rateAcc = new Dictionary<int, (decimal Taxable, decimal Tax)>();
         var hsnAcc = new Dictionary<string, HsnAcc>();
@@ -308,16 +312,19 @@ public sealed record Gstr1(
 
             // 🔴 THE LINE THIS SWEEP DRAWS, and it is drawn once here rather than per table: an AGGREGATE cell
             // nets a reversal (the output totals, Table 12, the exempt bucket above, and the rate-wise summary
-            // below — all signed); a DOCUMENT-level table does not, because a reversal is not an invoice.
-            // Vendor-attested — help.tallysolutions.com's GSTR-1 page states notes under "Credit or Debit Notes
-            // (Registered) – 9B" and "(Unregistered) – 9B", never in 4A/7. Before this, the note was emitted as a
-            // second POSITIVE B2B invoice row carrying the returned value (measured: 2 rows for 1 invoice).
+            // below — all signed); a DOCUMENT-level INVOICE table does not, because a reversal is not an invoice.
+            // Vendor-attested, opened and checked by content — help.tallysolutions.com/gstr-1-report-in-tallyprime/
+            // ("GSTR-1 Report in TallyPrime", product TallyPrime) publishes the section names "Credit or Debit
+            // Notes (Registered) – 9B" and "Credit or Debit Notes (Unregistered) – 9B" verbatim, so a note's home
+            // is a 9B section and not 4A/7. (It does NOT publish any "never in 4A/7" prohibition and does not
+            // publish a reconciling total row; an earlier revision of this comment asserted the former, and that
+            // over-claim is struck.) Before this, the note was emitted as a second POSITIVE B2B invoice row
+            // carrying the returned value (measured: 2 rows for 1 invoice).
             //
-            // 🔴 AND IT IS NOT SIGNED INTO B2B/B2C INSTEAD. A negative invoice in a document-level table is a
-            // different wrong document, not a fix. The honest residue is reported rather than papered over: an
-            // unlinked note gets NO Table 9B row either, because 9B requires the original-invoice reference the
-            // user declined to give by leaving the §34 toggle off. Its money is in the return; its document is
-            // not itemised. That is a known divergence, recorded in the owning test.
+            // 🔴 AND IT IS NOT SIGNED INTO B2B/B2C INSTEAD. A negative invoice in a document-level INVOICE table
+            // is a different wrong document, not a fix. It goes to its own document table — Table 9B — see the
+            // unlinked-9B block below, which is what keeps the filed header equal to the sum of the filed detail
+            // sections.
             var isInvoiceDocument = sign > 0m;
 
             var party = voucher.PartyId is Guid pid ? company.FindLedger(pid) : null;
@@ -344,6 +351,43 @@ public sealed record Gstr1(
             // block and my own tests stayed green, because the fixture's party is registered and nothing asserted
             // B2C was empty. The B2C emptiness assertion added in the owning test is what closes it.
             var isB2B = party?.PartyGst is { } pg && !pg.IsB2C;
+
+            // 🔴 THE UNLINKED §34 NOTE GETS ITS OWN TABLE 9B ROW, WITH A NULL ORIGINAL-INVOICE REFERENCE — and
+            // without this the filed return CONTRADICTS ITSELF. Measured on the owning fixture: the header filed
+            // total_cgst_paisa 360000 (4500 − 900, correctly net) while b2b carried ONE row of camt_paisa 450000,
+            // b2cs was empty and cdnr was empty — ₹900 per head of declared liability with no document behind it,
+            // so an upload rebuilt from the detail sections could not reproduce the declared total. The tax is NOT
+            // re-added here: the sweep already signed it into totalCgst/Sgst/Igst at the top, and BuildTable9B
+            // folds only the LINKED notes it reads off company.CreditDebitNoteLinks. This row is therefore a
+            // DISCLOSURE of money already in the totals, which is exactly what makes header == Σ sections hold.
+            //
+            // 🔴 CdnType.Credit IS NOT A GUESS AND IS NOT A DEAD GUARD. This sweep is the OUTPUT direction, and
+            // GstReportSupport.DirectionOf maps only Sales and CreditNote to Output (DebitNote maps to Input), so
+            // sign < 0 here means CreditNote and nothing else. A branch for Debit would be unreachable code.
+            //
+            // 🔴 WHY THE HEADER NETS *AND* THE DOCUMENT IS STILL DECLARED — STATUTE, NOT A HOUSE CHOICE, and this
+            // is what settles the "is the header 360000 or 450000?" question rather than leaving it to taste.
+            // CGST Act §34(2) (opened by content at taxinformation.cbic.gov.in, "Section 34. Credit and debit
+            // notes."): the issuer "shall declare the details of such credit note in the return … and the tax
+            // liability shall be adjusted in such manner as may be prescribed". BOTH limbs bind at once, so a
+            // conforming return must carry the note AS A DECLARED DOCUMENT *and* show the liability ADJUSTED.
+            // Grossing the header back to 450000 would defeat the second limb; dropping the 9B row (what main
+            // does) defeats the first. 360000 with the row below is the only reading that satisfies both.
+            //
+            // 🔴 WHAT IS VENDOR-ATTESTED AND WHAT IS OURS. Attested (page opened by content, above): a §34 note
+            // belongs in a "Credit or Debit Notes (Registered)/(Unregistered) – 9B" section. OURS, a documented
+            // divergence: the vendor page is SILENT on a note whose original-invoice details are absent — it
+            // states no treatment for that case at all — so emitting it as a 9B row with a NULL original-invoice
+            // reference, and leaving ReasonCode EMPTY rather than inventing a §34 reason the user never declared,
+            // is this project's own choice. The alternative (omit the document and keep its money in the header)
+            // is the defect this replaces. Is9BTarget follows the party's registration, which is the same
+            // Registered/Unregistered split the two published section names draw.
+            if (!isInvoiceDocument)
+                unlinked9B.Add(new Gstr1Table9BRow(
+                    CdnType.Credit, null, null, null, voucher.Date, pos,
+                    new Money(sign * taxable.Amount), new Money(sign * invoice.Cgst),
+                    new Money(sign * invoice.Sgst), new Money(sign * invoice.Igst), string.Empty, isB2B));
+
             if (isInvoiceDocument && isB2B)
             {
                 // One B2B invoice row carrying the whole-invoice taxable value and both heads' total tax. Phase 9
@@ -407,7 +451,7 @@ public sealed record Gstr1(
 
         // Phase 9 slice 2b: Table 9B (§34 CDN) — signed by note type — is folded into the output totals; 11A/11B are
         // projected off the advance records. All skipped byte-identically when the collections are empty (ER-13).
-        var table9B = BuildTable9B(company, from, to, ref totalCgst, ref totalSgst, ref totalIgst);
+        var table9B = BuildTable9B(company, from, to, unlinked9B, ref totalCgst, ref totalSgst, ref totalIgst);
         var (table11A, table11B) = BuildAdvanceTables(company, from, to);
 
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
@@ -475,13 +519,22 @@ public sealed record Gstr1(
     /// for the original-invoice reference + reason. Each row is <b>signed by note type</b> — a credit note is negative
     /// (it reduces output), a debit note positive — and that signed tax is folded into the return's output totals so
     /// GSTR-1 nets correctly. A company with no §34 note yields an empty table and leaves the totals untouched (ER-13).
+    ///
+    /// <para>🔴 <paramref name="unlinked"/> carries the rows the sweep in <see cref="Build"/> already built for the
+    /// notes the user did NOT formalise with a <see cref="GstCreditDebitNoteLink"/>. They are merged here so BOTH
+    /// kinds leave through ONE comparator — otherwise the filed section's order would depend on which kind a book
+    /// happened to hold. <b>Their tax is deliberately NOT folded into the totals here</b>: the sweep signed it in
+    /// already, and folding it twice would halve the filed liability. Only the LINKED rows this method reads off
+    /// <c>company.CreditDebitNoteLinks</c> are folded. An empty <paramref name="unlinked"/> leaves the result
+    /// byte-identical (ER-13).</para>
     /// </summary>
     private static IReadOnlyList<Gstr1Table9BRow> BuildTable9B(
-        Company company, DateOnly from, DateOnly to, ref decimal totalCgst, ref decimal totalSgst, ref decimal totalIgst)
+        Company company, DateOnly from, DateOnly to, List<Gstr1Table9BRow> unlinked,
+        ref decimal totalCgst, ref decimal totalSgst, ref decimal totalIgst)
     {
-        if (company.CreditDebitNoteLinks.Count == 0) return [];
+        if (company.CreditDebitNoteLinks.Count == 0 && unlinked.Count == 0) return [];
 
-        var rows = new List<Gstr1Table9BRow>();
+        var rows = new List<Gstr1Table9BRow>(unlinked);
         foreach (var link in company.CreditDebitNoteLinks)
         {
             var v = company.FindVoucher(link.CdnVoucherId);

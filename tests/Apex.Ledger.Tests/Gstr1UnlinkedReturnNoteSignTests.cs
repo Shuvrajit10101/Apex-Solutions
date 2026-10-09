@@ -211,6 +211,77 @@ public class Gstr1UnlinkedReturnNoteSignTests
     }
 
     /// <summary>
+    /// 🔴 <b>W42-F1, ON THE PROJECTION — the unlinked note IS itemised, as a Table 9B row with NO original-invoice
+    /// reference.</b> The sibling assertions above prove it is kept out of both INVOICE tables; this one proves it
+    /// is not thereby made to vanish. Without it the return declares ₹900 per head that no row accounts for, and
+    /// <c>Gstr1</c>'s own promise that "the section totals reconcile to the Output tax-ledger postings" holds only
+    /// at the header while the detail disagrees with it. <b>Reddens on origin/main</b>, where <c>Table9B</c> is
+    /// built solely off <c>company.CreditDebitNoteLinks</c> and an unlinked note therefore yields no row at all.
+    ///
+    /// <para><b>🔴 THE ONE THING THAT MUST NOT HAPPEN IS A DOUBLE FOLD.</b> The main sweep already signed this
+    /// note's tax into the totals, so <c>BuildTable9B</c> must merge the row WITHOUT re-folding its tax. Both are
+    /// asserted here together — the row's own −900 and the totals' 3,600 — because a fix that folded twice would
+    /// file 2,700 while every other assertion in this file stayed green.</para>
+    ///
+    /// <para><b>OURS, not vendor-attested.</b> help.tallysolutions.com/gstr-1-report-in-tallyprime/ publishes the
+    /// "Credit or Debit Notes (Registered)/(Unregistered) – 9B" section names verbatim (opened by content; product
+    /// TallyPrime), which grounds the note belonging to 9B. It is <b>SILENT</b> on a note with no original-invoice
+    /// details, so the null reference and the empty reason code are a documented divergence of ours. The reason is
+    /// left EMPTY rather than defaulted: the user declined to declare one, and "01 Sales return" would be a §34
+    /// reason asserted on a filed return by the software rather than by the filer.</para>
+    /// </summary>
+    [Fact]
+    public void The_unlinked_note_is_projected_as_a_Table_9B_row_with_no_original_invoice_reference()
+    {
+        var r = Report.BuildGstr1(BuildBook(), From, To);
+
+        var note = Assert.Single(r.Table9B);                       // was EMPTY — money with no document
+        Assert.Equal(CdnType.Credit, note.NoteType);
+        Assert.Null(note.OriginalInvoiceVoucherId);
+        Assert.Null(note.OriginalInvoiceNumber);
+        Assert.Null(note.OriginalInvoiceDate);
+        Assert.Equal(ReturnDate, note.NoteDate);                   // the note's OWN date, not the invoice's
+        Assert.Equal(string.Empty, note.ReasonCode);               // declined, never invented
+        Assert.True(note.Is9BTarget);                              // registered party ⇒ the Registered-9B section
+
+        // Signed negative, exactly as a LINKED note's row is — ₹10,000 taxable, ₹900 per head.
+        Assert.Equal(-10_000.00m, note.TaxableValue.Amount);
+        Assert.Equal(-900.00m, note.Cgst.Amount);
+        Assert.Equal(-900.00m, note.Sgst.Amount);
+        Assert.Equal(0.00m, note.Igst.Amount);
+
+        // 🔴 DISCLOSED ONCE, NOT FOLDED TWICE: 4,500 − 900 = 3,600, never 2,700.
+        Assert.Equal(3_600.00m, r.TotalCgst.Amount);
+        Assert.Equal(3_600.00m, r.TotalSgst.Amount);
+
+        // And the header now equals the sum of the document sections it is built from: 4,500 − 900.
+        Assert.Equal(
+            r.TotalCgst.Amount,
+            r.B2B.Sum(b => b.Cgst.Amount) + r.B2C.Sum(b => b.Cgst.Amount) + r.Table9B.Sum(n => n.Cgst.Amount));
+    }
+
+    /// <summary>
+    /// 🔴 The same, with an <b>UNREGISTERED</b> party: the row must declare the <b>Unregistered</b> 9B section, and
+    /// the header-equals-sections identity must hold through the B2C arm too. Asserted separately because
+    /// <c>Is9BTarget</c> is the only field whose value depends on the party, and because a leak into the B2C
+    /// consolidation would show up here as the identity failing rather than merely as a wrong figure.
+    /// </summary>
+    [Fact]
+    public void An_unlinked_note_to_an_UNREGISTERED_party_declares_the_unregistered_9B_section()
+    {
+        var r = Report.BuildGstr1(BuildBook(registeredParty: false), From, To);
+
+        var note = Assert.Single(r.Table9B);
+        Assert.False(note.Is9BTarget);                             // unregistered ⇒ the (Unregistered) – 9B section
+        Assert.Equal(-900.00m, note.Cgst.Amount);
+        Assert.Null(note.OriginalInvoiceNumber);
+
+        Assert.Equal(
+            r.TotalCgst.Amount,
+            r.B2B.Sum(b => b.Cgst.Amount) + r.B2C.Sum(b => b.Cgst.Amount) + r.Table9B.Sum(n => n.Cgst.Amount));
+    }
+
+    /// <summary>
     /// A <b>LINKED</b> §34 note must keep taking the Table 9B path and must NOT be netted twice. This is the
     /// regression that a careless fix breaks: if the sign were applied to the main sweep without the CDN-link
     /// exclusion still short-circuiting first, the linked note would net the aggregates AND be projected into the
