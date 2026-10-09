@@ -572,7 +572,13 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
         // W-K1 (census 9.8 / 9.7): a row where the operator has typed ONLY a tracking number is touched, not
         // blank. Omitting these two would let the parent silently discard that row — the operator would type a
         // reference, tab on, and find it gone, with no error to explain why.
-        && string.IsNullOrWhiteSpace(TrackingNumber)
+        // 🔴 W45 REVIEW: it must be the OPERATOR's tracking number that makes the row touched, never the seeded
+        // vendor default. SeedTrackingNumberDefault stamps every row in the grid with the voucher's own number
+        // (census 9.8), so testing the string alone made a wholly untouched extra row non-blank — the parent then
+        // counted it as half-filled and refused the WHOLE voucher ("Every entered line needs a stock item, a
+        // godown and a positive quantity"), on exactly the two kinds the default ships for. Proved by
+        // ReviewW45TrackingSeedTests.Tracking_on_an_untouched_extra_line_blocks_accept.
+        && (!TrackingNumberIsOperatorSet || string.IsNullOrWhiteSpace(TrackingNumber))
         && string.IsNullOrWhiteSpace(CostTrackingNumber);
 
     /// <summary>

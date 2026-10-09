@@ -159,12 +159,15 @@ public sealed class TrackingNumberDefaultTests : IDisposable
     /// 🔴 <b>THE DELIBERATE DIVERGENCE, PINNED SO NOBODY "FIXES" IT.</b> The Tracking No. COLUMN also shows on
     /// Rejection In / Rejection Out, but it is NOT seeded there.
     ///
-    /// <para>No TallyPrime page attests a default on a rejection. The only pages that describe a rejection's
-    /// tracking number at all are <b>Tally.ERP 9</b> pages — not ground truth for this project — and they
-    /// describe the OPPOSITE shape: the operator picks the ORIGINAL Receipt or Delivery Note's tracking number
-    /// from a list, because a rejection returns goods that arrived under someone else's reference. Seeding a
-    /// rejection with its own number would invent a reference that pairs with nothing, which is worse than
-    /// blank.</para>
+    /// <para>No vendor page attests a DEFAULT on a rejection. 🔴 <b>W45 REVIEW CORRECTION:</b> an earlier draft
+    /// of this comment said only Tally.ERP 9 pages describe a rejection's tracking number. They are not the
+    /// only ones — both cited TallyPrime pages do, and what they describe is a SELECTION, not a default:
+    /// <c>"the same appears if you had recorded a delivery note with a tracking number. You can select the
+    /// relevant tracking number"</c> (<c>help.tallysolutions.com/sales-order-tally/</c>, Rejections In), and the
+    /// same of a receipt note on <c>help.tallysolutions.com/purchase-order-tally/</c> (Rejections Out). A
+    /// rejection returns goods that arrived under someone else's reference, so seeding it with its own number
+    /// would invent a reference that pairs with nothing, which is worse than blank. The picker those pages do
+    /// attest remains an open gap on census 9.8 / T1-8.</para>
     /// </summary>
     [Theory]
     [InlineData(VoucherBaseType.RejectionIn)]

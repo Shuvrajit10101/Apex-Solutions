@@ -704,13 +704,17 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// and padding included, and it is what Accept will post — so it is the number that "appears".</para>
     ///
     /// <para>🔴 <b>THE SCOPE IS NARROWER THAN <see cref="ShowTrackingNumber"/>, DELIBERATELY, AND THE TWO MUST
-    /// NOT BE COLLAPSED INTO ONE TEST.</b> The column also shows on <b>Rejection In / Rejection Out</b>, but no
-    /// TallyPrime page attests a default there, and the only pages that describe a rejection's tracking number at
-    /// all are <b>Tally.ERP 9</b> pages — not ground truth for this project — which describe the OPPOSITE shape:
-    /// the operator picks the ORIGINAL Receipt or Delivery Note's tracking number from a list, because a
-    /// rejection returns goods that arrived under someone else's reference. Seeding a rejection with its OWN
-    /// number would therefore invent a reference that pairs with nothing, which is worse than blank. So the two
-    /// rejection kinds keep an empty box until a TallyPrime source speaks.</para>
+    /// NOT BE COLLAPSED INTO ONE TEST.</b> The column also shows on <b>Rejection In / Rejection Out</b>, and no
+    /// vendor page attests a DEFAULT there. 🔴 <b>W45 REVIEW CORRECTION — the two TallyPrime pages cited above do
+    /// describe a rejection's tracking number, and an earlier draft of this comment wrongly said only
+    /// Tally.ERP 9 pages did.</b> What they describe is the OPPOSITE shape, a SELECTION rather than a default:
+    /// in the Rejections In step, <c>"the same appears if you had recorded a delivery note with a tracking
+    /// number. You can select the relevant tracking number"</c>
+    /// (<c>help.tallysolutions.com/sales-order-tally/</c>), and the purchase side says it of a receipt note
+    /// (<c>help.tallysolutions.com/purchase-order-tally/</c>). A rejection returns goods that arrived under
+    /// someone else's reference, so seeding it with its OWN number would invent a reference that pairs with
+    /// nothing — worse than blank. The two rejection kinds therefore keep an empty box, and the picker those two
+    /// pages DO attest is an open gap on census 9.8 / T1-8, not something this seed may stand in for.</para>
     /// </summary>
     public string TrackingNumberDefault =>
         ShowTrackingNumber
