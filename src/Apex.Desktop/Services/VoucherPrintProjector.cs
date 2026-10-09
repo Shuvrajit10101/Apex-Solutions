@@ -767,7 +767,7 @@ public static class VoucherPrintProjector
         // Σ of EVERY service leg — taxed AND exempt/nil — so an exempt line is never silently dropped from the
         // Grand Total (the same rule the item pass keeps with `totalGoodsValue`).
         decimal totalServiceValue = 0m;
-        foreach (var (ledger, value) in Gstr1.ServiceLegs(company, voucher))
+        foreach (var (ledger, value, _) in Gstr1.ServiceLegs(company, voucher))   // T1-79 sweep: see ServiceProjectionFoots
         {
             items.Add(new InvoiceItemRow
             {

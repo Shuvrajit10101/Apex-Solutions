@@ -1678,7 +1678,7 @@ public static class GstReportSupport
     private static bool IsWhollyExemptServiceSupply(Company company, Voucher voucher)
     {
         bool any = false;
-        foreach (var (ledger, _) in Gstr1.ServiceLegs(company, voucher))
+        foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))   // T1-79 sweep: see ServiceProjectionFoots
         {
             any = true;
             if (!Gstr1.IsNonTaxableServiceLedger(ledger)) return false;
@@ -1874,7 +1874,9 @@ public static class GstReportSupport
     private static bool TaxedLegsCarryTheirTax(Company company, Voucher voucher)
     {
         if (PostedForwardRouting(voucher) is not null) return true; // forward tax was posted — nothing to object to
-        foreach (var (ledger, _) in Gstr1.ServiceLegs(company, voucher))
+        // T1-79 sweep: side-INDEPENDENT by nature — the discriminator is what the ledger DECLARES, as the paragraph
+        // above says in terms, so no posted side can move this verdict.
+        foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))
             if (!Gstr1.IsNonTaxableServiceLedger(ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
                 return false;
         return true;
@@ -1898,7 +1900,12 @@ public static class GstReportSupport
     private static bool RateBreakupReconciles(Company company, Voucher voucher)
     {
         var invoiceTaxable = 0m;
-        foreach (var (_, value) in Gstr1.ServiceLegs(company, voucher)) invoiceTaxable += value;
+        // T1-79 sweep: magnitudes, deliberately. This is a BOUND (breakup ≤ invoice), and a magnitude sum is the
+        // LOOSER bound of the two, so reading the sign here could only ever make this conjunct reject MORE documents
+        // than it does today. The mixed-side shape is already refused one conjunct later by ServiceProjectionFoots,
+        // which is the exact-equality test; tightening a bound that is not the detector would be change without
+        // measurement.
+        foreach (var (_, value, _) in Gstr1.ServiceLegs(company, voucher)) invoiceTaxable += value;
 
         var breakupTaxable = 0m;
         foreach (var g in ReadPostedRateGroups(voucher))
@@ -1918,8 +1925,76 @@ public static class GstReportSupport
     /// genuine end-to-end reconciliation of the projection against the GL, not a restatement of it.
     /// <para>A voucher with no party (hence no party leg to state a debt against) cannot be a tax invoice at all.</para>
     /// </summary>
-    private static bool ServiceInvoiceFoots(Company company, Voucher voucher)
+    private static bool ServiceInvoiceFoots(Company company, Voucher voucher) =>
+        ServiceProjectionFoots(company, voucher);
+
+    /// <summary>
+    /// 🔴 <b>T1-79 / T1-80 — THE ONE FOOTING MECHANISM, NOW READ BY THE IRP PAYLOAD AS WELL AS BY THE PRINTER.</b>
+    /// Does the service projection (Σ SAC service legs + Σ posted forward tax + Σ posted forward cess) equal the
+    /// amount the voucher actually recorded against the party? This is the <b>only</b> reconciliation of the
+    /// document against the general ledger that this path has.
+    ///
+    /// <para><b>Why it became public — there were TWO footing mechanisms on the e-invoice path and they disagreed.</b>
+    /// <c>EInvoiceJson</c> computes <see cref="IsServiceAccountingInvoice"/> (of which this is a conjunct) and used the
+    /// verdict ONLY to choose <c>IsServc</c> "Y"/"N", throwing the reconciliation away; meanwhile the payload's own
+    /// "footing" was structural self-consistency — T1-73 made <c>AssVal</c> be Σ <c>ItemList.AssAmt</c> by
+    /// construction, which is correct and necessary but is <b>true of every payload</b> and therefore proves nothing
+    /// about the books. On the shape below the two mechanisms gave opposite answers: self-consistency said "fine"
+    /// (Σ AssAmt 8,500 == AssVal 8,500) while this reconciliation said "this is not a tax invoice" (projection 9,850
+    /// against a posted party debit of 7,850). The structural identity stays; THIS is now the gate.</para>
+    ///
+    /// <para>🔴 <b>IT IS A COMPLETE DETECTOR OF THE SIGN DEFECT, AND THAT IS WHY <see cref="Gstr1.ServiceLegs"/>
+    /// EXPOSES THE SIDE RATHER THAN APPLYING IT.</b> <see cref="Gstr1.ServiceLegs"/> yields MAGNITUDES. Double-entry
+    /// balance then makes this comparison catch every deduction leg: a leg of value D posted on the side opposing the
+    /// document's natural one reduces the party leg by D, while the magnitude sum here INCREASES by D, so the
+    /// projection exceeds the party leg by exactly <b>2D</b> for every D &gt; 0 — it can never coincidentally foot.
+    /// Measured: 9,850 against 7,850 on a ₹1,000 Dr exempt SAC leg, a gap of 2,000. Had <c>ServiceLegs</c> returned a
+    /// SIGNED value instead, the projection would have come to 6,500 + 1,350 = 7,850, it would have footed exactly,
+    /// this guard would have fallen silent, and the document would have been admitted to both the printed invoice and
+    /// the IRP. Signing the source would have DELETED the detector. And there is no correct INV-01 to admit it to:
+    /// NIC types <c>"AssAmt": { "type": "number", "minimum": 0, … }</c> and <c>"TotAmt"</c> likewise (published
+    /// schema, <c>https://einv-apisandbox.nic.in/version1.03/generate-irn.html</c>, retrieved and checked by content),
+    /// so the payload has no vocabulary for a line that subtracts.</para>
+    ///
+    /// <para><b>Flag-independent, which is what makes it safe to gate on (ER-13).</b> Unlike
+    /// <see cref="IsServiceAccountingInvoice"/> it does not test <see cref="Voucher.IsAccountingInvoice"/>, so a
+    /// pre-v49 ledger-only sale whose income ledger happens to carry a SAC block — which has no flag and never will —
+    /// still foots and is still emitted exactly as before. Gating the payload on the whole six-conjunct predicate
+    /// would have refused those vouchers; gating it on this one conjunct refuses only documents whose stated total
+    /// disagrees with the books.</para>
+    ///
+    /// <para><b>🔴 THE T1-79 SWEEP — every reader of <see cref="Gstr1.ServiceLegs"/> and its verdict, recorded here
+    /// once so the next reader does not have to re-derive nine of them.</b> The sign-of-a-reducing-entry has been
+    /// wrong in four separate reports on this project, each time fixed at ONE call site, which is why this list is
+    /// written down rather than left implicit:
+    /// <list type="number">
+    /// <item><c>Gstr1.AccumulateHsn</c>'s Table-12 service pass and <c>Gstr1.AccumulateServiceHsn</c> — read
+    /// MAGNITUDES, deliberately UNCHANGED and REPORTED as an exposure. A mixed-side ledger document would file its
+    /// exempt turnover with the wrong sign in Table 12 (measured: +1,000 filed where the leg reduces by 1,000). That
+    /// is a GSTR-1 question with its own filed-return fixtures, none of which covers the shape, so narrowing it here
+    /// without measurement would be the very mistake this list exists to prevent.</item>
+    /// <item><see cref="IsWhollyExemptServiceSupply"/> and <see cref="TaxedLegsCarryTheirTax"/> — side-INDEPENDENT by
+    /// nature: both ask only what a leg's LEDGER declares, never what the leg contributed, so no posted side can move
+    /// either verdict.</item>
+    /// <item><see cref="IsAccountingInvoiceShape"/>'s <c>.Any()</c> — an existence test; side cannot bear on it.</item>
+    /// <item><see cref="RateBreakupReconciles"/> — a one-sided BOUND (breakup ≤ invoice). A magnitude sum is the
+    /// looser of the two readings, so reading the sign could only reject MORE documents; the detector is this method,
+    /// one conjunct later, so the bound is left alone.</item>
+    /// <item><b>THIS method</b> — the detector. Magnitudes are load-bearing; see the paragraph above.</item>
+    /// <item><c>VoucherPrintProjector</c>'s service rows — unreachable for a mixed-side document, because
+    /// <c>ProjectInvoice</c> is gated on <see cref="IsServiceAccountingInvoice"/>, of which this method is a
+    /// conjunct.</item>
+    /// <item><c>EInvoiceJson.ServiceLegsByRate</c> and <c>EInvoiceJson.NonTaxableServiceLegs</c> — <b>the defect
+    /// site.</b> The second is where a <c>ServiceLegs</c> magnitude first became an INV-01 line's OWN value and flowed
+    /// straight into <c>ValDtls</c>; on the taxable path a magnitude had only ever been an apportionment share of a
+    /// posted group total. Both are now preceded by
+    /// <c>EInvoiceJson.RefuseUnregistrableLedgerInvoice</c>, which refuses the document before either runs.</item>
+    /// </list></para>
+    /// </summary>
+    public static bool ServiceProjectionFoots(Company company, Voucher voucher)
     {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
         if (voucher.PartyId is not Guid partyId) return false;
 
         var partyLeg = 0m;
@@ -1929,7 +2004,9 @@ public static class GstReportSupport
         if (!sawPartyLeg) return false;
 
         var projected = 0m;
-        foreach (var (_, value) in Gstr1.ServiceLegs(company, voucher)) projected += value;
+        // T1-79 sweep: MAGNITUDES, and the paragraph above is why. This is the detector, not a victim, of the
+        // sign-blindness — applying the sign here would make the defective document foot.
+        foreach (var (_, value, _) in Gstr1.ServiceLegs(company, voucher)) projected += value;
         foreach (var g in ReadPostedRateGroups(voucher)) projected += g.Cgst + g.Sgst + g.Igst;
         projected += PostedCessTotal(voucher).Amount;
 
