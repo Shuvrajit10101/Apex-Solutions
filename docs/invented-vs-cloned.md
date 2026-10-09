@@ -1827,6 +1827,18 @@ is the premise, and it checks out.
 
 ---
 
+### IV-73 · The Day Book's `F4` (Voucher Type) narrowing also applies to the three `Ctrl+J` exception registers — ours
+
+| | |
+|---|---|
+| **Severity** | **LOW** — an added consistency, not a changed figure. The narrowing is declared in each register's own subtitle, so a narrowed register cannot be misread as a complete one. |
+| **What TallyPrime does** | It attests `F4` on the **Day Book** and says nothing either way about the registers. Verbatim, opened **by content** 2026-10-09 (`help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/`): *"**Day Book** > **F4** (Voucher Type), and select the **Debit Note** voucher type."* and *"Press **F4** (Voucher Type) > **Purchase**."* The same page reaches the registers from the Day Book — *"pressing **Ctrl+J** (Exception Reports)"* — and the vendor's generic report page says *"**F4** — This button name differs based on the report you are viewing"* (`help.tallysolutions.com/working-with-reports/`), which is permissive about per-report meaning but is **not** an attestation for these three. |
+| **What we ship** | `ExceptionVouchers.Build` takes the same optional `voucherTypeId` and passes it to `DayBook.Build`, and `ReportsViewModel.SupportsVoucherTypeFilter` is gated on `IsDayBookFamily` — the Day Book plus `OptionalVouchersRegister`, `CancelledVouchersRegister`, `PostDatedVouchersRegister`. So `F4` is offered, and honoured, on all four. |
+| **How it got in** | Deliberately, on this repository's own prior commitment rather than on a vendor sentence. `ExceptionVouchers`' class summary already binds these registers to being "the Day Book filtered by one flag … so a register built here cannot disagree with the Day Book the operator pressed `Ctrl+J` on", and the design note on the registers makes the shared arm load-bearing. A register that silently **dropped** a narrowing the operator could see in the book's subtitle would be exactly such a disagreement — so the inconsistent option was the riskier one. |
+| **Fix** | **None proposed.** If a user ruling says the registers must always list the whole flagged set regardless of `F4`, the change is one argument: stop passing `_voucherTypeFilterId` in `BuildExceptionRegister` and narrow `SupportsVoucherTypeFilter` to `Kind == DayBook`. `DayBookVoucherTypeFilterTests.An_exception_register_honours_the_voucher_type_narrowing` (both the engine and the Desktop copy) pins the current behaviour and would be the test to invert. |
+
+---
+
 ## 3. Grouped by area
 
 ### TAX — tax & money (7)
