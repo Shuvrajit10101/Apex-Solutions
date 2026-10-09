@@ -49,6 +49,15 @@ namespace Apex.Desktop.Tests;
 /// invariant is narrower and is the one that matters on a document that goes to a bank or a tax officer: a
 /// <i>figure</i> is never cut, because a cut figure is a WRONG figure and reads as a real, smaller amount.</para>
 ///
+/// <para>🔴 <b>THE CLAIM ABOVE IS PLAIN PAPER ONLY, AND SAYING IT UNQUALIFIED WOULD BE A FALSE CLAIM ABOUT
+/// EVIDENCE.</b> Every sweep here renders at <see cref="ShippedDefault"/>, which is <c>PaperKind.Plain</c>. On
+/// <c>PaperKind.PrePrinted</c> the rotation is deliberately suppressed (the sheet is already in the tray the
+/// right way up — see <c>PageConfigWithOrientationTests.Pre_printed_stationery_is_never_turned</c>), so on the
+/// widest bands the figures DO still cut there. That is a known, measured, OPEN defect, deliberately not cured
+/// here because the cure rewrites the column allocator for every report kind and needs its own byte sweep; it is
+/// why census 12.1 stays PARTIAL. Do not read these sweeps as covering pre-printed stationery, and do not widen
+/// them to it without that sweep.</para>
+///
 /// <para>🔴 <b>WHY THERE ARE TWO SWEEPS AND NOT ONE, WHICH IS THE WHOLE LESSON OF THIS FILE.</b> The first fix
 /// for this defect redistributed only the SLACK — width held by columns needing less than their weight share —
 /// and it made every case in this file pass. It was still broken: on real data with real party names the prose

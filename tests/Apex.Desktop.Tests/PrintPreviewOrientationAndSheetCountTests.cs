@@ -36,9 +36,13 @@ namespace Apex.Desktop.Tests;
 /// two, and only an assertion that holds the pane against the bytes can see it. Every test below renders through
 /// the production view-model and reads the emitted <c>/MediaBox</c> and <c>/Type /Page</c> objects.</para>
 ///
-/// <para><b>Honest provenance:</b> these pass against today's <c>origin/main</c>, where <c>ReportPdf</c> never
-/// turns a page and so the pane and the file trivially agree. They are regression guards on a regression
-/// introduced on this branch, and they fail on this branch without the fix beside them.</para>
+/// <para>🔴 <b>HONEST PROVENANCE — THESE CANNOT BE RUN AGAINST <c>origin/main</c> AT ALL, AND AN EARLIER VERSION
+/// OF THIS PARAGRAPH CLAIMED THEY PASS THERE, WHICH WAS A FALSE STATEMENT ABOUT EVIDENCE.</b> Verified read-only:
+/// <c>AutoFitOrientation</c> appears nowhere in <c>origin/main</c>'s <c>src/</c>, and <c>origin/main</c>'s
+/// <c>ReportPdf</c> has no <c>LayOut</c>, no <c>FitOrientation</c> and no <c>MinProseWidth</c> — so this file does
+/// not COMPILE there, let alone pass. Both defects were INTRODUCED on this branch by the crore-scale truncation
+/// fix, so there is no main run for them to fail. The substitute evidence is mutation: restoring each pre-fix line
+/// reddens the named assertions below, and that is recorded with the change rather than inferred.</para>
 /// </summary>
 public sealed class PrintPreviewOrientationAndSheetCountTests
 {
@@ -262,6 +266,111 @@ public sealed class PrintPreviewOrientationAndSheetCountTests
 
         var landscapeOver = new PrintPreviewViewModel(WideReturn(LandscapeRowsPerSheet + 1), "Outward Supplies");
         Assert.Equal(2, landscapeOver.PageCount);
+    }
+
+    // ---- T2-81 on the out-of-range F10 path (B1) -------------------------------------------------------------
+    //
+    // 🔴 BOTH DEFECTS ABOVE WERE STILL ALIVE ON ONE PATH NO TEST VISITED. A page range that selects nothing draws
+    // no sheet, and a PDF must carry one, so ReportPdf emits a single BLANK sheet. That sheet was begun at the
+    // REQUESTED page (config.PageWidth/PageHeight) instead of the page the job was LAID on: on a turned report the
+    // file came out PORTRAIT while the pane — which asks LayOut — had the job as landscape, so the Landscape box
+    // read CHECKED over portrait bytes. Reachable with the keyboard: open a report, P, F12, From page = 5, Ctrl+A.
+    // PrintConfigViewModel clamps only the lower bound, so nothing stops an out-of-range value.
+
+    /// <summary>
+    /// 🔴 The measured case. Forty rows of a wide return lay on TWO turned sheets; asking for page 5 selects none
+    /// of them. The blank sheet that stands in must be the page the job was laid on, so the box still describes
+    /// the bytes. Before the fix: <c>preview.Landscape</c> true over a portrait <c>/MediaBox</c>.
+    /// </summary>
+    [Fact]
+    public void Out_of_range_page_range_emits_the_blank_sheet_at_the_orientation_the_box_reads()
+    {
+        var preview = new PrintPreviewViewModel(WideReturn(40), "Outward Supplies");
+        Assert.True(EmittedIsLandscape(preview.PdfBytes));   // auto-fit turned it, as the fixture intends
+
+        preview.FirstPage = 5;                               // selects no sheet of a two-sheet job
+
+        Assert.Equal(1, EmittedPageCount(preview.PdfBytes));
+        Assert.True(preview.Landscape,
+            "the box stopped describing the job the moment the range emptied it.");
+        Assert.True(EmittedIsLandscape(preview.PdfBytes),
+            "the Landscape box reads CHECKED while the emitted sheet is PORTRAIT: the out-of-range fallback was "
+            + "begun at the page that was ASKED for instead of the page the job was LAID on.");
+    }
+
+    /// <summary>
+    /// The same at the renderer, which is where the defect lives — the pane is not in the loop at all.
+    /// </summary>
+    [Fact]
+    public void ReportPdf_draws_the_out_of_range_fallback_sheet_on_the_page_it_laid_the_report_on()
+    {
+        var report = WideReturn(40);
+        var config = new PageConfig
+        {
+            Size = PageSize.A4,
+            Orientation = PageOrientation.Portrait,
+            FooterText = "Apex Solutions  -  Page {page} of {pages}",
+            FirstPage = 5,
+        };
+
+        var (page, _) = ReportPdf.LayOut(report, config);
+        byte[] pdf = ReportPdf.Render(report, config);
+
+        Assert.Equal(PageOrientation.Landscape, page.Orientation);
+        Assert.Equal(1, EmittedPageCount(pdf));
+        Assert.True(EmittedIsLandscape(pdf),
+            "LayOut laid this report landscape and the fallback sheet came out portrait, so the one sheet in the "
+            + "file is not the page the report was laid on.");
+    }
+
+    /// <summary>The other direction, so the fix cannot be "always emit landscape": a report that was never turned
+    /// must still fall back to a PORTRAIT blank sheet.</summary>
+    [Fact]
+    public void An_untouched_portrait_report_falls_back_to_a_portrait_blank_sheet()
+    {
+        var preview = new PrintPreviewViewModel(NarrowStatement(60), "Trial Balance");
+        Assert.False(EmittedIsLandscape(preview.PdfBytes));
+
+        preview.FirstPage = 99;
+
+        Assert.Equal(1, EmittedPageCount(preview.PdfBytes));
+        Assert.False(EmittedIsLandscape(preview.PdfBytes));
+        Assert.False(preview.Landscape);
+    }
+
+    /// <summary>A mixed SET emptied by its range: the box reads checked because one member was turned, so the
+    /// blank sheet must be turned too — a job is described by one boolean and the bytes must match it.</summary>
+    [Fact]
+    public void An_emptied_mixed_set_falls_back_to_a_turned_blank_sheet_because_the_box_reads_checked()
+    {
+        var job = new[] { NarrowStatement(60), WideReturn(40) };
+        var preview = new PrintPreviewViewModel(job, "Print Job");
+        Assert.True(preview.Landscape);
+
+        preview.FirstPage = 99;
+
+        Assert.Equal(1, EmittedPageCount(preview.PdfBytes));
+        Assert.True(preview.Landscape);
+        Assert.True(EmittedIsLandscape(preview.PdfBytes),
+            "one member of this job was turned, the box says so, and the fallback sheet contradicts it.");
+    }
+
+    /// <summary>
+    /// 🔴 WHAT THIS PATH STILL GETS WRONG, LOCKED AS EXPECTED-WRONG RATHER THAN LEFT TO MEMORY. The pane counts
+    /// the sheets the DOCUMENT has, not the sheets the range will emit, so an emptied range still reads
+    /// <i>Pages: 2</i> over a one-sheet file. That is the same reading the footer's <i>of N</i> already takes, and
+    /// the vendor publishes nothing about a preview readout (both print pages are SILENT on it), so which of the
+    /// two is right is OURS to rule and is owed to the user as a decision — not a patch to make here. This test
+    /// exists so the day it is ruled on, the current behaviour is a measured fact and not a surprise.
+    /// </summary>
+    [Fact]
+    public void An_emptied_range_still_counts_the_documents_sheets_in_the_pane_pending_a_ruling()
+    {
+        var preview = new PrintPreviewViewModel(WideReturn(40), "Outward Supplies");
+        preview.FirstPage = 5;
+
+        Assert.Equal(2, preview.PageCount);                  // the document's sheets
+        Assert.Equal(1, EmittedPageCount(preview.PdfBytes));  // the sheets the range emits
     }
 
     // ---- reading the artefact --------------------------------------------------------------------------------

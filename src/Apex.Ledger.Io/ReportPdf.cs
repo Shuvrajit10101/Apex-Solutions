@@ -74,8 +74,21 @@ public static class ReportPdf
         // A PDF must carry at least one page. An out-of-bounds range (or an empty job) therefore yields ONE BLANK
         // sheet rather than the whole report — silently falling back to "print everything" is the failure this
         // guards against.
+        //
+        // 🔴 THE BLANK SHEET IS THE PAGE THE JOB WAS LAID ON, NOT THE PAGE THAT WAS ASKED FOR. This read
+        // config.PageWidth/PageHeight, which was the same thing until FitOrientation began turning a too-wide
+        // report onto its side. After that, an out-of-range F10 range on a turned report emitted a PORTRAIT blank
+        // sheet while LayOut — and therefore the preview pane and the Landscape box that reads it — had the job as
+        // landscape: the box read CHECKED over portrait bytes, which is exactly the lie T2-81 closed everywhere
+        // else. A blank sheet stands in for the WHOLE job and a job is orientation-per-document, so a turned sheet
+        // anywhere in it wins — the same "any sheet turned" rule the box displays, so the two cannot disagree.
         if (drawn == 0)
-            writer.BeginPage(config.PageWidth, config.PageHeight);
+        {
+            var fallback = laid.Count == 0 ? config : laid[0].Config;
+            foreach (var sheet in laid)
+                if (sheet.Config.Orientation == PageOrientation.Landscape) { fallback = sheet.Config; break; }
+            writer.BeginPage(fallback.PageWidth, fallback.PageHeight);
+        }
 
         // W2-31 F5: collated copies of the WHOLE job (1,2,1,2 — never 1,1,2,2). One copy repeats nothing, so the
         // shipped byte stream is untouched (ER-13).
