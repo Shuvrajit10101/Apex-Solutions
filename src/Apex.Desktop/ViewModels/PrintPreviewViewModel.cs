@@ -121,8 +121,48 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>The chosen page size — A4 (default) or Letter. Toggling re-renders.</summary>
     [ObservableProperty] private bool _useLetter;
 
-    /// <summary>Landscape orientation when true (portrait by default). Toggling re-renders.</summary>
-    [ObservableProperty] private bool _landscape;
+    /// <summary>What the operator last asked for with the Landscape box, and whether they have asked at all.
+    /// Portrait is the un-asked default.</summary>
+    private bool _landscapeRequested;
+    private bool _orientationPinned;
+
+    /// <summary>The orientation the last render ACTUALLY came out at — the one the checkbox displays.</summary>
+    private bool _landscapeRealised;
+
+    /// <summary>
+    /// The <b>Landscape</b> checkbox: it reads the orientation the document was really emitted at, and writing it
+    /// is the operator pinning that orientation. Toggling re-renders.
+    ///
+    /// <para>🔴 <b>IT USED TO LIE IN BOTH DIRECTIONS, AND A BOUND, VISIBLE CONTROL THAT DISPLAYS A STATE IT DOES
+    /// NOT CAUSE IS WORSE THAN NO CONTROL.</b> It was a plain observable bool feeding
+    /// <see cref="PageConfig.Orientation"/>, while <c>ReportPdf</c> had begun turning a too-wide report onto its
+    /// side on its own (<see cref="PageConfig.AutoFitOrientation"/>, true by default and passed false by nobody).
+    /// So on a GSTR-1 with real party names the sheet came out landscape with the box reading unchecked, and
+    /// unchecking could not produce portrait while checking changed nothing.</para>
+    ///
+    /// <para><b>The contract now, and it holds in both directions.</b> The getter returns
+    /// <see cref="_landscapeRealised"/> — the orientation of the bytes the operator is looking at — so the box
+    /// never claims portrait for a sideways sheet. The setter records an explicit choice, which makes
+    /// <see cref="BuildConfig"/> pass <c>AutoFitOrientation = false</c>: from then on the operator's choice is
+    /// absolute, auto-fit cannot override it, and the two values agree because nothing can move them apart. The
+    /// figures may then clip on a pinned portrait page — that is the operator's call to make, and the column
+    /// allocator still gives the figures what width there is.</para>
+    ///
+    /// <para><b>A SET of documents (W2-32) is orientation-per-document</b>, because the column geometry is. The
+    /// box therefore reads checked when ANY sheet of the job was turned — never unchecked while one was, which is
+    /// the direction that misleads — and pinning from there pins the whole job.</para>
+    /// </summary>
+    public bool Landscape
+    {
+        get => _landscapeRealised;
+        set
+        {
+            _landscapeRequested = value;
+            _orientationPinned = true;
+            Render();
+            OnPropertyChanged();
+        }
+    }
 
     // ---- F12 print-config knobs (RQ-12) — apply to voucher/invoice prints; inert for a report. ----
 
@@ -344,7 +384,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     private PageConfig BuildConfig() => new()
     {
         Size = UseLetter ? PageSize.Letter : PageSize.A4,
-        Orientation = Landscape ? PageOrientation.Landscape : PageOrientation.Portrait,
+        Orientation = _landscapeRequested ? PageOrientation.Landscape : PageOrientation.Portrait,
+        // 🔴 The operator's explicit orientation choice is ABSOLUTE. Auto-fit decides only the case nobody has
+        // decided; once the Landscape box has been touched it cannot override what it says.
+        AutoFitOrientation = !_orientationPinned,
         // A brand-safe footer with no clock: page numbers come from pagination, never DateTime.Now.
         FooterText = "Apex Solutions  -  Page {page} of {pages}",
         // W2-31 (census 12.4): the F8/F9/F5/F10 knobs. Their defaults reproduce the shipped output exactly, so a
@@ -408,10 +451,12 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         foreach (var p in Pages) p.SetTotalPages(Pages.Count);
 
         OnPropertyChanged(nameof(PageCount));
+        // The pagination above is what told us which way up the sheets came out, so the checkbox is refreshed
+        // from the realised orientation here rather than from what was asked for.
+        OnPropertyChanged(nameof(Landscape));
     }
 
     partial void OnUseLetterChanged(bool value) => Render();
-    partial void OnLandscapeChanged(bool value) => Render();
 
     // W2-31: the print knobs apply to EVERY document kind (a copy count on an invoice is the case the F5 knob
     // exists for), so unlike the F12 document knobs below they re-render unconditionally.
@@ -455,40 +500,70 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     // ---- lightweight preview pagination (mirrors ReportPdf's row-per-height overflow) ----
 
-    private IEnumerable<(PrintReport Document, List<PrintRow> Rows)> PaginateForPreview()
+    /// <summary>True for the kinds whose bytes <see cref="ReportPdf"/> renders, and therefore the kinds whose
+    /// pagination and orientation it — not this pane — decides.</summary>
+    private bool UsesReportPdf => Kind is PrintKind.Report or PrintKind.ReportSet;
+
+    private List<(PrintReport Document, List<PrintRow> Rows)> PaginateForPreview()
     {
-        // Approximate the renderer's rows-per-page from the content height and row height so the preview page
-        // breaks read like the PDF. This is presentation-only; the authoritative bytes come from ReportPdf.
+        var sheets = new List<(PrintReport Document, List<PrintRow> Rows)>();
+
+        // Every renderer other than ReportPdf draws the orientation it is handed, so for those kinds what was
+        // asked for IS what came out.
+        _landscapeRealised = _landscapeRequested;
+
+        // 🔴 THE SHEETS OF A REPORT ARE COUNTED BY THE RENDERER THAT PRINTS THEM, NOT RE-DERIVED HERE.
+        // This method used to compute its own rows-per-page from _config, which agreed with the PDF only while
+        // the PDF honoured _config verbatim. It stopped agreeing the moment ReportPdf began turning a too-wide
+        // report onto its side: 53 rows to a portrait sheet here against 34 to a landscape sheet there, so a
+        // 40-row return previewed as ONE sheet, showed "Pages: 1", and printed TWO. ReportPdf.LayOut returns the
+        // page it will really use and the rows that fall on each of its sheets, so the readout cannot be wrong
+        // about the paper, the pitch or the orientation.
+        if (UsesReportPdf)
+        {
+            bool turned = false;
+            foreach (var document in _previewDocuments)
+            {
+                var (page, documentSheets) = ReportPdf.LayOut(document, _config);
+                if (page.Orientation == PageOrientation.Landscape) turned = true;
+                foreach (var rows in documentSheets) sheets.Add((document, new List<PrintRow>(rows)));
+            }
+            _landscapeRealised = turned;
+            return sheets;
+        }
+
+        // The bespoke kinds (voucher, invoice, receipt, payslip, cheque, advice letter) each have their own
+        // renderer and their own page model, so the pane still mirrors them with this approximation — the gap
+        // that leaves is the one the XAML beside the advice checkbox already states plainly.
         double contentHeight = _config.PageHeight - _config.MarginTop - _config.MarginBottom
             - (_config.TitleFontSize + _config.SubtitleFontSize + _config.HeaderFontSize + 20)
             - (_config.FooterFontSize + 6);
         int perPage = Math.Max(1, (int)(contentHeight / _config.RowHeight));
 
-        // W2-32: EACH DOCUMENT STARTS A FRESH SHEET, mirroring ReportPdf.Render(IReadOnlyList<PrintReport>, …).
-        // On the single-document kinds the outer loop runs once and the row-splitting below is character-for-
-        // character what it always was, so every existing preview paginates exactly as it did (ER-13).
         foreach (var document in _previewDocuments)
         {
             var current = new List<PrintRow>();
-            bool yielded = false;
+            bool added = false;
             foreach (var row in document.Rows)
             {
                 if (current.Count >= perPage)
                 {
-                    yield return (document, current);
-                    yielded = true;
+                    sheets.Add((document, current));
+                    added = true;
                     current = new List<PrintRow>();
                 }
                 current.Add(row);
             }
             if (current.Count > 0)
-                yield return (document, current);
-            // A document with no rows at all still occupies its sheet — ReportPdf gives it one, so the pane must
-            // show one. Without this a job of three statements, one of them empty, would preview as two sheets
-            // and print as three.
-            else if (!yielded)
-                yield return (document, current);
+                sheets.Add((document, current));
+            // A document with no rows at all still occupies its sheet — the renderer gives it one, so the pane
+            // must show one. Without this a job of three statements, one of them empty, would preview as two
+            // sheets and print as three.
+            else if (!added)
+                sheets.Add((document, current));
         }
+
+        return sheets;
     }
 
     /// <summary>
