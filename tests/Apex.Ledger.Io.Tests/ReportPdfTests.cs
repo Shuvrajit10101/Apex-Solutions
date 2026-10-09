@@ -209,16 +209,41 @@ public sealed class ReportPdfTests
         Assert.DoesNotContain(longName, s);
         Assert.Contains("...", s);
 
-        // Measure the drawn (truncated) cell: it must fit inside its column's inner width.
+        // 🔴 THE BOUND IS NO LONGER contentWidth × 3/6, AND THE OLD LITERAL WOULD NOW UNDER-STATE IT.
+        //
+        // This assertion used to recompute the Particulars column as its weight's flat share of the content
+        // width. ReportPdf.ComputeColumnX no longer stops at the weights: it measures what each column really
+        // needs and moves width from columns that have slack to columns that do not, because the flat share cut
+        // MONEY FIGURES mid-number on 26 of the 37 banded report kinds. Here that works in this cell's favour —
+        // "Debit" needs ~51.8pt to hold 1,00,000.00 and "Credit" only its caption, so the ~178.6pt of slack the
+        // two money columns were holding goes to the 200-W Particulars cell, which is now ~440pt wide rather
+        // than 261.6pt. The cell is still CLIPPED and still ellipsised, which is what this test is for; what
+        // changed is the column it is clipped to.
+        //
+        // So the bound asserted is the real invariant rather than a restatement of the old arithmetic: a long
+        // prose cell may take all the slack there is, but it may NOT encroach on the width the money columns
+        // need — if it did, the figures would clip instead, which is strictly the worse trade.
         double contentWidth = config.ContentWidth;
-        double col0Width = contentWidth * (3.0 / (3.0 + 1.5 + 1.5)); // Particulars column
-        double innerWidth = col0Width - 2 * 2; // minus 2pt padding each side
+        double pad = 2 * 2;
+        double safety = 1.0;                                     // ReportPdf.MeasureSafety
+        double debitNeed = Math.Max(
+            PdfWriter.MeasureHelvetica("Debit", config.HeaderFontSize),
+            PdfWriter.MeasureHelvetica("1,00,000.00", config.BodyFontSize)) + pad + safety;
+        double creditNeed =                                      // the Credit cell is empty: caption only
+            PdfWriter.MeasureHelvetica("Credit", config.HeaderFontSize) + pad + safety;
+        double innerWidth = contentWidth - debitNeed - creditNeed - pad;
+
         string drawn = FirstDrawnTextStartingWith(s, "WWW");
         Assert.EndsWith("...", drawn);
         double measured = PdfWriter.MeasureHelvetica(drawn, config.BodyFontSize);
         Assert.True(measured <= innerWidth,
             $"truncated cell width {measured:0.###}pt exceeds column inner width {innerWidth:0.###}pt");
         Assert.True(measured <= contentWidth, "truncated cell exceeds page content width");
+
+        // And the point of the redistribution: the money figure beside it reached the page WHOLE. Under the flat
+        // share this held too, but it is asserted here so a future change that widens Particulars by starving
+        // the money column fails on the figure rather than passing on the prose.
+        Assert.Contains("(1,00,000.00) Tj", s);
     }
 
     // ---------------------------------------------------------------- Fix 3: bold header/total rows
