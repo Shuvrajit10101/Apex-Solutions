@@ -588,7 +588,13 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         var to = SelectedPeriod.To;
         return SelectedReturn.Kind switch
         {
-            GstOfflineReturnKind.Gstr1 => GstReturnJson.Gstr1(_company, from, to),
+            // 🔴 T2-119 (ii) / census 6.23: the GSTR-1 payload is emitted FOR THE SELECTED REGISTRATION, the same
+            // ScopedRegistrationId the on-screen projection at ProjectGstr1 already uses. Vendor-attested: "If you
+            // have multiple registrations, select the required GST Registration" (help.tallysolutions.com,
+            // "Upload GSTR-1", opened by content). ⚠️ The six writers below still take none, so on a
+            // multi-registration company each throws EnsureRegistrationScoped's refusal instead of emitting —
+            // reported, not silently widened, because each needs its own projection scoped and tested.
+            GstOfflineReturnKind.Gstr1 => GstReturnJson.Gstr1(_company, from, to, ScopedRegistrationId),
             GstOfflineReturnKind.Gstr3b => GstReturnJson.Gstr3b(_company, from, to),
             GstOfflineReturnKind.Gstr9 => GstReturnJson.Gstr9(_company, from, to),
             GstOfflineReturnKind.Gstr9c => GstReturnJson.Gstr9c(_company, from, to),
