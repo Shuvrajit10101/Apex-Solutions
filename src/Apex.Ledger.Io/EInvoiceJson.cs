@@ -686,11 +686,22 @@ public static class EInvoiceJson
                     "reduction as a credit note against the invoice instead.");
 
             // T1-81 — the ledger declares a GST block, so the HSN/SAC is a field that can be filled.
-            if (Gstr1.ServiceSacOf(ledger) is null)
+            var sac = Gstr1.ServiceSacOf(ledger);
+            if (sac is null)
                 throw new InvalidOperationException(
                     $"'{ledger.Name}' declares no HSN/SAC code. The NIC INV-01 schema makes HsnCd mandatory on every " +
                     "item line (minimum 4 digits), so an e-invoice cannot be generated for this voucher. Enter the " +
                     $"HSN/SAC on the '{ledger.Name}' ledger and generate it again.");
+
+            // T2-57 — and a code that is PRESENT but which BOTH of NIC's published sources refuse (see IsNicHsnCode,
+            // which records the two and their disagreement). The guard above tested only null-or-whitespace, so
+            // `0000` — enterable through the master editor, which checks 4/6/8-and-all-digits and nothing more — was
+            // emitted verbatim into a payload the IRP must reject.
+            if (!IsNicHsnCode(sac))
+                throw new InvalidOperationException(
+                    $"'{ledger.Name}' declares the HSN/SAC code '{sac}', which NIC refuses for a service line: a " +
+                    "service HSN/SAC is 4, 5 or 6 digits (8 is accepted for goods), and it may not be all zeros. " +
+                    $"Correct the HSN/SAC on the '{ledger.Name}' ledger and generate it again.");
         }
 
         // T1-80 — the ONE footing mechanism, and the only reconciliation of this document against the books. Scoped
@@ -701,6 +712,35 @@ public static class EInvoiceJson
                 "so an e-invoice generated from it would state a different total from the books. Correct the voucher " +
                 "before generating an e-invoice.");
     }
+
+    /// <summary>
+    /// 🔴 <b>T2-57 — an <c>HsnCd</c> that NIC's OWN TWO PUBLISHED SOURCES BOTH refuse. Only those.</b>
+    /// <para><b>The two sources, both retrieved and checked by content, and they DISAGREE.</b>
+    /// (a) The v1.03 JSON schema at <c>https://einv-apisandbox.nic.in/version1.03/generate-irn.html</c> (HTTP 200,
+    /// 82,078 bytes) types the item field <c>"HsnCd": { "type": "string", "minLength": 4, "maxLength": 8,
+    /// "pattern": "^(?!0+$)([0-9]{4}|[0-9]{6}|[0-9]{8})$" }</c> — on its face 4, 6 or 8 digits only.
+    /// (b) The NIC schema workbook <c>https://einvoice1.gst.gov.in/Documents/EInvoice_Schema.xlsx</c> (HTTP 200,
+    /// 198,376 bytes, sheet "Validations" rule 2) says instead: <i>"Each item needs to have valid HSN code with at
+    /// least 4 digits. That is, items of goods type should be 4 or 6 or 8 digits and <b>items of service type should
+    /// be 4 or 5 or 6 digits</b>. HSN Code should be valid as per the GST master."</i> That workbook's own Schema
+    /// sheet gives <c>HsnCd</c> <c>maxLength: 8</c> and <b>NO pattern at all</b>.</para>
+    /// <para>🔴 <b>This predicate is read ONLY on service lines</b> (its single caller walks
+    /// <c>Gstr1.ServiceLegs</c>, every one of which is emitted <c>IsServc: "Y"</c>), which is exactly where the two
+    /// sources conflict: a <b>5-digit</b> service code is admitted by (b) and rejected by (a)'s pattern, and an
+    /// <b>8-digit</b> one is admitted by (a) and excluded by (b)'s service clause. <b>So the rule here is to refuse
+    /// only what BOTH sources refuse</b> — length outside {4,5,6,8}, a non-ASCII-digit character (both (a)'s
+    /// <c>[0-9]</c> and (b)'s "digits"), or all zeros (<c>(?!0+$)</c> in (a); not in the GST master for (b)).
+    /// Refusing a length either source accepts would make a LEGITIMATE voucher unregistrable — the same harm as the
+    /// burnt-document-number defect this pre-flight path already had to fix — so it is not this writer's to refuse.
+    /// Validity against the GST master itself is NOT checked here: we hold no master, and inventing one would refuse
+    /// real codes.</para>
+    /// <para><b>Deliberately NOT folded into <see cref="Gstr1.ServiceSacOf"/>.</b> That resolver is also read by
+    /// <c>VoucherPrintProjector</c> for the PRINTED invoice's HSN column, and narrowing it would silently blank a
+    /// code off paper to fix a portal payload — a bigger change than the defect. The payload's own writer owns the
+    /// payload's own rule.</para>
+    /// </summary>
+    private static bool IsNicHsnCode(string code) =>
+        code.Length is 4 or 5 or 6 or 8 && code.All(char.IsAsciiDigit) && code.Any(ch => ch != '0');
 
     /// <summary>
     /// The TAXABLE service-income ledger legs of a ledger-only voucher, bucketed into the posted rate group each

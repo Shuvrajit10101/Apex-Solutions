@@ -222,6 +222,16 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
         }
         catch (InvalidOperationException ex)
         {
+            // 🔴 F1 — THE REFUSAL MUST NOT BURN THE VOUCHER. PrepareRecord has ALREADY attached a Pending record and
+            // CONSUMED the document number, and every exit out of that state is closed: a retry is refused ("An
+            // e-invoice record already exists for this voucher"), the doc-no is not reusable even after a cancel, and
+            // a Pending record cannot be cancelled. So without this rollback a refused generation left the voucher
+            // PERMANENTLY unregistrable, showing a false "Pending" for a document that was never built — and the
+            // remedy the refusal itself prints ("Enter the HSN/SAC on the ledger and generate it again") could not be
+            // followed. An exempt service ledger with no SAC is the ORDINARY case the pre-flight was written for, so
+            // this was the normal path, not a corner. The record was never persisted (the Save below is the only one
+            // on this path), so removing it restores the company byte-for-byte to its pre-press state.
+            _company.RemoveEInvoiceRecord(record);
             return Fail(ex.Message);
         }
 

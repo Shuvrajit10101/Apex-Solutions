@@ -289,6 +289,71 @@ public sealed class Inv01LedgerLegPreflightTests
     }
 
     /// <summary>
+    /// 🔴 <b>T2-57 — the blank was only ONE of NIC's clauses, and the others were still emitted verbatim.</b>
+    /// <c>ServiceSacOf</c> returns null only for null-or-whitespace, so a code that is PRESENT but malformed sailed
+    /// through the T1-81 guard and into the payload: <c>0000</c> (all zeros — fails the <c>(?!0+$)</c> lookahead, is
+    /// not in the GST master, and is <b>enterable through the master editor</b>, whose own check is
+    /// 4/6/8-and-all-digits and nothing more), <c>99</c> (under <c>minLength: 4</c>), <c>9983117</c> (7 digits — no
+    /// NIC source admits 7 for anything), <c>ABCD</c> (not <c>[0-9]</c>) and <c>998311XYZ</c> (over
+    /// <c>maxLength: 8</c>). Every one is refused by <b>BOTH</b> published NIC sources, which is the bar
+    /// <c>IsNicHsnCode</c> sets. Refused, naming the ledger and the offending code.
+    /// </summary>
+    [Theory]
+    [InlineData("0000")]          // all zeros — the one shape the shipped master editor will accept
+    [InlineData("99")]
+    [InlineData("9983117")]       // 7 digits: rejected by the v1.03 pattern AND by the workbook's service clause
+    [InlineData("ABCD")]
+    [InlineData("998311XYZ")]
+    public void A_service_ledger_whose_SAC_is_not_a_NIC_HsnCd_is_refused_instead_of_emitting_it(string sac)
+    {
+        var (company, sale) = TaxableOnlyServiceInvoice(taxedSac: sac);
+
+        // The premise: the code IS declared, so the T1-81 blank guard does not fire and this is the only thing left.
+        Assert.Equal(sac, Gstr1.ServiceSacOf(company.FindLedgerByName("Consultancy Income")!));
+
+        var ex = Assert.Throws<InvalidOperationException>(() => EInvoiceJson.BuildInv01(company, sale));
+        Assert.Contains("Consultancy Income", ex.Message);
+        Assert.Contains(sac, ex.Message);
+        Assert.Contains("4, 5 or 6 digits", ex.Message);
+        Assert.DoesNotContain("no HSN/SAC code", ex.Message);      // the OTHER guard, not this one
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-57's OTHER HALF, and the one that matters more: a length NIC's own workbook ADMITS must NOT be
+    /// refused.</b> The two published sources disagree — the v1.03 JSON <c>pattern</c> admits only 4/6/8 digits, but
+    /// the schema workbook's Validations rule 2 states that <i>"items of service type should be 4 or 5 or 6
+    /// digits"</i>, and these lines are all emitted <c>IsServc: "Y"</c>. A 5-digit service code is therefore disputed,
+    /// not invalid, and refusing it would make a legitimate voucher unregistrable — the same harm as burning the
+    /// document number. An 8-digit code is the mirror case (admitted by the pattern, excluded by the workbook's
+    /// service clause). Both are asserted on the <b>EMITTED BYTES</b>, not on a refusal that did not happen.
+    /// </summary>
+    [Theory]
+    [InlineData("99831")]         // 5 digits — admitted by the workbook's service clause
+    [InlineData("99831178")]      // 8 digits — admitted by the v1.03 pattern
+    public void A_service_SAC_that_either_NIC_source_admits_is_emitted_rather_than_refused(string sac)
+    {
+        var (company, sale) = TaxableOnlyServiceInvoice(taxedSac: sac);
+
+        using var payload = JsonDocument.Parse(EInvoiceJson.BuildInv01(company, sale));
+        var item = payload.RootElement.GetProperty("ItemList").EnumerateArray().Single();
+        Assert.Equal(sac, item.GetProperty("HsnCd").GetString());
+        Assert.Equal("Y", item.GetProperty("IsServc").GetString());
+    }
+
+    /// <summary>The control for the Theory above, asserted on the EMITTED BYTES: a well-formed SAC is still emitted
+    /// verbatim as the line's <c>HsnCd</c>, so the new predicate narrows nothing it should not.</summary>
+    [Fact]
+    public void A_well_formed_SAC_is_still_emitted_verbatim_as_the_HsnCd()
+    {
+        var (company, sale) = TaxableOnlyServiceInvoice(taxedSac: TaxedSac);
+
+        using var payload = JsonDocument.Parse(EInvoiceJson.BuildInv01(company, sale));
+        var item = payload.RootElement.GetProperty("ItemList").EnumerateArray().Single();
+        Assert.Equal(TaxedSac, item.GetProperty("HsnCd").GetString());
+        Assert.Equal("Y", item.GetProperty("IsServc").GetString());
+    }
+
+    /// <summary>
     /// 🔴 <b>SCOPE CONTROL, AND A DELIBERATE REFUSAL TO WIDEN.</b> The plain As-Voucher ledger-only sale still emits
     /// its synthetic line with a blank <c>HsnCd</c>. Its sales ledger declares <b>no GST block at all</b>, so there is
     /// nowhere in the domain model to put a code: the blank is not correctable master data but a structural gap, and
