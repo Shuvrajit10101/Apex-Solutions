@@ -128,7 +128,17 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     public string FormattedVoucherNumber =>
         Apex.Ledger.Services.VoucherNumberFormatter.Render(_type, VoucherNumber, Date);
 
-    partial void OnVoucherNumberChanged(int value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+    partial void OnVoucherNumberChanged(int value)
+    {
+        OnPropertyChanged(nameof(FormattedVoucherNumber));
+        OnPropertyChanged(nameof(TrackingNumberDefault));
+        // The tracking default IS the voucher number (census 9.8), so an un-keyed box must follow it rather than
+        // keep the number this screen opened on — a Manual-numbering type is typed over, and a date moved across
+        // an affix row re-renders it. Safe during construction: Lines is still empty, so this is a no-op until
+        // the constructor's own AddLine/Recalculate seeds the first row.
+        SeedTrackingNumberDefaults();
+    }
+
     /// <summary>
     /// <b>census 5.10 — may the operator TYPE the Voucher No. on this screen?</b> True under
     /// <see cref="NumberingMethod.Manual"/> (they must — the engine never numbers a Manual voucher) and under
@@ -142,7 +152,14 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// </summary>
     public bool IsVoucherNumberEditable => _type.AllowsManualNumberEntry;
 
-    partial void OnDateChanged(DateOnly value) => OnPropertyChanged(nameof(FormattedVoucherNumber));
+    partial void OnDateChanged(DateOnly value)
+    {
+        OnPropertyChanged(nameof(FormattedVoucherNumber));
+        OnPropertyChanged(nameof(TrackingNumberDefault));
+        // Same reason as OnVoucherNumberChanged: the rendered number can change with the date (affix rows), and
+        // the un-keyed tracking box is that number.
+        SeedTrackingNumberDefaults();
+    }
 
     /// <summary>Ctrl+T — marks the voucher post-dated (excluded from on-hand until its date is reached).</summary>
     [ObservableProperty] private bool _isPostDated;
@@ -676,6 +693,32 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             or VoucherBaseType.RejectionIn or VoucherBaseType.RejectionOut;
 
     /// <summary>
+    /// 🔴 <b>The vendor's DEFAULT Tracking No. for this voucher — its own rendered number — or <c>""</c> when
+    /// this screen must leave the box blank (census 9.8, the gap named on rows 4.13 / 4.14).</b>
+    ///
+    /// <para>TallyPrime, on the Delivery Note step of the sales-order flow and the Receipt Note step of the
+    /// purchase-order flow, states it in the same words on both pages: <c>"Enter a Tracking No. By default, the
+    /// invoice number appears. You can change it if required by creating a New Number."</c>
+    /// (<c>help.tallysolutions.com/sales-order-tally/</c>, <c>help.tallysolutions.com/purchase-order-tally/</c>).
+    /// <see cref="FormattedVoucherNumber"/> is the number the operator is looking at on this same screen, affixes
+    /// and padding included, and it is what Accept will post — so it is the number that "appears".</para>
+    ///
+    /// <para>🔴 <b>THE SCOPE IS NARROWER THAN <see cref="ShowTrackingNumber"/>, DELIBERATELY, AND THE TWO MUST
+    /// NOT BE COLLAPSED INTO ONE TEST.</b> The column also shows on <b>Rejection In / Rejection Out</b>, but no
+    /// TallyPrime page attests a default there, and the only pages that describe a rejection's tracking number at
+    /// all are <b>Tally.ERP 9</b> pages — not ground truth for this project — which describe the OPPOSITE shape:
+    /// the operator picks the ORIGINAL Receipt or Delivery Note's tracking number from a list, because a
+    /// rejection returns goods that arrived under someone else's reference. Seeding a rejection with its OWN
+    /// number would therefore invent a reference that pairs with nothing, which is worse than blank. So the two
+    /// rejection kinds keep an empty box until a TallyPrime source speaks.</para>
+    /// </summary>
+    public string TrackingNumberDefault =>
+        ShowTrackingNumber
+        && _type.BaseType is VoucherBaseType.ReceiptNote or VoucherBaseType.DeliveryNote
+            ? FormattedVoucherNumber
+            : string.Empty;
+
+    /// <summary>
     /// True when the <b>Cost Tracking Number</b> column is shown (census 9.7). Unlike
     /// <see cref="ShowTrackingNumber"/> this is NOT restricted by base type: the vendor's cost tracking follows
     /// a lot across its <i>whole</i> lifecycle, and a Stock Journal that consumes a lot into a manufactured item
@@ -683,6 +726,41 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// transformed.
     /// </summary>
     public bool ShowCostTrackingNumber => _company.EnableCostTracking;
+
+    /// <summary>
+    /// Pushes <see cref="TrackingNumberDefault"/> onto every line that the operator has not written, and onto
+    /// none that they have. Called from <see cref="Recalculate"/>, so a line added later is seeded too and the
+    /// box follows the voucher number while the operator moves the <see cref="Date"/> across an affix boundary.
+    ///
+    /// <para>🔴 <b>IT REFUSES OUTRIGHT WHILE <see cref="IsAltering"/> — and the honest account of that guard is
+    /// that it is DEFENCE-IN-DEPTH, not the thing currently doing the work.</b> Altering must never rewrite a
+    /// tracking number the book already holds: Purchase / Sales Bills Pending net <c>Received − Billed</c> on
+    /// this very string, so inventing a reference on an amendment would move what the report says is
+    /// outstanding.</para>
+    ///
+    /// <para><b>What actually protects the existing lines today is the per-line operator-set flag, by an
+    /// accident worth writing down.</b> The constructor seeds line 0 with the NEW-entry default before
+    /// <c>RehydrateFrom</c> runs, so rehydrating a voucher posted with a BLANK tracking number assigns
+    /// <see cref="string.Empty"/> over a non-empty string — a real change, which fires the hook and marks the
+    /// line operator-set. Removing this guard was MEASURED and left every test in
+    /// <c>TrackingNumberDefaultTests</c> green except the one written for it. The guard is kept because that
+    /// protection depends on construction order rather than on any stated rule, and the invariant it states is
+    /// the one the book needs.</para>
+    ///
+    /// <para>⚠️ <b>Its one independently observable effect is OURS, not the vendor's:</b> a line ADDED while
+    /// altering is left blank rather than stamped with the voucher's number. No TallyPrime page covers that case.
+    /// Pinned by <c>A_line_added_during_an_alteration_is_not_stamped_with_the_voucher_number</c>.</para>
+    /// </summary>
+    private void SeedTrackingNumberDefaults()
+    {
+        if (IsAltering) return;
+
+        var seed = TrackingNumberDefault;
+        if (seed.Length == 0) return;
+
+        foreach (var l in Lines.Concat(DestinationLines))
+            l.SeedTrackingNumberDefault(seed);
+    }
 
     /// <summary>Adds a blank primary line (order / source-movement / counted); recomputes Accept-enabled.</summary>
     public InventoryVoucherLineViewModel AddLine()
@@ -812,6 +890,8 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             l.ShowTrackingNumber = ShowTrackingNumber;
             l.ShowCostTrackingNumber = ShowCostTrackingNumber;
         }
+
+        SeedTrackingNumberDefaults();
 
         var completeLines = Lines.Count(l => l.IsComplete);
         var halfFilled = Lines.Any(l => !l.IsBlank && !l.IsComplete);

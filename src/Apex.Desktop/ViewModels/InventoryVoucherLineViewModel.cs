@@ -134,13 +134,61 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     // --------------------------------------------------------------- W-K1 · tracking data (census 9.8 / 9.7)
 
     /// <summary>
-    /// The operator-keyed <b>Tracking No.</b> on this movement (census 9.8) — the string that links a Receipt
-    /// Note to its Purchase bill and a Delivery Note to its Sales bill. Blank ⇒ untracked.
-    /// <para>Free text and NOT a picker: the vendor's own default is the invoice number, and a note is routinely
-    /// keyed BEFORE the bill that will quote its number exists, so there is nothing to pick from. See
-    /// <see cref="InventoryAllocation.TrackingNumber"/>.</para>
+    /// The <b>Tracking No.</b> on this movement (census 9.8) — the string that links a Receipt Note to its
+    /// Purchase bill and a Delivery Note to its Sales bill. Blank ⇒ untracked.
+    /// <para>Free text and NOT a picker: a note is routinely keyed BEFORE the bill that will quote its number
+    /// exists, so there is nothing to pick from. See <see cref="InventoryAllocation.TrackingNumber"/>.</para>
+    /// <para>🔴 <b>It is SEEDED with the voucher's own number, not left blank</b>, on the two base kinds the
+    /// vendor attests it for — <c>"Enter a Tracking No. By default, the invoice number appears. You can change
+    /// it if required by creating a New Number."</c>
+    /// (<c>help.tallysolutions.com/sales-order-tally/</c> and <c>.../purchase-order-tally/</c>). The parent entry
+    /// VM owns the seeding and the base-kind scope; see
+    /// <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c>. Until W44 this comment claimed the
+    /// vendor default while the field initialised to <see cref="string.Empty"/> and nothing ever wrote it — the
+    /// box opened blank, so every Receipt Note posted untracked and Purchase Bills Pending reported each receipt
+    /// as permanently unbilled.</para>
     /// </summary>
     [ObservableProperty] private string _trackingNumber = string.Empty;
+
+    /// <summary>
+    /// True once the OPERATOR has written <see cref="TrackingNumber"/> — set by the property's own change hook,
+    /// and deliberately NOT by <see cref="SeedTrackingNumberDefault"/>.
+    ///
+    /// <para>🔴 <b>This is what makes the default a default rather than an overwrite.</b> The seed re-runs on
+    /// every <c>Recalculate</c> (so the box follows the voucher number while the operator moves the date), and
+    /// without this flag that re-run would reinstate the number over a value the operator had typed — or over one
+    /// they had deliberately CLEARED, which is how a note is marked untracked. A cleared box that refills itself
+    /// is indistinguishable from a dead control.</para>
+    /// </summary>
+    public bool TrackingNumberIsOperatorSet { get; private set; }
+
+    /// <summary>Guards <see cref="OnTrackingNumberChanged"/> while the seed — not the operator — is writing.</summary>
+    private bool _seedingTrackingNumber;
+
+    /// <summary>
+    /// Writes the vendor's default into <see cref="TrackingNumber"/> WITHOUT marking it operator-set, and does
+    /// nothing at all once <see cref="TrackingNumberIsOperatorSet"/> is true.
+    ///
+    /// <para>🔴 <b>Rehydration counts as the operator having set it, and that is what protects a posted book.</b>
+    /// <see cref="RehydrateFromAllocation"/> assigns <see cref="TrackingNumber"/> through the ordinary setter, so
+    /// re-opening a posted voucher marks the flag and the seed can never touch that line. This holds even for a
+    /// voucher posted with a BLANK tracking number, because the parent's constructor has already seeded the
+    /// new-entry default into the line — so the rehydrate writes <see cref="string.Empty"/> over a non-empty
+    /// string, which is a real change rather than a no-op the setter's equality check would swallow.
+    /// <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c> additionally refuses to seed at all while
+    /// altering; that guard is defence-in-depth, since the protection described here leans on construction order
+    /// rather than on any stated rule.</para>
+    /// </summary>
+    public void SeedTrackingNumberDefault(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (TrackingNumberIsOperatorSet) return;
+        if (string.Equals(TrackingNumber, value, StringComparison.Ordinal)) return;
+
+        _seedingTrackingNumber = true;
+        try { TrackingNumber = value; }
+        finally { _seedingTrackingNumber = false; }
+    }
 
     /// <summary>
     /// The operator-keyed <b>Cost Tracking Number</b> on this movement (census 9.7) — the lot whose cost this
@@ -175,7 +223,13 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
             ? CostTrackingNumber.Trim()
             : null;
 
-    partial void OnTrackingNumberChanged(string value) => _onChanged();
+    partial void OnTrackingNumberChanged(string value)
+    {
+        // The seed writes through this same setter, so the flag is set only when the writer was NOT the seed.
+        if (!_seedingTrackingNumber) TrackingNumberIsOperatorSet = true;
+        _onChanged();
+    }
+
     partial void OnCostTrackingNumberChanged(string value) => _onChanged();
 
     // --------------------------------------------------------------- line unit (WI-10 slice B)
