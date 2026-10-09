@@ -277,13 +277,30 @@ public static class GstReturnJson
 
     /// <summary>Serialises the <b>GSTR-1</b> outward-supplies return for <c>[from, to]</c> to deterministic offline JSON
     /// bytes (UTF-8, no BOM). Money is integer paisa (ER-10). Sections: B2B invoices, rate-wise B2C, §34 credit/debit
-    /// notes (Table 9B), advances received/adjusted (Tables 11A/11B) and the HSN summary (Table 12).</summary>
-    public static byte[] Gstr1(Company company, DateOnly from, DateOnly to)
+    /// notes (Table 9B), advances received/adjusted (Tables 11A/11B) and the HSN summary (Table 12).
+    ///
+    /// <para>🔴 <b>T2-119 (ii) — IT IS FILED FOR ONE REGISTRATION (census 6.23), AND <c>gstin</c> NAMES THAT ONE.</b>
+    /// <paramref name="registrationId"/> is threaded into <c>Gstr1.Build</c> so the payload carries that
+    /// registration's supplies and §34 notes and nothing else, and the envelope's <c>gstin</c> is resolved through
+    /// <c>GstConfig.FindRegistration</c> rather than hard-coded to the primary — emitting a second registration's
+    /// figures under the primary's GSTIN would be a worse artefact than the one this replaces. <c>null</c> ⇒ the
+    /// company's only registration, so a single-registration book is byte-identical (ER-13).</para>
+    ///
+    /// <para><b>Vendor-attested (R7, opened by content):</b> "<i>If you have multiple registrations, select the
+    /// required GST Registration</i>" — <c>help.tallysolutions.com/upload-gstr-1/</c>, on preparing GSTR-1 for
+    /// upload.</para>
+    ///
+    /// <para>⚠️ <b>REPORTED, NOT FIXED HERE: THE OTHER SIX WRITERS IN THIS CLASS STILL TAKE NO REGISTRATION</b>
+    /// (<c>Gstr3b</c>, <c>Gstr9</c>, <c>Gstr9c</c>, <c>Cmp08</c>, <c>Gstr4</c>, <c>Gstr9a</c>), so on a
+    /// multi-registration company each one throws <c>EnsureRegistrationScoped</c>'s refusal rather than emitting.
+    /// That is a reachability failure, not wrong money, and it is filed rather than swept into this slice.</para>
+    /// </summary>
+    public static byte[] Gstr1(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
-        var r = Reports.Gstr1.Build(company, from, to);
+        var r = Reports.Gstr1.Build(company, from, to, registrationId);
         var dto = new Gstr1Dto
         {
-            Gstin = company.Gst?.Gstin,
+            Gstin = company.Gst?.FindRegistration(registrationId)?.Gstin ?? company.Gst?.Gstin,
             Fp = FinancialPeriod(to),
             RetPeriod = $"{from:yyyy-MM-dd}/{to:yyyy-MM-dd}",
             B2B = r.B2B.Select(b => new Gstr1B2BDto
