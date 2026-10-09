@@ -2633,7 +2633,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // now, so it is stated as it is rather than as it was wished to be.
         var rows = _sortFilter.Apply(
             built,
-            r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
+            // 🔴 REVIEW W45 (track AD): the selector reads DayBookSecondary(r), NOT r.PartyOrParticulars, and
+            // that is this comment block's own invariant being KEPT rather than widened. The F12 Show-narration
+            // knob added in this same slice puts the narration INTO the rendered secondary text; leaving the
+            // selector on PartyOrParticulars made the name filter match "a hidden internal string" in the exact
+            // sense forbidden above — a row whose visible text contained the typed word was silently dropped.
+            // With the knob off, DayBookSecondary returns PartyOrParticulars, so the unfiltered and filtered
+            // projections are unchanged byte for byte.
+            r => $"{DayBookParticulars(r)} {DayBookSecondary(r)}",
             r => new Money(Math.Abs(r.Amount.Amount)));
 
         foreach (var r in rows)
@@ -2729,7 +2736,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // identically on a register and on the book it was opened from.
         var rows = _sortFilter.Apply(
             built,
-            r => $"{DayBookParticulars(r)} {r.PartyOrParticulars}",
+            // 🔴 REVIEW W45 (track AD): the selector reads DayBookSecondary(r), NOT r.PartyOrParticulars — the
+            // SAME correction as the Day Book's own selector, for the reason stated there, and it has to be made
+            // in both places because "Alt+F12 behaves identically on a register and on the book" is the clause
+            // directly above. The F12 Show-narration knob added in this same slice puts the narration INTO the
+            // rendered secondary text; leaving the selector on PartyOrParticulars let the name filter drop a row
+            // whose VISIBLE text contained the typed word. With the knob off, DayBookSecondary returns
+            // PartyOrParticulars, so the projection is unchanged byte for byte.
+            r => $"{DayBookParticulars(r)} {DayBookSecondary(r)}",
             r => new Money(Math.Abs(r.Amount.Amount)));
 
         foreach (var r in rows)
