@@ -25,7 +25,9 @@ public sealed record DayBookRow(
     bool IsCancelled,
     Guid VoucherId = default,
     string FormattedNumber = "",
-    bool IsInventory = false)
+    bool IsInventory = false,
+    Guid VoucherTypeId = default,
+    string? Narration = null)
 {
     /// <summary>True iff Enter should drill this row into the underlying voucher's detail.</summary>
     public bool IsDrillable => VoucherId != Guid.Empty;
@@ -70,7 +72,30 @@ public sealed record DayBookRow(
 /// </summary>
 public static class DayBook
 {
-    public static IReadOnlyList<DayBookRow> Build(Company company, DateOnly from, DateOnly to)
+    /// <summary>
+    /// Builds the Day Book for <c>[from,to]</c>, optionally narrowed to ONE voucher type.
+    ///
+    /// <para>🔴 <b><paramref name="voucherTypeId"/> is the vendor's <b>F4 (Voucher Type)</b> filter</b> (census
+    /// 11.4 gap (a): "no voucher-kind filter"). Vendor, verbatim, from
+    /// <c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c> (opened by content
+    /// 2026-10-09): <i>"<b>Day Book</b> &gt; <b>F4</b> (Voucher Type), and select the <b>Debit Note</b> voucher
+    /// type."</i> and <i>"Press <b>F4</b> (Voucher Type) &gt; <b>Purchase</b>."</i> <c>null</c> (the default) is
+    /// the vendor's unfiltered book and reproduces the pre-filter projection byte for byte.</para>
+    ///
+    /// <para><b>It filters by the voucher's TYPE ID, not by its base kind or its name.</b> A company can carry a
+    /// second Sales series, a Manufacturing Journal over Stock Journal and a POS till — all sharing a base kind —
+    /// and the vendor's picker lists TYPES. Filtering on the base would silently fold two series the operator
+    /// chose between into one listing; filtering on the name would match two same-named types. This is the same
+    /// correction <c>PickAddVoucherType</c> records against the Alt+A picker, which first passed the base kind and
+    /// opened a different type than the row the operator was standing on.</para>
+    ///
+    /// <para><b>BOTH aggregates are filtered.</b> A voucher TYPE spans the accounting and the pure-stock
+    /// collections (a Delivery Note is an <see cref="InventoryVoucher"/> with a <c>TypeId</c> like any other), so
+    /// filtering only the first loop would make "F4 &gt; Delivery Note" return an empty book on a company whose
+    /// Delivery Notes all exist — the eight-rows-invisible defect (census 4.9–4.16) re-committed inside a filter.</para>
+    /// </summary>
+    public static IReadOnlyList<DayBookRow> Build(
+        Company company, DateOnly from, DateOnly to, Guid? voucherTypeId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -79,6 +104,7 @@ public static class DayBook
         foreach (var v in company.Vouchers)
         {
             if (v.Date < from || v.Date > to) continue;
+            if (voucherTypeId is { } wantedType && v.TypeId != wantedType) continue;
 
             var type = company.FindVoucherType(v.TypeId);
             var typeName = type?.Name ?? "(unknown)";
@@ -89,12 +115,13 @@ public static class DayBook
             particulars ??= v.Narration;
 
             rows.Add(new DayBookRow(v.Date, typeName, v.Number, particulars, v.TotalDebit, v.Cancelled, v.Id,
-                company.FormatVoucherNumber(v)));
+                company.FormatVoucherNumber(v), VoucherTypeId: v.TypeId, Narration: v.Narration));
         }
 
         foreach (var v in company.InventoryVouchers)
         {
             if (v.Date < from || v.Date > to) continue;
+            if (voucherTypeId is { } wantedStockType && v.TypeId != wantedStockType) continue;
 
             var type = company.FindVoucherType(v.TypeId);
             var typeName = type?.Name ?? "(unknown)";
@@ -105,7 +132,8 @@ public static class DayBook
             particulars ??= v.Narration;
 
             rows.Add(new DayBookRow(v.Date, typeName, v.Number, particulars, MovementValue(company, v),
-                v.Cancelled, v.Id, company.FormatVoucherNumber(v), IsInventory: true));
+                v.Cancelled, v.Id, company.FormatVoucherNumber(v), IsInventory: true,
+                VoucherTypeId: v.TypeId, Narration: v.Narration));
         }
 
         rows.Sort((a, b) =>

@@ -1272,6 +1272,97 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool SupportsSortFilter => Kind is ReportKind.TrialBalance or ReportKind.BalanceSheet
         or ReportKind.ProfitAndLoss or ReportKind.StockSummary or ReportKind.DayBook;
 
+    // =============================================================== census 11.4 gap (a): F4 (Voucher Type) + narration
+
+    /// <summary>
+    /// 🔴 <b>The four report kinds that render a <see cref="DayBookRow"/></b> — the Day Book and the three Ctrl+J
+    /// exception registers, which <c>ExceptionVouchers</c> builds BY FILTERING the Day Book. Both controls this
+    /// section adds are properties of that row shape, not of one report, so they are gated on the family rather
+    /// than on <c>Kind == DayBook</c>: a register whose rows came out of <c>DayBook.Build</c> and then refused the
+    /// book's own narrowing would be the "a register can never disagree with the Day Book" invariant broken from
+    /// the presentation side.
+    /// </summary>
+    public bool IsDayBookFamily => Kind is ReportKind.DayBook or ReportKind.OptionalVouchersRegister
+        or ReportKind.CancelledVouchersRegister or ReportKind.PostDatedVouchersRegister;
+
+    /// <summary>
+    /// True when the vendor's <b>F4 (Voucher Type)</b> narrowing acts on this report (census 11.4 gap (a),
+    /// "no voucher-kind filter"). Vendor, verbatim and opened by content on 2026-10-09
+    /// (<c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>):
+    /// <i>"<b>Day Book</b> &gt; <b>F4</b> (Voucher Type), and select the <b>Debit Note</b> voucher type."</i>
+    /// </summary>
+    public bool SupportsVoucherTypeFilter => IsDayBookFamily;
+
+    /// <summary>
+    /// True when F12's <b>Show narration</b> acts on this report (census 11.4 gap (a), "no show-narration …
+    /// toggles"). Vendor, same page: <i>"If you want to view more details of the transactions such as narration
+    /// and cost centre, press <b>F12</b> (Configure) and enable the configurations as required."</i>
+    /// <para>🔴 Gated on its OWN predicate rather than folded into <see cref="SupportsDisplayOptions"/>, for the
+    /// reason that property's own remarks give: an F12 knob offered on a report that ignores it answers
+    /// "Applied — report recomputed" and has changed nothing, which is the panel lying about what it did.</para>
+    /// </summary>
+    public bool SupportsNarration => IsDayBookFamily;
+
+    /// <summary>The voucher TYPE the F4 filter is narrowed to, or <c>null</c> for the vendor's unfiltered book.</summary>
+    public Guid? VoucherTypeFilterId => _voucherTypeFilterId;
+
+    /// <summary>The name of the type <see cref="VoucherTypeFilterId"/> names — for the subtitle clause and the
+    /// button-bar hint. Empty while unfiltered.</summary>
+    public string VoucherTypeFilterName => _voucherTypeFilterName;
+
+    /// <summary>True while F12's <b>Show narration</b> is on.</summary>
+    public bool ShowNarration => _showNarration;
+
+    private Guid? _voucherTypeFilterId;
+    private string _voucherTypeFilterName = string.Empty;
+    private bool _showNarration;
+
+    /// <summary>
+    /// <b>F4 (Voucher Type)</b> — narrows the Day-Book family to ONE voucher type and re-projects. Passing
+    /// <c>null</c> is the picker's "All Vouchers" row and restores the unfiltered book.
+    ///
+    /// <para>🔴 <b>A no-op on a kind that does not support it, rather than storing a filter nothing applies.</b>
+    /// A stored-but-inert narrowing is the dead-field shape (census T1-14): the subtitle would claim a filter the
+    /// rows were never built under. The caller's own gate is <see cref="SupportsVoucherTypeFilter"/>, and this
+    /// one restates it so no future caller can disagree with the badge.</para>
+    /// </summary>
+    public void SetVoucherTypeFilter(Guid? voucherTypeId, string? voucherTypeName)
+    {
+        if (!SupportsVoucherTypeFilter) return;
+
+        _voucherTypeFilterId = voucherTypeId;
+        _voucherTypeFilterName = voucherTypeId is null ? string.Empty : voucherTypeName ?? string.Empty;
+        OnPropertyChanged(nameof(VoucherTypeFilterId));
+        OnPropertyChanged(nameof(VoucherTypeFilterName));
+        Show(Kind);
+    }
+
+    /// <summary>Clears the F4 narrowing back to the vendor's unfiltered book and re-projects.</summary>
+    public void ClearVoucherTypeFilter() => SetVoucherTypeFilter(null, null);
+
+    /// <summary>F12 — turns the <b>Show narration</b> detail on/off and re-projects. A no-op where it is inert.</summary>
+    public void SetShowNarration(bool show)
+    {
+        if (!SupportsNarration || _showNarration == show) return;
+        _showNarration = show;
+        OnPropertyChanged(nameof(ShowNarration));
+        Show(Kind);
+    }
+
+    /// <summary>
+    /// The subtitle clause naming the active F4 narrowing, e.g. <c>"  —  Purchase only"</c>; empty when
+    /// unfiltered.
+    ///
+    /// <para>🔴 <b>Not decoration, and it is the same argument <see cref="ScaleSuffix"/> makes.</b> A Day Book
+    /// listing six of nineteen vouchers while its header still reads "Day Book — 01-Apr-2024 to 31-Mar-2025" is a
+    /// register that misstates its own contents, and this report is printed, exported and shared. The clause is
+    /// built into <see cref="Subtitle"/>, which every one of those surfaces reads, rather than painted into the
+    /// pane — so no output channel can show the narrowed rows without the sentence that explains them.</para>
+    /// </summary>
+    private string VoucherTypeFilterSuffix => _voucherTypeFilterId is null || _voucherTypeFilterName.Length == 0
+        ? string.Empty
+        : $"  —  {_voucherTypeFilterName} only";
+
     // =============================================================== RQ-6: the three F12 DISPLAY knobs
     //
     // 🔴 A DEAD KNOB IS NOT A COSMETIC PROBLEM: IT IS THE PANEL LYING ABOUT WHAT IT DID. An operator who ticks
@@ -1333,12 +1424,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
         or ReportKind.RatioAnalysis;
 
     /// <summary>
-    /// True when AT LEAST ONE of the three F12 display knobs acts on this report — the gate on the panel's
+    /// True when AT LEAST ONE of the F12 display knobs acts on this report — the gate on the panel's
     /// "Display" section HEADING, so a heading never stands over nothing. Each individual control is gated on
     /// its OWN predicate, not on this one.
+    /// <para>🔴 <see cref="SupportsNarration"/> is a DISJUNCT here, not a fourth knob left out of the roll-up.
+    /// On the Day Book none of the other three is live, so without this clause the Show-narration box would have
+    /// rendered with no "Display" heading above it — a knob floating under the period fields, which is the
+    /// mirror of the defect this property's own remarks record (a heading standing over nothing).</para>
     /// </summary>
     public bool SupportsDisplayOptions =>
-        SupportsHideZeroBalances || SupportsPercentages || SupportsClosingStockBasis;
+        SupportsHideZeroBalances || SupportsPercentages || SupportsClosingStockBasis || SupportsNarration;
 
     /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
     public void SetAsOf(DateOnly asOf)
@@ -1433,6 +1528,25 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             _scale = ReportScale.Default;
             OnPropertyChanged(nameof(Scale));
+        }
+        // census 11.4 gap (a): the same argument as the scale reset directly above, for the same reason. A kind
+        // that has no F4 (Voucher Type) narrowing and no Show-narration knob must not INHERIT either from the kind
+        // before it in this viewer — the rows would be built unfiltered while the subtitle still carried
+        // "— Purchase only", which is the wrong-figures shape, not a cosmetic one.
+        OnPropertyChanged(nameof(IsDayBookFamily));
+        OnPropertyChanged(nameof(SupportsVoucherTypeFilter));
+        OnPropertyChanged(nameof(SupportsNarration));
+        if (!SupportsVoucherTypeFilter && _voucherTypeFilterId is not null)
+        {
+            _voucherTypeFilterId = null;
+            _voucherTypeFilterName = string.Empty;
+            OnPropertyChanged(nameof(VoucherTypeFilterId));
+            OnPropertyChanged(nameof(VoucherTypeFilterName));
+        }
+        if (!SupportsNarration && _showNarration)
+        {
+            _showNarration = false;
+            OnPropertyChanged(nameof(ShowNarration));
         }
         // The layout flags are computed from Kind; notify the view so the right DataTemplate shows.
         OnPropertyChanged(nameof(IsInventoryReport));
@@ -2476,9 +2590,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         // RQ-1: the Day Book already filters [from,to]; feed the chosen period (else books-begin → as-of).
         var from = _options.Period?.From ?? _company.BooksBeginFrom;
-        var built = DayBook.Build(_company, from, _asOf);
+        // census 11.4 gap (a): the vendor's F4 (Voucher Type) narrowing is applied IN THE ENGINE, so the
+        // projection, the Alt+F12 view beneath it, the print artefact, the export and the share payload all see
+        // the same rows. Filtering in the loop below instead would have left every output channel to re-derive it.
+        var built = DayBook.Build(_company, from, _asOf, _voucherTypeFilterId);
         Title = "Day Book";
-        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}{VoucherTypeFilterSuffix}";
         IsTwoColumn = false;
 
         // RQ-3: the sort/filter VIEW acts on the Day Book entries. The Name filter/sort must match the SAME text
@@ -2503,7 +2620,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         foreach (var r in rows)
         {
-            var secondary = r.PartyOrParticulars ?? string.Empty;
+            var secondary = DayBookSecondary(r);
             var amt = IndianFormat.Amount(r.Amount);
             Rows.Add(new ReportRow
             {
@@ -2539,6 +2656,33 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// the RQ-3 name filter/sort so a filter on visible text matches what the user actually sees.</summary>
     private static string DayBookParticulars(DayBookRow r) => $"{r.VoucherTypeName} No. {r.FormattedNumber}";
 
+    /// <summary>
+    /// The secondary (grey) text of a Day-Book-family row: the party or particulars, plus the voucher's
+    /// NARRATION appended when F12's <b>Show narration</b> is on (census 11.4 gap (a)).
+    ///
+    /// <para>🔴 <b>The narration is appended rather than given a line of its own, and that is a layout fact, not
+    /// a preference.</b> The accounting row template is a fixed <c>Height="24"</c> single-line grid whose
+    /// particulars + secondary are ONE trimmed run — the template's own comment records that an inner
+    /// <c>"*,Auto"</c> grid was tried there and silently ERASED the Day Book dates. Adding a second text line
+    /// would change that row's height for every report sharing the template.</para>
+    ///
+    /// <para><b>It de-duplicates against the party text, deliberately.</b> <c>DayBook.Build</c> already falls back
+    /// to the narration when a voucher has no party, so on a Journal or a Contra the narration IS the particulars;
+    /// appending it again would render "Opening balance b/f · Opening balance b/f" on exactly the vouchers an
+    /// operator turns the knob on for.</para>
+    /// </summary>
+    private string DayBookSecondary(DayBookRow r)
+    {
+        var secondary = r.PartyOrParticulars ?? string.Empty;
+        if (!_showNarration) return secondary;
+
+        var narration = r.Narration?.Trim() ?? string.Empty;
+        if (narration.Length == 0) return secondary;
+        if (string.Equals(narration, secondary.Trim(), StringComparison.Ordinal)) return secondary;
+
+        return secondary.Length == 0 ? narration : $"{secondary}  ·  {narration}";
+    }
+
     // --------------------------------------------------------------- W28 V3: the three Ctrl+J exception registers
 
     /// <summary>
@@ -2557,10 +2701,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private void BuildExceptionRegister(ExceptionVoucherKind kind)
     {
         var from = _options.Period?.From ?? _company.BooksBeginFrom;
-        var built = ExceptionVouchers.Build(_company, kind, from, _asOf);
+        var built = ExceptionVouchers.Build(_company, kind, from, _asOf, _voucherTypeFilterId);
 
         Title = ExceptionVouchers.TitleFor(kind);
-        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}";
+        Subtitle = $"{CompanyName}  —  {FormatDate(from)} to {FormatDate(_asOf)}{VoucherTypeFilterSuffix}";
         IsTwoColumn = false;
 
         // The same sort/filter view the Day Book offers, over the same projections — so Alt+F12 behaves
@@ -2572,7 +2716,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         foreach (var r in rows)
         {
-            var secondary = r.PartyOrParticulars ?? string.Empty;
+            var secondary = DayBookSecondary(r);
             Rows.Add(new ReportRow
             {
                 Particulars = $"{FormatDate(r.Date)}  {DayBookParticulars(r)}",

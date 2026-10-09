@@ -55,9 +55,19 @@ public static class ExceptionVouchers
     /// <summary>
     /// Builds one exception register over <paramref name="from"/>…<paramref name="to"/>, in the Day Book's own
     /// order. Returns an empty list when nothing in the period carries the flag.
+    ///
+    /// <para><b><paramref name="voucherTypeId"/> is the Day Book's own F4 (Voucher Type) narrowing, carried
+    /// through — and it is OURS, not the vendor's.</b> The vendor attests F4 on the Day Book itself
+    /// (<c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>: <i>"Day Book
+    /// &gt; F4 (Voucher Type)"</i>) and says nothing about these three registers, which it reaches with Ctrl+J
+    /// FROM the Day Book. It is threaded through because the class summary above already commits these registers
+    /// to being "the Day Book filtered by one flag … so a register built here cannot disagree with the Day Book
+    /// the operator pressed Ctrl+J on" — and a register that silently dropped the narrowing the operator could
+    /// see in the book's own subtitle would be exactly such a disagreement. Logged as a divergence in
+    /// <c>docs/invented-vs-cloned.md</c>; <c>null</c> reproduces the previous projection exactly.</para>
     /// </summary>
     public static IReadOnlyList<DayBookRow> Build(
-        Company company, ExceptionVoucherKind kind, DateOnly from, DateOnly to)
+        Company company, ExceptionVoucherKind kind, DateOnly from, DateOnly to, Guid? voucherTypeId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -65,7 +75,7 @@ public static class ExceptionVouchers
         // the voucher type name, the party-or-narration particulars, the formatted number, the movement value of a
         // stock voucher and the total order — so a register built here cannot disagree with the Day Book the
         // operator pressed Ctrl+J on, which is the one screen they will compare it against.
-        var book = DayBook.Build(company, from, to);
+        var book = DayBook.Build(company, from, to, voucherTypeId);
         var rows = new List<DayBookRow>();
 
         foreach (var row in book)

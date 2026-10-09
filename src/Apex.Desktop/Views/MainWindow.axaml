@@ -19470,6 +19470,15 @@
                                           IsChecked="{Binding ShowPercentages, Mode=TwoWay}"
                                           IsVisible="{Binding SupportsPercentages}"
                                           Foreground="{StaticResource BrandNavy}"/>
+                                <!-- census 11.4 gap (a): "no show-narration … toggles". Vendor, verbatim: "If you
+                                     want to view more details of the transactions such as narration and cost
+                                     centre, press F12 (Configure) and enable the configurations as required."
+                                     (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+                                     Its own predicate, like the three knobs around it. -->
+                                <CheckBox Content="Show narration"
+                                          IsChecked="{Binding ShowNarration, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsNarration}"
+                                          Foreground="{StaticResource BrandNavy}"/>
                                 <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsClosingStockBasis}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
