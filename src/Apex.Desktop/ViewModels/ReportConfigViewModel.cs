@@ -71,6 +71,17 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
     /// <summary>True when F12's <b>closing-stock basis</b> acts on this report (Balance Sheet / P&amp;L only).</summary>
     public bool SupportsClosingStockBasis => _report.SupportsClosingStockBasis;
 
+    /// <summary>
+    /// True when F12's <b>Show narration</b> acts on this report — the Day Book and its three Ctrl+J exception
+    /// registers (census 11.4 gap (a)). Vendor, verbatim, opened by content on 2026-10-09
+    /// (<c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>): <i>"If you want
+    /// to view more details of the transactions such as narration and cost centre, press <b>F12</b> (Configure)
+    /// and enable the configurations as required."</i>
+    /// <para>Its OWN predicate, like the three knobs above it and for the reason recorded there: one shared flag
+    /// both showed knobs on ~80 kinds that ignore them and HID a knob on a report that honours it.</para>
+    /// </summary>
+    public bool SupportsNarration => _report.SupportsNarration;
+
     // ---- RQ-6: F12 display config ----
 
     /// <summary>Hide rows whose balance is exactly zero.</summary>
@@ -78,6 +89,9 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
 
     /// <summary>Show each row's percentage of its section/column total.</summary>
     [ObservableProperty] private bool _showPercentages;
+
+    /// <summary>Show each voucher's narration beside its party (Day-Book family only — see <see cref="SupportsNarration"/>).</summary>
+    [ObservableProperty] private bool _showNarration;
 
     /// <summary>The closing-stock valuation basis passed through to the P&amp;L / Balance-Sheet build.</summary>
     [ObservableProperty] private ClosingStockOption? _selectedClosingStock;
@@ -119,6 +133,7 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         Detailed = _report.Detailed;
         HideZeroBalances = _report.HideZeroBalances;
         ShowPercentages = _report.ShowPercentages;
+        ShowNarration = _report.ShowNarration;
 
         foreach (var opt in ClosingStockOptions)
             if (opt.Mode == _report.ClosingStock)
@@ -172,6 +187,16 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         // RQ-2: align detailed/summary with the panel (only meaningful where the report rolls up).
         if (SupportsDetailToggle && _report.Detailed != Detailed)
             _report.ToggleDetailed();
+
+        // census 11.4 gap (a): Show narration is applied BEFORE the re-projection below.
+        // 🔴 CORRECTED 2026-10-09 (A12, wave 45). This comment used to claim the ordering makes "one Apply re-run
+        // the projection once rather than twice". IT DOES NOT, in the one case the sentence is about: when the box
+        // ACTUALLY CHANGED, SetShowNarration (ReportsViewModel.cs:1363) calls Show(Kind) and ApplyConfiguration
+        // then calls Show(Kind) again at its tail — TWO re-projections, both read first-hand. What IS true is the
+        // narrower half: SetShowNarration re-projects only when the value changed and only where the knob is live,
+        // so an Apply with the box UNTOUCHED is a single build. The double build is a wasted projection, not a
+        // wrong figure (the second build is over the same state), so it is recorded rather than fixed here.
+        if (SupportsNarration) _report.SetShowNarration(ShowNarration);
 
         // RQ-6: hide-zero / percentages / closing-stock basis (a single re-projection).
         var closingStock = SelectedClosingStock?.Mode ?? _report.ClosingStock;

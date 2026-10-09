@@ -55,9 +55,29 @@ public static class ExceptionVouchers
     /// <summary>
     /// Builds one exception register over <paramref name="from"/>…<paramref name="to"/>, in the Day Book's own
     /// order. Returns an empty list when nothing in the period carries the flag.
+    ///
+    /// <para><b><paramref name="voucherTypeId"/> is the Day Book's own F4 (Voucher Type) narrowing, carried
+    /// through — and it is OURS, not the vendor's.</b> The vendor attests F4 on the Day Book itself
+    /// (<c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>: <i>"Day Book
+    /// &gt; F4 (Voucher Type)"</i>) and says nothing about these three registers, which it reaches with Ctrl+J
+    /// FROM the Day Book. It is threaded through because the class summary above already commits these registers
+    /// to being "the Day Book filtered by one flag … so a register built here cannot disagree with the Day Book
+    /// the operator pressed Ctrl+J on". Logged as a divergence in <c>docs/invented-vs-cloned.md</c> (IV-73);
+    /// <c>null</c> reproduces the previous projection exactly.</para>
+    ///
+    /// <para>🔴 <b>CORRECTED 2026-10-09 (A12, wave 45) — THE RATIONALE USED TO CLAIM THE DISAGREEMENT IS CLOSED,
+    /// AND IT IS NOT.</b> The struck sentence read: "a register that silently dropped the narrowing the operator
+    /// could see in the book's own subtitle would be exactly such a disagreement". <b>That is precisely what still
+    /// happens.</b> <c>MainWindowViewModel.OpenExceptionRegister</c> (<c>:6224</c>) builds a FRESH
+    /// <c>ReportsViewModel</c> carrying only the period, so <b>Ctrl+J from a narrowed Day Book opens the register
+    /// UNNARROWED</b> — read first-hand. The Ctrl+J picker carries the PERIOD across explicitly, with a comment
+    /// saying why, so the team already treats this as load-bearing; only the new parameter was left out. <b>What
+    /// this parameter does deliver</b> is F4 pressed <i>on</i> a register, which is tested and real. No wrong
+    /// figure results either way — the register's subtitle honestly carries no clause when it holds none. Whether
+    /// Ctrl+J should carry the narrowing is a product call, filed rather than decided here.</para>
     /// </summary>
     public static IReadOnlyList<DayBookRow> Build(
-        Company company, ExceptionVoucherKind kind, DateOnly from, DateOnly to)
+        Company company, ExceptionVoucherKind kind, DateOnly from, DateOnly to, Guid? voucherTypeId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -65,7 +85,7 @@ public static class ExceptionVouchers
         // the voucher type name, the party-or-narration particulars, the formatted number, the movement value of a
         // stock voucher and the total order — so a register built here cannot disagree with the Day Book the
         // operator pressed Ctrl+J on, which is the one screen they will compare it against.
-        var book = DayBook.Build(company, from, to);
+        var book = DayBook.Build(company, from, to, voucherTypeId);
         var rows = new List<DayBookRow>();
 
         foreach (var row in book)
