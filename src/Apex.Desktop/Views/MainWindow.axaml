@@ -13406,6 +13406,224 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: GSTR-6 — Input Service Distributor return (census row 6.24).
+                         Rule 39 of the CGST Rules (substituted w.e.f. 01.04.2025) + §39(4) of the CGST Act, both
+                         cbic.gov.in. The
+                         Rule 39(1)(b) check — received vs distributed, and their difference — is given its own row
+                         rather than left to be added off the grid, because it is the one error that matters. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr6Report, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr6Report}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:Gstr6ReportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+
+                            <!-- ISD registration + FY + month selectors -->
+                            <Grid Grid.Row="2" ColumnDefinitions="Auto,220,Auto,110,Auto,130,*" Margin="0,0,0,8">
+                              <TextBlock Grid.Column="0" Text="Distributor" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" Name="Gstr6IsdPicker"
+                                        ItemsSource="{Binding IsdRegistrations}"
+                                        SelectedItem="{Binding SelectedIsd, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr6IsdOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="3" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding FinancialYears}"
+                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr6FyOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="4" Text="Month" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="16,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="5" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Months}"
+                                        SelectedItem="{Binding SelectedMonth, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:Gstr6MonthOption">
+                                    <TextBlock Text="{Binding Label}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="3">
+                              <StackPanel Spacing="8">
+                                <!-- Who is filing, when it is due, and what the pro rata is based on -->
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                        BorderThickness="1" Padding="12">
+                                  <StackPanel Spacing="4">
+                                    <TextBlock Text="Input Service Distributor" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding DistributorText}" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                                    <Grid ColumnDefinitions="Auto,*" Margin="0,4,0,0">
+                                      <TextBlock Grid.Column="0" Text="Due on " FontSize="11" Foreground="#777777"/>
+                                      <TextBlock Grid.Column="1" Text="{Binding DueDateText}" FontSize="11" FontWeight="SemiBold"/>
+                                    </Grid>
+                                    <TextBlock Text="Relevant period for the turnover ratio" FontSize="10.5" Foreground="#777777"/>
+                                    <TextBlock Text="{Binding RelevantPeriodText}" FontSize="11" TextWrapping="Wrap"/>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- Tables 3/4 — input tax credit received for distribution -->
+                                <!-- Names BOTH tables it actually shows. The old wording described only Table 3's
+                                     receipts while the box also carries Table 4's split, so it read as if the receipts
+                                     themselves were Tables 3 and 4. Per the GSTN user guide (checked by content):
+                                     "Table 3: To enter details of input tax credit received for distribution" and
+                                     "Table 4: To view details of ITC available and eligible and ineligible ITC
+                                     distributed" — which is the eligible/ineligible split below, matching the
+                                     emitter's tbl3_received_* keys and its separate eligible/ineligible pair. -->
+                                <TextBlock Text="Tables 3 &amp; 4 — Credit received for distribution, and its eligible / ineligible split"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="CGST"/><TextBlock Grid.Column="1" Text="{Binding ReceivedCgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding ReceivedSgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="IGST"/><TextBlock Grid.Column="1" Text="{Binding ReceivedIgstText}" TextAlignment="Right"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Compensation Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding ReceivedCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Total credit received" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalReceivedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                    <!-- 🔴 RULE 39(1)(g), NOT (1)(b). These two labels cited the WRONG CLAUSE LETTER,
+                                         twice, on the only lines a filer reads for the eligible/ineligible split.
+                                         Rule 39(1)(g) is the separation: "the Input Service Distributor shall, in
+                                         accordance with the provisions of clause (d) and (e), separately distribute
+                                         the amount of ineligible input tax credit and the amount of eligible input tax
+                                         credit" — retrieved and read by content at taxinformation.cbic.gov.in
+                                         /content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html.
+                                         Rule 39(1)(b) is the FOOTING CAP ("the amount of the credit distributed shall
+                                         not exceed the amount of credit available for distribution"), which this same
+                                         file cites correctly over the Undistributed box below. Every C# comment in the
+                                         branch had this right; only the user-visible labels were wrong. -->
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which eligible (Rule 39(1)(g))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding EligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="of which ineligible (Rule 39(1)(g))" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding IneligibleCreditText}" TextAlignment="Right" Foreground="#555555"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <!-- 🔴 TABLES 5 AND 8, NOT 5 AND 6. This caption read "Tables 5 & 6" and was WRONG on
+                                     the face of a filed return — and it CONTRADICTED this branch's own emitted file,
+                                     whose key is tbl5_8_distribution (GstReturnJson.cs) with a comment saying exactly
+                                     this. GSTR-6 Table 6 is the note/amendment family (6A ITC received (B2BA), 6B
+                                     debit/credit notes received, 6C CDNA); the DISTRIBUTION of ITC is Tables 5 and 8.
+                                     Verified by content at tutorial.gst.gov.in/userguide/returns/GSTR-6_faq.htm —
+                                     "Table 5, 8: To enter details of distribution of input tax credit for ISD invoices
+                                     and ISD Credit notes" and "Table 6B: To enter details of debit or credit notes
+                                     received". Same class as the tbl4-to-tbl3 defect the emitter self-caught; this one
+                                     survived because NO test asserted any caption on this page. -->
+                                <TextBlock Text="Tables 5 &amp; 8 — Distribution of input tax credit (Rule 39)"
+                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                <Border Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="4,3">
+                                  <!-- 🔴 SIX columns, not eight. The first shape of this grid declared
+                                       "*,44,110,90,90,90,80,100" — 604px of fixed track, which leaves the star
+                                       Recipient column 34px in a 638px pane and ellipsizes a registration name
+                                       such as "Karnataka Registration" down to nothing. The repo's own
+                                       XamlLayoutInvariantTests.Star_columns_must_stay_wide_enough_to_read caught
+                                       it. The State and the Rule 39(1)(g) eligibility moved to the row's
+                                       sub-line, where they are still on screen and cost the name nothing; fixed
+                                       track is now 450px, so the name column gets ~188px. -->
+                                  <Grid ColumnDefinitions="*,90,90,90,80,100">
+                                    <TextBlock Grid.Column="0" Text="Recipient (State · eligibility · GSTIN below)" Margin="4,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="1" Text="CGST" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" Text="SGST" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="3" Text="IGST" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="4" Text="Cess" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="5" Text="Total" TextAlignment="Right" Margin="0,0,6,0" FontSize="11" FontWeight="SemiBold"/>
+                                  </Grid>
+                                </Border>
+                                <ListBox Background="White" ItemsSource="{Binding Distribution}">
+                                  <ListBox.Styles>
+                                    <Style Selector="ListBoxItem">
+                                      <Setter Property="Padding" Value="0"/>
+                                      <Setter Property="MinHeight" Value="0"/>
+                                    </Style>
+                                  </ListBox.Styles>
+                                  <ListBox.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:Gstr6RowVm">
+                                      <Grid RowDefinitions="Auto,Auto" Margin="0,1">
+                                        <Grid Grid.Row="0" ColumnDefinitions="*,90,90,90,80,100" Height="20">
+                                          <TextBlock Grid.Column="0" Text="{Binding Recipient}" Margin="4,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Cgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="2" Text="{Binding Sgst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="3" Text="{Binding Igst}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Cess}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0" Foreground="#777777"/>
+                                          <TextBlock Grid.Column="5" Text="{Binding Total}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0" FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <!-- The State and the eligibility live here, not in fixed columns — see the
+                                             header comment. Wrapping, so a long GSTIN never pushes them off. -->
+                                        <TextBlock Grid.Row="1" Text="{Binding SubLine}" Margin="8,0,6,2" FontSize="10.5"
+                                                   Foreground="#888888" TextWrapping="Wrap"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <!-- Rule 39(1)(b): distributed may not exceed received. The difference is shown, never implied. -->
+                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
+                                  <StackPanel Spacing="3">
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Total distributed" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding TotalDistributedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
+                                    <Grid ColumnDefinitions="*,140"><TextBlock Grid.Column="0" Text="Undistributed (received − distributed)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UndistributedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource AlertRed}"/></Grid>
+                                  </StackPanel>
+                                </Border>
+
+                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
+
+                                <ItemsControl ItemsSource="{Binding Diagnostics}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                      <Border Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                              Padding="10,6" Margin="0,0,0,4">
+                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- 🔴 Ctrl+A FILES A STATUTORY RETURN. IT USED TO DO SO SILENTLY.
+                                     Gstr6ReportViewModel sets ExportStatus on success ("Exported N bytes to <path>")
+                                     AND on failure (the catch), but NEITHER was bound anywhere on this page, so the
+                                     filer pressed the primary-action chord on a return that goes to the government
+                                     and was told nothing at all — not the path, not the error. Every other export
+                                     page in this app binds ExportStatus. ExportFolder had no control either, so the
+                                     export silently took the IsNullOrEmpty(folder) arm and wrote into the PROCESS
+                                     WORKING DIRECTORY. A return that silently failed to write is worse than one that
+                                     refused. Pattern copied from the offline-returns page below. -->
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto" Margin="0,8,0,0">
+                                  <TextBlock Grid.Column="0" Text="Export folder" FontWeight="SemiBold" FontSize="12"
+                                             VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Text="{Binding ExportFolder, Mode=TwoWay}"
+                                           PlaceholderText="{Binding ExportFileName}" FontSize="12" Margin="0,0,8,0"/>
+                                  <TextBlock Grid.Column="2" Text="{Binding ExportStatus}"
+                                             IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="{StaticResource BrandNavy}" FontSize="11.5"
+                                             VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,8,0"/>
+                                  <Button Grid.Column="3" Content="Export JSON (Ctrl+A)" Padding="12,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnExportGstr6JsonClick"/>
+                                </Grid>
+
+                                <TextBlock Text="{Binding Message}"
+                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: GSTR-4 composition annual return (Phase 9 slice 3; RQ-16) -->
                     <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr4Report, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr4Report}">
@@ -14101,7 +14319,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcReversalReport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ItcReversalReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -14117,9 +14335,30 @@
                                 <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Total ₹" FontSize="10.5" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="13" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                               </Grid>
                             </Border>
-                            <TextBlock Grid.Row="3" Text="{Binding CandidatesHeader}" FontWeight="Bold" FontSize="12"
+                            <!-- 🔴 WHICH REGISTRATION (census 6.23). The ECRS balance above and the candidate list
+                                 below are BOTH read under this one id — a whole-book balance printed beside a
+                                 registration-scoped list would be two populations in one frame. Hidden on a
+                                 single-GSTIN book, so that page is unchanged. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#777777" TextTrimming="CharacterEllipsis"
+                                         Text="The ECRS balance and the candidates below both cover only the selected registration."/>
+                            </Grid>
+                            <TextBlock Grid.Row="4" Text="{Binding CandidatesHeader}" FontWeight="Bold" FontSize="12"
                                        Foreground="{StaticResource BrandNavy}" Margin="0,0,0,4"/>
-                            <Grid Grid.Row="4" RowDefinitions="Auto,*">
+                            <Grid Grid.Row="5" RowDefinitions="Auto,*">
                               <Border Grid.Row="0" Background="{StaticResource BrandNavy}"
                                       IsVisible="{Binding HasSnapshot}">
                                 <Grid ColumnDefinitions="140,*,90,90,90,90">
@@ -14485,7 +14724,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).PostItcReversal}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:PostItcReversalViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -14502,9 +14741,33 @@
                                 <StackPanel Grid.Column="4" Classes="statCell"><TextBlock Text="Total ₹" FontSize="10" Foreground="#777777"/><TextBlock Text="{Binding BalanceTotalText}" FontSize="12.5" FontWeight="Bold" Foreground="{StaticResource BrandNavy}" TextAlignment="Right"/></StackPanel>
                               </Grid>
                             </Border>
-                            <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                            <!-- 🔴 WHICH REGISTRATION THIS SCREEN POSTS UNDER (census 6.23) — the one control on a
+                                 posting path that must never be a hard-coded primary. A reversal reduces exactly
+                                 one GSTIN's credit ledger and lands in exactly one return's Table 4(B), so posting
+                                 it against the wrong registration is a wrong posted entry AND a wrong filed figure
+                                 on two returns at once. The ECRS balance, the candidates, the source-voucher picker
+                                 and the posted history are ALL read under this selection. Hidden on a single-GSTIN
+                                 book, whose only registration it already is. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,6"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#7A5B00" TextTrimming="CharacterEllipsis"
+                                         Text="Reversals post against this registration and appear in its GSTR-3B Table 4(B) only."/>
+                            </Grid>
+                            <TextBlock Grid.Row="4" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
                                        Foreground="#555555" Margin="0,0,0,4" TextWrapping="Wrap"/>
-                            <ScrollViewer Grid.Row="4">
+                            <ScrollViewer Grid.Row="5">
                               <StackPanel Spacing="6">
                                 <!-- The 2B candidates (one-click postable). -->
                                 <TextBlock Text="Reversal candidates from the latest GSTR-2B" FontWeight="Bold" FontSize="11.5"
@@ -14555,7 +14818,7 @@
                               </StackPanel>
                             </ScrollViewer>
                             <!-- The explicit action bar. -->
-                            <Border Grid.Row="5" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                            <Border Grid.Row="6" Classes="gstActionBar" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="8" Margin="0,6,0,0">
                               <StackPanel Spacing="6">
                                 <Grid ColumnDefinitions="Auto,150,Auto,100">
@@ -14608,7 +14871,7 @@
                                 </StackPanel>
                               </StackPanel>
                             </Border>
-                            <Border Grid.Row="6" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
+                            <Border Grid.Row="7" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
                                     Padding="10,6" Margin="0,6,0,0"
                                     IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                               <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
@@ -15063,7 +15326,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).ItcGateReport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ItcGateReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -15082,7 +15345,31 @@
                                 </ComboBox.ItemTemplate>
                               </ComboBox>
                             </Grid>
-                            <ScrollViewer Grid.Row="3">
+
+                            <!-- 🔴 WHICH REGISTRATION'S GATE (census 6.23). §16(2)(aa) is decided per registration —
+                                 a 2B statement is issued against ONE GSTIN and the claim lands in ONE return's
+                                 section 4. Hidden entirely on a single-GSTIN company (ShowsRegistrationPicker), so
+                                 that book's page is unchanged; REQUIRED on a multi-registration one, where this
+                                 screen previously refused to open at all because it named no registration. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#777777" TextTrimming="CharacterEllipsis"
+                                         Text="The ITC gate is read per registration — every figure below covers only the selected one."/>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="4">
                               <StackPanel Spacing="8">
                                 <Border Background="{StaticResource BrandNavy}" IsVisible="{Binding HasSnapshot}">
                                   <!-- The numeric columns are kept narrow so the "*" label column has room: the row

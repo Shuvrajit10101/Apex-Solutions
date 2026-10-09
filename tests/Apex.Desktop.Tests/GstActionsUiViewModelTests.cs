@@ -696,6 +696,261 @@ public sealed class GstActionsUiViewModelTests : IDisposable
 
     // ================================================================ Screen 3: Post ITC Reversal
 
+    /// <summary>
+    /// 🔴 <b>THE REGISTRATION SCOPE MUST TRAVEL — the third and fourth sites of a drop that was fixed one layer in.</b>
+    ///
+    /// <para><c>ItcGateView.Build</c> now scopes its own reconciler and GSTR-3B legs, but it takes
+    /// <c>registrationId</c> as an OPTIONAL parameter and both Desktop callers omitted it. With a null scope the
+    /// engine's <c>EnsureRegistrationScoped</c> refuses the projection for any <c>IsMultiRegistration</c> book — which
+    /// is every book with a branch and <b>every ISD company, which holds at least two registrations by
+    /// construction</b> — and each screen's own <c>catch</c> turned that refusal into a message. So the whole
+    /// gate-candidate surface was not merely mis-scoped, it was <b>unreachable</b>: on the POSTING screen
+    /// <c>_rawCandidates</c> stayed empty, <c>HasCandidates</c> was false, and an operator could not post any
+    /// gate-surfaced reversal at all.</para>
+    ///
+    /// <para>Measured on the standard fixture: a ₹5,000 intra purchase at 18% ⇒ ITC 450.00 + 450.00 = <b>₹900.00</b>,
+    /// with a 2B snapshot carrying NO matching line, so the purchase is <c>InBooksOnly</c> and its whole ₹900.00 is a
+    /// §16(2)(aa) candidate. Before the fix: zero candidates and the "must name the registration" refusal in
+    /// <c>Message</c>. The assertion is ABSOLUTE on the candidate's own suggested figure.</para>
+    /// </summary>
+    [Fact]
+    public void Reversal_candidates_are_reachable_on_a_multi_registration_book_not_refused_for_want_of_a_scope()
+    {
+        var vm = NewRegularGstCompany("Reversal Multi Reg Co");
+        var c = vm.Company!;
+        AddSecondRegistration(c);                 // ⇒ IsMultiRegistration, which is what triggered the refusal
+        Import2b(c);                              // a snapshot with NO lines ⇒ the purchase is InBooksOnly
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+
+        Assert.Null(page.Message);                // was the "a GST return must name the registration" refusal
+        Assert.True(page.HasSnapshot);
+        Assert.True(page.HasCandidates, "the gate's candidates must reach the posting screen");
+
+        var deferral = Assert.Single(
+            page.RawCandidates, x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+        Assert.Equal(900m, deferral.SuggestedReversal.Amount);   // 450.00 CGST + 450.00 SGST, hand-computed
+        Assert.Equal(45_000L, deferral.CgstPaisa);
+        Assert.Equal(45_000L, deferral.SgstPaisa);
+    }
+
+    /// <summary>
+    /// The same drop on the <b>read-only</b> ITC-reversal report screen (the second caller). A multi-registration
+    /// book must see the candidate rows rather than the engine's refusal text.
+    /// </summary>
+    [Fact]
+    public void Reversal_report_surfaces_candidates_on_a_multi_registration_book()
+    {
+        var vm = NewRegularGstCompany("Reversal Report Multi Reg Co");
+        var c = vm.Company!;
+        AddSecondRegistration(c);
+        Import2b(c);
+
+        vm.OpenItcReversalReport();
+        var page = vm.ItcReversalReport!;
+
+        Assert.Null(page.Message);
+        Assert.NotEmpty(page.Candidates);
+        Assert.Contains(page.Candidates, r => r.Suggested.Contains("900.00", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// 🔴 <b>T1-72 on the POSTING screen, end to end: a purchase return must not leave the operator posting a
+    /// reversal the return already made.</b>
+    ///
+    /// <para>The ₹5,000 purchase's ITC is ₹900.00; a ₹2,000 purchase return on a Debit Note takes back
+    /// 180.00 + 180.00 = <b>₹360.00</b>, so the credit actually held and unmatched in 2B is
+    /// 900.00 − 360.00 = <b>₹540.00</b>. The candidate the screen offers must be ₹540.00. Before the fix it offered
+    /// the whole ₹900.00 — and for a blocked/ineligible purchase that same un-netted figure POSTS a real journal
+    /// entry (asserted in <c>PurchaseReturnDirectionTests</c>).</para>
+    /// </summary>
+    [Fact]
+    public void Reversal_candidate_on_the_posting_screen_is_netted_by_a_purchase_return()
+    {
+        var vm = NewRegularGstCompany("Reversal Return Netting Co");
+        var c = vm.Company!;
+        AddSecondRegistration(c);
+        AddPurchaseReturn(c, 2_000m);             // ⇒ 180.00 + 180.00 = ₹360.00 taken back
+        Import2b(c);
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+
+        var deferral = Assert.Single(
+            page.RawCandidates, x => x.Reason == ItcReversalReason.Section16_2aaNotInPortal);
+        Assert.Equal(540m, deferral.SuggestedReversal.Amount);   // was 900.00 — over by the whole return
+        Assert.Equal(27_000L, deferral.CgstPaisa);
+        Assert.Equal(27_000L, deferral.SgstPaisa);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE POSTING SCREEN HARD-CODED THE PRIMARY REGISTRATION, WITH NO PICKER AND THE REGISTRATION NAMED
+    /// NOWHERE — on the one screen that writes into the books.</b>
+    ///
+    /// <para>Two things were wrong at once and they point in opposite directions. The candidate list covered ONLY the
+    /// primary, so a branch registration's §17(5)-blocked credit could never be surfaced and therefore could
+    /// <b>never be reversed at all</b>; and the ECRS balance printed beside it was computed over the WHOLE BOOK, so
+    /// two figures over two different populations sat side by side with nothing saying so.</para>
+    ///
+    /// <para>Hand-computed: the fixture's ₹5,000 intra purchase at 18% carries CGST 450.00 + SGST 450.00 =
+    /// <b>₹900.00</b>; flagged §17(5)-blocked, that whole ₹900.00 is the blocked candidate — and it belongs to the
+    /// PRIMARY registration, which recorded the purchase. The Gujarat registration bought nothing, so its candidate
+    /// list, its history and its balance are all empty. Before the fix, selecting Gujarat was impossible and its
+    /// page showed the primary's ₹900.00 candidate as though it were Gujarat's.</para>
+    /// </summary>
+    [Fact]
+    public void The_posting_screen_scopes_its_candidates_and_history_to_the_selected_registration()
+    {
+        var vm = NewRegularGstCompany("Reversal Scope Post Co");
+        var c = vm.Company!;
+        var gujarat = AddSecondRegistration(c);
+        BlockThePurchasesLedger(c);
+        Import2b(c);
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+
+        // The registration is a real, named choice on a page that posts.
+        Assert.True(page.ShowsRegistrationPicker);
+        Assert.Equal(2, page.Registrations.Count);
+        Assert.Contains(GstinMaharashtra, page.Subtitle, StringComparison.Ordinal);
+
+        // The primary's own blocked credit, at its absolute figure.
+        var blocked = Assert.Single(page.RawCandidates, x => x.Reason == ItcReversalReason.Section17_5Blocked);
+        Assert.Equal(900m, blocked.SuggestedReversal.Amount);
+        Assert.Equal(45_000L, blocked.CgstPaisa);
+        Assert.Equal(45_000L, blocked.SgstPaisa);
+
+        // 🔴 Switching to Gujarat must empty the page, not re-label the primary's figures as Gujarat's.
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+        Assert.Empty(page.RawCandidates);
+        Assert.False(page.HasCandidates);
+        Assert.Empty(page.SourceVouchers);
+        Assert.Contains("Gujarat", page.Subtitle, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE POSTED ENTRY, on a two-registration book.</b> Posting the primary's blocked candidate must write a
+    /// reversal that belongs to the primary ALONE: ₹450.00 + ₹450.00 in the primary's GSTR-3B Table 4(B)(1) and
+    /// <b>0.00</b> in Gujarat's, with the row visible only in the primary's own history. Before the fix the posted
+    /// stat-adjustment voucher named no registration and <c>Gstr3b.ReadReversals</c> was unscoped, so the SAME
+    /// ₹900.00 reversal appeared on both returns — ₹900.00 of reversal filed that never happened.
+    /// </summary>
+    [Fact]
+    public void A_posted_reversal_reaches_only_its_own_registrations_return_and_history()
+    {
+        var vm = NewRegularGstCompany("Reversal Post Attribution Co");
+        var c = vm.Company!;
+        var gujarat = AddSecondRegistration(c);
+        BlockThePurchasesLedger(c);
+        Import2b(c);
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.CandidateIndex = page.RawCandidates
+            .Select((x, i) => (x, i))
+            .First(t => t.x.Reason == ItcReversalReason.Section17_5Blocked).i;
+
+        page.PostCandidateActionCommand.Execute(null);
+        Assert.True(page.LastActionSucceeded, page.Message ?? "the candidate must post");
+
+        var row = Assert.Single(c.ItcReversals, r => r.Rule == ItcReversalRule.Section17_5);
+        Assert.Equal(45_000L, row.CgstPaisa);
+        Assert.Equal(45_000L, row.SgstPaisa);
+
+        // The POSTED voucher belongs to the primary — the registration that recorded the purchase.
+        var voucher = c.FindVoucher(row.ReversalVoucherId)!;
+        Assert.Equal(GstRegistration.PrimaryId, GstReportSupport.RegistrationOf(voucher));
+
+        // The FILED figures: the primary's 4(B)(1) carries it, Gujarat's carries nothing.
+        var from = new DateOnly(2024, 4, 1);
+        var to = new DateOnly(2024, 4, 30);
+        var primary3b = Gstr3b.Build(c, from, to, GstRegistration.PrimaryId);
+        Assert.Equal(450m, primary3b.ItcReversed4B1Cgst.Amount);
+        Assert.Equal(450m, primary3b.ItcReversed4B1Sgst.Amount);
+
+        var gujarat3b = Gstr3b.Build(c, from, to, gujarat.Id);
+        Assert.Equal(0m, gujarat3b.ItcReversed4B1Cgst.Amount);
+        Assert.Equal(0m, gujarat3b.ItcReversed4B1Sgst.Amount);
+
+        // And the screen's own history agrees: the row is the primary's, and Gujarat's page shows none.
+        Assert.Single(page.Posted);
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+        Assert.Empty(page.Posted);
+    }
+
+    /// <summary>
+    /// The read-only twin: the ITC-Reversal <b>report</b> page must scope the same way, and must name the
+    /// registration — the finding it was held on was an unlabelled, silently primary-scoped list printed beside a
+    /// whole-book balance.
+    /// </summary>
+    [Fact]
+    public void The_reversal_report_names_and_scopes_its_registration()
+    {
+        var vm = NewRegularGstCompany("Reversal Report Scope Co");
+        var c = vm.Company!;
+        var gujarat = AddSecondRegistration(c);
+        BlockThePurchasesLedger(c);
+        Import2b(c);
+
+        vm.OpenItcReversalReport();
+        var page = vm.ItcReversalReport!;
+
+        Assert.True(page.ShowsRegistrationPicker);
+        Assert.Contains(GstinMaharashtra, page.Subtitle, StringComparison.Ordinal);
+        Assert.Contains(page.Candidates, r => r.Suggested.Contains("900.00", StringComparison.Ordinal));
+
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+        Assert.Contains("Gujarat", page.Subtitle, StringComparison.Ordinal);
+        Assert.DoesNotContain(page.Candidates, r => r.Suggested.Contains("900.00", StringComparison.Ordinal));
+    }
+
+    /// <summary>Flags the fixture's purchases ledger as §17(5)-blocked, which turns its whole ₹900.00 of input tax
+    /// into the ITC gate's blocked candidate — the candidate shape that actually POSTS (a §16(2)(aa) one is a
+    /// deferral and posts nothing).</summary>
+    private static void BlockThePurchasesLedger(Company c) =>
+        c.FindLedgerByName("Purchases")!.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "9973", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            ItcEligibility = ItcEligibility.BlockedSection17_5,
+            BlockedCreditCategory = BlockedCreditCategory.MotorVehicles,
+        };
+
+    /// <summary>Adds a second GST registration, which is all it takes to make the book
+    /// <c>IsMultiRegistration</c> and so subject to the engine's scope refusal.</summary>
+    private static GstRegistration AddSecondRegistration(Company c)
+    {
+        var r = new GstRegistration(
+            Guid.NewGuid(), "Gujarat Branch", "24", "24AAACC1206D1Z" + Gstin.ComputeCheckDigit("24AAACC1206D1Z0"),
+            GstRegistrationType.Regular, FyStart);
+        c.Gst!.AddRegistration(r);
+        c.Gst!.EnsureValid();
+        return r;
+    }
+
+    /// <summary>Posts a purchase return of <paramref name="value"/> on the seeded Debit-Note type against the same
+    /// supplier and purchases ledger as the fixture's original purchase, at the same 18% intra rate.</summary>
+    private static void AddPurchaseReturn(Company c, decimal value)
+    {
+        var gst = new GstService(c);
+        var ledgers = new LedgerService(c);
+        var purchases = c.FindLedgerByName("Purchases")!;
+        var supplier = c.FindLedgerByName("Local Supplier")!;
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(value), 1800) }, false, GstTaxDirection.Input);
+        var gross = value + tax.TaxLines.Sum(l => l.Amount.Amount);
+        var lines = new List<EntryLine>
+        {
+            new(purchases.Id, Money.FromRupees(value), DrCr.Debit),
+            new(supplier.Id, Money.FromRupees(gross), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        ledgers.Post(new Voucher(
+            Guid.NewGuid(), c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.DebitNote).Id,
+            PurchaseDate, lines, partyId: supplier.Id));
+    }
+
     /// <summary>(a) Opening the Post-ITC-Reversal screen posts NOTHING — it only projects the (zero) ECRS balance.</summary>
     [Fact]
     public void Reversal_opening_the_screen_posts_nothing()
@@ -1994,5 +2249,129 @@ public sealed class GstActionsUiViewModelTests : IDisposable
         page.CandidateIndex = i;
 
         Assert.Equal(purchase.Id, page.SelectedSource?.VoucherId);
+    }
+
+    /// <summary>
+    /// 🔴 <b>BLOCKING, MEASURED: THE REFUSAL FOR AN EMPTY SOURCE-VOUCHER LIST TOLD THE OPERATOR THEIR COMPANY HAD NO
+    /// PURCHASE CARRYING INPUT TAX, WHILE THE SAME SCREEN HAD JUST OFFERED ONE.</b>
+    ///
+    /// <para>Measured on this fixture's one real ₹5,000 purchase at 18% carrying CGST 450.00 + SGST 450.00 =
+    /// <b>₹900.00</b> of input tax, recorded the only way the application can record one. With the primary selected
+    /// <c>SourceVouchers</c> holds that purchase; switch to the Gujarat branch and it is EMPTY — not because the
+    /// branch bought nothing, but because <c>Voucher.GstRegistrationId</c> is never written by ANY voucher-entry or
+    /// import path in <c>src/</c>, so no purchase can be attributed to any registration other than the first. The
+    /// inherited sentence — "<i>this company has none carrying input tax</i>" — was true while the list was
+    /// unfiltered and became false the moment the registration filter was added, and it sent the operator hunting for
+    /// data sitting in their own book.</para>
+    ///
+    /// <para><b>This test pins the honesty of the refusal, not merely that it refuses.</b> It asserts the lie is gone
+    /// by its own words, that the registration being talked about is named, that the limitation is attributed to this
+    /// product, and that the registration which DOES hold the purchases is named so the operator has somewhere to go.
+    /// The missing capability — recording a purchase under a chosen registration — is NOT built here and is reported
+    /// as the remaining gap.</para>
+    /// </summary>
+    [Fact]
+    public void An_unfillable_source_voucher_list_blames_the_product_not_the_operators_data()
+    {
+        var vm = NewRegularGstCompany("Reversal Unattributable Source Co");
+        var c = vm.Company!;
+        var gujarat = AddSecondRegistration(c);
+        Import2b(c);
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.Kind = ItcReversalPostKind.Rule37;
+
+        // Under the primary the purchase IS offered — which is what made the old message a lie.
+        Assert.NotEmpty(page.SourceVouchers);
+        Assert.Contains(page.SourceVouchers, r => r.InputTax.Contains("900.00", StringComparison.Ordinal));
+
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+        Assert.Empty(page.SourceVouchers);
+
+        Assert.False(page.Post(), page.Message ?? "an anchored rule with no anchor must refuse");
+        var message = page.Message!;
+
+        // 🔴 The lie, by its own words, is gone.
+        Assert.DoesNotContain("this company has none carrying input tax", message, StringComparison.Ordinal);
+
+        // The truth: whose registration, whose problem, and where the purchases actually are.
+        Assert.Contains("Gujarat Branch", message, StringComparison.Ordinal);
+        Assert.Contains("limitation of Apex Solutions", message, StringComparison.Ordinal);
+        Assert.Contains("not a gap in your data", message, StringComparison.Ordinal);
+        Assert.Contains(c.Gst!.PrimaryRegistration!.Name, message, StringComparison.Ordinal);
+
+        // Nothing was posted by a refusal.
+        Assert.Empty(c.ItcReversals);
+
+        // And the brand rule: a user-visible string never names the product we studied.
+        Assert.DoesNotContain("Tally", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// <b>ER-13 — on the primary (and so on every single-registration book) the refusal is the original sentence,
+    /// unchanged.</b> There it is simply true, and a book with one registration must read exactly as it always did.
+    /// </summary>
+    [Fact]
+    public void The_source_voucher_refusal_is_unchanged_where_it_is_true()
+    {
+        var vm = NewSeededCompany("Reversal Primary Refusal Co");
+        var c = vm.Company!;
+        EnableGst(c, GstRegistrationType.Regular);     // GST on, but NO purchase at all in the book
+        _storage.Save(c);
+        vm.ShowGateway();
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.Kind = ItcReversalPostKind.Rule37;
+
+        Assert.False(page.ShowsRegistrationPicker);
+        Assert.Empty(page.SourceVouchers);
+        Assert.False(page.Post());
+        Assert.Equal(
+            "Rule 37 / 37A needs a supplier's purchase voucher to reverse, and this company has none carrying " +
+            "input tax.",
+            page.Message);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HONEST REFUSAL MUST NOT MISATTRIBUTE IN THE OTHER DIRECTION EITHER.</b> Naming the product
+    /// limitation is true on any multi-registration book, but "<i>the purchases that carry input tax are recorded
+    /// under the primary</i>" is a claim about the operator's DATA — and on a book that holds no anchorable purchase
+    /// anywhere it is false, sending the operator to a registration with nothing to offer. That is the same defect
+    /// the sibling test closes, pointed the other way, so this fixture holds a two-registration book with NO
+    /// purchase at all: the limitation is still stated, and the claim about where the purchases are is not made.
+    /// </summary>
+    [Fact]
+    public void The_refusal_does_not_claim_purchases_exist_under_the_primary_when_none_do()
+    {
+        var vm = NewSeededCompany("Reversal No Purchase Anywhere Co");
+        var c = vm.Company!;
+        EnableGst(c, GstRegistrationType.Regular);
+        var gujarat = AddSecondRegistration(c);        // two registrations, and NOT ONE purchase in the book
+        _storage.Save(c);
+        vm.ShowGateway();
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.Kind = ItcReversalPostKind.Rule37;
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+
+        Assert.True(page.ShowsRegistrationPicker);
+        Assert.Empty(page.SourceVouchers);
+        Assert.False(page.Post());
+        var message = page.Message!;
+
+        // The limitation is ours and is still named — that part is true however empty the book is.
+        Assert.Contains("limitation of Apex Solutions", message, StringComparison.Ordinal);
+        Assert.Contains("not a gap in your data", message, StringComparison.Ordinal);
+        Assert.Contains("Gujarat Branch", message, StringComparison.Ordinal);
+
+        // 🔴 But the claim about the operator's data is NOT made, because it would be false here.
+        Assert.DoesNotContain("The purchases that carry input tax are recorded under", message, StringComparison.Ordinal);
+        Assert.Contains("records no such purchase under", message, StringComparison.Ordinal);
+
+        Assert.Empty(c.ItcReversals);
+        Assert.DoesNotContain("Tally", message, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -248,7 +248,11 @@ public sealed record Gstr3b(
         // Phase 9 slice 7b: Table 4(B)/4(D) ITC-reversal projection — Σ the posted stat-adjustment reversal/reclaim
         // lines by their GstAdjustmentKind tag (routed to 4(B)(1) / 4(B)(2) / 4(D)(1)). Zero when no reversal was
         // posted ⇒ byte-identical (ER-13). These vouchers are Journal base ⇒ already out of the 3.1/4(A) sums.
-        var rev = ReadReversals(company, from, to);
+        // 🔴 THE SCOPE MUST TRAVEL HERE TOO — this was the ONE leg of Build that took no registrationId, while
+        // ReadSide, ReadRcm, ReadCdn and ExemptOutwardValue all take it. On a multi-registration book that meant
+        // EVERY registration's Table 4(B)(1) / 4(B)(2) / 4(D)(1) carried the WHOLE BOOK's reversals, so one
+        // branch's §17(5) reversal was filed twice — once on its own return and once on every sister return.
+        var rev = ReadReversals(company, from, to, registrationId);
 
         return new Gstr3b(from, to,
             new Money(taxable), new Money(exempt),
@@ -274,11 +278,18 @@ public sealed record Gstr3b(
     /// whose <see cref="GstLineTax.Adjustment"/> is a reversal (Rule 37/37A/42/43/§17(5)/Ineligible/CreditNote) or a
     /// reclaim, routed to 4(B)(1) (non-reclaimable) / 4(B)(2) (reclaimable) / 4(D)(1) (reclaim) by the tag. A pure
     /// projection over the posted adjustment vouchers, never recomputed (ER-9). No reversal posted ⇒ all zero (ER-13).
+    ///
+    /// <para>🔴 <b>Scoped to <paramref name="registrationId"/> (census 6.23), like every other leg of
+    /// <see cref="Build"/>.</b> A reversal belongs to exactly one registration — the one its stat-adjustment voucher
+    /// is recorded under, which <see cref="GstReversalService"/> stamps from the source purchase (or from the
+    /// registration the operator named) — because Table 4(B) is a figure on a return filed against ONE GSTIN.
+    /// Unscoped, a branch's reversal was folded into every registration's 3B. <c>null</c> ⇒ the whole book, which is
+    /// exactly what a single-registration book has always been, so that book is byte-identical (ER-13).</para>
     /// </summary>
     private static (decimal B1Cgst, decimal B1Sgst, decimal B1Igst, decimal B1Cess,
         decimal B2Cgst, decimal B2Sgst, decimal B2Igst, decimal B2Cess,
         decimal D1Cgst, decimal D1Sgst, decimal D1Igst, decimal D1Cess) ReadReversals(
-        Company company, DateOnly from, DateOnly to)
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         decimal b1C = 0m, b1S = 0m, b1I = 0m, b1Cess = 0m;
         decimal b2C = 0m, b2S = 0m, b2I = 0m, b2Cess = 0m;
@@ -287,6 +298,7 @@ public sealed record Gstr3b(
         foreach (var v in company.Vouchers)
         {
             if (v.Date < from) continue;
+            if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
 
@@ -437,6 +449,40 @@ public sealed record Gstr3b(
             // Pinned by Gstr3bUnlinkedReturnNoteSignTests.A_linked_section_34_note_is_still_reduced_exactly_once.
             if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
 
+            // 🔴🔴 BOTH ARMS ARE SIGNED, AND THE TWO RULES ARRIVED FROM TWO DIFFERENT BRANCHES IN ONE WAVE (A12,
+            // wave 44). Each branch fixed ONE direction and REFUSED the other on purpose; this is the union, so each
+            // direction keeps exactly the behaviour its own reviewer gated and mutation-pinned. Nothing new was
+            // invented in the merge. The two refusals, and the measurement behind each, are preserved verbatim below.
+            //
+            // 🔴 ONE CLAIM IN THE OUTWARD COMMENT BELOW IS NOW FALSE AND IS STRUCK HERE RATHER THAN DELETED, because
+            // it is exactly the class of stale assertion this project keeps catching: it says "there is no shared sign
+            // helper in this codebase … a prior report claimed a GstReportSupport.SignOf … it never existed." That was
+            // TRUE of main when it was written. It is FALSE as of this wave — SignOf is declared in
+            // GstReportSupport and is what the INWARD arm below calls. Nine live call sites route through it.
+            //
+            // 🔴 THE RETURN DOCUMENT OF THIS SIDE REDUCES IT. This sweep summed every posted voucher POSITIVELY, so an
+            // UNLINKED return — the ordinary case, since a §34 link is optional — was added instead of subtracted. On
+            // the inward side that inflated Table 4(A)(5) "all other ITC": measured, a ₹50,000 input service at 18%
+            // (₹9,000) with ₹20,000 returned (₹3,600) reported ITC of CGST 6,300.00 + SGST 6,300.00 where
+            // 2,700.00 + 2,700.00 is the net — ₹12,600.00 claimed against ₹5,400.00 available, 133% overstated. The
+            // §34-linked case was already right (excluded above, projected signed by ReadCdn); it was only the
+            // unlinked one that was wrong, which is why no CDN test caught it.
+            //
+            // 🔴 INWARD ONLY THIS WAVE, AND THAT RESTRICTION IS DELIBERATE — DO NOT WIDEN IT WITHOUT GSTR-1.
+            // The OUTWARD side has the exact mirror defect: an unlinked sales-return credit note is added to 3.1(a)
+            // instead of subtracted. I measured it — a ₹50,000 sale at 18% with ₹20,000 returned reports
+            // CGST 6,300.00 + SGST 6,300.00 against a true 2,700.00 + 2,700.00, and GSTR-1's Table 12 rate row shows
+            // taxable 70,000 / tax 12,600 against a true 30,000 / 5,400. But signing it HERE alone would make
+            // GSTR-3B 3.1(a) disagree with GSTR-1, which the portal cross-checks, so the cure would be worse than
+            // the disease. The outward fix must land as ONE unit with GSTR-1, and it carries a question this wave
+            // cannot answer: GSTR-1's B2B section emits one ROW PER INVOICE, so an unlinked credit note there is a
+            // document-CLASSIFICATION defect (it has no Table 9B record to be projected into), not merely a sign
+            // one. Filed as its own item rather than half-fixed.
+            //
+            // ▶ THAT PRECONDITION IS NOW MET: the GSTR-1 Table 9B / cdnr record the paragraph above says the outward
+            //   fix was waiting on LANDED IN THIS SAME WAVE. The outward arm here is still only the sign below, not
+            //   the whole outward unit (TaxAnalysis's outward arm remains unsigned), so the remainder is filed.
+            //
             // 🔴 T2-92 — THE OUTWARD SIGN. This sweep reads `line.Amount.Amount`, a positive MAGNITUDE, and never the
             // posted SIDE; before this fix Gstr3b.cs contained ZERO references to IsReturnNote or EntryLine.Side, so an
             // UNLINKED Credit Note (the §34 link is opt-in, so this is the ordinary keyboard-entered shape) was re-added
@@ -453,8 +499,15 @@ public sealed record Gstr3b(
             // IsReturnNote is true for a DEBIT NOTE as well — so signing unconditionally would change filed ITC
             // figures in §4. A purchase return re-added to ITC is the same defect class and is REAL, but the ITC
             // surface is owned by a sibling branch; it is reported for that owner, NOT silently changed here.
-            var sign = direction == GstTaxDirection.Output && VoucherEffects.IsReturnNote(voucherType.BaseType)
-                ? -1m : 1m;
+            //
+            // ▶ THAT SIBLING IS THE INWARD ARM OF THIS VERY EXPRESSION, landed in the same wave. The two rules agree
+            //   on the outward side anyway — the CdnLinkFor guard above stands FIRST, so SignOf's linked-note arm is
+            //   unreachable here and it reduces to -1 for an unlinked credit note, the same answer IsReturnNote gives.
+            //   They are kept explicit per direction so neither reviewer's gated behaviour rests on that equivalence.
+            var sign = direction == GstTaxDirection.Input
+                ? (decimal)GstReportSupport.SignOf(company, voucher, voucherType.BaseType)
+                : (VoucherEffects.IsReturnNote(voucherType.BaseType) ? -1m : 1m);
+            if (sign == 0m) continue;   // "not on this side at all" — narrower than a sign change (see SignOf)
 
             var hasTax = false;
             foreach (var line in voucher.Lines)
@@ -514,6 +567,13 @@ public sealed record Gstr3b(
             // a behaviour change well beyond this defect. Both orders give the same answer for a wholly-exempt
             // voucher; only the new branch is affected.
             if (GstReportSupport.CdnLinkFor(company, v) is not null) continue;
+            // 🔴 A12, wave 44 — A COMMENT WAS REMOVED HERE AND THIS RECORDS WHY, so a later reader does not think it
+            // was lost in a merge. One branch left this bucket UNSIGNED and said so in a comment reading "UNSIGNED ON
+            // PURPOSE, pending the outward fix … left alone so the whole outward side moves together with GSTR-1 in
+            // one change". The sibling branch in the SAME WAVE did exactly that — it signs the bucket AND moves
+            // GSTR-1 with it (T2-93 pins the two agreeing at 15,000). So that branch's own stated condition is
+            // satisfied, its side is taken, and carrying its comment forward would have left a sentence on `main`
+            // asserting this value is unsigned directly above the line that signs it.
 
             // 🔴 T2-93 — a RETURN of an exempt supply reduces exempt turnover. Same one home as the 3.1(a) sign above.
             var sign = VoucherEffects.IsReturnNote(type.BaseType) ? -1m : 1m;

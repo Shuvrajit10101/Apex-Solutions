@@ -65,9 +65,26 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
     /// <summary>The recognised State/UT codes, offered as "&lt;code&gt; — &lt;name&gt;" for the picker.</summary>
     public ObservableCollection<string> StateOptions { get; } = new();
 
-    /// <summary>The registration types the vendor offers on this screen.</summary>
-    public ObservableCollection<string> RegistrationTypeOptions { get; } =
-        new(new[] { "Regular", "Composition", "Unregistered", "Consumer" });
+    /// <summary>
+    /// The registration types the vendor offers on this screen, plus <b>Input Service Distributor</b> (census row
+    /// 6.24). The ISD entry is the only way a user can create the registration GSTR-6 is filed for, and the ISD is
+    /// a <b>separate registration by statute</b>, not a flag on an existing one — CGST Act §20(1), as substituted
+    /// w.e.f. 01.04.2025 by s. 12 of the Finance (No. 8) Act, 2024: any such office "<i>shall be required to be
+    /// registered as an Input Service Distributor under clause (viii) of section 24</i>"
+    /// (<c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/acts/2017_CGST_act/active/chapter5/section20_v1.00.html</c>).
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>"Input Service Distributor" is offered ONLY to a REGULAR dealer, and the gate is not cosmetic.</b> It was
+    /// offered unconditionally, which created a dead end with no explanation: the only parent of the GSTR-6 row — the
+    /// "GST Returns (Advanced)" group — is added under <c>if (IsRegularGstDealer)</c> in
+    /// <c>MainWindowViewModel.BuildGstAdvancedReturnsColumn</c>, and <c>ShowGstAdvancedReturnsMenu()</c> returns early
+    /// on <c>!IsRegularGstDealer</c>. So a Composition / Unregistered / Consumer company could create an ISD
+    /// registration, see it persist, and then have NO route to the return it exists to file.
+    /// <para>The substantive reason is the same one: an ISD exists to DISTRIBUTE input tax credit (CGST Act §20(1)–(2)),
+    /// and a composition taxpayer avails no ITC, so there is nothing for it to distribute. Refusing it here is
+    /// therefore the right answer rather than ungating the menu.</para>
+    /// </remarks>
+    public ObservableCollection<string> RegistrationTypeOptions { get; } = new();
 
     /// <summary>The vendor's "Periodicity of GSTR-1" choices — "Monthly or Quarterly".</summary>
     public ObservableCollection<string> PeriodicityOptions { get; } = new(new[] { "Monthly", "Quarterly" });
@@ -92,9 +109,24 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
         foreach (var s in IndianState.All.OrderBy(s => s.Code, StringComparer.Ordinal))
             StateOptions.Add($"{s.Code} — {s.Name}");
 
+        foreach (var t in new[] { "Regular", "Composition", "Unregistered", "Consumer" })
+            RegistrationTypeOptions.Add(t);
+        // Only a regular dealer can distribute input tax credit, and only a regular dealer has a route to GSTR-6.
+        if (IsdAllowed) RegistrationTypeOptions.Add(IsdOptionText);
+
         PrimaryNameText = _company.Gst?.PrimaryRegistration?.Name ?? string.Empty;
         RefreshList();
     }
+
+    /// <summary>The one spelling of the ISD option, so the picker, the gate and the parser cannot drift apart.</summary>
+    public const string IsdOptionText = "Input Service Distributor";
+
+    /// <summary>
+    /// Whether this company may hold an Input Service Distributor registration: only when its OWN registration is
+    /// Regular — the same predicate <c>MainWindowViewModel.IsRegularGstDealer</c> uses to show the GSTR-6 menu row,
+    /// so the master and the menu agree by construction instead of by coincidence.
+    /// </summary>
+    public bool IsdAllowed => _company.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Regular };
 
     /// <summary>
     /// Ctrl+A: validates the form and adds an additional <see cref="GstRegistration"/>, then persists. The
@@ -116,6 +148,19 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
         if (stateCode is null)
         {
             Message = "Select the State/UT this registration is in.";
+            return false;
+        }
+
+        // Defence in depth behind the picker gate: SelectedRegistrationType is a settable string, so refuse here too
+        // rather than persist a registration whose return the company can never reach.
+        if (ParseRegistrationType(SelectedRegistrationType) == GstRegistrationType.InputServiceDistributor
+            && !IsdAllowed)
+        {
+            Message =
+                "Only a company registered as a Regular dealer can hold an Input Service Distributor registration. "
+                + "An Input Service Distributor exists to distribute input tax credit (section 20 of the CGST Act), "
+                + "and this company's own registration avails none — so there would be nothing to distribute and no "
+                + "route to Form GSTR-6. Change the company's registration type (F11 — Statutory & Taxation) first.";
             return false;
         }
 
@@ -206,6 +251,7 @@ public sealed partial class GstRegistrationsMasterViewModel : ViewModelBase, IMa
         "Composition" => GstRegistrationType.Composition,
         "Unregistered" => GstRegistrationType.Unregistered,
         "Consumer" => GstRegistrationType.Consumer,
+        IsdOptionText => GstRegistrationType.InputServiceDistributor,
         _ => GstRegistrationType.Regular,
     };
 

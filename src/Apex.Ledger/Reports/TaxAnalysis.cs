@@ -51,20 +51,32 @@ public sealed record TaxAnalysis(DateOnly From, DateOnly To, TaxAnalysisSide Out
         var acc = new Dictionary<(GstTaxHead, int), (decimal Taxable, decimal Tax)>();
         var cgst = 0m; var sgst = 0m; var igst = 0m;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
+        foreach (var (voucher, type) in GstReportSupport.PostedGstVouchers(company, from, to, direction, registrationId))
         {
+            // A purchase return REDUCES the inward rate row; unsigned, this analysis overstated the inward side by
+            // the whole tax of every purchase return and could not be reconciled against GSTR-3B Table 4.
+            //
+            // 🔴 INWARD ONLY, to stay consistent with Gstr3b.ReadSide — the outward mirror (an unlinked sales-return
+            // credit note inflating the outward rate row) is real and measured, but it must move together with
+            // GSTR-1 so this analysis keeps agreeing with the return it is reconciled against. See the note in
+            // Gstr3b.ReadSide and GstReportSupport.SignOf.
+            var sign = direction == GstTaxDirection.Input
+                ? GstReportSupport.SignOf(company, voucher, type.BaseType)
+                : 1;
+            if (sign == 0) continue;
+
             foreach (var line in voucher.Lines)
             {
                 if (line.Gst is not { } g) continue;
                 var key = (g.TaxHead, g.RateBasisPoints);
                 var (t, x) = acc.TryGetValue(key, out var cur) ? cur : (0m, 0m);
-                acc[key] = (t + g.TaxableValue.Amount, x + line.Amount.Amount);
+                acc[key] = (t + sign * g.TaxableValue.Amount, x + sign * line.Amount.Amount);
 
                 switch (g.TaxHead)
                 {
-                    case GstTaxHead.Central: cgst += line.Amount.Amount; break;
-                    case GstTaxHead.State: sgst += line.Amount.Amount; break;
-                    case GstTaxHead.Integrated: igst += line.Amount.Amount; break;
+                    case GstTaxHead.Central: cgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.State: sgst += sign * line.Amount.Amount; break;
+                    case GstTaxHead.Integrated: igst += sign * line.Amount.Amount; break;
                 }
             }
         }

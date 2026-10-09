@@ -2655,6 +2655,14 @@ public partial class MainWindow : Window
     private void OnExportGstReturnJsonClick(object? sender, RoutedEventArgs e)
         => Vm?.GstOfflineReturns?.ExportJson();
 
+    /// <summary>
+    /// The GSTR-6 (ISD) offline-JSON export button — the mouse route to the same action Ctrl+A dispatches. The page
+    /// had NEITHER: Ctrl+A wrote the file and reported nothing, and there was no button at all, so a filer who did
+    /// not know the chord had no route to the return and a filer who did had no confirmation it was written.
+    /// </summary>
+    private void OnExportGstr6JsonClick(object? sender, RoutedEventArgs e)
+        => Vm?.Gstr6Report?.ExportJson();
+
     private void OnExportEcrClick(object? sender, RoutedEventArgs e)
         => Vm?.PfEcrReport?.ExportEcr();
 

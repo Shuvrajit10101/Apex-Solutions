@@ -44,9 +44,15 @@ public sealed class CompositionTaxService
         foreach (var (voucher, type) in GstReportSupport.PostedDirectionalVouchers(_company, from, to, GstTaxDirection.Output, registrationId))
         {
             // A composition dealer's turnover is NET of sales returns: a Bill-of-Supply sale-return Credit Note reduces
-            // the turnover base (sign by base type — Sales +, Credit Note − — mirroring Gstr1.ComputeRcm4BOutwardValue).
-            // Only Sales / Credit-Note reach here (DirectionOf(Output) gates every other base type out).
-            var sign = type.BaseType == VoucherBaseType.CreditNote ? -1m : 1m;
+            // the turnover base. Only Sales / Credit-Note reach here (DirectionOf(Output) gates every other base type out).
+            //
+            // 🔴 Routed through the ONE helper, like the other three outward sites. This was the FOURTH hand-rolled
+            // copy of `BaseType == CreditNote ? -1 : 1` and the only one the root-cause sweep first missed. It is
+            // behaviourally identical on an Output sweep — which is precisely the hazard: the same expression copied
+            // onto an INPUT sweep is a silent no-op, and that is what put a 133% ITC overstatement on a filed GSTR-6.
+            // Leaving one un-routed copy behind leaves the drift surface that caused the defect. See
+            // GstReportSupport.SignOf.
+            var sign = (decimal)GstReportSupport.SignOf(_company, voucher, type.BaseType);
             var (t, tx) = GstReportSupport.OutwardSupplyValue(_company, voucher, type.BaseType);
             total += sign * t.Amount;
             taxable += sign * tx.Amount;

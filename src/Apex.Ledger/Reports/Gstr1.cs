@@ -639,7 +639,9 @@ public sealed record Gstr1(
             // A Credit Note against an outward RCM supply REDUCES the 4B value (it nets the original supply down),
             // mirroring how an outward return nets down a rate row; a Sales voucher adds. Signing by base type (rather
             // than treating every posted line as additive) keeps 4B from being inflated by a credit note (Phase 9 S2; RQ-7).
-            var sign = type.BaseType == VoucherBaseType.CreditNote ? -1m : 1m;
+            // Routed through the one helper, for the reason in GstReportSupport.SignOf: this expression is right here
+            // and was copied onto inward sweeps where it silently did nothing.
+            var sign = (decimal)GstReportSupport.SignOf(company, voucher, type.BaseType);
             foreach (var line in voucher.Lines)
                 if (company.FindLedger(line.LedgerId)?.SalesPurchaseGst is { ReverseChargeApplicable: true })
                     total += sign * line.Amount.Amount;

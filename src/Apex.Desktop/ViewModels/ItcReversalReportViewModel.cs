@@ -55,11 +55,52 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterL
     /// <summary>The advisory reversal candidates (from the latest 2B snapshot's ITC-gate); empty when no 2B imported.</summary>
     public ObservableCollection<ItcReversalCandidateRowVm> Candidates { get; } = new();
 
+    /// <summary>The registrations this company holds (census 6.23) — its own first, then any additional.</summary>
+    public ObservableCollection<GstRegistration> Registrations { get; } = new();
+
+    /// <summary>Whether the registration picker is worth showing — only once the company holds more than one.</summary>
+    public bool ShowsRegistrationPicker => Registrations.Count > 1;
+
+    private GstRegistration? _selectedRegistration;
+
     public ItcReversalReportViewModel(Company company)
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
+
+        foreach (var registration in company.Gst?.AllRegistrations ?? [])
+            Registrations.Add(registration);
+        _selectedRegistration = Registrations.FirstOrDefault();
+
         Rebuild();
     }
+
+    /// <summary>
+    /// 🔴 <b>The registration this page is read for</b> — a real choice, replacing a hard-coded primary. Changing it
+    /// re-projects BOTH figures on the page.
+    /// </summary>
+    public GstRegistration? SelectedRegistration
+    {
+        get => _selectedRegistration;
+        set { if (SetProperty(ref _selectedRegistration, value)) Rebuild(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>The one scope every figure on this page is read under.</b> It used to be the literal
+    /// <c>GstRegistration.PrimaryId</c> with no picker anywhere and the registration named nowhere, which replaced
+    /// the engine's honest refusal with a <b>silently incomplete</b> list: a branch registration's §17(5)-blocked
+    /// and Table-4(D) ineligible credit never surfaced as a candidate at all, beside an ECRS balance computed over
+    /// the WHOLE book — two figures over two different populations side by side with nothing saying so. Both are now
+    /// read under this one id, and <see cref="RegistrationSuffix"/> prints it. Falls back to the primary, never to
+    /// <c>null</c> (the engine refuses an unscoped projection); byte-identical on a single-registration book (ER-13).
+    /// </summary>
+    private Guid ScopedRegistrationId => _selectedRegistration?.Id ?? GstRegistration.PrimaryId;
+
+    /// <summary>Names the registration on the page whenever there is more than one to name; empty otherwise, so a
+    /// single-registration book's subtitle is unchanged (ER-13).</summary>
+    private string RegistrationSuffix =>
+        ShowsRegistrationPicker && _selectedRegistration is { } r
+            ? $"  —  {r.Name}" + (string.IsNullOrWhiteSpace(r.Gstin) ? string.Empty : $" ({r.Gstin})")
+            : string.Empty;
 
     /// <summary>(Re)builds the ECRS balance + the latest snapshot's reversal candidates.</summary>
     public void Rebuild()
@@ -67,7 +108,9 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterL
         Candidates.Clear();
         Message = null;
 
-        var balance = new GstReversalService(_company).OutstandingReversalBalance();
+        // 🔴 SCOPED TO THE SAME REGISTRATION AS THE CANDIDATES BELOW. The ECRS is a portal statement per GSTIN, so a
+        // whole-book balance printed beside a registration-scoped candidate list is two populations in one frame.
+        var balance = new GstReversalService(_company).OutstandingReversalBalance(ScopedRegistrationId);
         BalanceCgstText = P(balance.CgstPaisa); BalanceSgstText = P(balance.SgstPaisa);
         BalanceIgstText = P(balance.IgstPaisa); BalanceCessText = P(balance.CessPaisa);
         BalanceTotalText = P(balance.TotalPaisa);
@@ -77,7 +120,7 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterL
 
         if (snapshot is null)
         {
-            Subtitle = $"{_company.Name}  —  no GSTR-2B imported";
+            Subtitle = $"{_company.Name}{RegistrationSuffix}  —  no GSTR-2B imported";
             CandidatesHeader = "Reversal candidates";
             StatusText = $"Outstanding reclaimable reversal balance (ECRS) ₹{BalanceTotalText}. " +
                          "Import a GSTR-2B to surface this period's §17(5)-blocked / ineligible / §16(2)(aa) / credit-note candidates.";
@@ -89,12 +132,22 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterL
         ItcGateView gate;
         try
         {
-            gate = ItcGateView.Build(_company, snapshot, from, to);
+            // 🔴 THE REGISTRATION SCOPE MUST TRAVEL — and it must be the CHOSEN one, not a hard-coded primary.
+            // ItcGateView.Build scopes its own three legs correctly, but a caller that passes no registrationId
+            // hands all three a null, and GstReportSupport.EnsureRegistrationScoped turns that into a throw for any
+            // IsMultiRegistration book — every book with a branch and every ISD company, which holds at least two
+            // registrations by construction — which the catch below swallowed into a message, making this whole
+            // candidate surface unreachable rather than wrong. Pinning it to the PRIMARY made it reachable but
+            // silently incomplete instead: the branch's blocked and ineligible credit could never surface, and so
+            // could never be reversed. It is now whatever the operator selected (ScopedRegistrationId), which
+            // defaults to the primary and is PRINTED in the subtitle, so the page can never show one registration's
+            // list while reading as though it covered the book.
+            gate = ItcGateView.Build(_company, snapshot, from, to, ScopedRegistrationId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             Message = ex.Message;
-            Subtitle = $"{_company.Name}  —  {snapshot.ReturnPeriod}";
+            Subtitle = $"{_company.Name}{RegistrationSuffix}  —  {snapshot.ReturnPeriod}";
             CandidatesHeader = "Reversal candidates";
             StatusText = $"Outstanding reclaimable reversal balance (ECRS) ₹{BalanceTotalText}.";
             return;
@@ -112,7 +165,7 @@ public sealed partial class ItcReversalReportViewModel : ViewModelBase, IMasterL
                 Suggested = A(c.SuggestedReversal),
             });
 
-        Subtitle = $"{_company.Name}  —  candidates from GSTR-2B {snapshot.ReturnPeriod} " +
+        Subtitle = $"{_company.Name}{RegistrationSuffix}  —  candidates from GSTR-2B {snapshot.ReturnPeriod} " +
                    $"({ApexDate.Format(from)} to {ApexDate.Format(to)})  —  advisory only, posts nothing";
         CandidatesHeader = $"Reversal candidates ({Candidates.Count})";
         StatusText = $"Outstanding reclaimable reversal balance (ECRS) ₹{BalanceTotalText}  ·  {Candidates.Count} candidate(s) surfaced for review.";

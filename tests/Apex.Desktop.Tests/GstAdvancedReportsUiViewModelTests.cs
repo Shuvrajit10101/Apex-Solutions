@@ -635,6 +635,87 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.Contains("Books eligible", page.StatusText);
     }
 
+    /// <summary>
+    /// 🔴 <b>THE ITC GATE SCREEN REFUSED TO OPEN AT ALL FOR ANY MULTI-REGISTRATION BOOK.</b>
+    ///
+    /// <para><c>ItcGateReportViewModel.Rebuild</c> called <c>ItcGateView.Build(company, snap, from, to)</c> with no
+    /// <c>registrationId</c>. <c>GstReportSupport.EnsureRegistrationScoped</c> refuses an unscoped GST projection the
+    /// moment a company holds more than one registration, and the screen's own <c>catch</c> swallowed that refusal
+    /// into <c>Message</c> — so all seven comparison rows and the whole candidate list were replaced by refusal text
+    /// and the §16(2)(aa) claim decision for GSTR-3B section 4 had <b>no surface at all</b>. ONE additional
+    /// registration is enough, so this hit every company with a branch and <b>every ISD company, which holds two
+    /// registrations by construction</b> — the capability row 6.24 is partly claimed on this very screen.</para>
+    ///
+    /// <para>Hand-computed: the fixture's ₹5,000 intra purchase at 18% carries CGST 450.00 + SGST 450.00 =
+    /// <b>₹900.00</b> of ITC, matched in the imported 2B, so it is fully §16(2)(aa)-claimable with nothing stranded.
+    /// Those are absolute figures, not a non-empty check.</para>
+    /// </summary>
+    [Fact]
+    public void Itc_gate_screen_opens_on_a_multi_registration_book_instead_of_refusing()
+    {
+        var vm = NewRegularGstCompany("Gate Multi Reg Co");
+        var c = vm.Company!;
+        AddGujaratRegistration(c);
+        Assert.True(c.Gst!.IsMultiRegistration);
+        ImportMatching2b(c);
+
+        vm.OpenItcGateReport();
+        var page = vm.ItcGateReport!;
+
+        // Before the fix: Message held "This company holds multiple GST registrations…", View was null, Rows empty.
+        Assert.Null(page.Message);
+        Assert.NotNull(page.View);
+        Assert.Equal(7, page.Rows.Count);
+        Assert.Equal(900m, page.View!.BooksEligibleTotal.Amount);
+        Assert.Equal(900m, page.View.ClaimableTotal.Amount);
+        Assert.Equal(0m, page.View.NotInPortalTotal.Amount);
+
+        // And the registration is a real, named CHOICE on the page — not a silent primary.
+        Assert.True(page.ShowsRegistrationPicker);
+        Assert.Equal(2, page.Registrations.Count);
+        Assert.NotNull(page.SelectedRegistration);
+        Assert.Contains(GstinMaharashtra, page.Subtitle, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The picker is load-bearing, not decoration: selecting the second registration re-projects the gate, and the
+    /// Gujarat registration bought nothing, so its whole gate is <b>0.00</b> — proving the figures above really were
+    /// one registration's and not the book's.
+    /// </summary>
+    [Fact]
+    public void Itc_gate_screen_reprojects_when_the_registration_is_changed()
+    {
+        var vm = NewRegularGstCompany("Gate Reg Switch Co");
+        var c = vm.Company!;
+        var gujarat = AddGujaratRegistration(c);
+        ImportMatching2b(c);
+
+        vm.OpenItcGateReport();
+        var page = vm.ItcGateReport!;
+        Assert.Equal(900m, page.View!.BooksEligibleTotal.Amount);
+
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+
+        Assert.Null(page.Message);
+        Assert.Equal(0m, page.View!.BooksEligibleTotal.Amount);
+        Assert.Equal(0m, page.View.ClaimableTotal.Amount);
+        Assert.Equal(0m, page.View.Claimed3b.Total.Amount);
+        Assert.Contains("Gujarat", page.Subtitle, StringComparison.Ordinal);
+    }
+
+    /// <summary>Adds a second GST registration — one is all it takes to make the book <c>IsMultiRegistration</c> and
+    /// so subject to the engine's unscoped-projection refusal.</summary>
+    private static GstRegistration AddGujaratRegistration(Company c)
+    {
+        var r = new GstRegistration(
+            Guid.NewGuid(), "Gujarat Registration", "24",
+            "24AAACC1206D1Z" + Gstin.ComputeCheckDigit("24AAACC1206D1Z0"),
+            GstRegistrationType.Regular, FyStart);
+        c.Gst!.AddRegistration(r);
+        c.Gst!.EnsureValid();
+        return r;
+    }
+
     [Fact]
     public void Itc_gate_shows_a_clean_empty_state_without_a_2b()
     {
@@ -760,6 +841,29 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.Empty(page.EWayBills);
         Assert.Contains("No e-invoices raised", page.EInvoiceStatusText);
         Assert.Contains("No e-Way Bills raised", page.EWayStatusText);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The snapshot picker must say WHICH registration a listed GSTR-2B belongs to.</b> A 2B is made available
+    /// to one registered person (CGST Rules, rule 60(7)), so on a book holding more than one registration the period
+    /// and the import date alone cannot distinguish two registrations' statements for the same month — which is the
+    /// position the operator was left in while the gate's own figures were being computed against whichever one they
+    /// happened to pick. The recipient GSTIN is now part of the label.
+    /// </summary>
+    [Fact]
+    public void The_snapshot_picker_names_the_registration_each_statement_was_issued_to()
+    {
+        var vm = NewRegularGstCompany("Gate Snapshot Label Co");
+        var c = vm.Company!;
+        AddGujaratRegistration(c);
+        ImportMatching2b(c);
+
+        vm.OpenItcGateReport();
+        var option = Assert.Single(vm.ItcGateReport!.Snapshots);
+
+        Assert.Contains(GstinMaharashtra, option.Label, StringComparison.Ordinal);
+        Assert.Contains("GSTR-2B", option.Label, StringComparison.Ordinal);
+        Assert.Contains("2024-04", option.Label, StringComparison.Ordinal);
     }
 
     public void Dispose()

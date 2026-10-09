@@ -147,8 +147,10 @@ public static class KeralaFloodCessReturnBuilder
         foreach (var (voucher, type) in
                  GstReportSupport.PostedDirectionalVouchers(company, levyFrom, levyTo, GstTaxDirection.Output, registrationId))
         {
-            // A Credit Note reduces the outward turnover it relates to; see the remarks above.
-            var sign = type.BaseType == VoucherBaseType.CreditNote ? -1m : 1m;
+            // A Credit Note reduces the outward turnover it relates to; see the remarks above. Routed through the one
+            // helper that answers this for both sides, so the outward and inward rules can never drift apart again
+            // (the inward copies of this expression were silent no-ops — GstReportSupport.SignOf).
+            var sign = (decimal)GstReportSupport.SignOf(company, voucher, type.BaseType);
 
             // Q11 — intra-State only, read off the tax the voucher POSTED. `null` means the voucher posted no
             // forward tax at all (exempt / nil / zero-rated), which Q13 excludes anyway.

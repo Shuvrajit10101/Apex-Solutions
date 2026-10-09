@@ -153,10 +153,33 @@ public static class Gstr2bReconciler
 
     // ---- books-side purchase register ----
 
-    /// <summary>The books-side inward register over <c>[from, to]</c>: posted Purchase/Debit-Note vouchers carrying at
+    /// <summary>The books-side inward register over <c>[from, to]</c>: posted <b>Purchase</b> vouchers carrying at
     /// least one <b>forward</b> (non-RCM) GST line, keyed on the supplier GSTIN (B2C purchases with no GSTIN can never
     /// match a 2B line, so they are excluded). A composition dealer has no ITC ⇒ an empty register. Deterministically
-    /// ordered so the greedy pass is reproducible.</summary>
+    /// ordered so the greedy pass is reproducible.
+    ///
+    /// <para>🔴 <b>A RETURN DOCUMENT IS NOT A SUPPLIER INVOICE AND MUST NOT ENTER THIS REGISTER.</b> This was the
+    /// last unswept consumer of the Debit-Note direction defect (see <see cref="GstReportSupport.SignOf"/>). The
+    /// register is matched one-for-one against GSTR-2B invoice lines, so a purchase-return Debit Note arriving here
+    /// — with the supplier's GSTIN, a positive taxable value and a positive tax — was offered to the greedy matcher
+    /// as though it were an inward invoice. Two concrete wrong outcomes, neither of which any test covered (there is
+    /// no Debit-Note case anywhere in <c>Gstr2bReconcilerTests</c> or <c>ImsAndItcGateTests</c>): it could MATCH and
+    /// CONSUME a real 2B line, leaving the genuine invoice behind it reported as <c>InBooksOnly</c>; or it fell
+    /// through as <c>InBooksOnly</c> itself and was surfaced to the operator as a §16(2)(aa) reversal candidate —
+    /// advice to reverse credit that the return had already removed.</para>
+    ///
+    /// <para><b>Why EXCLUDED rather than signed.</b> Unlike the accumulating reports, this register is not a sum; it
+    /// is a set of documents to pair off, and a negative-valued entry has no counterpart to pair with. The statutory
+    /// reason is the stronger one: <b>our own purchase-return debit note is not a document the portal ever shows
+    /// us.</b> When goods or services go back, the SUPPLIER issues the credit note under CGST Act §34(1), and it is
+    /// that supplier document which appears in our GSTR-2B — in its credit/debit-note section, which this reconciler
+    /// does not model. Our debit note is an internal record. So it is not merely mis-signed here, it does not belong
+    /// in an invoice-matching register at all.</para>
+    ///
+    /// <para><b>Divergence, labelled as OURS (R7):</b> 2B's credit/debit-note section is not reconciled by this
+    /// build. Excluding our own return is strictly better than matching it against the wrong document, but it is not
+    /// the same thing as reconciling the supplier's credit note, and this comment is the place that says so.</para>
+    /// </summary>
     private static List<BooksEntry> BuildBooksRegister(
         Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
@@ -164,8 +187,12 @@ public static class Gstr2bReconciler
         // Composition dealers take no ITC — there is no inward register to reconcile against (§2.7).
         if (company.Gst?.RegistrationType == GstRegistrationType.Composition) return register;
 
-        foreach (var (voucher, _) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
+        foreach (var (voucher, type) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Input, registrationId))
         {
+            // Only a document that ADDS to the inward side (+1) is an invoice to be matched. -1 is our own
+            // purchase-return debit note and 0 is a §34 note on an OUTWARD supply, which is not inward at all.
+            if (GstReportSupport.SignOf(company, voucher, type.BaseType) != 1) continue;
+
             // Exclude a purely reverse-charge purchase: RCM inward bypasses 2B/IMS (§2.7). A voucher with no forward
             // (non-RCM) GST line never enters the reconcilable register (risk #6).
             if (!GstReportSupport.HasForwardTaxLines(voucher)) continue;

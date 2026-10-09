@@ -2169,6 +2169,136 @@ public static class GstReportSupport
     }
 
     /// <summary>
+    /// 🔴 <b>THE SIGN a posted voucher contributes to a figure on its OWN return side</b> — <c>+1</c> adds,
+    /// <c>-1</c> reduces, <c>0</c> means "this document does not belong on that side at all".
+    /// <b>READ THIS BEFORE CHANGING IT: ITS ABSENCE WAS A MEASURED 133% ITC OVERSTATEMENT ON A FILED GSTR-6.</b>
+    ///
+    /// <para><b>It is APPENDED at the end of this class on purpose.</b> Four documents and ADRs cite line numbers in
+    /// this file, and placing these ~60 lines beside <see cref="DirectionOf"/> — where they belong by topic — drifted
+    /// five load-bearing citations off the code they describe. The repo's own
+    /// <c>LoadBearingCitationContentTests</c> caught it. Appending leaves every existing line number intact, so this
+    /// position is load-bearing: <b>do not "tidy" it up next to DirectionOf.</b></para>
+    ///
+    /// <para><see cref="DirectionOf"/> answers <i>which side</i> a base type sits on, and it is right. It does NOT
+    /// answer <i>which way</i> the document pushes that side's figure, and nothing else did either. Each side has
+    /// exactly one <b>return</b> document, and a return REDUCES its side:</para>
+    /// <list type="bullet">
+    ///   <item>Outward side {Sales, Credit-Note}: a sales-return <b>credit note reduces</b> outward tax.</item>
+    ///   <item>Inward side {Purchase, Debit-Note}: a purchase-return <b>debit note reduces</b> input tax (ITC).</item>
+    /// </list>
+    ///
+    /// <para><b>The inward half was the defect, and it was invisible because the outward half looked done.</b>
+    /// <b>FOUR</b> call sites hand-rolled <c>BaseType == CreditNote ? -1 : 1</c> (GSTR-1 Table 4B, the Kerala cess
+    /// return, <c>Gstr6.TurnoverOf</c>, and <c>CompositionTaxService.TurnoverBase</c> — an earlier draft of this
+    /// comment said "three" and missed the last one, which is exactly the drift this helper exists to end; all four
+    /// are now routed here). On an <b>Output</b> sweep that expression is CORRECT. On an <b>Input</b> sweep it is a
+    /// silent no-op — the base types there are Purchase and Debit-Note, and neither is a credit note — so every inward
+    /// sweep added a purchase return's tax to ITC instead of subtracting it. Measured on GSTR-6: an ISD that bought a
+    /// ₹50,000 input service at 18% (₹9,000 ITC) and returned ₹20,000 of it (₹3,600) reported and DISTRIBUTED
+    /// ₹12,600.00 against a true net of ₹5,400.00 — 233% of the right figure, 133% overstated — apportioned across real
+    /// GSTINs, with UndistributedCredit showing 0.00 so the return looked perfectly footed. The same mapping fed the
+    /// ITC gate (T1-64), which advised claiming ₹12,600.00 against ₹5,400.00 available, and GSTR-3B Table 4(A)(5),
+    /// which claimed it. Signing in one report and not the other three is why this is answered HERE, once.
+    /// </para>
+    ///
+    /// <para><b>Why a §34 debit note on an OUTWARD supply returns 0 rather than -1.</b> One base type serves two
+    /// documents (see <see cref="PurchaseReturnRecordTitle"/>): a purchase-return record, and a §34(3) note revising
+    /// UPWARD a supply made BY us. The second is an <b>outward</b> document whose base type nonetheless maps to
+    /// <see cref="GstTaxDirection.Input"/>; it is projected — signed by <see cref="GstCreditDebitNoteLink.CdnType"/> —
+    /// into the output buckets by its own table, so on an inward sweep it must be EXCLUDED, not negated. Negating it
+    /// would reduce ITC by a figure that was never ITC. The discriminator is the one
+    /// <c>ClassifyNoteDocument</c> already uses: the linked ORIGINAL invoice's base type.</para>
+    ///
+    /// <para><b>An UNLINKED note keeps its side's return meaning</b> (-1 on the inward side). Without a
+    /// <see cref="GstCreditDebitNoteLink"/> the §34 discriminator is absent, and <see cref="DirectionOf"/> has already
+    /// placed the voucher on the inward side; treating it as the purchase return it is posted as agrees with that
+    /// placement and is the conservative direction — it reduces credit rather than inflating it. A book that posts no
+    /// note at all never reaches either branch, so this is byte-identical for it (ER-13).</para>
+    ///
+    /// <para><b>Sources (R7).</b> The arithmetic is the statute's, not ours: CGST Act §34 gives the note to the person
+    /// who supplied, and CGST Rule 39(1)(b) — "<i>the amount of the credit distributed shall not exceed the amount of
+    /// credit available for distribution</i>", retrieved and read by content at
+    /// <c>taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter5/rule39_v1.00.html</c>
+    /// — is the cap a purchase return moves down.</para>
+    ///
+    /// <para>🔴 <b>THE COMPLETE CONSUMER SWEEP, so the next reader does not have to re-derive it.</b> Found by
+    /// <c>grep -rn "PostedGstVouchers\|PostedDirectionalVouchers\|DirectionOf("</c> over <c>src/</c>. Every sweep
+    /// that accumulates money off a voucher's tax lines is listed, with how it is settled:</para>
+    /// <list type="bullet">
+    ///   <item><b>INWARD, signed here:</b> <c>Gstr6.Build</c>, <c>ItcGateView.Build</c>, <c>Gstr3b.ReadSide</c>,
+    ///     <c>TaxAnalysis.ReadSide</c>.</item>
+    ///   <item><b>INWARD, excluded rather than signed:</b> <c>Gstr4</c> (already filtered to
+    ///     <c>BaseType == Purchase</c> before this slice — the project's own correct pattern, and the model for the
+    ///     next one); <c>Gstr2bReconciler.BuildBooksRegister</c> (a return is not a supplier invoice and has no 2B
+    ///     line to pair with — see the note there).</item>
+    ///   <item><b>OUTWARD, routed here (behaviour unchanged, drift surface removed):</b> <c>Gstr1</c> Table 4B,
+    ///     <c>KeralaFloodCessReturn</c>, <c>Gstr6.TurnoverOf</c>, <c>CompositionTaxService</c>.</item>
+    ///   <item><b>NOT voucher sweeps, correct by construction, deliberately NOT touched:</b> <c>Gstr9c</c>,
+    ///     <c>ElectronicLedgersView</c>, <c>GstSetOffService</c>, <c>GstDepositService</c>,
+    ///     <c>GstReversalService</c>. These read the tax LEDGER's Dr/Cr legs, and the real voucher-entry path posts
+    ///     a return note with <c>reverseSides: true</c> (<c>VoucherEntryViewModel</c> → <c>ComputeInvoiceTax</c>),
+    ///     so a purchase return's input-tax leg is already a CREDIT and the ledger arithmetic nets it without any
+    ///     base-type logic. Signing them would DOUBLE the reduction.</item>
+    /// </list>
+    ///
+    /// <para>🔴 <b>THE SIGN IS READ OFF THE BASE TYPE, NEVER OFF <c>DrCr</c>, AND THAT IS NOT A STYLE CHOICE.</b>
+    /// The sweeps above read <see cref="GstLineTax"/> metadata and the line's <see cref="EntryLine.Amount"/>
+    /// <i>magnitude</i>; none of them consults the side. So the fix must be — and is — independent of which side the
+    /// voucher posted its tax to. <c>PurchaseReturnDirectionTests</c> pins that both ways round: the same return
+    /// nets identically whether it is posted invoice-shaped or with the real UI's reversed sides.</para>
+    ///
+    /// <para><b>The OUTWARD mirror is REAL, MEASURED and DELIBERATELY NOT FIXED HERE</b> — an unlinked sales-return
+    /// credit note inflates GSTR-3B 3.1(a) and the GSTR-1 rate row the same way. It is not half-fixed because
+    /// GSTR-3B 3.1(a) and GSTR-1 are cross-checked by the portal against each other, so signing one alone would
+    /// replace a wrong figure with a wrong pair; and GSTR-1's B2B section emits one row per INVOICE, which makes an
+    /// unlinked credit note there a document-classification question, not only a sign. See the long note in
+    /// <c>Gstr3b.ReadSide</c>.</para>
+    /// </summary>
+    public static int SignOf(Company company, Voucher voucher, VoucherBaseType baseType)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+
+        if (baseType is not (VoucherBaseType.CreditNote or VoucherBaseType.DebitNote))
+            return DirectionOf(baseType) is null ? 0 : 1;
+
+        // 🔴 A §34 NOTE BELONGS TO THE SIDE OF THE SUPPLY IT ADJUSTS, NOT TO THE SIDE ITS OWN BASE TYPE LANDS ON.
+        // The discriminator is the LINKED ORIGINAL's base type — the same one ClassifyNoteDocument keys on, and for
+        // the same statutory reason: §34 puts the note on "the registered person who has supplied".
+        //
+        // Both base types land on the WRONG side for one of their two documents, and the rule is symmetric:
+        //   · DebitNote  → DirectionOf says INWARD. A §34(3) upward revision of OUR OWN SALE (original = Sales) is
+        //     an OUTWARD document ⇒ contributes 0 to the inward sweep. Negating it would reduce ITC by a figure
+        //     that was never ITC.
+        //   · CreditNote → DirectionOf says OUTWARD. A note recording the SUPPLIER's credit note on a purchase
+        //     (original = Purchase — the shape ClassifyNoteDocument titles PurchaseReturnRecordTitle) is an INWARD
+        //     document ⇒ contributes 0 to the outward sweep.
+        //
+        // 🔴 THE CREDIT-NOTE HALF WAS MISSING AND IT IS A SECOND WRONG-SIDE DEFECT, pre-existing rather than
+        // introduced here: all four outward sites hand-rolled `BaseType == CreditNote ? -1 : 1`, which returned -1
+        // for a purchase-linked credit note and so REDUCED an OUTWARD figure by an inward document. Measured
+        // consequences, all on the outward side: CompositionTaxService understates the composition dealer's taxable
+        // turnover (and therefore the tax payable); Gstr6.TurnoverOf shrinks a recipient's t1, which moves the
+        // Rule 39(1)(f) pro rata and so moves credit BETWEEN real GSTINs; KeralaFloodCessReturn shrinks the cess
+        // base; GSTR-1 Table 4B shrinks the RCM outward value. No test covered the shape — every credit-note link
+        // in the suite points at a Sales original — which is why centralising the rule here is what exposed it.
+        //
+        // Returning 0 is "not on this side at all", which is strictly narrower than a sign change: it REMOVES a
+        // contribution that was never this side's, and it leaves the separate, still-open outward question — how an
+        // UNLINKED sales-return credit note should be signed in GSTR-1/3B together — completely untouched.
+        if (CdnLinkFor(company, voucher) is { OriginalInvoiceVoucherId: Guid originalId }
+            && company.FindVoucher(originalId) is { } original
+            && company.FindVoucherType(original.TypeId)?.BaseType is { } originalBase
+            && DirectionOf(originalBase) is { } originalDirection
+            && originalDirection != DirectionOf(baseType))
+        {
+            return 0;
+        }
+
+        return -1;
+    }
+
+    /// <summary>
     /// 🔴 <b>Whether a stock line is EXPLICITLY non-taxable — the per-line taxability discriminator, and the one
     /// thing the <c>singleRate</c> collapse had no way to ask.</b> The item mirror of
     /// <c>Gstr1.IsNonTaxableServiceLedger</c>, which already existed for ledger legs while the GOODS side had none.

@@ -84,6 +84,87 @@ public sealed class GstReversalService
     private static bool IsReclaimable(ItcReversalRule rule) => rule is ItcReversalRule.Rule37 or ItcReversalRule.Rule37A;
 
     // ==============================================================================================================
+    //  Registration attribution (census 6.23) — which GSTIN a reversal belongs to
+    // ==============================================================================================================
+
+    /// <summary>
+    /// 🔴 <b>The ONE rule for which registration a reversal belongs to, so that no caller has to remember it.</b>
+    /// A reversal that names a source document belongs to the registration <b>that document</b> is recorded under —
+    /// a fact, read from the books, which cannot be got wrong by picking the wrong entry in a combo box. There are
+    /// <b>two</b> kinds of source document and both are now read: a <paramref name="sourceVoucherId"/> (every
+    /// Rule 37 / 37A / 43 reversal and every voucher-keyed candidate) gives the registration its purchase is recorded
+    /// under, and a <paramref name="sourceLineId"/> (the 2B-line-keyed credit-note candidate, which has no voucher in
+    /// our books) gives the registration the GSTR-2B statement carrying that line was issued to — see
+    /// <see cref="RegistrationOfPortalLine"/>, which is where the duplicate-reversal blocker was closed. Only the
+    /// unanchored rules (Rule 42 and its annual true-up, which reverse an apportioned pool rather than one purchase's
+    /// credit) have no document to read, and for those the caller's <paramref name="registrationId"/> is used — as it
+    /// still is when a portal line names a GSTIN this company does not hold. Everything falls back to
+    /// <see cref="GstRegistration.PrimaryId"/> — never to <c>null</c> — so the attribution is total and a
+    /// single-registration book always resolves to the one registration it has (ER-13).
+    /// </summary>
+    private Guid ScopeFor(Guid? sourceVoucherId, Guid? sourceLineId, Guid? registrationId) =>
+        sourceVoucherId is { } sv && _company.FindVoucher(sv) is { } source
+            ? GstReportSupport.RegistrationOf(source)
+            : sourceLineId is { } sl && RegistrationOfPortalLine(sl) is { } portalOwner
+                ? portalOwner
+                : registrationId ?? GstRegistration.PrimaryId;
+
+    /// <summary>
+    /// 🔴 <b>The registration a reversal keyed to a PORTAL LINE belongs to — the second half of the same "read it off
+    /// the document" rule, and the one that was missing.</b> A credit-note candidate from GSTR-2B carries no source
+    /// voucher (the note is the supplier's, not in our books), so <see cref="ScopeFor"/> fell through to the caller's
+    /// <c>registrationId</c> — and the caller is a combo box. Because the registration is (correctly) part of the
+    /// idempotency key, the SAME portal credit note could then be posted ONCE PER REGISTRATION: measured at
+    /// ₹12,000.00 of reversal across two filed returns against a ₹6,000.00 note, two real stat-adjustment vouchers
+    /// reducing credit twice.
+    /// <para>The fix makes it a fact like the voucher case: the line belongs to the 2B snapshot that carries it, that
+    /// statement was "made available to <b>the registered person</b>" (CGST Rules, rule 60(7)) whose GSTIN it names,
+    /// and so the reversal belongs to that registration — whatever the screen had selected. The second post then
+    /// resolves to the SAME scope, the idempotency key matches, and the existing row is returned instead of a second
+    /// one being written.</para>
+    /// <para>Returns <c>null</c> when the line belongs to no imported snapshot, or to one whose recipient GSTIN names
+    /// no registration this company holds — then the caller's scope still decides, so a single-registration book and
+    /// every existing fixture resolve exactly as before (ER-13).</para>
+    /// </summary>
+    private Guid? RegistrationOfPortalLine(Guid sourceLineId)
+    {
+        foreach (var snapshot in _company.Gstr2bSnapshots)
+        {
+            var carries = false;
+            foreach (var line in snapshot.Lines)
+                if (line.Id == sourceLineId) { carries = true; break; }
+            if (!carries) continue;
+
+            if (_company.Gst is not { } gst) return null;
+            foreach (var registration in gst.AllRegistrations)
+                if (!string.IsNullOrWhiteSpace(registration.Gstin)
+                    && string.Equals(registration.Gstin, snapshot.RecipientGstin, StringComparison.OrdinalIgnoreCase))
+                    return registration.Id;
+            return null;
+        }
+        return null;
+    }
+
+    /// <summary>Stamps <paramref name="scope"/> onto a reversal/reclaim voucher before it is posted — but
+    /// <b>only</b> when it is not the primary, so a single-registration book keeps storing the same <c>null</c>
+    /// it has always stored and its exports stay byte-identical (ER-13;
+    /// <see cref="GstReportSupport.RegistrationOf"/> reads a null as the primary either way).</summary>
+    private static Voucher Stamp(Voucher voucher, Guid scope)
+    {
+        if (scope != GstRegistration.PrimaryId) voucher.GstRegistrationId = scope;
+        return voucher;
+    }
+
+    /// <summary>The registration a posted <see cref="ItcReversal"/> row belongs to — read from its own
+    /// stat-adjustment voucher, which is where the attribution lives (no column on the row, so no migration). A row
+    /// whose voucher has gone reads as the primary, the same normalisation
+    /// <see cref="GstReportSupport.RegistrationOf"/> applies to a null.</summary>
+    private Guid RegistrationOfRow(ItcReversal row) =>
+        _company.FindVoucher(row.ReversalVoucherId) is { } v
+            ? GstReportSupport.RegistrationOf(v)
+            : GstRegistration.PrimaryId;
+
+    // ==============================================================================================================
     //  ECRS — the tracked per-head reversal balance (Electronic Credit Reversal & Re-claimed Statement, §11.7)
     // ==============================================================================================================
 
@@ -91,12 +172,19 @@ public sealed class GstReversalService
     /// The tracked per-head reversal balance (ECRS, A14-CONFIRMED §11.7): Σ the reclaimable (Rule 37/37A) reversal rows,
     /// netted by their reclaims (<c>reclaim_of_id</c>). A reclaim can never overdraw this — the portal hard-validates a
     /// Table 4(D)(1) reclaim against it, so <see cref="Reclaim"/> rejects an over-reclaim (fail-fast).
+    ///
+    /// <para>🔴 <b>Scoped by <paramref name="registrationId"/> (census 6.23).</b> The ECRS is a portal statement per
+    /// GSTIN, so a multi-registration book has one balance per registration, not one for the book. A screen that
+    /// shows a registration-scoped candidate list beside a whole-book balance puts two populations side by side
+    /// with nothing saying so. <c>null</c> ⇒ the whole book, which on a single-registration book IS the one
+    /// registration, so that book is byte-identical (ER-13).</para>
     /// </summary>
-    public ReversalAmount OutstandingReversalBalance()
+    public ReversalAmount OutstandingReversalBalance(Guid? registrationId = null)
     {
         long c = 0, s = 0, i = 0, cess = 0;
         foreach (var r in _company.ItcReversals)
         {
+            if (registrationId is { } reg && RegistrationOfRow(r) != reg) continue;
             if (r.ReclaimOfId is not null)
             {
                 c -= r.CgstPaisa; s -= r.SgstPaisa; i -= r.IgstPaisa; cess -= r.CessPaisa; // a reclaim draws the balance down
@@ -119,21 +207,41 @@ public sealed class GstReversalService
     /// (reducing the electronic credit ledger), each Cr leg tagged with the rule's <see cref="GstAdjustmentKind"/> so
     /// the Table 4(B) projection buckets it — through <see cref="LedgerService.Post"/> (Σ Dr == Σ Cr enforced). Records
     /// an idempotent <see cref="ItcReversal"/> row. Returns <c>null</c> for a zero reversal; returns the <b>existing</b>
-    /// row (no duplicate) when a row already exists for this <c>(rule, period, source)</c> key (§5.3).
+    /// row (no duplicate) when a row already exists for this <c>(rule, period, source, registration)</c> key (§5.3).
+    ///
+    /// <para>🔴 <b>THE POSTED ENTRY NAMES ITS REGISTRATION (census 6.23).</b> A reversal reduces the electronic
+    /// credit ledger of exactly ONE GSTIN and lands in exactly one return's Table 4(B), so the stat-adjustment
+    /// voucher is stamped with the registration it belongs to — otherwise it attributed to the primary by default,
+    /// which on a multi-registration book is <b>a wrong posted entry AND a wrong filed figure on two returns at
+    /// once</b> (the branch's reversal missing from its own 3B and showing on the primary's).
+    /// <b>The registration is a fact wherever one is available, not a choice:</b> when the reversal names a
+    /// <paramref name="sourceVoucherId"/> — every Rule 37 / 37A / 43 reversal and every voucher-keyed candidate —
+    /// it is the registration THAT PURCHASE is recorded under; when it names a <paramref name="sourceLineId"/>
+    /// instead — the 2B-line-keyed credit-note candidate — it is the registration the GSTR-2B statement carrying
+    /// that line was issued to; and <paramref name="registrationId"/> is only consulted for the unanchored rules
+    /// (Rule 42 and its true-up) that have no source document to read it from.
+    /// The stamp is written only when it differs from <see cref="GstRegistration.PrimaryId"/>, so a
+    /// single-registration book stores the same <c>null</c> it always stored (ER-13).</para>
     /// </summary>
     public ItcReversal? PostReversal(ItcReversalRule rule, string period, ReversalAmount amounts, DateOnly date,
         Guid? sourceVoucherId = null, Guid? sourceLineId = null, long? d1BasisPaisa = null, long? d2BasisPaisa = null,
-        DateTimeOffset? createdAt = null)
+        DateTimeOffset? createdAt = null, Guid? registrationId = null)
     {
         if (string.IsNullOrWhiteSpace(period))
             throw new ArgumentException("Reversal period is required.", nameof(period));
         amounts.EnsureNonNegative();
         if (amounts.IsZero) return null; // nothing to reverse (e.g. a no-reversal-declared credit note)
 
-        // Idempotency (§5.3): a re-run for the same (rule, period, source) is NOT re-posted — return the existing row.
+        var scope = ScopeFor(sourceVoucherId, sourceLineId, registrationId);
+
+        // Idempotency (§5.3): a re-run for the same (rule, period, source, REGISTRATION) is NOT re-posted — return
+        // the existing row. The registration is part of the key because two registrations of one book each file
+        // their OWN Rule-42 apportionment for the same period off the same (null) source; without it the second
+        // registration's reversal was silently swallowed by the first's row and never posted at all.
         var existing = _company.ItcReversals.FirstOrDefault(r =>
             r.ReclaimOfId is null && r.Rule == rule && r.Period == period
-            && r.SourceVoucherId == sourceVoucherId && r.SourceLineId == sourceLineId);
+            && r.SourceVoucherId == sourceVoucherId && r.SourceLineId == sourceLineId
+            && RegistrationOfRow(r) == scope);
         if (existing is not null) return existing;
 
         var gst = new GstService(_company);
@@ -143,8 +251,8 @@ public sealed class GstReversalService
         var lines = new List<EntryLine> { new(cost.Id, new Money(amounts.TotalPaisa / 100m), DrCr.Debit) };
         AddInputLegs(gst, lines, amounts, AdjustmentFor(rule), DrCr.Credit);
 
-        var voucher = new LedgerService(_company).Post(new Voucher(
-            Guid.NewGuid(), type.Id, date, lines, narration: $"ITC reversal — {rule} — {period}"));
+        var voucher = new LedgerService(_company).Post(Stamp(new Voucher(
+            Guid.NewGuid(), type.Id, date, lines, narration: $"ITC reversal — {rule} — {period}"), scope));
 
         var row = new ItcReversal(
             Guid.NewGuid(), rule, period, amounts.CgstPaisa, amounts.SgstPaisa, amounts.IgstPaisa, amounts.CessPaisa,
@@ -160,12 +268,15 @@ public sealed class GstReversalService
 
     /// <summary>Posts the monthly Rule-42 reversal (A14-CONFIRMED §11.4): per head <b>D1 = (E ÷ F) × C2</b> +
     /// <b>D2 = 5% × C2</b>, reversal = D1 + D2 ⇒ Table 4(B)(1) (non-reclaimable). Records the ΣD1 / ΣD2 apportionment
-    /// basis (audit). Paisa-exact.</summary>
-    public ItcReversal? PostRule42(string period, Rule42Basis basis, DateOnly date, DateTimeOffset? createdAt = null)
+    /// basis (audit). Paisa-exact.
+    /// <para>Rule 42 apportions a POOL, not one purchase's credit, so it is one of the only two reversals with no
+    /// source document to read its registration from — hence <paramref name="registrationId"/> (census 6.23).</para></summary>
+    public ItcReversal? PostRule42(string period, Rule42Basis basis, DateOnly date, DateTimeOffset? createdAt = null,
+        Guid? registrationId = null)
     {
         var (amount, d1, d2) = Rule42Amount(basis);
         return PostReversal(ItcReversalRule.Rule42, period, amount, date,
-            d1BasisPaisa: d1, d2BasisPaisa: d2, createdAt: createdAt);
+            d1BasisPaisa: d1, d2BasisPaisa: d2, createdAt: createdAt, registrationId: registrationId);
     }
 
     /// <summary>
@@ -180,24 +291,28 @@ public sealed class GstReversalService
     /// the year was already fully trued-up (zero delta).
     /// </summary>
     public ItcReversal? PostRule42AnnualTrueUp(string fyPeriod, Rule42Basis fullYearBasis, DateOnly date,
-        DateTimeOffset? createdAt = null)
+        DateTimeOffset? createdAt = null, Guid? registrationId = null)
     {
         var (fullYear, d1, d2) = Rule42Amount(fullYearBasis);
+        var scope = registrationId ?? GstRegistration.PrimaryId;
 
         // Σ ONLY this FY's monthly (yyyy-MM) Rule-42 reversals — never another FY's months, never any true-up (FY-period)
         // row. FIX 2: the old scope subtracted every Rule-42 row ever posted, so a later FY's delta floored to zero.
+        // 🔴 And never ANOTHER REGISTRATION's months (census 6.23): the full-year figure is this GSTIN's, so
+        // subtracting a sister registration's monthly rows would true one return up against another's postings.
         long mc = 0, ms = 0, mi = 0, mcess = 0;
         foreach (var r in _company.ItcReversals)
         {
             if (r.Rule != ItcReversalRule.Rule42 || r.ReclaimOfId is not null) continue;
             if (!IsMonthlyPeriodWithinFy(r.Period, fyPeriod)) continue;
+            if (RegistrationOfRow(r) != scope) continue;
             mc += r.CgstPaisa; ms += r.SgstPaisa; mi += r.IgstPaisa; mcess += r.CessPaisa;
         }
 
         // The SIGNED per-head delta (NOT floored) — FIX 3: a negative head is an over-reversal to re-credit, not forfeit.
         return PostRule42TrueUp(fyPeriod,
             fullYear.CgstPaisa - mc, fullYear.SgstPaisa - ms, fullYear.IgstPaisa - mi, fullYear.CessPaisa - mcess,
-            d1, d2, date, createdAt);
+            d1, d2, date, createdAt, scope);
     }
 
     /// <summary>
@@ -209,12 +324,14 @@ public sealed class GstReversalService
     /// basis. Returns <c>null</c> for an all-zero delta (already fully trued-up).
     /// </summary>
     private ItcReversal? PostRule42TrueUp(string fyPeriod, long dc, long ds, long di, long dcess,
-        long d1BasisPaisa, long d2BasisPaisa, DateOnly date, DateTimeOffset? createdAt)
+        long d1BasisPaisa, long d2BasisPaisa, DateOnly date, DateTimeOffset? createdAt, Guid scope)
     {
-        // Idempotency (§5.3): one true-up row per (Rule42, fyPeriod, no source) — a re-run returns the existing row.
+        // Idempotency (§5.3): one true-up row per (Rule42, fyPeriod, no source, REGISTRATION) — a re-run returns the
+        // existing row. Each registration trues its OWN year up, so the registration is part of the key.
         var existing = _company.ItcReversals.FirstOrDefault(r =>
             r.ReclaimOfId is null && r.Rule == ItcReversalRule.Rule42 && r.Period == fyPeriod
-            && r.SourceVoucherId is null && r.SourceLineId is null);
+            && r.SourceVoucherId is null && r.SourceLineId is null
+            && RegistrationOfRow(r) == scope);
         if (existing is not null) return existing;
 
         if (dc == 0 && ds == 0 && di == 0 && dcess == 0) return null; // already fully trued-up (zero delta)
@@ -254,8 +371,9 @@ public sealed class GstReversalService
         else if (netCost < 0) lines.Add(new EntryLine(cost.Id, new Money(-netCost / 100m), DrCr.Credit));
         // netCost == 0 ⇒ the per-head Cr and Dr Input legs already balance; no cost leg needed.
 
-        var voucher = new LedgerService(_company).Post(new Voucher(
-            Guid.NewGuid(), type.Id, date, lines, narration: $"ITC reversal — Rule42 annual true-up — {fyPeriod}"));
+        var voucher = new LedgerService(_company).Post(Stamp(new Voucher(
+            Guid.NewGuid(), type.Id, date, lines, narration: $"ITC reversal — Rule42 annual true-up — {fyPeriod}"),
+            scope));
 
         var bucket = netCost >= 0 ? Table4bBucket.Table4B1 : Table4bBucket.Table4D1;
         var row = new ItcReversal(
@@ -407,8 +525,15 @@ public sealed class GstReversalService
         amount.EnsureNonNegative();
         if (amount.IsZero) throw new ArgumentException("A reclaim must re-avail a positive amount.", nameof(amounts));
 
-        // ECRS (§11.7): a Table 4(D)(1) reclaim can never exceed the tracked per-head reversal balance.
-        var balance = OutstandingReversalBalance();
+        // 🔴 The reclaim belongs to the SAME registration as the reversal it re-avails — it restores that GSTIN's
+        // credit pool and lands in that return's Table 4(D)(1). Read from the reversal's own voucher, so it cannot
+        // be named wrongly by a caller.
+        var scope = RegistrationOfRow(reversal);
+
+        // ECRS (§11.7): a Table 4(D)(1) reclaim can never exceed the tracked per-head reversal balance — the
+        // balance of the registration being reclaimed against, which is the statement the portal validates it
+        // against. On a single-registration book this is the whole book, as before (ER-13).
+        var balance = OutstandingReversalBalance(scope);
         if (amount.CgstPaisa > balance.CgstPaisa || amount.SgstPaisa > balance.SgstPaisa
             || amount.IgstPaisa > balance.IgstPaisa || amount.CessPaisa > balance.CessPaisa)
             throw new InvalidOperationException(
@@ -424,8 +549,9 @@ public sealed class GstReversalService
         AddInputLegs(gst, lines, amount, GstAdjustmentKind.Reclaim, DrCr.Debit);
         lines.Add(new EntryLine(cost.Id, new Money(amount.TotalPaisa / 100m), DrCr.Credit));
 
-        var voucher = new LedgerService(_company).Post(new Voucher(
-            Guid.NewGuid(), type.Id, date, lines, narration: $"ITC re-availment (reclaim) — {reversal.Rule} — {period}"));
+        var voucher = new LedgerService(_company).Post(Stamp(new Voucher(
+            Guid.NewGuid(), type.Id, date, lines, narration: $"ITC re-availment (reclaim) — {reversal.Rule} — {period}"),
+            scope));
 
         var row = new ItcReversal(
             Guid.NewGuid(), reversal.Rule, period, amount.CgstPaisa, amount.SgstPaisa, amount.IgstPaisa, amount.CessPaisa,
@@ -450,9 +576,16 @@ public sealed class GstReversalService
     /// <c>Section17_5Blocked</c> ⇒ §17(5) → 4(B)(1); <c>Ineligible</c> ⇒ Ineligible → 4(B)(1); <c>ImsAcceptedCreditNote</c>
     /// ⇒ CreditNote → 4(B)(1). A <c>Section16_2aaNotInPortal</c> candidate is a <b>deferral</b> — posts NOTHING (returns
     /// <c>null</c>). A zero-amount candidate (a no-reversal-declared credit note) also posts nothing.
+    ///
+    /// <para>🔴 <b>The registration (census 6.23).</b> A voucher-keyed candidate — which every POSTING candidate is,
+    /// since §17(5)-blocked and Table-4(D)-ineligible credit is always read off a specific purchase — carries its
+    /// own source voucher, so the reversal attributes to <b>that purchase's</b> registration and
+    /// <paramref name="registrationId"/> is not consulted at all. It is the fallback for the 2B-line-keyed credit-note
+    /// candidate, which has no voucher in the books to read it from, and the caller passes the registration whose
+    /// gate surfaced the candidate.</para>
     /// </summary>
     public ItcReversal? PostFromCandidate(ItcReversalCandidate candidate, string period, DateOnly date,
-        DateTimeOffset? createdAt = null)
+        DateTimeOffset? createdAt = null, Guid? registrationId = null)
     {
         if (candidate.Reason == ItcReversalReason.Section16_2aaNotInPortal)
             return null; // DEFERRAL — a §16(2)(aa) hold posts nothing; it only escalates to Rule 37A at 30-Nov (§4.1).
@@ -473,7 +606,8 @@ public sealed class GstReversalService
         if (amounts.IsZero) return null; // e.g. a no-reversal-declared credit note (nothing to reverse)
 
         return PostReversal(rule, period, amounts, date,
-            sourceVoucherId: candidate.VoucherId, sourceLineId: candidate.LineId, createdAt: createdAt);
+            sourceVoucherId: candidate.VoucherId, sourceLineId: candidate.LineId, createdAt: createdAt,
+            registrationId: registrationId);
     }
 
     // ==============================================================================================================
