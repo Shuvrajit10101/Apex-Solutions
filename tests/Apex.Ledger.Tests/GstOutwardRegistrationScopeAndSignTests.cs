@@ -178,6 +178,35 @@ public sealed class GstOutwardRegistrationScopeAndSignTests
         Assert.Equal(-1_800m, r.TotalIgst.Amount);
     }
 
+    /// <summary>
+    /// 🔴 <b>T2-119 (vii) — THE NULL-vs-STRING COMPARISON IN <c>BuildTable9B</c>'s SORT, WHICH NO TEST REACHED.</b>
+    /// The method orders by <c>ThenBy(r => r.OriginalInvoiceNumber, StringComparer.Ordinal)</c> and an <b>unlinked</b>
+    /// row's key is <c>null</c>. That was recorded as "safe by contract, not by measurement": every fixture in the
+    /// suite built ONE note, so <c>OrderBy</c> never performed a comparison and the path was never executed. This
+    /// gives one registration <b>two</b> 9B rows — one unlinked (null key), one linked (<c>KA/S/1</c>) — on the
+    /// <b>same note date</b>, so the tie-break on <c>OriginalInvoiceNumber</c> is forced and the null genuinely
+    /// takes part in a comparison.
+    /// <para>Deterministic and non-throwing, with <c>null</c> ordering first per <c>StringComparer</c>'s documented
+    /// null contract. Asserted here rather than assumed, in the method this slice already owns.</para>
+    /// </summary>
+    [Fact]
+    public void Table_9B_sorts_a_null_original_invoice_reference_against_a_real_one_deterministically()
+    {
+        var f = Build(withLinkedPrimaryNote: true);
+
+        var r = Gstr1.Build(f.Company, From, To, GstRegistration.PrimaryId);
+
+        Assert.Collection(
+            r.Table9B,
+            first => Assert.Null(first.OriginalInvoiceNumber),
+            second => Assert.Equal("KA/S/1", second.OriginalInvoiceNumber));
+
+        // 4,500 sale − 1,800 unlinked return − 450 linked note. The linked note's tax IS folded here (the unlinked
+        // one's was already signed in by the sweep), which is the asymmetry BuildTable9B's own summary records.
+        Assert.Equal(2_250m, r.TotalCgst.Amount);
+        Assert.Equal(2_250m, r.TotalSgst.Amount);
+    }
+
     // ==============================================================================================================
     //  T2-122 — the outward arm of TaxAnalysis
     // ==============================================================================================================
@@ -351,7 +380,8 @@ public sealed class GstOutwardRegistrationScopeAndSignTests
     ///     1,800, reference <c>TN/S/7</c>. This is the document that leaked into Karnataka's return.</item>
     /// </list>
     /// </summary>
-    internal static Fixture Build(bool withPurchaseLinkedCreditNote = false)
+    internal static Fixture Build(
+        bool withPurchaseLinkedCreditNote = false, bool withLinkedPrimaryNote = false)
     {
         var c = CompanyFactory.CreateSeeded("Multi GSTIN Co", FyStart);
         var gst = new GstService(c);
@@ -407,6 +437,17 @@ public sealed class GstOutwardRegistrationScopeAndSignTests
 
         if (withPurchaseLinkedCreditNote)
             AddPurchaseLinkedCreditNote(c, ledgers, gst);
+
+        if (withLinkedPrimaryNote)
+        {
+            // A LINKED §34 note under the PRIMARY, on the SAME date as the unlinked one, so Table 9B holds two rows
+            // that tie on NoteDate and must break the tie on OriginalInvoiceNumber — null against "KA/S/1".
+            var primaryNoteId = PostOutward(ledgers, gst, creditNoteType, sales, debtorKa, 5_000m,
+                interState: false, reverseSides: true, ReturnDate, registrationId: null);
+            c.AddCreditDebitNoteLink(new GstCreditDebitNoteLink(
+                Guid.NewGuid(), primaryNoteId, CdnType.Credit, null, "KA/S/1", SaleDate,
+                "01 sales return", is9BTarget: true));
+        }
 
         return new Fixture { Company = c, Branch = branch };
     }
