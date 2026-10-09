@@ -2250,4 +2250,128 @@ public sealed class GstActionsUiViewModelTests : IDisposable
 
         Assert.Equal(purchase.Id, page.SelectedSource?.VoucherId);
     }
+
+    /// <summary>
+    /// 🔴 <b>BLOCKING, MEASURED: THE REFUSAL FOR AN EMPTY SOURCE-VOUCHER LIST TOLD THE OPERATOR THEIR COMPANY HAD NO
+    /// PURCHASE CARRYING INPUT TAX, WHILE THE SAME SCREEN HAD JUST OFFERED ONE.</b>
+    ///
+    /// <para>Measured on this fixture's one real ₹5,000 purchase at 18% carrying CGST 450.00 + SGST 450.00 =
+    /// <b>₹900.00</b> of input tax, recorded the only way the application can record one. With the primary selected
+    /// <c>SourceVouchers</c> holds that purchase; switch to the Gujarat branch and it is EMPTY — not because the
+    /// branch bought nothing, but because <c>Voucher.GstRegistrationId</c> is never written by ANY voucher-entry or
+    /// import path in <c>src/</c>, so no purchase can be attributed to any registration other than the first. The
+    /// inherited sentence — "<i>this company has none carrying input tax</i>" — was true while the list was
+    /// unfiltered and became false the moment the registration filter was added, and it sent the operator hunting for
+    /// data sitting in their own book.</para>
+    ///
+    /// <para><b>This test pins the honesty of the refusal, not merely that it refuses.</b> It asserts the lie is gone
+    /// by its own words, that the registration being talked about is named, that the limitation is attributed to this
+    /// product, and that the registration which DOES hold the purchases is named so the operator has somewhere to go.
+    /// The missing capability — recording a purchase under a chosen registration — is NOT built here and is reported
+    /// as the remaining gap.</para>
+    /// </summary>
+    [Fact]
+    public void An_unfillable_source_voucher_list_blames_the_product_not_the_operators_data()
+    {
+        var vm = NewRegularGstCompany("Reversal Unattributable Source Co");
+        var c = vm.Company!;
+        var gujarat = AddSecondRegistration(c);
+        Import2b(c);
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.Kind = ItcReversalPostKind.Rule37;
+
+        // Under the primary the purchase IS offered — which is what made the old message a lie.
+        Assert.NotEmpty(page.SourceVouchers);
+        Assert.Contains(page.SourceVouchers, r => r.InputTax.Contains("900.00", StringComparison.Ordinal));
+
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+        Assert.Empty(page.SourceVouchers);
+
+        Assert.False(page.Post(), page.Message ?? "an anchored rule with no anchor must refuse");
+        var message = page.Message!;
+
+        // 🔴 The lie, by its own words, is gone.
+        Assert.DoesNotContain("this company has none carrying input tax", message, StringComparison.Ordinal);
+
+        // The truth: whose registration, whose problem, and where the purchases actually are.
+        Assert.Contains("Gujarat Branch", message, StringComparison.Ordinal);
+        Assert.Contains("limitation of Apex Solutions", message, StringComparison.Ordinal);
+        Assert.Contains("not a gap in your data", message, StringComparison.Ordinal);
+        Assert.Contains(c.Gst!.PrimaryRegistration!.Name, message, StringComparison.Ordinal);
+
+        // Nothing was posted by a refusal.
+        Assert.Empty(c.ItcReversals);
+
+        // And the brand rule: a user-visible string never names the product we studied.
+        Assert.DoesNotContain("Tally", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// <b>ER-13 — on the primary (and so on every single-registration book) the refusal is the original sentence,
+    /// unchanged.</b> There it is simply true, and a book with one registration must read exactly as it always did.
+    /// </summary>
+    [Fact]
+    public void The_source_voucher_refusal_is_unchanged_where_it_is_true()
+    {
+        var vm = NewSeededCompany("Reversal Primary Refusal Co");
+        var c = vm.Company!;
+        EnableGst(c, GstRegistrationType.Regular);     // GST on, but NO purchase at all in the book
+        _storage.Save(c);
+        vm.ShowGateway();
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.Kind = ItcReversalPostKind.Rule37;
+
+        Assert.False(page.ShowsRegistrationPicker);
+        Assert.Empty(page.SourceVouchers);
+        Assert.False(page.Post());
+        Assert.Equal(
+            "Rule 37 / 37A needs a supplier's purchase voucher to reverse, and this company has none carrying " +
+            "input tax.",
+            page.Message);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HONEST REFUSAL MUST NOT MISATTRIBUTE IN THE OTHER DIRECTION EITHER.</b> Naming the product
+    /// limitation is true on any multi-registration book, but "<i>the purchases that carry input tax are recorded
+    /// under the primary</i>" is a claim about the operator's DATA — and on a book that holds no anchorable purchase
+    /// anywhere it is false, sending the operator to a registration with nothing to offer. That is the same defect
+    /// the sibling test closes, pointed the other way, so this fixture holds a two-registration book with NO
+    /// purchase at all: the limitation is still stated, and the claim about where the purchases are is not made.
+    /// </summary>
+    [Fact]
+    public void The_refusal_does_not_claim_purchases_exist_under_the_primary_when_none_do()
+    {
+        var vm = NewSeededCompany("Reversal No Purchase Anywhere Co");
+        var c = vm.Company!;
+        EnableGst(c, GstRegistrationType.Regular);
+        var gujarat = AddSecondRegistration(c);        // two registrations, and NOT ONE purchase in the book
+        _storage.Save(c);
+        vm.ShowGateway();
+
+        vm.OpenPostItcReversal();
+        var page = vm.PostItcReversal!;
+        page.Kind = ItcReversalPostKind.Rule37;
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+
+        Assert.True(page.ShowsRegistrationPicker);
+        Assert.Empty(page.SourceVouchers);
+        Assert.False(page.Post());
+        var message = page.Message!;
+
+        // The limitation is ours and is still named — that part is true however empty the book is.
+        Assert.Contains("limitation of Apex Solutions", message, StringComparison.Ordinal);
+        Assert.Contains("not a gap in your data", message, StringComparison.Ordinal);
+        Assert.Contains("Gujarat Branch", message, StringComparison.Ordinal);
+
+        // 🔴 But the claim about the operator's data is NOT made, because it would be false here.
+        Assert.DoesNotContain("The purchases that carry input tax are recorded under", message, StringComparison.Ordinal);
+        Assert.Contains("records no such purchase under", message, StringComparison.Ordinal);
+
+        Assert.Empty(c.ItcReversals);
+        Assert.DoesNotContain("Tally", message, StringComparison.OrdinalIgnoreCase);
+    }
 }

@@ -46,15 +46,20 @@ public sealed class GstAdvFyOption
 }
 
 /// <summary>A selectable imported GSTR-2B snapshot on the 2B-reconciliation / ITC-gate report screens (its return
-/// period + a "GSTR-2B · 2024-07 · imported 12-Aug" label). The reconciler + ITC-gate are built over the chosen
-/// snapshot's return-period window.</summary>
+/// period + a "GSTR-2B · 2024-07 · 27AAPFU0939F1ZV · imported 12-Aug" label). The reconciler + ITC-gate are built over
+/// the chosen snapshot's return-period window.
+/// <para>🔴 <b>The recipient GSTIN is part of the label, and that is not decoration.</b> A GSTR-2B is made available
+/// to ONE registered person (CGST Rules, rule 60(7)), so on a book holding more than one registration the operator
+/// has to be able to tell WHICH registration a listed statement belongs to before choosing it — the period and the
+/// import date alone cannot distinguish two registrations' statements for the same month, which is exactly the
+/// position an operator was left in. Single-registration books simply gain their own GSTIN in the label.</para></summary>
 public sealed class Gstr2bSnapshotOption
 {
     public required Gstr2bSnapshot Snapshot { get; init; }
 
     public string Label =>
         $"{(Snapshot.StatementType == GstStatementType.Gstr2b ? "GSTR-2B" : "GSTR-2A")}  ·  {Snapshot.ReturnPeriod}" +
-        $"  ·  imported {ApexDate.Format(Snapshot.ImportedAt)}";
+        $"  ·  {Snapshot.RecipientGstin}  ·  imported {ApexDate.Format(Snapshot.ImportedAt)}";
 
     public override string ToString() => Label;
 }

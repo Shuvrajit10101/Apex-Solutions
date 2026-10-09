@@ -843,6 +843,29 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.Contains("No e-Way Bills raised", page.EWayStatusText);
     }
 
+    /// <summary>
+    /// 🔴 <b>The snapshot picker must say WHICH registration a listed GSTR-2B belongs to.</b> A 2B is made available
+    /// to one registered person (CGST Rules, rule 60(7)), so on a book holding more than one registration the period
+    /// and the import date alone cannot distinguish two registrations' statements for the same month — which is the
+    /// position the operator was left in while the gate's own figures were being computed against whichever one they
+    /// happened to pick. The recipient GSTIN is now part of the label.
+    /// </summary>
+    [Fact]
+    public void The_snapshot_picker_names_the_registration_each_statement_was_issued_to()
+    {
+        var vm = NewRegularGstCompany("Gate Snapshot Label Co");
+        var c = vm.Company!;
+        AddGujaratRegistration(c);
+        ImportMatching2b(c);
+
+        vm.OpenItcGateReport();
+        var option = Assert.Single(vm.ItcGateReport!.Snapshots);
+
+        Assert.Contains(GstinMaharashtra, option.Label, StringComparison.Ordinal);
+        Assert.Contains("GSTR-2B", option.Label, StringComparison.Ordinal);
+        Assert.Contains("2024-04", option.Label, StringComparison.Ordinal);
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true); }

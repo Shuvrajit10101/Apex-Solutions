@@ -481,4 +481,180 @@ public class ItcReversalRegistrationScopeTests
         Assert.True(gate.NotInPortalTotal.Amount <= gate.BooksEligibleTotal.Amount);
         Assert.True(gate.ClaimableTotal.Amount <= gate.BooksEligibleTotal.Amount);
     }
+
+    // ==============================================================================================================
+    //  5. THE PORTAL SIDE — one GSTR-2B credit note, ONE reversal, ONE return
+    //
+    //  🔴 Hand-computed before measuring. The supplier's credit note in the ISD's own GSTR-2B carries
+    //  CGST 3,000.00 + SGST 3,000.00 = ₹6,000.00 of forward tax, no IMS action is recorded against it (so
+    //  ImsService.EffectiveStatus DEEMS it accepted), and a deemed accept reverses the WHOLE forward tax. The
+    //  reversal therefore owed, across the entire book, is ₹6,000.00 — on exactly ONE return, the ISD's, because
+    //  the statement carrying the note was issued to the ISD's GSTIN.
+    //
+    //  WHAT WAS MEASURED BEFORE THE FIX: the candidate was byte-for-byte identical under every registration (the
+    //  candidate loop consulted registrationId nowhere), and because the registration is — correctly — part of the
+    //  idempotency key, posting it under the ISD and then under the Tamil Nadu branch wrote TWO distinct ItcReversal
+    //  rows carrying the SAME SourceLineId and TWO stat-adjustment vouchers. ₹12,000.00 of credit reversal claimed
+    //  against a ₹6,000.00 note, split across two separately filed returns: 200% of the reversal that was owed.
+    //
+    //  SOURCE (R7), read BY CONTENT for this fix on the official consolidated CGST Rules published by CBIC —
+    //  cbic-gst.gov.in/pdf/24092021-CGST-Rules-2017-Part-A-Rules.pdf, page 72. Rule 60 ("Form and manner of
+    //  ascertaining details of inward supplies"), sub-rule (7): "An auto-DRAFTED statement containing the details of
+    //  input tax credit shall be made available to the registered person in FORM GSTR-2B, for every month,
+    //  electronically through the common portal" — and (8), "The Statement in FORM GSTR-2B for every month shall be
+    //  made available to the registered person".
+    //  🔴 THE WORD IS "auto-DRAFTED". An earlier revision of this comment quoted it as "auto-generated" (the vendor's
+    //  and the trade's wording, not the statute's) and the per-rule HTML page it cited could not be opened on
+    //  re-verification; both are corrected rather than carried, because a verbatim quote that is not verbatim and a
+    //  URL that does not resolve are the two ways a citation has already gone wrong on this project.
+    //  That is what makes a 2B a per-registered-person document, so a credit note inside one reverses exactly ONE
+    //  registration's credit. No vendor claim is made by these tests.
+    // ==============================================================================================================
+
+    /// <summary>The ISD's own GSTR-2B carrying one supplier credit note of CGST 3,000.00 + SGST 3,000.00.</summary>
+    private static Gstr2bSnapshot IsdSnapshotWithCreditNote(Company company, out Guid creditNoteLineId)
+    {
+        var cn = new Gstr2bLine(
+            Guid.NewGuid(), GstinSupplier, "Service Supplier", Gstr2bDocType.CreditNote, "CN-ISD-1",
+            Gstr2bReconciler.NormaliseDocNo("CN-ISD-1"), ReturnDate, Karnataka,
+            taxableValuePaisa: 3_333_333L, igstPaisa: 0L, cgstPaisa: 300_000L, sgstPaisa: 300_000L, cessPaisa: 0L,
+            itcAvailable: true, itcUnavailableReason: null, reverseCharge: false);
+        creditNoteLineId = cn.Id;
+
+        var snapshot = new Gstr2bSnapshot(
+            Guid.NewGuid(), GstStatementType.Gstr2b, Period, GstinIsd, new DateOnly(2025, 6, 14),
+            "HASH-CN", DateTimeOffset.UnixEpoch, 0, 300_000L, 300_000L, 0, new[] { cn });
+        company.AddGstr2bSnapshot(snapshot);
+        return snapshot;
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE MONEY TEST FOR THE PORTAL SIDE, ASSERTED ON THE POSTED ENTRIES.</b> One portal credit note must be
+    /// reversible ONCE across the whole book, however many registrations the operator posts it under — and the one
+    /// reversal must land on the return of the registration the statement was issued to.
+    /// </summary>
+    [Fact]
+    public void A_portal_credit_note_is_reversed_once_for_the_book_not_once_per_registration()
+    {
+        var f = Build(blockedService: false);
+        IsdSnapshotWithCreditNote(f.Company, out var creditNoteLineId);
+        var snapshot = f.Company.Gstr2bSnapshots.Single(s => s.SourceFileHash == "HASH-CN");
+
+        // The candidate, at its hand-computed absolute figure: the whole forward tax of the note.
+        var candidate = Assert.Single(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+        Assert.Equal(6_000m, candidate.SuggestedReversal.Amount);
+        Assert.Equal(300_000L, candidate.CgstPaisa);
+        Assert.Equal(300_000L, candidate.SgstPaisa);
+        Assert.Null(candidate.VoucherId);                       // keyed to the PORTAL line, not to a voucher
+        Assert.Equal(creditNoteLineId, candidate.LineId);
+
+        var vouchersBefore = f.Company.Vouchers.Count;
+
+        var first = f.Reversal.PostFromCandidate(candidate, Period, To, registrationId: f.Isd.Id);
+        Assert.NotNull(first);
+
+        // 🔴 THE SECOND POST, under a DIFFERENT registration, is the defect. It must hand back the SAME row.
+        var second = f.Reversal.PostFromCandidate(candidate, Period, To, registrationId: f.Branch.Id);
+        Assert.NotNull(second);
+        Assert.Equal(first!.Id, second!.Id);                    // was a second, distinct row
+
+        // THE POSTED ENTRIES: one reversal row, one stat-adjustment voucher, ₹6,000.00 in total — not ₹12,000.00.
+        var row = Assert.Single(f.Company.ItcReversals, r => r.Rule == ItcReversalRule.CreditNote);
+        Assert.Equal(300_000L, row.CgstPaisa);
+        Assert.Equal(300_000L, row.SgstPaisa);
+        Assert.Equal(vouchersBefore + 1, f.Company.Vouchers.Count);
+        Assert.Equal(
+            600_000L,
+            f.Company.ItcReversals.Where(r => r.Rule == ItcReversalRule.CreditNote && r.ReclaimOfId is null)
+                .Sum(r => r.CgstPaisa + r.SgstPaisa + r.IgstPaisa + r.CessPaisa));
+
+        // And it belongs to the ISD — the registered person the statement was made available to — as a FACT read off
+        // the statement, so the Tamil Nadu pick could not move it.
+        var voucher = f.Company.FindVoucher(row.ReversalVoucherId)!;
+        Assert.Equal(f.Isd.Id, GstReportSupport.RegistrationOf(voucher));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE FILED FIGURES. The ₹6,000.00 appears in the ISD's Table 4(B)(1) and in NO other registration's</b> —
+    /// the half of the defect that is a wrong number on a document that is actually filed, measured on both returns.
+    /// </summary>
+    [Fact]
+    public void The_portal_credit_notes_reversal_reaches_only_the_registration_the_statement_was_issued_to()
+    {
+        var f = Build(blockedService: false);
+        IsdSnapshotWithCreditNote(f.Company, out _);
+        var snapshot = f.Company.Gstr2bSnapshots.Single(s => s.SourceFileHash == "HASH-CN");
+
+        var candidate = Assert.Single(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+
+        f.Reversal.PostFromCandidate(candidate, Period, To, registrationId: f.Isd.Id);
+        f.Reversal.PostFromCandidate(candidate, Period, To, registrationId: f.Branch.Id);   // the duplicate attempt
+
+        var isd3b = Gstr3b.Build(f.Company, From, To, f.Isd.Id);
+        Assert.Equal(3_000m, isd3b.ItcReversed4B1Cgst.Amount);
+        Assert.Equal(3_000m, isd3b.ItcReversed4B1Sgst.Amount);
+
+        var branch3b = Gstr3b.Build(f.Company, From, To, f.Branch.Id);
+        Assert.Equal(0m, branch3b.ItcReversed4B1Cgst.Amount);   // was 3,000.00 — the second posted row
+        Assert.Equal(0m, branch3b.ItcReversed4B1Sgst.Amount);
+
+        var primary3b = Gstr3b.Build(f.Company, From, To, GstRegistration.PrimaryId);
+        Assert.Equal(0m, primary3b.ItcReversed4B1Cgst.Amount);
+        Assert.Equal(0m, primary3b.ItcReversed4B1Sgst.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>The gate must not OFFER another registration's portal credit note in the first place</b> — the advisory
+    /// half of the same blocker, and the layer that keeps the operator from ever being invited to post it. The ISD's
+    /// 2B raises the candidate under the ISD and under NOBODY else.
+    /// </summary>
+    [Fact]
+    public void The_gate_offers_a_portal_credit_note_only_under_the_registration_its_statement_was_issued_to()
+    {
+        var f = Build(blockedService: false);
+        IsdSnapshotWithCreditNote(f.Company, out _);
+        var snapshot = f.Company.Gstr2bSnapshots.Single(s => s.SourceFileHash == "HASH-CN");
+
+        Assert.Single(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+
+        Assert.DoesNotContain(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Branch.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+
+        Assert.DoesNotContain(
+            ItcGateView.Build(f.Company, snapshot, From, To, GstRegistration.PrimaryId).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+    }
+
+    /// <summary>
+    /// <b>ER-13 — a statement whose recipient GSTIN names no registration this company holds is left to the caller,
+    /// not silently emptied.</b> Every pre-existing fixture imports a 2B under whatever GSTIN it likes, and an import
+    /// for an unheld GSTIN is a different defect; withholding its candidates here would have hidden one bug behind
+    /// another. The supplier's GSTIN is used as a recipient that the company provably does not hold.
+    /// </summary>
+    [Fact]
+    public void A_statement_for_an_unheld_gstin_still_raises_its_candidate_under_the_callers_own_scope()
+    {
+        var f = Build(blockedService: false);
+        Assert.DoesNotContain(f.Company.Gst!.AllRegistrations, r => r.Gstin == GstinSupplier);
+
+        var cn = new Gstr2bLine(
+            Guid.NewGuid(), GstinSupplier, "Service Supplier", Gstr2bDocType.CreditNote, "CN-FOREIGN-1",
+            Gstr2bReconciler.NormaliseDocNo("CN-FOREIGN-1"), ReturnDate, Karnataka,
+            3_333_333L, 0L, 300_000L, 300_000L, 0L, true, null, false);
+        var snapshot = new Gstr2bSnapshot(
+            Guid.NewGuid(), GstStatementType.Gstr2b, Period, GstinSupplier, new DateOnly(2025, 6, 14),
+            "HASH-FOREIGN", DateTimeOffset.UnixEpoch, 0, 300_000L, 300_000L, 0, new[] { cn });
+        f.Company.AddGstr2bSnapshot(snapshot);
+
+        Assert.Single(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Branch.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+    }
 }

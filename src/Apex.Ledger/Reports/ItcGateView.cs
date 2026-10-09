@@ -373,7 +373,44 @@ public sealed record ItcGateView(
         // (§3.2 hand-off to S7). ACCEPTING a supplier credit note reverses the recipient's ITC; REJECTING (or keeping it
         // Pending) means no reversal is due. On an Accept the recipient may have declared a partial (or no) reversal —
         // honour that; otherwise the whole forward tax of the note is the suggested reversal. Advisory only (ER-14).
-        foreach (var l in snapshot.Lines)
+        //
+        // 🔴 BLOCKING, MEASURED: ONE PORTAL CREDIT NOTE WAS REVERSED ONCE PER REGISTRATION, ON TWO FILED RETURNS.
+        // This is the ONE candidate class built purely from the portal statement's own lines — it carries no
+        // `VoucherId`, so there is no source document for `GstReversalService.ScopeFor` to read the registration off,
+        // and the caller's pick decides the posting. Every OTHER leg of this method is scoped by `registrationId`;
+        // this loop consulted it nowhere. On a multi-registration book — every ISD book, which holds two
+        // registrations by construction — the identical candidate was therefore raised under BOTH registrations
+        // (same `LineId`, same paisa), and because the registration correctly joined the idempotency key for Rule 42
+        // the second post was no longer swallowed: measured at ₹12,000.00 of reversal across two filed returns
+        // against a ₹6,000.00 note (CGST 3,000 + SGST 3,000), backed by two real stat-adjustment vouchers reducing
+        // credit twice. `ImsService.EffectiveStatus` deems an un-actioned line ACCEPTED, so a plain 2B import raised
+        // it with ZERO operator action.
+        //
+        // 🔴 THE REGISTRATION IS A FACT ON THE STATEMENT, NOT A CHOICE — the same rule `ScopeFor` already applies to
+        // a source voucher. CGST Rules, rule 60 ("Form and manner of ascertaining details of inward supplies"),
+        // sub-rule (7): "An auto-DRAFTED statement containing the details of input tax credit shall be made available
+        // to the registered person in FORM GSTR-2B, for every month, electronically through the common portal" (and
+        // (8), "The Statement in FORM GSTR-2B for every month shall be made available to the registered person").
+        // 🔴 "auto-DRAFTED" — the word is the statute's. An earlier revision of this comment quoted it as
+        // "auto-generated", which is how the vendor's and the trade's prose renders it; the official text does not.
+        // Read BY CONTENT, at page 72 of the official consolidated rules published by CBIC:
+        // cbic-gst.gov.in/pdf/24092021-CGST-Rules-2017-Part-A-Rules.pdf
+        // (the per-rule HTML page at taxinformation.cbic.gov.in was unreachable when this was verified — it is not
+        // cited here, because a citation that cannot be opened is not a citation.)
+        // So a 2B belongs to exactly ONE registered person; `Gstr2bSnapshot.RecipientGstin` is required and non-blank
+        // precisely because of that. A credit note inside it reverses THAT GSTIN's credit and no other's, and lands
+        // in THAT registration's Table 4(B)(1) — §39 makes the return a per-registered-person document.
+        //
+        // 🔴 ER-13 — A SINGLE-REGISTRATION BOOK IS UNTOUCHED. The lines are withheld only when the statement's
+        // recipient GSTIN resolves to a registration this company HOLDS and that registration is not the one being
+        // built for. A book with one registration can never satisfy that, and neither can an imported statement
+        // whose GSTIN matches no registration (left to the caller rather than silently dropped — an import for an
+        // unheld GSTIN is a different defect and not this method's to decide).
+        var statementOwner = RegistrationOfStatement(company, snapshot);
+        var portalLines = statementOwner is { } owner && owner != (registrationId ?? GstRegistration.PrimaryId)
+            ? Array.Empty<Gstr2bLine>()
+            : snapshot.Lines;
+        foreach (var l in portalLines)
         {
             if (!IsCreditDebitNote(l.DocType) || l.ReverseCharge) continue;
             if (ImsService.EffectiveStatus(company, l) != ImsStatus.Accepted) continue; // Rejected/Pending ⇒ no reversal
@@ -606,6 +643,25 @@ public sealed record ItcGateView(
     /// 2B, so its eligible ITC is §16(2)(aa)-ineligible this period.</summary>
     private static bool HasSupplierGstin(Company company, Voucher voucher) =>
         voucher.PartyId is Guid pid && !string.IsNullOrWhiteSpace(company.FindLedger(pid)?.PartyGst?.Gstin);
+
+    /// <summary>
+    /// 🔴 <b>The registration a GSTR-2B statement was issued to — read off the statement, not off a combo box.</b>
+    /// A 2B is made available to ONE registered person (CGST Rules, rule 60(7)/(8), cited in full at the call site),
+    /// so its recipient GSTIN names which of the company's registrations owns the credit the statement reports and
+    /// the credit notes inside it reverse. Returns <c>null</c> when no registration this company holds carries that
+    /// GSTIN — an imported statement for an unheld GSTIN — so the caller's own scope is left to decide rather than
+    /// having its candidates silently dropped. GSTIN comparison is case-insensitive: a GSTIN is upper-case by
+    /// construction, but a hand-edited import file is not a reason to mis-attribute a reversal.
+    /// </summary>
+    private static Guid? RegistrationOfStatement(Company company, Gstr2bSnapshot snapshot)
+    {
+        if (company.Gst is not { } gst) return null;
+        foreach (var registration in gst.AllRegistrations)
+            if (!string.IsNullOrWhiteSpace(registration.Gstin)
+                && string.Equals(registration.Gstin, snapshot.RecipientGstin, StringComparison.OrdinalIgnoreCase))
+                return registration.Id;
+        return null;
+    }
 
     private static bool IsCreditDebitNote(Gstr2bDocType docType) => docType is
         Gstr2bDocType.CreditNote or Gstr2bDocType.DebitNote or

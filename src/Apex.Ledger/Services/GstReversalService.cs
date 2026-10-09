@@ -90,16 +90,60 @@ public sealed class GstReversalService
     /// <summary>
     /// 🔴 <b>The ONE rule for which registration a reversal belongs to, so that no caller has to remember it.</b>
     /// A reversal that names a source document belongs to the registration <b>that document</b> is recorded under —
-    /// a fact, read from the books, which cannot be got wrong by picking the wrong entry in a combo box. Only the
-    /// unanchored rules (Rule 42 and its annual true-up, which reverse an apportioned pool rather than one
-    /// purchase's credit) have no document to read, and for those the caller's <paramref name="registrationId"/> is
-    /// used. Everything falls back to <see cref="GstRegistration.PrimaryId"/> — never to <c>null</c> — so the
-    /// attribution is total and a single-registration book always resolves to the one registration it has (ER-13).
+    /// a fact, read from the books, which cannot be got wrong by picking the wrong entry in a combo box. There are
+    /// <b>two</b> kinds of source document and both are now read: a <paramref name="sourceVoucherId"/> (every
+    /// Rule 37 / 37A / 43 reversal and every voucher-keyed candidate) gives the registration its purchase is recorded
+    /// under, and a <paramref name="sourceLineId"/> (the 2B-line-keyed credit-note candidate, which has no voucher in
+    /// our books) gives the registration the GSTR-2B statement carrying that line was issued to — see
+    /// <see cref="RegistrationOfPortalLine"/>, which is where the duplicate-reversal blocker was closed. Only the
+    /// unanchored rules (Rule 42 and its annual true-up, which reverse an apportioned pool rather than one purchase's
+    /// credit) have no document to read, and for those the caller's <paramref name="registrationId"/> is used — as it
+    /// still is when a portal line names a GSTIN this company does not hold. Everything falls back to
+    /// <see cref="GstRegistration.PrimaryId"/> — never to <c>null</c> — so the attribution is total and a
+    /// single-registration book always resolves to the one registration it has (ER-13).
     /// </summary>
-    private Guid ScopeFor(Guid? sourceVoucherId, Guid? registrationId) =>
+    private Guid ScopeFor(Guid? sourceVoucherId, Guid? sourceLineId, Guid? registrationId) =>
         sourceVoucherId is { } sv && _company.FindVoucher(sv) is { } source
             ? GstReportSupport.RegistrationOf(source)
-            : registrationId ?? GstRegistration.PrimaryId;
+            : sourceLineId is { } sl && RegistrationOfPortalLine(sl) is { } portalOwner
+                ? portalOwner
+                : registrationId ?? GstRegistration.PrimaryId;
+
+    /// <summary>
+    /// 🔴 <b>The registration a reversal keyed to a PORTAL LINE belongs to — the second half of the same "read it off
+    /// the document" rule, and the one that was missing.</b> A credit-note candidate from GSTR-2B carries no source
+    /// voucher (the note is the supplier's, not in our books), so <see cref="ScopeFor"/> fell through to the caller's
+    /// <c>registrationId</c> — and the caller is a combo box. Because the registration is (correctly) part of the
+    /// idempotency key, the SAME portal credit note could then be posted ONCE PER REGISTRATION: measured at
+    /// ₹12,000.00 of reversal across two filed returns against a ₹6,000.00 note, two real stat-adjustment vouchers
+    /// reducing credit twice.
+    /// <para>The fix makes it a fact like the voucher case: the line belongs to the 2B snapshot that carries it, that
+    /// statement was "made available to <b>the registered person</b>" (CGST Rules, rule 60(7)) whose GSTIN it names,
+    /// and so the reversal belongs to that registration — whatever the screen had selected. The second post then
+    /// resolves to the SAME scope, the idempotency key matches, and the existing row is returned instead of a second
+    /// one being written.</para>
+    /// <para>Returns <c>null</c> when the line belongs to no imported snapshot, or to one whose recipient GSTIN names
+    /// no registration this company holds — then the caller's scope still decides, so a single-registration book and
+    /// every existing fixture resolve exactly as before (ER-13).</para>
+    /// </summary>
+    private Guid? RegistrationOfPortalLine(Guid sourceLineId)
+    {
+        foreach (var snapshot in _company.Gstr2bSnapshots)
+        {
+            var carries = false;
+            foreach (var line in snapshot.Lines)
+                if (line.Id == sourceLineId) { carries = true; break; }
+            if (!carries) continue;
+
+            if (_company.Gst is not { } gst) return null;
+            foreach (var registration in gst.AllRegistrations)
+                if (!string.IsNullOrWhiteSpace(registration.Gstin)
+                    && string.Equals(registration.Gstin, snapshot.RecipientGstin, StringComparison.OrdinalIgnoreCase))
+                    return registration.Id;
+            return null;
+        }
+        return null;
+    }
 
     /// <summary>Stamps <paramref name="scope"/> onto a reversal/reclaim voucher before it is posted — but
     /// <b>only</b> when it is not the primary, so a single-registration book keeps storing the same <c>null</c>
@@ -172,8 +216,10 @@ public sealed class GstReversalService
     /// once</b> (the branch's reversal missing from its own 3B and showing on the primary's).
     /// <b>The registration is a fact wherever one is available, not a choice:</b> when the reversal names a
     /// <paramref name="sourceVoucherId"/> — every Rule 37 / 37A / 43 reversal and every voucher-keyed candidate —
-    /// it is the registration THAT PURCHASE is recorded under, and <paramref name="registrationId"/> is only
-    /// consulted for the unanchored rules (Rule 42 and its true-up) that have no source document to read it from.
+    /// it is the registration THAT PURCHASE is recorded under; when it names a <paramref name="sourceLineId"/>
+    /// instead — the 2B-line-keyed credit-note candidate — it is the registration the GSTR-2B statement carrying
+    /// that line was issued to; and <paramref name="registrationId"/> is only consulted for the unanchored rules
+    /// (Rule 42 and its true-up) that have no source document to read it from.
     /// The stamp is written only when it differs from <see cref="GstRegistration.PrimaryId"/>, so a
     /// single-registration book stores the same <c>null</c> it always stored (ER-13).</para>
     /// </summary>
@@ -186,7 +232,7 @@ public sealed class GstReversalService
         amounts.EnsureNonNegative();
         if (amounts.IsZero) return null; // nothing to reverse (e.g. a no-reversal-declared credit note)
 
-        var scope = ScopeFor(sourceVoucherId, registrationId);
+        var scope = ScopeFor(sourceVoucherId, sourceLineId, registrationId);
 
         // Idempotency (§5.3): a re-run for the same (rule, period, source, REGISTRATION) is NOT re-posted — return
         // the existing row. The registration is part of the key because two registrations of one book each file

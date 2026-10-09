@@ -305,6 +305,75 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
     private bool IsPurchase(Voucher v) =>
         _company.VoucherTypes.FirstOrDefault(t => t.Id == v.TypeId)?.BaseType == VoucherBaseType.Purchase;
 
+    /// <summary>
+    /// 🔴 <b>BLOCKING, MEASURED: THE REFUSAL FOR AN EMPTY SOURCE-VOUCHER LIST BLAMED THE OPERATOR'S DATA FOR A
+    /// LIMITATION OF THIS PRODUCT.</b>
+    ///
+    /// <para><b>What was measured.</b> <see cref="Voucher.GstRegistrationId"/> is written in exactly ONE place in all
+    /// of <c>src/</c> that is not the SQLite round-trip — <c>GstReversalService</c>'s own stamp on a reversal voucher.
+    /// No voucher-entry screen, no import, no UI anywhere assigns a <b>purchase</b> to a registration, so every
+    /// purchase the application itself records carries <c>null</c> and reads as the PRIMARY registration. The
+    /// registration filter this screen applies to <see cref="SourceVouchers"/> is correct — a reversal follows its
+    /// source purchase's own registration — but it therefore yields an <b>unconditionally empty</b> list for every
+    /// additional registration, and Rule 37 / 37A / 43 all require an anchor, so none of them can be posted at all.
+    /// On a two-registration book with one real ₹5,000 purchase at 18% carrying ₹900.00 of input tax, selecting the
+    /// branch emptied the list and the operator was told "<i>this company has none carrying input tax</i>" — which is
+    /// FALSE, and the same screen had offered that very purchase one line earlier under the other registration. The
+    /// old wording was true while the list was unfiltered; the filter turned it into a lie that sends an operator
+    /// hunting for data that is sitting in their own book.</para>
+    ///
+    /// <para><b>Why this is a message fix and not a feature.</b> The honest alternative — giving a purchase a real
+    /// registration to be recorded under — is a voucher-entry capability (the vendor reaches it with F3 on the
+    /// voucher; see <see cref="GstRegistration"/> for that already-verified attestation), not a line in a refusal.
+    /// It is NOT built here and is reported as the remaining gap rather than smuggled into a close-out. What is
+    /// fixed is the part that was actively misleading: the refusal now names the registration it is talking about,
+    /// says the limitation is ours, and points at the registration that does hold the purchases. A plain refusal is
+    /// honest; a refusal that misattributes a product limitation to the user's data is worse than no message.</para>
+    ///
+    /// <para><b>ER-13.</b> On a single-registration book, and on the primary of any book, the text is unchanged
+    /// byte-for-byte — there the old sentence is simply true.</para>
+    ///
+    /// <para>🔴 <b>AND THE CLOSING SENTENCE IS ITSELF CONDITIONAL, because an unconditional one would repeat the
+    /// defect in the other direction.</b> "The purchases that carry input tax are recorded under <i>the primary</i>"
+    /// is a claim about the operator's data, and on a book that holds no qualifying purchase <b>anywhere</b> it is
+    /// false — it would send the operator to a registration with nothing to offer either. It is therefore stated
+    /// only when a purchase that this screen would actually accept as an anchor exists under the primary, measured
+    /// with the same predicate <see cref="BuildSourceVouchers"/> uses (so the <see cref="Kind"/>-specific capital
+    /// goods / party requirements are honoured, not approximated). Otherwise the product limitation is still named
+    /// — that part is true regardless — and the operator is told plainly that the book records no such purchase
+    /// under any registration.</para>
+    /// </summary>
+    private string NoSourceVoucherRefusal(string need)
+    {
+        if (ShowsRegistrationPicker && _selectedRegistration is { } r && r.Id != GstRegistration.PrimaryId)
+        {
+            var primary = _company.Gst?.PrimaryRegistration?.Name ?? "the company's first registration";
+            var lead = $"{need}, and no purchase at all is recorded under {r.Name}" +
+                       (string.IsNullOrWhiteSpace(r.Gstin) ? string.Empty : $" ({r.Gstin})") +
+                       ". That is a limitation of Apex Solutions, not a gap in your data: a purchase can currently " +
+                       "be recorded only under this company's first GST registration, so an additional registration " +
+                       "can never have one to offer. ";
+            return PrimaryHasAnchorablePurchase()
+                ? lead + $"The purchases that carry input tax are recorded under {primary} — select that " +
+                         "registration to reverse against them."
+                : lead + $"This book records no such purchase under {primary} either, so there is nothing to " +
+                         "reverse against yet.";
+        }
+
+        return $"{need}, and this company has none carrying input tax.";
+    }
+
+    /// <summary>Whether a purchase this screen would accept as an anchor for the current <see cref="Kind"/> exists
+    /// under the primary registration — the same predicate <see cref="BuildSourceVouchers"/> applies, pointed at
+    /// <see cref="GstRegistration.PrimaryId"/> instead of the selected registration, so the refusal never claims
+    /// purchases are sitting somewhere they are not.</summary>
+    private bool PrimaryHasAnchorablePurchase() =>
+        _company.Vouchers.Any(v => !v.Cancelled
+                                   && IsPurchase(v)
+                                   && GstReportSupport.RegistrationOf(v) == GstRegistration.PrimaryId
+                                   && (Kind == ItcReversalPostKind.Rule43 || v.PartyId is not null)
+                                   && ForwardInputTaxOf(v) != 0);
+
     /// <summary>The total forward (non-RCM, non-adjustment) input tax posted on a voucher, in paisa — mirrors the
     /// engine's own default so the figure the picker shows is exactly what a blank-amount Rule 37 / 37A would
     /// reverse.</summary>
@@ -500,8 +569,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                     var source = SelectedSource;
                     if (source is null)
                         return Fail(SourceVouchers.Count == 0
-                            ? "Rule 43 needs a capital-goods purchase to apportion, and this company has none " +
-                              "carrying input tax."
+                            ? NoSourceVoucherRefusal("Rule 43 needs a capital-goods purchase to apportion")
                             : "Select the capital-goods purchase this Rule 43 tranche apportions — the 60-month " +
                               "schedule is keyed to the asset, so it cannot be guessed.");
                     posted = _reversal.PostRule43(Period.Trim(), source.VoucherId,
@@ -516,8 +584,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
                     var source = SelectedSource;
                     if (source is null)
                         return Fail(SourceVouchers.Count == 0
-                            ? "Rule 37 / 37A needs a supplier's purchase voucher to reverse, and this company has " +
-                              "none carrying input tax."
+                            ? NoSourceVoucherRefusal("Rule 37 / 37A needs a supplier's purchase voucher to reverse")
                             : "Select the supplier's purchase this Rule 37 / 37A reversal reverses — the reversal is " +
                               "keyed to that purchase, so it cannot be guessed.");
                     var amounts = amount.IsZero ? (Reversal.ReversalAmount?)null : amount;
