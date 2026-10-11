@@ -6760,7 +6760,10 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:BudgetMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Budget Creation"
+                            <!-- W46 AF (census 2.9): BOUND, not the literal "Budget Creation" it used to be —
+                                 the form serves Create and Alter through one screen and the heading has to say
+                                 which verb is running. The altering caption is the vendor's own screen name. -->
+                            <TextBlock Grid.Row="0" Name="BudgetMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -6856,7 +6859,8 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Name="BudgetMasterCommit"
+                                          Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateBudgetClick"/>
                                 </Grid>
@@ -6920,7 +6924,8 @@
                                ScrollViewer inside an Auto row is measured at infinite height, sizes to its content
                                and reports Extent == Viewport, which is the same lie in a different place. -->
                           <Grid RowDefinitions="Auto,3*,Auto,2*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Scenario Creation"
+                            <!-- W46 AF (census 2.10): BOUND — see the Budget heading. -->
+                            <TextBlock Grid.Row="0" Name="ScenarioMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -6950,15 +6955,31 @@
                                                Foreground="{StaticResource BrandNavy}"/>
                                     <TextBlock Text="Tick a type to surface its Optional / Reversing / Memorandum vouchers under this scenario."
                                                FontSize="10.5" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                    <!-- W46 AF (census 2.10): the EXCLUDE tick column. The caption is the
+                                         vendor's own purpose clause for the field, "exclude some of the voucher
+                                         types selected under the Include field". -->
+                                    <TextBlock Text="Exclude removes a type from the scenario even when it is included above."
+                                               FontSize="10.5" Foreground="#6A6A6A" TextWrapping="Wrap"/>
+                                    <Grid ColumnDefinitions="24,34,*,160">
+                                      <TextBlock Grid.Column="0" Text="In" FontSize="10" FontWeight="SemiBold"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Grid.Column="1" Text="Ex" FontSize="10" FontWeight="SemiBold"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBlock Grid.Column="2" Text="Voucher Type" FontSize="10" FontWeight="SemiBold"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                    </Grid>
                                     <ItemsControl ItemsSource="{Binding Types}">
                                       <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:ScenarioTypeRow">
-                                          <Grid ColumnDefinitions="24,*,160" Height="24">
+                                          <Grid ColumnDefinitions="24,34,*,160" Height="24">
                                             <CheckBox Grid.Column="0" IsChecked="{Binding Include, Mode=TwoWay}"
                                                       VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="1" Text="{Binding Name}"
-                                                       VerticalAlignment="Center" FontSize="12.5"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                            <CheckBox Grid.Column="1" IsChecked="{Binding Exclude, Mode=TwoWay}"
+                                                      VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Name}"
+                                                       VerticalAlignment="Center" FontSize="12.5"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Kind}"
                                                        TextAlignment="Right" Margin="0,0,8,0"
                                                        VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
                                           </Grid>
@@ -6973,7 +6994,8 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Name="ScenarioMasterCommit"
+                                          Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateScenarioClick"/>
                                 </Grid>
@@ -6983,10 +7005,12 @@
 
                             <!-- Existing scenarios header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,90,*">
+                              <Grid ColumnDefinitions="*,90,*,*">
                                 <TextBlock Grid.Column="0" Text="Scenario" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Actuals" Classes="colHdr" TextAlignment="Center"/>
                                 <TextBlock Grid.Column="2" Text="Includes" Classes="colHdr"/>
+                                <!-- W46 AF (census 2.10) -->
+                                <TextBlock Grid.Column="3" Text="Excludes" Classes="colHdr"/>
                               </Grid>
                             </Border>
 
@@ -6995,16 +7019,22 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:ScenarioListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,90,*" Height="24">
+                                      <Grid ColumnDefinitions="*,90,*,*" Height="24">
                                         <!-- W33 C3 keyboard highlight (census 2.10) — see the Budget list. -->
-                                        <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
+                                        <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
                                                 IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Actuals}"
                                                    TextAlignment="Center"
                                                    VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
                                         <TextBlock Grid.Column="2" Text="{Binding Includes}"
+                                                   Margin="4,0,6,0" VerticalAlignment="Center"
+                                                   FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <!-- W46 AF (census 2.10) -->
+                                        <TextBlock Grid.Column="3" Text="{Binding Excludes}"
                                                    Margin="4,0,10,0" VerticalAlignment="Center"
                                                    FontSize="11" Foreground="#6A6A6A"
                                                    TextTrimming="CharacterEllipsis"/>

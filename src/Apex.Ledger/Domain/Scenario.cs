@@ -70,4 +70,34 @@ public sealed class Scenario
 
     /// <summary>True iff <paramref name="voucherTypeId"/> is in the excluded set.</summary>
     public bool Excludes(Guid voucherTypeId) => _excludedTypeIds.Contains(voucherTypeId);
+
+    /// <summary>
+    /// Replaces both voucher-type sets at once — the write half of <b>Scenario Alteration</b> (census 2.10).
+    /// </summary>
+    /// <remarks>
+    /// <para>🔴 <b>WHY BOTH SETS IN ONE CALL, AND WHY REPLACE RATHER THAN REMOVE.</b> Before this,
+    /// <see cref="IncludeType"/> and <see cref="ExcludeType"/> were the only mutators and both are
+    /// <i>add-only</i> — so a scenario could never have a voucher type taken back out of it, which is precisely
+    /// the act the vendor's own alteration page describes (<i>"From the Include and Exclude sections, select the
+    /// scenarios to alter from the List of Voucher Types"</i>,
+    /// help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/, opened by content 2026-10-11).
+    /// Taking the two together is not convenience: <see cref="ExcludedTypeIds"/> has PRECEDENCE over
+    /// <see cref="IncludedTypeIds"/> (see this type's own remarks), so applying them in two steps would leave the
+    /// aggregate briefly describing a scenario the operator never asked for.</para>
+    /// <para>Persistence needs no migration for this: <c>scenario_voucher_types</c> already carries
+    /// <c>is_included</c> and is written delete-all + re-insert from this object graph.</para>
+    /// </remarks>
+    public void ReplaceTypes(IEnumerable<Guid> includedTypeIds, IEnumerable<Guid> excludedTypeIds)
+    {
+        ArgumentNullException.ThrowIfNull(includedTypeIds);
+        ArgumentNullException.ThrowIfNull(excludedTypeIds);
+
+        var included = new HashSet<Guid>(includedTypeIds);
+        var excluded = new HashSet<Guid>(excludedTypeIds);
+
+        _includedTypeIds.Clear();
+        foreach (var id in included) _includedTypeIds.Add(id);
+        _excludedTypeIds.Clear();
+        foreach (var id in excluded) _excludedTypeIds.Add(id);
+    }
 }

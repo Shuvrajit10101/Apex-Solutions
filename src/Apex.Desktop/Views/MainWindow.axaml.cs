@@ -2479,8 +2479,13 @@ public partial class MainWindow : Window
     private void OnAddBudgetLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BudgetMaster?.AddLine();
 
+    // W46 AF (census 2.9): branches exactly as the Screen.BudgetMaster arm in ActivateSelected does. A bare
+    // unconditional Create() here would be the 3.2/3.5 demotion defect re-introduced through the mouse.
     private void OnCreateBudgetClick(object? sender, RoutedEventArgs e)
-        => Vm?.BudgetMaster?.Create();
+    {
+        if (Vm?.BudgetMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnReconcileBankClick(object? sender, RoutedEventArgs e)
         => Vm?.BankReconciliation?.Reconcile();
@@ -2499,8 +2504,12 @@ public partial class MainWindow : Window
     private void OnMarkOptionalVouchersRegularClick(object? sender, RoutedEventArgs e)
         => Vm?.BankStatementImport?.MarkSelectedAsRegular();
 
+    // W46 AF (census 2.10): branches, for the same reason as OnCreateBudgetClick above.
     private void OnCreateScenarioClick(object? sender, RoutedEventArgs e)
-        => Vm?.ScenarioMaster?.Create();
+    {
+        if (Vm?.ScenarioMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     // W33 C3: branches exactly as the Ctrl+A arm in ActivateSelected does. 🔴 The mouse button and the keyboard
     // chord MUST agree — OnCreateStockCategoryClick below is the shipped counter-example (it calls Create()
