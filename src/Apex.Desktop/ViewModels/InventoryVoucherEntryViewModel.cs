@@ -1094,12 +1094,21 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         //                                  than this screen's opening preview, which another entry screen in the
         //                                  same session may have overtaken.
         //   · None                       ⇒ the box is read-only and the type is unnumbered. 0 is the answer.
-        // Residual, recorded rather than fixed here: a Manual type whose box is cleared to 0 still posts
-        // unnumbered. Refusing that needs its own vendor grounding and its own row; this change does not invent
-        // one.
+        // 🔴 THE `> 0` IS NOT BELT-AND-BRACES. The typeable control is a plain two-way `int` binding
+        // (Views/MainWindow.axaml, the Voucher No. TextBox shown under IsVoucherNumberEditable), so "-5" is
+        // keyable. Passing it through would store a NEGATIVE Voucher.Number on the book — a state nothing else
+        // in this product can produce, invisible in every report because VoucherNumberFormatter.Render returns
+        // "" for any number <= 0, and therefore invisible to Prevent Duplicates too. Clamping sends 0 instead,
+        // which under Manual means "unnumbered" (what this screen did before the fix) and under Automatic
+        // (Manual Override) hands the decision back to the engine. Pinned by
+        // A_negative_Voucher_No_is_not_stored_on_the_book.
+        //
+        // Residual, recorded rather than fixed here: a Manual type whose box is cleared still posts unnumbered
+        // rather than being refused. The vendor requires a number under Manual, but refusing it is a new
+        // message on a new path and needs its own grounding and its own row; this change does not invent one.
         if (!TryBuild(
                 Guid.NewGuid(),
-                number: IsVoucherNumberEditable ? VoucherNumber : 0,
+                number: IsVoucherNumberEditable && VoucherNumber > 0 ? VoucherNumber : 0,
                 cancelled: false,
                 out var voucher)) return false;
 

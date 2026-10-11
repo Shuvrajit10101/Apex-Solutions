@@ -226,6 +226,32 @@ public sealed class W46OrderVoucherRemediationTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>A NEGATIVE Voucher No. MUST NOT REACH THE BOOK, and the fix is what makes that reachable at all.</b>
+    /// The typeable control is a plain two-way <c>int</c> binding, so "-5" is keyable on a Manual type. Passing
+    /// it through would store a negative <c>Voucher.Number</c> — a state nothing else in this product produces,
+    /// and an invisible one, because <c>VoucherNumberFormatter.Render</c> returns <c>""</c> for every
+    /// <c>number &lt;= 0</c>, so no report and not even Prevent Duplicates would show it.
+    ///
+    /// <para><b>Mutation:</b> drop the <c>&amp;&amp; VoucherNumber &gt; 0</c> clause and this reddens with
+    /// <c>-5</c> on the book.</para>
+    /// </summary>
+    [Fact]
+    public void A_negative_Voucher_No_is_not_stored_on_the_book()
+    {
+        const string name = "W46 Negative Co";
+        var (vm, itemId, godownId) = Seed(name);
+        SetNumbering(vm, VoucherBaseType.ReceiptNote, NumberingMethod.Manual);
+
+        vm.OpenInventoryVoucher(VoucherBaseType.ReceiptNote);
+        var e = vm.InventoryVoucherEntry!;
+        e.VoucherNumber = -5;
+        Fill(e, e.Lines[0], itemId, godownId, 1m);
+        Assert.True(e.Accept(), e.Message);
+
+        Assert.Equal(0, Reload(name).InventoryVouchers.Single().Number);
+    }
+
+    /// <summary>
     /// 🔴 <b>THE FIX ALSO BRINGS A DEAD GUARD BACK TO LIFE, AND THAT IS WORTH ITS OWN TEST — "a dead guard" is a
     /// defect class this project has shipped before.</b> <c>InventoryPostingService.Post</c> enforces
     /// <b>Prevent Duplicates</b> by rendering the number and comparing it to every other voucher of the type, and
