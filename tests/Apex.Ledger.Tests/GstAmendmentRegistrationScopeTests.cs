@@ -33,7 +33,7 @@ namespace Apex.Ledger.Tests;
 /// <b>−₹1,800.00</b>. Unscoped it holds <b>two</b> — the second naming Tamil Nadu's <c>TN/S/22</c> — and the
 /// correction reads <b>−₹5,400.00</b>: ₹3,600.00 of another GSTIN's credit note claimed as Karnataka's correction,
 /// a <b>200% overstatement</b>, while Tamil Nadu declares the same note in its own return. <b>One note, filed
-/// twice, against two GSTINs.</b> On the GSTR-9 side Karnataka's Table 7C reads <b>₹1,050.00</b> unscoped against a
+/// twice, against two GSTINs.</b> On the GSTR-9 side Karnataka's Table 7C reads <b>₹1,350.00</b> unscoped against a
 /// true <b>₹450.00</b> — and that one is <b>live on screen today</b>, because
 /// <c>GstOfflineReturnsViewModel.ProjectGstr9</c> already passes a <c>ScopedRegistrationId</c> from a screen with a
 /// registration picker.</para>
@@ -218,8 +218,8 @@ public sealed class GstAmendmentRegistrationScopeTests
     /// <summary>
     /// 🔴 <b>THE SWEEP FIND, AND IT IS LIVE ON SCREEN TODAY RATHER THAN LATENT.</b> <c>Gstr9.ReadTable7</c> walked
     /// <c>company.Vouchers</c> directly while every other leg of <c>Gstr9.Build</c> took the
-    /// <c>registrationId</c> it is handed — so Karnataka's Table 7C read <b>₹1,050.00</b> (its own ₹450 plus Tamil
-    /// Nadu's ₹600) against a true <b>₹450.00</b>. <c>GstOfflineReturnsViewModel.ProjectGstr9</c> passes a
+    /// <c>registrationId</c> it is handed — so Karnataka's Table 7C read <b>₹1,350.00</b> (its own ₹450 plus Tamil
+    /// Nadu's ₹900) against a true <b>₹450.00</b>. <c>GstOfflineReturnsViewModel.ProjectGstr9</c> passes a
     /// <c>ScopedRegistrationId</c> from a screen that HAS a registration picker and labels the figure "Table 7 ITC
     /// reversed", so no further plumbing was needed to reach it.
     /// </summary>
@@ -321,7 +321,7 @@ public sealed class GstAmendmentRegistrationScopeTests
     ///     April invoice — Karnataka ₹10,000 (900 per head), Tamil Nadu ₹20,000 (IGST 3,600). Because the original
     ///     invoice is in a prior period, each is a cross-period CDN amendment ⇒ exactly one Table 9C row.</item>
     ///   <item><b>May 2025:</b> one Rule-42 ITC reversal per registration — Karnataka CGST ₹450, Tamil Nadu IGST
-    ///     ₹600 — for the GSTR-9 Table 7 half.</item>
+    ///     ₹900 — for the GSTR-9 Table 7 half.</item>
     /// </list>
     /// </summary>
     internal static Fixture Build()
