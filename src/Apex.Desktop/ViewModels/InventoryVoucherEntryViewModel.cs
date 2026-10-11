@@ -696,12 +696,28 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// 🔴 <b>The vendor's DEFAULT Tracking No. for this voucher — its own rendered number — or <c>""</c> when
     /// this screen must leave the box blank (census 9.8, the gap named on rows 4.13 / 4.14).</b>
     ///
-    /// <para>TallyPrime, on the Delivery Note step of the sales-order flow and the Receipt Note step of the
-    /// purchase-order flow, states it in the same words on both pages: <c>"Enter a Tracking No. By default, the
-    /// invoice number appears. You can change it if required by creating a New Number."</c>
-    /// (<c>help.tallysolutions.com/sales-order-tally/</c>, <c>help.tallysolutions.com/purchase-order-tally/</c>).
-    /// <see cref="FormattedVoucherNumber"/> is the number the operator is looking at on this same screen, affixes
-    /// and padding included, and it is what Accept will post — so it is the number that "appears".</para>
+    /// <para><b>What the vendor says, verbatim and in the same words on both pages</b> — the Delivery Note step
+    /// of the sales-order flow and the Receipt Note step of the purchase-order flow:
+    /// <c>"Enter a Tracking No. By default, the invoice number appears. You can change it if required by creating
+    /// a New Number."</c> (<c>help.tallysolutions.com/sales-order-tally/</c>,
+    /// <c>help.tallysolutions.com/purchase-order-tally/</c>). <b>THAT A DEFAULT EXISTS IS VENDOR-ATTESTED.</b></para>
+    ///
+    /// <para>🔴 <b>WHICH NUMBER IT IS, IS NOT. ⚠️ THE CHOICE OF <see cref="FormattedVoucherNumber"/> IS OURS AND
+    /// IS LABELLED AS OURS (R7 divergence), because an earlier version of this comment presented the inference as
+    /// if the page settled it.</b> Both pages were re-read step by step for W46: <i>"the invoice number"</i> is
+    /// never defined or disambiguated on either, and neither page says whether it means this voucher's own number
+    /// or a counterparty's document number. <b>The page's own ordering is what decides it for us, and it is
+    /// reasoning rather than a quotation:</b> on the sales page <i>"Record a Delivery Note for Goods Dispatched"</i>
+    /// precedes <i>"Record Sales Against Delivery Note"</i> and <i>"Record Sales with New Tracking Number"</i>,
+    /// and the page says a Delivery Note may be recorded <i>"even without recording a Sales Order"</i> — so at
+    /// the moment the box is drawn <b>no invoice exists whose number could appear</b>, and the only number on the
+    /// screen is the voucher's own. The purchase page's Receipt Note steps enter a <i>"Reference No"</i>, not an
+    /// invoice number, so there is nothing else there either.</para>
+    ///
+    /// <para><see cref="FormattedVoucherNumber"/> is the number the operator is looking at on this same screen,
+    /// affixes and padding included, and it is what Accept will post — so our reading is that it is the number
+    /// that "appears". <b>If a vendor page later names the field explicitly, this property is the thing to
+    /// change</b>, and the tests that pin it are in <c>TrackingNumberDefaultTests</c>.</para>
     ///
     /// <para>🔴 <b>THE SCOPE IS NARROWER THAN <see cref="ShowTrackingNumber"/>, DELIBERATELY, AND THE TWO MUST
     /// NOT BE COLLAPSED INTO ONE TEST.</b> The column also shows on <b>Rejection In / Rejection Out</b>, and this

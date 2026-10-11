@@ -25,6 +25,14 @@ namespace Apex.Desktop.Tests;
 /// New Number."</c> — <c>help.tallysolutions.com/sales-order-tally/</c> and
 /// <c>help.tallysolutions.com/purchase-order-tally/</c>.</para>
 ///
+/// <para>🔴 <b>W46 — READ THIS BEFORE TREATING THESE TESTS AS PURE FIDELITY TESTS. THAT A DEFAULT EXISTS IS
+/// VENDOR-ATTESTED; WHICH NUMBER IT IS, IS OURS.</b> Neither page defines <i>"the invoice number"</i>, and
+/// neither says whether it means the voucher's own number or a counterparty's document number. The reasoning
+/// that picks the voucher's own — a Delivery Note is recorded before any invoice exists, so there is no invoice
+/// number to appear — is set out on <c>InventoryVoucherEntryViewModel.TrackingNumberDefault</c> and is labelled
+/// there as ours. <b>So if a vendor page later names the field, the tests below are WRONG and are the thing to
+/// change</b>; they are not evidence against such a page.</para>
+///
 /// <para><b>What was wrong.</b> <c>InventoryVoucherLineViewModel.TrackingNumber</c> initialised to
 /// <see cref="string.Empty"/> and nothing ever wrote it, while its own doc comment asserted the vendor default.
 /// So every Receipt Note and Delivery Note posted UNTRACKED unless the operator typed a reference by hand — and
