@@ -116,6 +116,24 @@ public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterList
     /// <summary>The id of the scenario being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
     private Guid _editingId = Guid.Empty;
 
+    // ─────────────────────────── W46 AF REVIEW FIX: THE TICK LIST IS NOT THE WHOLE SCENARIO
+    //
+    // 🔴 <see cref="BuildTypes"/> OFFERS ONLY *ACTIVE* VOUCHER TYPES, AND <see cref="Alter"/> IS A WHOLESALE
+    // REPLACE. So a type the operator has since DEACTIVATED — a shipped single-keystroke gesture, census 5.11's
+    // Space on the Voucher Type master, which guards nothing — has NO ROW on this screen, and collecting
+    // `Types.Where(r => r.Include)` dropped it from the saved scenario. Measured on this branch before the fix:
+    // a scenario renamed and nothing else went from 3 included types to 2, the exclusion of a deactivated type
+    // vanished the same way, and a scenario whose every included type had been deactivated could not be renamed
+    // AT ALL — `Alter` refused with "Tick at least one voucher type" about a set the operator never touched.
+    // It is not cosmetic: LedgerBalance tests the scenario's sets per voucher, so the column's FIGURES move, and
+    // a lost EXCLUSION puts vouchers back into a scenario (exclusion has precedence).
+    //
+    // These two lists hold exactly the ids this screen CANNOT REPRESENT, and Alter writes them back untouched.
+    // 🔴 No affordance for inactive types is invented here — no vendor page describes one — and nothing is
+    // offered, filtered or re-ordered differently. The screen simply stops speaking for state it cannot show.
+    private readonly List<Guid> _unrepresentedIncluded = new();
+    private readonly List<Guid> _unrepresentedExcluded = new();
+
     /// <inheritdoc/>
     public bool IsAltering => _editingId != Guid.Empty;
 
@@ -149,12 +167,21 @@ public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterList
     /// Loads an existing scenario into the form — name, Include-Actuals, and every voucher type's Include /
     /// Exclude state. Types the scenario names neither way are cleared, so the pre-ticked create defaults
     /// (<see cref="BuildTypes"/>) never leak into an alteration and quietly widen a saved scenario.
+    /// <para>It also records the ids the tick list cannot represent at all — see
+    /// <c>_unrepresentedIncluded</c> — so <see cref="Alter"/> does not narrow the scenario to whatever
+    /// happens to be ACTIVE today.</para>
     /// </summary>
     public void LoadFrom(Scenario scenario)
     {
         ArgumentNullException.ThrowIfNull(scenario);
         Name = scenario.Name;
         IncludeActuals = scenario.IncludeActuals;
+
+        var onScreen = Types.Select(t => t.TypeId).ToHashSet();
+        _unrepresentedIncluded.Clear();
+        _unrepresentedIncluded.AddRange(scenario.IncludedTypeIds.Where(id => !onScreen.Contains(id)));
+        _unrepresentedExcluded.Clear();
+        _unrepresentedExcluded.AddRange(scenario.ExcludedTypeIds.Where(id => !onScreen.Contains(id)));
 
         foreach (var row in Types)
         {
@@ -208,6 +235,13 @@ public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterList
 
         var included = Types.Where(r => r.Include).Select(r => r.TypeId).ToList();
         var excluded = Types.Where(r => r.Exclude).Select(r => r.TypeId).ToList();
+
+        // Carry back the ids the tick list could not show — see _unrepresentedIncluded above. BEFORE the count
+        // check, because a scenario whose every included type has since been deactivated is still a valid
+        // scenario and must stay renameable.
+        included.AddRange(_unrepresentedIncluded);
+        excluded.AddRange(_unrepresentedExcluded);
+
         if (included.Count == 0)
         {
             Message = "Tick at least one voucher type for the scenario to surface.";

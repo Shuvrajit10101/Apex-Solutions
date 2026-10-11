@@ -372,9 +372,14 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         var row = RowFor(line);
 
         // 🔴 W46 AF — RE-STATING A TARGET OVERWRITES ITS FIGURE, IT DOES NOT APPEND A SECOND LINE. This is
-        // OURS, not a vendor clause, and the reason is arithmetic rather than tidiness: BudgetVariance sums
-        // every line that matches a target, so two lines for the same group+measure budget that target TWICE
-        // and the variance silently halves. Before the Alter verb existed the bug was unreachable in practice
+        // OURS, not a vendor clause. 🔴 CORRECTED BY THE W46 REVIEW: this comment used to say "BudgetVariance
+        // sums every line that matches a target … and the variance silently halves", and that is FALSE — read
+        // `BudgetVarianceReport.Build`, which emits ONE ROW PER LINE and sums nothing. The real fault is just as
+        // disqualifying and is what the rule exists for: two lines for the same group+measure render the SAME
+        // target TWICE, each measured against the same actual, so the report shows two contradictory budgeted
+        // figures and two variances for one target with nothing saying which is in force. (The vendor's own
+        // Ledger/Group Budget screen is a grid of one row per Account Name, so one figure per target is also
+        // the shape the page describes.) Before the Alter verb existed the bug was unreachable in practice
         // (a budget was built once, in one sitting); the moment the pending grid is PRE-FILLED from an existing
         // budget, correcting one amount is the ordinary act and appending is the wrong answer to it.
         var existing = PendingLines.FirstOrDefault(r => SameTarget(r.Line, line));

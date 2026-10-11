@@ -11694,7 +11694,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Currency", altering symbol / formal name / ISO code / decimal places —
             // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. 🔴 The "other six"
             // this comment named are now FIVE — the price list left the list at census 3.11, on its own vendor
-            // page; see the arm below. Batch, BOM, budget, scenario and reorder keep create+delete only and their
+            // page; see the arm below. 🔴 AND THAT FIVE IS NOW **THREE**: budget and scenario left the list in
+            // W46 / track AF, each on its own vendor page (see the two arms at the END of this switch). Only
+            // BATCH, BOM and REORDER keep create+delete only and their
             // census rows stay PARTIAL. Inventing an alter shape for a master no source describes is how this
             // project has previously shipped a verb nobody asked for.
             case Screen.PriceLevelsMaster:
@@ -11712,7 +11714,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // "You can alter a price list by overwriting the details entered in the Price List screen", reached via
             // "Press Alt+G (Go To) > Alter Master > Price List"
             // [help.tallysolutions.com/selling-buying-prices/, opened and read by content 2026-10-04]. The list in
-            // that block is now FIVE (batch, BOM, budget, scenario, reorder); the reorder page 404s, so reorder
+            // that block was then FIVE (batch, BOM, budget, scenario, reorder) and is now THREE (batch, BOM,
+            // reorder) — budget and scenario left it in W46 / track AF; the reorder page 404s, so reorder
             // alter stays withheld rather than invented.
             //
             // The row the arrows walk here is the dated VERSION history, so Ctrl+Enter opens one version for
