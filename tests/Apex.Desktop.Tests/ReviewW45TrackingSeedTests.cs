@@ -174,15 +174,24 @@ public sealed class ReviewW45TrackingSeedTests : IDisposable
     }
 
     /// <summary>
-    /// Falsifies the mechanism the shipped doc comments assert. They say the per-line operator-set flag is what
-    /// protects a posted blank on alteration ("the constructor seeds line 0 before RehydrateFrom runs, so
-    /// rehydrating writes Empty over a non-empty string"), and that the <c>IsAltering</c> guard is only
-    /// defence-in-depth. But <c>RehydrateFrom</c> calls <c>Lines.Clear()</c> and builds FRESH lines, so the
-    /// constructor's seeded line 0 is discarded and the rehydrate writes Empty over Empty — a no-op the setter
-    /// swallows. The flag therefore stays FALSE and the guard is the only thing protecting that line.
+    /// Falsifies the mechanism the shipped doc comments asserted. They said the per-line operator-set flag is
+    /// what protects a posted blank on alteration ("the constructor seeds line 0 before RehydrateFrom runs, so
+    /// rehydrating writes Empty over a non-empty string"). But <c>RehydrateFrom</c> calls <c>Lines.Clear()</c>
+    /// and builds FRESH lines, so the constructor's seeded line 0 is discarded and the rehydrate writes Empty
+    /// over Empty — a no-op the setter swallows. <b>The flag therefore stays FALSE on a line posted blank, which
+    /// is what this test measures and which still holds.</b>
+    ///
+    /// <para>🔴 <b>W46 CORRECTION — THIS TEST WAS NAMED "…so_the_guard_is_the_only_protection", AND THAT
+    /// CONCLUSION DID NOT SURVIVE MEASUREMENT.</b> Deleting <c>if (IsAltering) return;</c> reddens only this test
+    /// and the added-line divergence, neither of which reads the book — because the deletion also lets
+    /// <c>AddLine</c>'s own <c>Recalculate</c> seed each fresh row BEFORE the rehydrate overwrites it, which
+    /// makes that overwrite a real change and sets the flag after all. The book-level protection is the
+    /// operator-set flag's early return in <c>SeedTrackingNumberDefault</c>, whose removal reddens nine tests.
+    /// The name is narrowed to what is actually asserted; the full account is on
+    /// <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c>.</para>
     /// </summary>
     [Fact]
-    public void On_alteration_the_operator_set_flag_is_false_so_the_guard_is_the_only_protection()
+    public void On_alteration_the_operator_set_flag_is_false_on_a_line_posted_blank()
     {
         var (vm, itemId, godownId) = Seed("Rev W45 Alter Flag Co", tracking: true);
         vm.OpenInventoryVoucher(VoucherBaseType.ReceiptNote);

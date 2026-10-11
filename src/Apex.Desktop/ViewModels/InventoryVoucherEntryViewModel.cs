@@ -704,17 +704,33 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// and padding included, and it is what Accept will post — so it is the number that "appears".</para>
     ///
     /// <para>🔴 <b>THE SCOPE IS NARROWER THAN <see cref="ShowTrackingNumber"/>, DELIBERATELY, AND THE TWO MUST
-    /// NOT BE COLLAPSED INTO ONE TEST.</b> The column also shows on <b>Rejection In / Rejection Out</b>, and no
-    /// vendor page attests a DEFAULT there. 🔴 <b>W45 REVIEW CORRECTION — the two TallyPrime pages cited above do
-    /// describe a rejection's tracking number, and an earlier draft of this comment wrongly said only
-    /// Tally.ERP 9 pages did.</b> What they describe is the OPPOSITE shape, a SELECTION rather than a default:
-    /// in the Rejections In step, <c>"the same appears if you had recorded a delivery note with a tracking
-    /// number. You can select the relevant tracking number"</c>
-    /// (<c>help.tallysolutions.com/sales-order-tally/</c>), and the purchase side says it of a receipt note
-    /// (<c>help.tallysolutions.com/purchase-order-tally/</c>). A rejection returns goods that arrived under
-    /// someone else's reference, so seeding it with its OWN number would invent a reference that pairs with
-    /// nothing — worse than blank. The two rejection kinds therefore keep an empty box, and the picker those two
-    /// pages DO attest is an open gap on census 9.8 / T1-8, not something this seed may stand in for.</para>
+    /// NOT BE COLLAPSED INTO ONE TEST.</b> The column also shows on <b>Rejection In / Rejection Out</b>, and this
+    /// property returns <c>""</c> for both.</para>
+    ///
+    /// <para>🔴 <b>W45 REVIEW CORRECTION — AN EARLIER VERSION OF THIS COMMENT CARRIED A FALSE VENDOR CLAIM, and
+    /// it is named here rather than quietly replaced.</b> It said <i>"the only pages that describe a rejection's
+    /// tracking number at all are Tally.ERP 9 pages"</i>. <b>That is false, and the two pages that refute it are
+    /// the two this very comment already cited.</b> Both were re-opened BY CONTENT for this correction, and what
+    /// they say about a rejection is:</para>
+    ///
+    /// <list type="bullet">
+    ///   <item><c>help.tallysolutions.com/sales-order-tally/</c>, <i>Record Rejections In against Delivery
+    ///   Note</i>: <c>"In the Item Allocations screen, the same appears if you had recorded a delivery note with
+    ///   a tracking number. You can select the relevant tracking number."</c></item>
+    ///   <item><c>help.tallysolutions.com/purchase-order-tally/</c>, <i>Record Rejections Out against Receipt
+    ///   Note</i>: <c>"In the Item Allocations screen, the same details appear if you had recorded a receipt note
+    ///   with a tracking number. You can select the relevant tracking number."</c></item>
+    /// </list>
+    ///
+    /// <para><b>So the surviving claim is the narrow one, and it is narrower than "no page attests a default
+    /// there".</b> What both pages attest on a rejection is the <i>prior note's</i> tracking number being
+    /// available to SELECT, conditional on that note having carried one — <b>never the rejection defaulting to
+    /// its OWN number</b>, which is the only thing this property could supply. A rejection returns goods that
+    /// arrived under someone else's reference, so seeding it with its own number would invent a reference that
+    /// pairs with nothing, which is worse than blank. The two rejection kinds therefore keep an empty box. <b>The
+    /// picker those two pages DO attest is positively attested and is NOT built</b> — an open gap on census
+    /// 9.8 / T1-8 that this seed may not stand in for, and the reason rows 4.15 / 4.16 cannot be read as
+    /// satisfied on the strength of this work.</para>
     /// </summary>
     public string TrackingNumberDefault =>
         ShowTrackingNumber
@@ -736,24 +752,57 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// none that they have. Called from <see cref="Recalculate"/>, so a line added later is seeded too and the
     /// box follows the voucher number while the operator moves the <see cref="Date"/> across an affix boundary.
     ///
-    /// <para>🔴 <b>IT REFUSES OUTRIGHT WHILE <see cref="IsAltering"/> — and the honest account of that guard is
-    /// that it is DEFENCE-IN-DEPTH, not the thing currently doing the work.</b> Altering must never rewrite a
-    /// tracking number the book already holds: Purchase / Sales Bills Pending net <c>Received − Billed</c> on
-    /// this very string, so inventing a reference on an amendment would move what the report says is
-    /// outstanding.</para>
+    /// <para>🔴 <b>WHAT PROTECTS THE POSTED BOOK IS THE PER-LINE OPERATOR-SET FLAG, MEASURED.</b> Purchase /
+    /// Sales Bills Pending net <c>Received − Billed</c> on this very string, so a seed that reinstated a number
+    /// over one the operator typed — or over one they deliberately CLEARED, which is how a note is marked
+    /// untracked — would move what the report says is outstanding. Deleting the
+    /// <c>if (TrackingNumberIsOperatorSet) return;</c> early return in
+    /// <see cref="InventoryVoucherLineViewModel.SeedTrackingNumberDefault"/> reddens <b>nine</b> tests across
+    /// three files, among them the one that reads the tracking string back off the RELOADED book
+    /// (<c>W46OrderVoucherRemediationTests.Altering_a_voucher_posted_untracked_leaves_the_book_untracked</c>).
+    /// That early return is the load-bearing one.</para>
     ///
-    /// <para><b>What actually protects the existing lines today is the per-line operator-set flag, by an
-    /// accident worth writing down.</b> The constructor seeds line 0 with the NEW-entry default before
-    /// <c>RehydrateFrom</c> runs, so rehydrating a voucher posted with a BLANK tracking number assigns
-    /// <see cref="string.Empty"/> over a non-empty string — a real change, which fires the hook and marks the
-    /// line operator-set. Removing this guard was MEASURED and left every test in
-    /// <c>TrackingNumberDefaultTests</c> green except the one written for it. The guard is kept because that
-    /// protection depends on construction order rather than on any stated rule, and the invariant it states is
-    /// the one the book needs.</para>
+    /// <para>🔴 <b>W45/W46 REVIEW CORRECTION, AND BOTH THE CLAIM AND ITS FIRST CORRECTION WERE WRONG. Recorded
+    /// in full because each was plausible and each was measured false.</b></para>
+    ///
+    /// <list type="number">
+    ///   <item><b>The original comment</b> credited the flag on the grounds that "the constructor seeds line 0
+    ///   with the new-entry default before <c>RehydrateFrom</c> runs, so rehydrating a voucher posted with a
+    ///   BLANK tracking number writes <see cref="string.Empty"/> over a non-empty string". <b>That mechanism
+    ///   does not exist:</b> <see cref="RehydrateFrom"/> calls <c>Lines.Clear()</c> in <i>every</i> arm, so the
+    ///   constructor's line 0 is discarded. With the guard below in place the fresh rows are never seeded, the
+    ///   rehydrate writes Empty over Empty, the setter's ordinal equality check swallows it, and the flag stays
+    ///   <c>false</c>. The W45 review proved this.</item>
+    ///   <item><b>The W45 review then concluded that the <see cref="IsAltering"/> guard is therefore the SOLE
+    ///   protection for such a line. MEASURED FALSE in W46.</b> Deleting the guard reddens exactly two tests,
+    ///   neither of which reads the book: the W45 flag assertion, and the added-line divergence below. It does
+    ///   not corrupt a posted tracking number on any path found, because removing the guard also lets
+    ///   <see cref="AddLine"/>'s <see cref="Recalculate"/> seed each fresh row BEFORE
+    ///   <c>RehydrateFromAllocation</c> writes the posted value — which makes that write a real change, fires
+    ///   the hook, and sets the flag after all. The deleted guard re-creates the mechanism item 1 wrongly
+    ///   claimed was already there.</item>
+    /// </list>
+    ///
+    /// <para>So <b>the guard below is kept, and its honest justification is a stated invariant rather than a
+    /// measured catch</b>: an amendment must not re-derive a field it does not key, and nothing should have to
+    /// reason about seed-versus-rehydrate ordering to be sure of it. Its one independently observable effect is
+    /// the ADDED-line case in the next paragraph.</para>
     ///
     /// <para>⚠️ <b>Its one independently observable effect is OURS, not the vendor's:</b> a line ADDED while
     /// altering is left blank rather than stamped with the voucher's number. No TallyPrime page covers that case.
     /// Pinned by <c>A_line_added_during_an_alteration_is_not_stamped_with_the_voucher_number</c>.</para>
+    ///
+    /// <para>🔴 <b>THIS METHOD IS RE-ENTRANT, AND THE INVARIANT THAT MAKES THAT SAFE IS STATED HERE BECAUSE
+    /// NOTHING ELSE STATES IT (W45 finding viii).</b> The seed writes through the line's ordinary setter, whose
+    /// change hook calls <see cref="Recalculate"/>, which calls this method again — so one keystroke on an
+    /// N-line note runs nested seeds. <b>It terminates because the write is conditional:</b>
+    /// <see cref="InventoryVoucherLineViewModel.SeedTrackingNumberDefault"/> returns without writing when the
+    /// line already holds the value (ordinal equality) or when the operator owns it, so each nesting level
+    /// leaves at least one more line unable to fire the hook, and the depth is bounded by the number of lines
+    /// not yet carrying the seed. <b>Remove either early return and this recurses without bound.</b> Pinned as a
+    /// reachability property — every unwritten line of a 40-line note carries the new default after ONE
+    /// keystroke, and the keyed line does not — by
+    /// <c>W46OrderVoucherRemediationTests.The_re_entrant_seed_terminates_and_reaches_every_unwritten_line</c>.</para>
     /// </summary>
     private void SeedTrackingNumberDefaults()
     {
@@ -1028,7 +1077,31 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             return false;
         }
 
-        if (!TryBuild(Guid.NewGuid(), number: 0, cancelled: false, out var voucher)) return false;
+        // 🔴 W45 REVIEW FINDING (v) — THE TYPED VOUCHER NO. IS NOW PASSED, AND BEFORE THIS LINE CHANGED IT WAS
+        // SILENTLY DISCARDED. This call read `number: 0` unconditionally with the comment "let the engine assign
+        // the automatic number", but InventoryPostingService.Post numbers only a type whose method
+        // AssignsNumberAutomatically — so on a MANUAL-numbering inventory type nothing numbered the voucher at
+        // all and it posted as 0, however carefully the operator keyed the box. Measured: "Expected: 77 /
+        // Actual: 0". The Tracking No. default (census 9.8) made it worse rather than caused it — the seed
+        // stamps FormattedVoucherNumber onto the line, so the book held a tracking reference to a voucher number
+        // the book itself never had, and Purchase / Sales Bills Pending net Received − Billed on that string.
+        //
+        // The question asked is the type's own, never a comparison to one member (census 5.10, VoucherType):
+        //   · Manual                     ⇒ the operator MUST key it; the engine never numbers it. Pass it.
+        //   · Automatic (Manual Override)⇒ the box is a suggestion the operator may type over. Pass what is in it;
+        //                                  the engine leaves a positive number alone.
+        //   · Automatic / Multi-user Auto⇒ the box is read-only. Pass 0 so the engine assigns at POST time rather
+        //                                  than this screen's opening preview, which another entry screen in the
+        //                                  same session may have overtaken.
+        //   · None                       ⇒ the box is read-only and the type is unnumbered. 0 is the answer.
+        // Residual, recorded rather than fixed here: a Manual type whose box is cleared to 0 still posts
+        // unnumbered. Refusing that needs its own vendor grounding and its own row; this change does not invent
+        // one.
+        if (!TryBuild(
+                Guid.NewGuid(),
+                number: IsVoucherNumberEditable ? VoucherNumber : 0,
+                cancelled: false,
+                out var voucher)) return false;
 
         try
         {

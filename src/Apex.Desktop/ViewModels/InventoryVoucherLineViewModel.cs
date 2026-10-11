@@ -169,15 +169,24 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     /// Writes the vendor's default into <see cref="TrackingNumber"/> WITHOUT marking it operator-set, and does
     /// nothing at all once <see cref="TrackingNumberIsOperatorSet"/> is true.
     ///
-    /// <para>🔴 <b>Rehydration counts as the operator having set it, and that is what protects a posted book.</b>
+    /// <para><b>Rehydrating a line that CARRIES a tracking number counts as the operator having set it.</b>
     /// <see cref="RehydrateFromAllocation"/> assigns <see cref="TrackingNumber"/> through the ordinary setter, so
-    /// re-opening a posted voucher marks the flag and the seed can never touch that line. This holds even for a
-    /// voucher posted with a BLANK tracking number, because the parent's constructor has already seeded the
-    /// new-entry default into the line — so the rehydrate writes <see cref="string.Empty"/> over a non-empty
-    /// string, which is a real change rather than a no-op the setter's equality check would swallow.
-    /// <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c> additionally refuses to seed at all while
-    /// altering; that guard is defence-in-depth, since the protection described here leans on construction order
-    /// rather than on any stated rule.</para>
+    /// re-opening such a voucher marks the flag and the seed can never touch that line.</para>
+    ///
+    /// <para>🔴 <b>W45 REVIEW CORRECTION — IT DOES <i>NOT</i> HOLD FOR A LINE POSTED WITH A BLANK TRACKING
+    /// NUMBER, and an earlier version of this comment claimed it did.</b> The claim was that the parent's
+    /// constructor has already seeded the new-entry default into the line, so the rehydrate writes
+    /// <see cref="string.Empty"/> over a non-empty string. It does not:
+    /// <c>InventoryVoucherEntryViewModel.RehydrateFrom</c> calls <c>Lines.Clear()</c> in every arm and builds
+    /// fresh rows, which the altering guard then declines to seed — so the rehydrate writes Empty over Empty, a
+    /// no-op this setter's ordinal equality check swallows, and the flag stays <c>false</c> on that line.</para>
+    ///
+    /// <para><b>That line is nonetheless safe, and the thing keeping it safe is the early return below rather
+    /// than the altering guard.</b> Deleting <c>if (TrackingNumberIsOperatorSet) return;</c> reddens nine tests
+    /// including one that reads the posted tracking string back off the reloaded book; deleting the altering
+    /// guard reddens two, neither of which reads the book. The full measurement, and why the W45 review's
+    /// opposite conclusion did not survive it, are recorded on
+    /// <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c>.</para>
     /// </summary>
     public void SeedTrackingNumberDefault(string value)
     {

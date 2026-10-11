@@ -38,7 +38,7 @@ namespace Apex.Desktop.Tests;
 /// allocation, which is the defect class this project has shipped green three times.</para>
 ///
 /// <para>🔴 <b>The two tests that matter most are the NEGATIVE ones.</b>
-/// <see cref="A_rejection_note_is_NOT_seeded_because_no_TallyPrime_page_attests_a_default"/> pins a deliberate
+/// <see cref="A_rejection_note_is_NOT_seeded_with_its_own_voucher_number"/> pins a deliberate
 /// divergence, and <see cref="Altering_a_voucher_posted_with_a_blank_tracking_number_does_not_invent_one"/>
 /// pins the guard that stops the default rewriting a posted book.</para>
 /// </summary>
@@ -159,20 +159,28 @@ public sealed class TrackingNumberDefaultTests : IDisposable
     /// 🔴 <b>THE DELIBERATE DIVERGENCE, PINNED SO NOBODY "FIXES" IT.</b> The Tracking No. COLUMN also shows on
     /// Rejection In / Rejection Out, but it is NOT seeded there.
     ///
-    /// <para>No vendor page attests a DEFAULT on a rejection. 🔴 <b>W45 REVIEW CORRECTION:</b> an earlier draft
-    /// of this comment said only Tally.ERP 9 pages describe a rejection's tracking number. They are not the
-    /// only ones — both cited TallyPrime pages do, and what they describe is a SELECTION, not a default:
-    /// <c>"the same appears if you had recorded a delivery note with a tracking number. You can select the
-    /// relevant tracking number"</c> (<c>help.tallysolutions.com/sales-order-tally/</c>, Rejections In), and the
-    /// same of a receipt note on <c>help.tallysolutions.com/purchase-order-tally/</c> (Rejections Out). A
-    /// rejection returns goods that arrived under someone else's reference, so seeding it with its own number
-    /// would invent a reference that pairs with nothing, which is worse than blank. The picker those pages do
-    /// attest remains an open gap on census 9.8 / T1-8.</para>
+    /// <para>🔴 <b>W45 REVIEW CORRECTION — AND THE CORRECTED CLAIM IS NARROWER THAN THE FIRST CORRECTION MADE
+    /// IT.</b> An earlier draft said only Tally.ERP 9 pages describe a rejection's tracking number; that was
+    /// false, and both cited TallyPrime pages describe one. A second draft then said flatly that "no vendor page
+    /// attests a DEFAULT" on a rejection, which overstates it in the other direction — the pages DO attest that
+    /// something appears there. Re-opened BY CONTENT, what they attest is the <i>prior note's</i> number being
+    /// available to SELECT, conditional on that note having carried one:
+    /// <c>"In the Item Allocations screen, the same appears if you had recorded a delivery note with a tracking
+    /// number. You can select the relevant tracking number."</c>
+    /// (<c>help.tallysolutions.com/sales-order-tally/</c>, Rejections In) and
+    /// <c>"...the same details appear if you had recorded a receipt note with a tracking number. You can select
+    /// the relevant tracking number."</c> (<c>help.tallysolutions.com/purchase-order-tally/</c>, Rejections
+    /// Out).</para>
+    ///
+    /// <para><b>What no page attests is a rejection defaulting to its OWN number</b>, which is the only thing
+    /// the seed could supply — a rejection returns goods that arrived under someone else's reference, so its own
+    /// number would pair with nothing. Hence the empty box. The picker those pages positively attest is NOT
+    /// built and stays an open gap on census 9.8 / T1-8; this test is not evidence for 4.15 / 4.16.</para>
     /// </summary>
     [Theory]
     [InlineData(VoucherBaseType.RejectionIn)]
     [InlineData(VoucherBaseType.RejectionOut)]
-    public void A_rejection_note_is_NOT_seeded_because_no_TallyPrime_page_attests_a_default(VoucherBaseType baseType)
+    public void A_rejection_note_is_NOT_seeded_with_its_own_voucher_number(VoucherBaseType baseType)
     {
         var k = NewKit($"Trk Rejection {baseType} Co");
 
@@ -335,13 +343,17 @@ public sealed class TrackingNumberDefaultTests : IDisposable
     /// 🔴 <b>THE ONE INDEPENDENTLY OBSERVABLE EFFECT OF THE <c>IsAltering</c> GUARD — a line ADDED while
     /// altering is not stamped with the voucher's number. ⚠️ THIS RULE IS OURS, NOT THE VENDOR'S.</b>
     ///
-    /// <para><b>Why this test exists, stated against itself.</b> The guard in
-    /// <c>SeedTrackingNumberDefaults</c> is defence-in-depth, and on the EXISTING lines of an altered voucher it
-    /// is currently redundant: the constructor seeds line 0 with the new-entry default before
-    /// <c>RehydrateFrom</c> runs, so rehydrating a posted blank writes <see cref="string.Empty"/> OVER a
-    /// non-empty string, which is a real change, which fires the hook and marks the line operator-set. Removing
-    /// the guard was measured and left every other test in this file green. A guard no test can see is a defect
-    /// class this project has shipped before, so the one behaviour it does own is pinned here.</para>
+    /// <para><b>Why this test exists, stated against itself.</b> On the EXISTING lines of an altered voucher the
+    /// guard in <c>SeedTrackingNumberDefaults</c> is redundant, and a guard no test can see is a defect class
+    /// this project has shipped before — so the one behaviour it does own is pinned here. 🔴 <b>W45/W46
+    /// CORRECTION: the REASON given here for that redundancy was wrong twice over, and the corrected account is
+    /// recorded on <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c>.</b> It is NOT that "the
+    /// constructor seeds line 0 before <c>RehydrateFrom</c> runs" — <c>RehydrateFrom</c> calls
+    /// <c>Lines.Clear()</c> in every arm and that line is discarded. What makes the guard removable without
+    /// moving the book is that removing it lets <c>AddLine</c>'s own <c>Recalculate</c> seed each fresh row
+    /// before the rehydrate overwrites it, so the overwrite becomes a real change and sets the operator-set flag.
+    /// The protection that the book actually leans on is that flag's early return in
+    /// <c>SeedTrackingNumberDefault</c>, whose removal reddens nine tests.</para>
     ///
     /// <para><b>No TallyPrime page says what a line added during an alteration should default to</b>, so the
     /// conservative rule is ours: lines on an amended voucher keep whatever they were posted with, and a new line
