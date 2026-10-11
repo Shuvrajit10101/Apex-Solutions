@@ -2521,17 +2521,36 @@ public partial class MainWindow : Window
         if (master.IsAltering) master.Alter(); else master.Create();
     }
 
+    // 🔴 T2-105 — THE FOUR POINTER ARMS BELOW EACH RAN THE *CREATE* VERB UNCONDITIONALLY ON AN ALTERATION
+    // SCREEN. Each view-model has a fully reachable alter mode (ForAlter via the Ctrl+Enter master-list arm), so
+    // the keyboard route altered while the on-screen button created a DUPLICATE master and reported success.
+    // They now branch on IsAltering exactly as OnCreateStockGroupClick, OnCreatePriceLevelClick and
+    // OnSavePriceListClick already do. Each is covered by a pointer test, because every one of these sites had
+    // GREEN keyboard tests over a live pointer defect — that is the whole lesson of T2-99.
+
     private void OnCreateStockCategoryClick(object? sender, RoutedEventArgs e)
-        => Vm?.StockCategoryMaster?.Create();
+    {
+        if (Vm?.StockCategoryMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateUnitClick(object? sender, RoutedEventArgs e)
-        => Vm?.UnitMaster?.Create();
+    {
+        if (Vm?.UnitMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateGodownClick(object? sender, RoutedEventArgs e)
-        => Vm?.GodownMaster?.Create();
+    {
+        if (Vm?.GodownMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateStockItemClick(object? sender, RoutedEventArgs e)
-        => Vm?.StockItemMaster?.Create();
+    {
+        if (Vm?.StockItemMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     private void OnCreateBatchClick(object? sender, RoutedEventArgs e)
         => Vm?.BatchMaster?.Create();
