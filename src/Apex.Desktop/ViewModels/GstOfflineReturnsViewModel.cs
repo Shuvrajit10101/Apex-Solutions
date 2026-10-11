@@ -610,9 +610,11 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
             // "Upload GSTR-1", opened by content). ⚠️ The six writers below still take none, so on a
             // multi-registration company each throws EnsureRegistrationScoped's refusal instead of emitting —
             // reported, not silently widened, because each needs its own projection scoped and tested.
+            // 🔴 T2-123: GSTR-9 now takes it too, because its Table 7 (ITC reversed) was the one unscoped leg of
+            // Gstr9.Build and the figure is emitted here. Five writers still take none.
             GstOfflineReturnKind.Gstr1 => GstReturnJson.Gstr1(_company, from, to, ScopedRegistrationId),
             GstOfflineReturnKind.Gstr3b => GstReturnJson.Gstr3b(_company, from, to),
-            GstOfflineReturnKind.Gstr9 => GstReturnJson.Gstr9(_company, from, to),
+            GstOfflineReturnKind.Gstr9 => GstReturnJson.Gstr9(_company, from, to, ScopedRegistrationId),
             GstOfflineReturnKind.Gstr9c => GstReturnJson.Gstr9c(_company, from, to),
             GstOfflineReturnKind.Cmp08 => GstReturnJson.Cmp08(_company, from, to),
             GstOfflineReturnKind.Gstr4 => GstReturnJson.Gstr4(_company, from, to),

@@ -15522,7 +15522,7 @@
                                     Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).GstAmendmentsReport}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:GstAmendmentsReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="6">
                             <TextBlock Grid.Row="0" Text="{Binding Title}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,2"/>
@@ -15540,7 +15540,31 @@
                                 </ComboBox.ItemTemplate>
                               </ComboBox>
                             </Grid>
-                            <ScrollViewer Grid.Row="3">
+
+                            <!-- 🔴 T2-123 (census 6.23): WHICH REGISTRATION these amendments are declared for. Hidden
+                                 entirely on a single-GSTIN company (ShowsRegistrationPicker), so that book's page is
+                                 unchanged — and REQUIRED on a multi-registration one: before this row existed the
+                                 screen named no registration, the engine REFUSED, and the amendment tables could not
+                                 be seen at all. Same shape and wording as the GST Returns (Advanced) picker. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,8"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#777777" TextTrimming="CharacterEllipsis"
+                                         Text="GST returns are filed per registration — these amendments cover only the selected one."/>
+                            </Grid>
+
+                            <ScrollViewer Grid.Row="4">
                               <StackPanel Spacing="8">
                                 <TextBlock Text="Table 9A — Amended B2B invoices (advisory: original → revised → differential)"
                                            FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
