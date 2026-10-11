@@ -3684,6 +3684,45 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private bool CommitAlteration(Voucher existing, Voucher replacement, string unbalancedMessage)
     {
+        // 🔴 THE OPTIONAL DELTA IS SPLIT OUT OF THE ALTERATION AND APPLIED THROUGH ITS OWN VERB, FIRST.
+        //
+        // WHAT WAS MEASURED HERE BEFORE THIS BLOCK EXISTED: the vendor's documented way to regularise a
+        // provisional entry is *"you can regularise the transaction by opening it and pressing Ctrl+L (Regular)"*
+        // (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/, opened by content 2026-10-09;
+        // the same page attests the other direction *"during voucher entry or in alteration mode"*). Both halves
+        // of that route were already built — `RehydrateFrom` seeds `IsOptional` from the posted voucher and
+        // `ToggleOptional` flips it on Ctrl+L — and then Ctrl+A threw, because §7.4 of `LedgerService.Replace`
+        // REFUSES a replacement that moves the provisional-state vector. The operator saw
+        // "Cannot alter: Replace does not change a voucher's provisional state (voucher …)". So the vendor's
+        // regularise route dead-ended at an engine guard, and census rows 5.7/5.8 recorded the consequence as
+        // "zero post-construction writers … a posted Optional voucher can never be regularised".
+        //
+        // 🔴 THE GUARD IS NOT WEAKENED, AND THAT IS THE WHOLE DESIGN. §7.4 says in as many words: *"The toggle
+        // belongs on its own verb; a UI that wants Ctrl+L / Ctrl+T must call THAT verb rather than Replace."*
+        // This is a screen doing exactly that. `SetOptional` moves the flag and logs it; `Replace` then runs with
+        // the flag ALREADY at its new value on the live voucher, so its guard sees no delta and stays as strict as
+        // it was for every other caller. Nothing in the engine was relaxed to make this work.
+        //
+        // WHY FIRST RATHER THAN AFTER: `Replace` reads `existing.Optional` fresh at its top, so the flag has to be
+        // moved before it runs for the guard to pass. The cost is that every failure path below has to put the
+        // flag back, which `RollBackOptional` does — and the save-failure path has to discard THREE log entries,
+        // not two, in strict LIFO order. Both are handled explicitly rather than left to be rediscovered.
+        var optionalWas = existing.Optional;
+        VoucherEditLogEntry? optionalEntry = null;
+        if (replacement.Optional != optionalWas)
+        {
+            try
+            {
+                _service.SetOptional(existing.Id, replacement.Optional);
+            }
+            catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
+            {
+                Message = $"Cannot alter: {ex.Message}";
+                return false;
+            }
+            optionalEntry = _company.LastVoucherEditLogEntry;
+        }
+
         IReadOnlyList<VoucherAlterationWarning> warnings;
         try
         {
@@ -3691,11 +3730,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         }
         catch (UnbalancedVoucherException)
         {
+            RollBackOptional(existing.Id, optionalEntry, optionalWas);
             Message = unbalancedMessage;
             return false;
         }
         catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
         {
+            RollBackOptional(existing.Id, optionalEntry, optionalWas);
             Message = $"Cannot alter: {ex.Message}";
             return false;
         }
@@ -3720,6 +3761,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     if (_company.LastVoucherEditLogEntry is { } appended)
                         _service.DiscardUncommittedEditLogEntry(appended);
 
+                // 🔴 AND THE THIRD, LAST, BECAUSE LIFO IS THE ONLY ORDER THE DISCARD ACCEPTS. When Ctrl+L moved
+                // the Optional flag, `SetOptional` appended an entry BEFORE the two above, so it is the most
+                // recent one only once they are gone. `RollBackOptional` puts the flag back in the same call,
+                // which matters more than the log line: a save that did not commit must not leave a voucher
+                // Optional (or live) on the book while the .db holds the other state.
+                RollBackOptional(existing.Id, optionalEntry, optionalWas);
+
                 Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
                         + "changed.";
             }
@@ -3737,6 +3785,29 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 + WarningNote(warnings);
         _onSaved();
         return true;
+    }
+
+    /// <summary>
+    /// Puts a <c>SetOptional</c> back when the alteration it was part of did not commit. A no-op when Ctrl+L did
+    /// not move the flag (<paramref name="entry"/> is <c>null</c>), which is the overwhelmingly common case.
+    ///
+    /// <para><b>The rollback is allowed to fail without taking the message with it.</b> Every caller is already on
+    /// a failure path and has its own operator message to deliver; a throw from here would replace a precise
+    /// refusal ("Voucher is out of balance…") with an engine-internal one, which is strictly worse for the
+    /// operator. The flag's state is still correct in the one case that can actually matter — the engine's own
+    /// guard refuses a rollback that describes no change — so swallowing here cannot silently move the books.</para>
+    /// </summary>
+    private void RollBackOptional(Guid voucherId, VoucherEditLogEntry? entry, bool restoreTo)
+    {
+        if (entry is null) return;
+        try
+        {
+            _service.DiscardUncommittedOptionalChange(voucherId, entry, restoreTo);
+        }
+        catch (InvalidOperationException)
+        {
+            // See the summary: the caller's own refusal message is the more useful one.
+        }
     }
 
     // =============================================================== Phase 10.11 S5e — the ITEM INVOICE inverse

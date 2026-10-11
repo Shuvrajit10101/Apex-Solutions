@@ -991,6 +991,45 @@ public sealed class LedgerService
     /// <exception cref="InvalidOperationException">The voucher is unknown, or is cancelled (a cancelled voucher
     /// affects nothing; "regularising" one would claim a state change that does not happen).</exception>
     public Voucher MarkOptionalAsRegular(Guid voucherId)
+        => SetOptional(voucherId, false);
+
+    /// <summary>
+    /// Moves <see cref="Voucher.Optional"/> on a POSTED voucher, in either direction — the engine half of the
+    /// vendor's alteration-time <b>Ctrl+L</b>, which toggles between Optional and Regular.
+    ///
+    /// <para><b>R7 grounding, opened by content 2026-10-09.</b>
+    /// <c>help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/</c> (and
+    /// <c>help.tallysolutions.com/accounting-entry-tally/</c>, same text) states both directions verbatim:
+    /// <i>"Any voucher in TallyPrime can be marked as Optional by pressing Ctrl+L (Optional) during voucher entry
+    /// or in alteration mode"</i> and <i>"Once the actual date of such transaction occurs you can regularise the
+    /// transaction by opening it and pressing Ctrl+L (Regular)."</i> So "in alteration mode" and "by opening it"
+    /// are the vendor's own words for what this verb serves: a voucher that is ALREADY ON THE BOOK.
+    /// <c>help.tallysolutions.com/keyboard-shortcuts-tally-prime/</c> lists <c>Ctrl+L</c> as
+    /// <i>"To mark a voucher as Optional"</i> under Vouchers &amp; Masters.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS IS A VERB AND NOT PART OF <see cref="Replace(Guid, Voucher)"/>.</b> §7.4 of
+    /// <c>Replace</c> refuses a replacement that moves the provisional-state vector and says so in as many words:
+    /// <i>"The toggle belongs on its own verb; a UI that wants Ctrl+L / Ctrl+T must call THAT verb rather than
+    /// Replace."</i> This is that verb. The refusal stays exactly as strict — nothing here weakens it — because
+    /// <c>LedgerBalances.CountsAsOf</c> opens with <c>if (v.Cancelled || v.Optional) return false;</c>, so moving
+    /// this flag moves the books by the WHOLE voucher with no figure on it changing. That is a deliberate act and
+    /// it gets a deliberately invoked method.</para>
+    ///
+    /// <para><b>Logged as <see cref="VoucherEditVerb.Alter"/>, for the reason
+    /// <see cref="MarkOptionalAsRegular"/> already records:</b> the verb column is a persisted ordinal and this
+    /// track holds no schema budget, so a fifth ordinal is not available to it. <c>Alter</c> is not a
+    /// misdescription — the voucher is overwritten in place under its own id — and the
+    /// <see cref="VoucherEditLogEntry.BeforeSnapshot"/> carries the Optional state it left, so an auditor reading
+    /// the chain sees the flag move. 🔴 <b>A dedicated <c>SetOptional</c> ordinal is an ADDITIVE schema bump
+    /// (v66) and is NOT taken here</b> — v66 is unowned and this track does not claim it.</para>
+    ///
+    /// <para>A no-op, appending NO log line, when the flag already holds <paramref name="optional"/> — an edit log
+    /// that records non-events is as misleading as one that misses real ones.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or is cancelled (a cancelled voucher
+    /// affects nothing whether it is Optional or not, so moving the flag would claim a state change that does not
+    /// happen).</exception>
+    public Voucher SetOptional(Guid voucherId, bool optional)
     {
         var voucher = _company.FindVoucher(voucherId)
             ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
@@ -1000,11 +1039,52 @@ public sealed class LedgerService
                 $"Voucher {voucherId} is cancelled; a cancelled voucher affects no balance whether it is "
                 + "Optional or not, so there is nothing to regularise.");
 
-        if (!voucher.Optional) return voucher;
+        if (voucher.Optional == optional) return voucher;
 
         RecordEdit(voucher, VoucherEditVerb.Alter);
-        voucher.Optional = false;
+        voucher.Optional = optional;
         return voucher;
+    }
+
+    /// <summary>
+    /// The compensating undo for a <see cref="SetOptional"/> whose save did not commit: puts the flag back AND
+    /// discards the entry <see cref="SetOptional"/> appended, in one call. The exact mirror of
+    /// <see cref="DiscardUncommittedCancel"/>, and it exists for the same two reasons — the rollback has to undo
+    /// BOTH halves, and <see cref="Voucher.Optional"/>'s setter is <c>internal</c> so no screen could do it.
+    ///
+    /// <para><b>Why <paramref name="restoreTo"/> is a parameter rather than inferred.</b>
+    /// <see cref="DiscardUncommittedCancel"/> can hard-code <c>false</c> because <see cref="Cancel"/> only ever
+    /// moves one way; this verb moves both, so the prior value has to be stated. It is NOT read back out of
+    /// <paramref name="entry"/>'s snapshot: <see cref="VoucherSnapshot"/> is documented write-only evidence, not a
+    /// restore point, and making it one here would be the first crack in that rule. The guard below is what bounds
+    /// the parameter — a <paramref name="restoreTo"/> equal to the flag's CURRENT value describes no rollback at
+    /// all and is refused, so a caller cannot use this method to set the flag.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, <paramref name="entry"/> does not
+    /// describe an edit of that voucher, it is not the last log entry, or
+    /// <paramref name="restoreTo"/> is what the flag already holds.</exception>
+    public void DiscardUncommittedOptionalChange(
+        Guid voucherId, VoucherEditLogEntry entry, bool restoreTo)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        if (entry.Verb != VoucherEditVerb.Alter || entry.VoucherId != voucherId)
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} is a {entry.Verb} on voucher {entry.VoucherId}; it cannot roll back "
+                + $"an Optional change on voucher {voucherId}.");
+
+        var v = _company.FindVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        if (v.Optional == restoreTo)
+            throw new InvalidOperationException(
+                $"Voucher {voucherId} already has Optional = {restoreTo}, so there is no uncommitted Optional "
+                + "change to discard. This verb rolls one back; it does not set the flag (use SetOptional).");
+
+        // Discard FIRST: it is the half that can refuse, and a refusal must leave the flag exactly as it found it
+        // rather than moving a voucher's lifecycle state while its log line stays behind.
+        DiscardUncommittedEditLogEntry(entry);
+        v.Optional = restoreTo;
     }
 
     /// <summary>Next automatic number for a voucher type = max existing + 1 (per type, per company).

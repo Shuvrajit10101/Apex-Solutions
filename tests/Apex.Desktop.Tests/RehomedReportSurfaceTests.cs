@@ -1458,7 +1458,21 @@ public sealed class RehomedReportSurfaceTests : IDisposable
         Assert.False(dayBook.SupportsHideZeroBalances);
         Assert.False(dayBook.SupportsPercentages);
         Assert.False(dayBook.SupportsClosingStockBasis);
-        Assert.False(dayBook.SupportsDisplayOptions);
+
+        // 🔴 UPDATED 2026-10-09 (track AD, census 11.4 gap (a)) — AND THE INVARIANT THIS LINE EXISTS FOR IS
+        // UNCHANGED: the "Display" heading appears if and only if at least one knob under it is LIVE. What moved
+        // is the FACT, not the rule. The Day Book now carries a FOURTH display knob that its builder reads —
+        // F12 "Show narration", which the vendor attests on this exact report ("If you want to view more details
+        // of the transactions such as narration and cost centre, press F12 (Configure) and enable the
+        // configurations as required.", help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/,
+        // opened by content) — so the heading must now appear, and asserting its ABSENCE would be pinning the
+        // old world. The three knobs this test is about are still correctly off here, and the behavioural
+        // inertness proof below is untouched and still runs.
+        Assert.True(dayBook.SupportsNarration,
+            "the Day Book lost F12 Show narration, which its own builder reads");
+        Assert.True(dayBook.SupportsDisplayOptions,
+            "the Day Book has one live display knob (Show narration), so the 'Display' heading must appear — the "
+            + "mirror of the defect this test was written for is a live control with no section to sit under");
 
         var before = RowText(dayBook);
         Assert.NotEqual(string.Empty, before);
@@ -1658,15 +1672,29 @@ public sealed class RehomedReportSurfaceTests : IDisposable
         Assert.True(VisibleCheckBox(window, "Detailed (ledger/item-level; unchecked = group summary)")
                     || VisibleLabel(window, "Configure — F12"));
 
-        // ---- Day Book: row-bearing, and the knobs must be gone there too. This is the case the matrix
+        // ---- Day Book: row-bearing, and the three knobs must be gone there too. This is the case the matrix
         // predicate could never have covered.
+        //
+        // 🔴 UPDATED 2026-10-09 (track AD, census 11.4 gap (a)). The "Display" heading is now asserted PRESENT
+        // here, and that is not a relaxation — it is the same rule measured against a changed fact. The Day Book
+        // gained a FOURTH display knob its builder reads, F12 "Show narration", attested by the vendor on this
+        // exact report. So the heading has something live under it, and the test now proves the pairing in both
+        // directions on the realised tree: the narration box IS on screen, and the three knobs that do nothing
+        // here are still NOT. Asserting the heading's absence would now be pinning the old world.
         vm.Back();
         vm.Back();
         vm.OpenReport(ReportKind.DayBook);
         vm.OpenReportConfig();
         Pump(window);
         Assert.False(VisibleCheckBox(window, "Hide zero balances"));
-        Assert.False(VisibleLabel(window, "Display"));
+        Assert.False(VisibleCheckBox(window, "Show percentages (of section/column total)"));
+        Assert.False(VisibleLabel(window, "Closing stock"));
+        Assert.True(VisibleCheckBox(window, "Show narration"),
+            "F12 Show narration is not on the Day Book's realised panel. Its view-model predicate is true, so "
+            + "this is precisely the unreachable-control defect: a knob that exists in the view model and never "
+            + "left it.");
+        Assert.True(VisibleLabel(window, "Display"),
+            "the Day Book's one live display knob is rendering with no 'Display' heading above it");
 
         window.Close();
     }

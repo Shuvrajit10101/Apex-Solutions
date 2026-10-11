@@ -283,9 +283,18 @@ public sealed record Gstr1(
             // tax-ledger postings for the period".
             //
             // 🔴 IT READS THE EXISTING ONE HOME, VoucherEffects.IsReturnNote, AND DOES NOT INVENT A SECOND
-            // PREDICATE. There is no shared sign helper in this codebase (a prior report claimed a
-            // `GstReportSupport.SignOf`; grep returns zero hits in src/ and tests/ — it never existed), and the
-            // sign-of-a-note defect has already been fixed one-call-site-at-a-time four times here. IsReturnNote
+            // PREDICATE. ~~There is no shared sign helper in this codebase (a prior report claimed a
+            // `GstReportSupport.SignOf`; grep returns zero hits in src/ and tests/ — it never existed)~~ 🔴 T2-119
+            // (vi): THAT SENTENCE IS NOW FALSE AND IS STRUCK IN PLACE RATHER THAN DELETED, because a comment that
+            // refutes itself while BEING one of the grep's hits is exactly the stale assertion this project keeps
+            // catching. GstReportSupport.SignOf DOES exist (landed wave 44) with many live call sites, and
+            // TaxAnalysis.ReadSide now routes BOTH arms through it. IsReturnNote is kept HERE deliberately, not by
+            // inertia: the sign-of-a-note defect has already been fixed one-call-site-at-a-time four times, and this
+            // sweep's behaviour was gated and mutation-pinned on IsReturnNote. The two agree on this path — the
+            // CdnLinkFor exclusion immediately above stands FIRST, so SignOf's linked-note branch is unreachable
+            // here and it reduces to -1 for an unlinked credit note, the same answer. Swapping the predicate would
+            // change no figure and would move a pinned behaviour onto an equivalence rather than onto its own test,
+            // so it is left alone and said out loud instead. IsReturnNote
             // is the declared home for "this carrier reverses an earlier document" and is derived from the BASE
             // TYPE alone — wholly independent of the opt-in §34 toggle, which is exactly why it is the right
             // source: the toggle is an annotation about REPORTING, not about which way the money moved.
@@ -451,8 +460,9 @@ public sealed record Gstr1(
 
         // Phase 9 slice 2b: Table 9B (§34 CDN) — signed by note type — is folded into the output totals; 11A/11B are
         // projected off the advance records. All skipped byte-identically when the collections are empty (ER-13).
-        var table9B = BuildTable9B(company, from, to, unlinked9B, ref totalCgst, ref totalSgst, ref totalIgst);
-        var (table11A, table11B) = BuildAdvanceTables(company, from, to);
+        var table9B = BuildTable9B(
+            company, from, to, registrationId, unlinked9B, ref totalCgst, ref totalSgst, ref totalIgst);
+        var (table11A, table11B) = BuildAdvanceTables(company, from, to, registrationId);
 
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
             new Money(exempt), new Money(totalCgst), new Money(totalSgst), new Money(totalIgst))
@@ -527,12 +537,42 @@ public sealed record Gstr1(
     /// already, and folding it twice would halve the filed liability. Only the LINKED rows this method reads off
     /// <c>company.CreditDebitNoteLinks</c> are folded. An empty <paramref name="unlinked"/> leaves the result
     /// byte-identical (ER-13).</para>
+    ///
+    /// <para>🔴 <b>T2-119 (ii) — THE LINKED ROWS ARE SCOPED TO <paramref name="registrationId"/>, AND BEFORE THIS
+    /// THEY WERE NOT.</b> Every other leg of <see cref="Build"/> reaches its vouchers through
+    /// <c>GstReportSupport.PostedDirectionalVouchers</c>, which applies the registration filter; this method walks
+    /// <c>company.CreditDebitNoteLinks</c> directly and so has to apply it itself — exactly as
+    /// <c>Gstr3b.ReadCdn</c> already did for the same collection. <b>Unscoped, the scoping was inconsistent INSIDE
+    /// ONE TABLE:</b> the <paramref name="unlinked"/> rows arrive from the scoped sweep and were right, while the
+    /// linked rows were folded wholesale — so a second registration's §34 note appeared in this registration's
+    /// Table 9B <i>and</i> its tax moved this registration's header through the <c>ref</c> totals. Measured on
+    /// <c>GstOutwardRegistrationScopeAndSignTests</c>: the Karnataka registration filed <c>TotalIgst</c>
+    /// <b>−₹1,800.00</b> against a true ₹0.00, on a credit note issued under the Tamil Nadu GSTIN — a reduction
+    /// Karnataka never made, while Tamil Nadu declared the same note in its own return. One note, filed twice,
+    /// against two GSTINs. Same shape as <c>T1-64</c>/<c>T1-72</c>, where <c>Gstr3b.ReadReversals</c> was the one
+    /// unscoped leg of its own <c>Build</c>.</para>
+    ///
+    /// <para><b>Vendor-attested (R7, opened by content).</b> TallyPrime's GSTR-1 report: "<i>Press F3 (Company/Tax
+    /// Registration) and select the registration for which you want to view the report</i>"
+    /// (<c>help.tallysolutions.com/gstr-1-report-in-tallyprime/</c>); and for the filed artefact, "<i>If you have
+    /// multiple registrations, select the required GST Registration</i>"
+    /// (<c>help.tallysolutions.com/upload-gstr-1/</c>). <b>The statute binds the other half:</b> CGST Act §34(2)
+    /// (<c>taxinformation.cbic.gov.in</c>, opened by content) makes the note's declaration the duty of the person
+    /// "<i>who issues</i>" it — so it is owed by its OWN registration's return, which is why the filter must scope
+    /// it out of this one without dropping it from that one.</para>
     /// </summary>
+    /// <param name="registrationId">The registration the return is being filed for (census 6.23). <c>null</c> ⇒ a
+    /// single-registration company, where <c>RegistrationOf</c> normalises every voucher to
+    /// <c>GstRegistration.PrimaryId</c> and the filter is a no-op — every pre-v61 book is byte-identical (ER-13).</param>
     private static IReadOnlyList<Gstr1Table9BRow> BuildTable9B(
-        Company company, DateOnly from, DateOnly to, List<Gstr1Table9BRow> unlinked,
+        Company company, DateOnly from, DateOnly to, Guid? registrationId, List<Gstr1Table9BRow> unlinked,
         ref decimal totalCgst, ref decimal totalSgst, ref decimal totalIgst)
     {
         if (company.CreditDebitNoteLinks.Count == 0 && unlinked.Count == 0) return [];
+
+        // Normalise the requested scope exactly as PostedDirectionalVouchers does, so naming the primary explicitly
+        // and leaving it null cannot disagree about which rows belong here.
+        var scope = registrationId is { } req ? (Guid?)(req == Guid.Empty ? GstRegistration.PrimaryId : req) : null;
 
         var rows = new List<Gstr1Table9BRow>(unlinked);
         foreach (var link in company.CreditDebitNoteLinks)
@@ -541,6 +581,10 @@ public sealed record Gstr1(
             if (v is null || v.Date < from) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+            // 🔴 T2-119 (ii): the §34 notes are walked off the LINK collection, not the voucher funnel, so the
+            // registration filter is applied here too — a credit note issued under the Tamil Nadu GSTIN must not
+            // appear in, or net down the header of, the Karnataka return.
+            if (scope is { } s && GstReportSupport.RegistrationOf(v) != s) continue;
 
             var heads = ReadInvoiceHeads(v);              // positive magnitudes
             var taxable = GstReportSupport.InvoiceTaxableValue(v).Amount;
@@ -572,11 +616,32 @@ public sealed record Gstr1(
     /// <b>adjustment</b> (invoice) <b>or Rule-51 refund</b> voucher falls in the window (a refund reverses the advance
     /// exactly like an adjustment). Each group's CGST/SGST/IGST split is reproduced from the record's net advance + rate +
     /// POS via the same total-then-split rule (paisa-exact). Empty when unused (ER-13).
+    ///
+    /// <para>🔴 <b>A11 REVIEW (census 6.23) — THE ADVANCE TABLES ARE SCOPED TOO, AND THEY WERE THE SECOND
+    /// UNSCOPED LEG OF THIS BUILD.</b> Like <see cref="BuildTable9B"/> this method walks a record collection
+    /// (<c>company.AdvanceReceipts</c>) instead of <c>GstReportSupport.PostedDirectionalVouchers</c>, so it has to
+    /// apply the registration filter itself. Unscoped, a Tamil Nadu advance appeared in the Karnataka return:
+    /// measured on <c>Gstr1AdvanceTableRegistrationScopeTests</c>, Karnataka's Table 11A carried the branch's
+    /// ₹1,00,000 advance and ₹18,000 of IGST advance tax against a true empty table — and from this wave that
+    /// figure reaches the EMITTED <c>at</c>/<c>atadj</c> payload, which previously refused to build at all on a
+    /// multi-registration book.</para>
+    ///
+    /// <para><b>The record is attributed through its RECEIPT voucher</b> — the registration that collected the
+    /// advance is the one that owes the tax on it (CGST Act §13(2); the receipt voucher of Rule 50 is issued by
+    /// that registration), so both 11A and 11B follow the receipt rather than being split between registrations.
+    /// Under an explicit scope a record whose receipt voucher cannot be found is unattributable and is skipped.
+    /// <c>null</c> ⇒ no filter, so every single-registration book is byte-identical (ER-13).</para>
+    ///
+    /// <para><b>Vendor-attested (R7, opened by content):</b> "<i>Press F3 (Company/Tax Registration) and select the
+    /// registration for which you want to view the report</i>" — <c>help.tallysolutions.com/gstr-1-report-in-tallyprime/</c>.</para>
     /// </summary>
     private static (IReadOnlyList<Gstr1AdvanceRow> Table11A, IReadOnlyList<Gstr1AdvanceAdjustedRow> Table11B)
-        BuildAdvanceTables(Company company, DateOnly from, DateOnly to)
+        BuildAdvanceTables(Company company, DateOnly from, DateOnly to, Guid? registrationId)
     {
         if (company.AdvanceReceipts.Count == 0) return ([], []);
+
+        // Normalised exactly as PostedDirectionalVouchers and BuildTable9B do it.
+        var scope = registrationId is { } req ? (Guid?)(req == Guid.Empty ? GstRegistration.PrimaryId : req) : null;
 
         var received = new Dictionary<(int Rate, bool Inter), (decimal Adv, decimal Cgst, decimal Sgst, decimal Igst)>();
         var adjusted = new Dictionary<(int Rate, bool Inter), (decimal Adv, decimal Cgst, decimal Sgst, decimal Igst)>();
@@ -601,6 +666,11 @@ public sealed record Gstr1(
         foreach (var a in company.AdvanceReceipts)
         {
             if (!a.IsService || a.AdvanceTax.Amount == 0m) continue; // goods advances are de-taxed — no 11A/11B
+            // 🔴 A11 review (census 6.23): the advance belongs to the registration whose receipt voucher collected
+            // it — another registration's advance must not appear in, or add tax to, this return's 11A/11B.
+            if (scope is { } s
+                && (company.FindVoucher(a.ReceiptVoucherId) is not { } rv || GstReportSupport.RegistrationOf(rv) != s))
+                continue;
             if (InWindow(a.ReceiptVoucherId)) Accumulate(received, a);
             if (InWindow(a.AdjustedAgainstInvoiceVoucherId)) Accumulate(adjusted, a);
             // A Rule-51 REFUND reverses the advance: net it back out in the refund period exactly like an adjustment

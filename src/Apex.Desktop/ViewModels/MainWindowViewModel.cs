@@ -49,6 +49,18 @@ public enum Screen
     // (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
     ExceptionReportsPicker,
 
+    // census 11.4 gap (a) — the Day-Book "Voucher Type" (F4) FILTER picker: a menu column of "All Vouchers" plus
+    // every ACTIVE voucher type the company holds, appended to the RIGHT of the report exactly like the
+    // two pickers above (Reports stays bound beneath, Esc pops back to the same book). Vendor, verbatim:
+    // "Day Book > F4 (Voucher Type), and select the Debit Note voucher type." and "Press F4 (Voucher Type) >
+    // Purchase." (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/).
+    // 🔴 CORRECTED 2026-10-09 (A12, wave 45): this comment used to say "every voucher type that the live book
+    // actually lists". It is neither that set nor a superset of it — OpenVoucherTypeFilterPicker lists
+    // Company.VoucherTypes.Where(t => t.IsActive), while DayBook.Build has NO IsActive test at all (grep over
+    // DayBook.cs = 0 hits). So a DEACTIVATED type whose historical vouchers still list in the book cannot be
+    // narrowed to, and an active type with no voucher in the window IS offered and opens an empty book.
+    VoucherTypeFilterPicker,
+
     ReportConfig,
 
     // W2-13a (census 14.5) — the Ctrl+B "Basis of Values" panel: the report Scale Factor, pushed as a cascade
@@ -6080,6 +6092,128 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         CurrentScreen = Screen.ExceptionReportsPicker;
         ScreenTitle = "Exception Reports";
         SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// 🔴 <b>True while the live report is one of the FOUR that render a Day-Book row</b> — the Day Book and its
+    /// three Ctrl+J exception registers — which is the scope the F4 (Voucher Type) filter is offered in.
+    ///
+    /// <para>Deliberately NOT <see cref="IsDayBookReport"/>, which is <c>Kind == DayBook</c> only. The three
+    /// registers are built by <c>ExceptionVouchers</c> FILTERING <c>DayBook.Build</c>, so the control applies to
+    /// them identically — see <see cref="ReportsViewModel.IsDayBookFamily"/> for the whole argument. The two drill
+    /// screens are excluded by the same clause <see cref="IsDayBookReport"/> uses, so the chord is inert on a
+    /// drilled voucher the way every other report parameter is.</para>
+    /// </summary>
+    public bool IsDayBookFamilyReport => Reports is { IsDayBookFamily: true }
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail);
+
+    /// <summary>
+    /// <b>F4 (Voucher Type) on the Day-Book family — open the voucher-type FILTER picker</b> (census 11.4 gap (a),
+    /// "no voucher-kind filter").
+    ///
+    /// <para><b>Fidelity (R7 / ruling 14).</b> The vendor names the chord, the button label and the gesture.
+    /// Opened by content on 2026-10-09,
+    /// <c>help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/</c>:
+    /// <i>"<b>Day Book</b> &gt; <b>F4</b> (Voucher Type), and select the <b>Debit Note</b> voucher type."</i> and
+    /// <i>"Press <b>F4</b> (Voucher Type) &gt; <b>Purchase</b>."</i> The vendor's generic report page agrees that
+    /// F4 is the per-report context key — <i>"F4 — This button name differs based on the report you are
+    /// viewing"</i> (<c>help.tallysolutions.com/working-with-reports/</c>) — so this is F4 being given its
+    /// documented meaning on this report, not F4 being taken from somewhere.</para>
+    ///
+    /// <para>🔴 <b>IT DOES NOT DISPLACE "F4 Contra", AND THE SETTLED KEYBOARD CONTRACT IS THE REASON THAT
+    /// MATTERS.</b> F4 is the Contra voucher everywhere else and stays so; <see cref="BuildButtonBar"/> emits
+    /// EXACTLY ONE F4 row and branches on <see cref="IsDayBookFamilyReport"/>, which is the identical shape the
+    /// F6 Receipt/Monthly split already ships under <see cref="IsLedgerBookPage"/> — and for the identical
+    /// mechanical reason stated there: the shell's <c>Fire()</c>/hint lookup takes the FIRST key match, so a
+    /// second F4 row would shadow one of the two and the badge would fire the wrong verb. The two contexts are
+    /// disjoint (a live report has <see cref="Reports"/> bound; opening a voucher runs <c>ClearSubScreens</c>,
+    /// which nulls it), so neither side is rebound.</para>
+    ///
+    /// <para><b>No row in this column carries a computed hotkey</b> (<c>DataDriven</c>), for the reason the Alt+A
+    /// picker records: these rows are the COMPANY'S own voucher types, so a computed hotkey would paint an
+    /// arbitrary mid-word letter on a name nobody at build time has seen.</para>
+    ///
+    /// <para>🔴 <b>CORRECTED 2026-10-09 (A12, wave 45) — THE ORIGINAL SENTENCE CLAIMED "a bare letter FILTERS in
+    /// this column rather than activating a row", AND THAT IS FALSE FOR <c>P</c>, <c>E</c>, <c>M</c> AND
+    /// <c>W</c>.</b> Measured: with this picker open, <c>P</c> lands on <see cref="Screen.PrintPreview"/>, not on
+    /// the filter box. The mechanism, read end to end: this column is pushed by <c>PushMenuColumn</c>, the path
+    /// that deliberately does NOT null <see cref="Reports"/>, so <c>IsPrintablePage</c> /
+    /// <c>IsExportablePage</c> / <c>IsShareablePage</c> stay TRUE — and
+    /// <see cref="IsActionMenuColumn"/> (<c>:3630</c>) names only <c>ChangeViewMenu</c>, <c>PrintMenu</c>,
+    /// <c>ExportMenu</c> and <c>ShareMenu</c>, so it does NOT cover this screen. The bare P/E/M/W arms in
+    /// <c>MainWindow.axaml.cs</c> therefore match FIRST and swallow the letter — including the initials of
+    /// <b>Payment</b> and <b>Purchase</b>, the vendor's own two F4 examples.
+    /// <b>NOT FIXED HERE:</b> the repair belongs in that shared predicate, whose NAME would become wrong, and
+    /// <c>GatewayColumn.ReservedLetters</c>' own remarks already say "Adding letters to this array is therefore
+    /// NOT the fix" — a design call, not a comment fix. The same hole exists on all THREE <c>DataDriven</c>
+    /// pickers that sit over a live report (<c>AddVoucherPicker</c>, this one, <c>InsertVoucher</c>), none of
+    /// which is in <see cref="IsActionMenuColumn"/>.</para>
+    /// </summary>
+    public void OpenVoucherTypeFilterPicker()
+    {
+        if (Company is null || !IsDayBookFamilyReport) return;
+        // Refuses under ANY column drawn over the book, for the reason IsDayBookRowHidden gives: with a picker,
+        // an F12 panel or one of the four action menus on top, the operator cannot see the list the filter acts on.
+        if (IsDayBookRowHidden) return;
+
+        var picker = new GatewayColumn("Voucher Type") { Kind = GatewayColumnKind.DataDriven };
+        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
+
+        // "All Vouchers" is the vendor's own WORDING for the unfiltered book, not an invented label: the Day Book
+        // page carries "All Vouchers" — "displays Day Book for all the vouchers, irrespective of the type of
+        // voucher" — and DayBook.cs's class summary already cites it. Without a row back to it an F4 press would
+        // be a ONE-WAY narrowing, which is the dead-end class, so it is listed FIRST and is where the column's
+        // highlight lands.
+        // 🔴 CORRECTED 2026-10-09 (A12, wave 45) — MIS-CITATION, RIGHT SUBSTANCE, WRONG CONTROL. This comment used
+        // to assert that label is "THE VENDOR'S OWN LABEL" for THIS picker. The words are verbatim on the page but
+        // they belong to a DIFFERENT control: Ctrl+B (Basis of Values) > Type of Voucher entries, a three-way of
+        // Accounting Entries Only / All Vouchers / Inventory Entries Only ("In Day Book, press Ctrl + B (Basis of
+        // Values)"). DayBook.cs cites them correctly as "its view knob"; this comment repurposed them. The F4
+        // picker's own vendor grounding is the two F4 sentences quoted on Screen.VoucherTypeFilterPicker; the
+        // clear-row itself is OURS, kept for the one-way-narrowing reason above and labelled as ours here.
+        picker.Add(new MenuItemViewModel(
+            "All Vouchers",
+            () => PickVoucherTypeFilter(null, null),
+            string.Empty,
+            isSubItem: true,
+            kind: MenuItemKind.Action));
+
+        // Capture the TYPE, not its base kind — two types can share a base (a second Sales series, a
+        // Manufacturing Journal over Stock Journal, a POS till), and the narrowing is per type. This is the same
+        // correction PickAddVoucherType records against the Alt+A picker.
+        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive).OrderBy(t => t.Name, StringComparer.CurrentCultureIgnoreCase))
+        {
+            var chosen = type;
+            picker.Add(new MenuItemViewModel(
+                type.Name,
+                () => PickVoucherTypeFilter(chosen.Id, chosen.Name),
+                string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        PushMenuColumn(picker, Screen.VoucherTypeFilterPicker);
+    }
+
+    /// <summary>
+    /// A row of the F4 picker was taken: pops the picker column FIRST, then narrows the live report and
+    /// re-projects it.
+    ///
+    /// <para>🔴 <b>The pop comes first on purpose</b>, through the same <see cref="PopMenuColumn"/> path the four
+    /// action menus use. <see cref="ReportsViewModel.SetVoucherTypeFilter"/> re-runs the projection, and
+    /// <see cref="BuildButtonBar"/> is rebuilt by the pop — so applying while the picker was still on top would
+    /// leave the operator reading a re-filtered book from behind a spent column, which is the shape
+    /// <c>PopMenuColumn</c>'s own remarks record as a wrong-target defect.</para>
+    /// </summary>
+    private void PickVoucherTypeFilter(Guid? voucherTypeId, string? voucherTypeName)
+    {
+        var report = Reports;
+        PopMenuColumn(Screen.VoucherTypeFilterPicker);
+        report?.SetVoucherTypeFilter(voucherTypeId, voucherTypeName);
+
+        // The column's own caption carries the report title, and the title does not change — but the SUBTITLE
+        // does ("— Purchase only"), and the button-bar hint names the active filter, so both are re-synced.
         BuildButtonBar();
     }
 
@@ -13662,7 +13796,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var hasCompany = Company is not null;
         // F4–F9 now open the real accounting voucher-entry screens. They go through OpenVoucherFromTypeKey, NOT
         // straight to OpenVoucher, so a type key can never silently discard keying — see that method.
-        ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucherFromTypeKey(VoucherBaseType.Contra), hasCompany));
+        // F4 is CONTEXT-SENSITIVE and exactly ONE row is emitted, for the mechanical reason the F6 branch a few
+        // lines below states: the shell's Fire()/hint lookup takes the FIRST key match, so a second F4 row would
+        // shadow this one and the badge would fire the wrong handler.
+        //
+        // On the DAY-BOOK FAMILY the vendor's F4 is VOUCHER TYPE (census 11.4 gap (a)): "Day Book > F4 (Voucher
+        // Type), and select the Debit Note voucher type." and "Press F4 (Voucher Type) > Purchase."
+        // (help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/). Its generic report
+        // page agrees F4 is the per-report context key: "F4 — This button name differs based on the report you are
+        // viewing" (help.tallysolutions.com/working-with-reports/). Everywhere else F4 stays the Contra voucher —
+        // the settled keyboard contract — and the two contexts are disjoint, so neither side is rebound.
+        //
+        // The caption names the ACTIVE filter rather than always reading "Voucher Type", because a button bar row
+        // is a claim about a keystroke: with a narrowing on, "Voucher Type: Purchase" is the only caption that
+        // tells the operator the book in front of them is filtered without their having to read the subtitle.
+        if (IsDayBookFamilyReport)
+        {
+            var activeFilter = Reports?.VoucherTypeFilterName ?? string.Empty;
+            ButtonBar.Add(new ButtonBarItem(
+                "F4",
+                activeFilter.Length == 0 ? "Voucher Type" : "Voucher Type: " + activeFilter,
+                OpenVoucherTypeFilterPicker,
+                !IsDayBookRowHidden));
+        }
+        else
+            ButtonBar.Add(new ButtonBarItem("F4", "Contra", () => OpenVoucherFromTypeKey(VoucherBaseType.Contra), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F5", "Payment", () => OpenVoucherFromTypeKey(VoucherBaseType.Payment), hasCompany));
         // F6 is CONTEXT-SENSITIVE, and exactly ONE row is emitted — the shell's Fire()/hint lookup takes the
         // FIRST key match, so a second F6 row would shadow this one and the badge would fire the wrong handler.
