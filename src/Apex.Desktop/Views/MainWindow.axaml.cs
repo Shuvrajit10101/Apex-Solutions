@@ -2503,9 +2503,11 @@ public partial class MainWindow : Window
         => Vm?.ScenarioMaster?.Create();
 
     // W33 C3: branches exactly as the Ctrl+A arm in ActivateSelected does. 🔴 The mouse button and the keyboard
-    // chord MUST agree — OnCreateStockCategoryClick below is the shipped counter-example (it calls Create()
-    // unconditionally while the keyboard branches), and on an Alteration screen that button fails on the
-    // duplicate name and discards the operator's edits.
+    // chord MUST agree.
+    // 🔴 THIS COMMENT IS CORRECTED RATHER THAN LEFT TO MISLEAD. It used to cite OnCreateStockCategoryClick below
+    // as "the shipped counter-example (it calls Create() unconditionally while the keyboard branches)". That was
+    // true and is no longer: that handler, and the three beside it, were fixed under T2-105 — see the block
+    // above them. The rule the comment states still holds; the example it pointed at is gone.
     private void OnCreateCurrencyClick(object? sender, RoutedEventArgs e)
     {
         if (Vm?.CurrencyMaster is not { } master) return;

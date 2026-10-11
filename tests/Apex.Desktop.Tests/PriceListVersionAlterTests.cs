@@ -603,4 +603,40 @@ public sealed class PriceListVersionAlterTests
         }
         finally { k.Window.Close(); Cleanup(k.Dir); }
     }
+
+    /// <summary>
+    /// 🔴 <b>T2-101 — THE HISTORY CAPTION MUST NOT PROMISE APPEND-ONLY HISTORY OVER A SCREEN THAT OVERWRITES.</b>
+    ///
+    /// <para>Census row 3.11 names this as one of the two reasons the row is held at <c>PARTIAL</c> and
+    /// explicitly withdraws the earlier "near-COMPLETE is fair" promise over it. The caption one element above
+    /// the history list read <i>"a revision appends a new version — history is kept"</i>. That was true before
+    /// wave 42 and is not true now: <c>Ctrl+Enter</c> on a version opens it for alteration and <c>Ctrl+A</c>
+    /// OVERWRITES it in place, under the same <c>Guid</c>, which the tests above prove. A caption that promises
+    /// history is kept, over the one control that discards it, is the same class of lie as a
+    /// <i>"Create"</i> button on an Alteration screen.</para>
+    ///
+    /// <para>Both operations genuinely exist, so the fix is to name BOTH rather than to delete the sentence.
+    /// Asserted on the REALISED caption, because a hard-coded XAML literal is invisible to every view-model
+    /// assertion in this file — which is exactly how this one survived the wave that made it false.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_rendered_history_caption_does_not_promise_append_only_history()
+    {
+        var k = NewKit("Z3 PL Caption Co");
+        try
+        {
+            OpenPriceListMaster(k.Window, k.Vm);
+
+            var caption = RealisedTextContaining(k.Window, "Existing dated versions");
+
+            // 🔴 The false promise must be gone from the realised caption.
+            Assert.DoesNotContain("history is kept", caption.Text!);
+            Assert.DoesNotContain("a revision appends a new version", caption.Text!);
+
+            // And the caption must still tell the operator the truth about BOTH verbs the screen offers.
+            Assert.Contains("appends", caption.Text!);
+            Assert.Contains("overwrites it in place", caption.Text!);
+        }
+        finally { k.Window.Close(); Cleanup(k.Dir); }
+    }
 }
