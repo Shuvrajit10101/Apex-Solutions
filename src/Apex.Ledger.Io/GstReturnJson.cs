@@ -100,13 +100,31 @@ public static class GstReturnJson
     }
 
     /// <summary>Serialises the GSTR-9 annual return for the FY <c>[fyFrom, fyTo]</c> to deterministic offline JSON bytes
-    /// (UTF-8, no BOM). Money is integer paisa (ER-10).</summary>
-    public static byte[] Gstr9(Company company, DateOnly fyFrom, DateOnly fyTo)
+    /// (UTF-8, no BOM). Money is integer paisa (ER-10).
+    ///
+    /// <para>🔴 <b>T2-123 — <paramref name="registrationId"/> IS NOW THREADED, AND IT IS WHAT MAKES THE TABLE-7
+    /// SCOPE FIX VISIBLE ON THE EMITTED BYTES.</b> <c>Gstr9.ReadTable7</c> folded EVERY registration's ITC
+    /// reversals into whichever registration's annual return was built (see its own note); the figure lands here as
+    /// <c>tbl7_*</c>. Unscoped, this writer also hit <c>EnsureRegistrationScoped</c>'s refusal on a
+    /// multi-registration company — one of the six reachability failures T2-119 (ii) filed rather than fixed — so
+    /// the payload could not be emitted at all. The envelope's <c>gstin</c> is resolved through
+    /// <c>GstConfig.FindRegistration</c> for the same reason GSTR-1's is: emitting a branch's figures under the
+    /// primary's GSTIN would be a worse artefact than refusing. <c>null</c> ⇒ the company's only registration, so a
+    /// single-registration book is byte-identical (ER-13).</para>
+    ///
+    /// <para>⚠️ <b>WHAT IS STILL COMPANY-WIDE INSIDE THIS PAYLOAD, STATED SO THE SCOPING IS NOT OVER-READ:</b>
+    /// <c>tbl8_a</c> (GSTR-2B snapshots) and the two <c>tbl9</c> paid figures (PMT-06 challans / Rule-88A set-off
+    /// lines) are NOT registration-scoped — the first cannot be without a schema change and the latter two are the
+    /// cash / credit pools census 6.23 records as deliberately company-wide. This payload is therefore scoped on its
+    /// supply, ITC and reversal tables and pooled on its 8A/9 tables; it is not a per-registration artefact
+    /// end to end, and no portal-schema conformance is claimed for it.</para>
+    /// </summary>
+    public static byte[] Gstr9(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId = null)
     {
-        var r = Reports.Gstr9.Build(company, fyFrom, fyTo);
+        var r = Reports.Gstr9.Build(company, fyFrom, fyTo, registrationId);
         var dto = new Gstr9Dto
         {
-            Gstin = company.Gst?.Gstin,
+            Gstin = company.Gst?.FindRegistration(registrationId)?.Gstin ?? company.Gst?.Gstin,
             Fp = FinancialPeriod(fyTo),
             RetPeriod = $"{fyFrom:yyyy-MM-dd}/{fyTo:yyyy-MM-dd}",
             Applicable = r.Applicable,

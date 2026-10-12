@@ -100,8 +100,51 @@ public sealed record Gstr1Amendments(
     };
 
     /// <summary>Builds the GSTR-1 amendment tables for the current period <c>[from, to]</c>; a Composition / GST-off
-    /// company yields a not-applicable (empty) projection (ER-13).</summary>
-    public static Gstr1Amendments Build(Company company, DateOnly from, DateOnly to)
+    /// company yields a not-applicable (empty) projection (ER-13).
+    ///
+    /// <para>🔴 <b>T2-123 — BOTH TABLES ARE SCOPED TO <paramref name="registrationId"/>, AND BEFORE THIS NEITHER
+    /// WAS.</b> An amendment table is part of a GSTR-1, and a GSTR-1 is filed for ONE registration, so the
+    /// amendments declared in it are that registration's. The two legs were unscoped in two DIFFERENT ways and both
+    /// are closed here together, because closing either alone is wrong:
+    /// <list type="bullet">
+    ///   <item><b>Table 9A</b> folded through <c>Gstr1.Build</c> with <b>no</b> registration, which
+    ///     <c>GstReportSupport.EnsureRegistrationScoped</c> <b>REFUSES</b> on a multi-registration company. So on
+    ///     such a book this whole projection — and <see cref="Gstr3bCorrectionAdvisory"/> with it — <b>threw</b>
+    ///     rather than producing a figure. <b>Measured, not inferred:</b> <c>InvalidOperationException</c>, "This
+    ///     company holds multiple GST registrations, so a GST return must name the registration it is filed for."
+    ///     A reachability failure, not wrong money.</item>
+    ///   <item><b>Table 9C</b> walked <c>company.CreditDebitNoteLinks</c> wholesale with no filter at all — the
+    ///     THIRD report-side walker of that collection to need one, after <c>Gstr3b.ReadCdn</c> (v61) and
+    ///     <c>Gstr1.BuildTable9B</c> (T2-119 ii). <b>This is the wrong money, and it was MASKED by 9A's refusal:</b>
+    ///     scoping 9A alone would have made the projection reachable with 9C still folding every registration's
+    ///     §34 notes into it — turning a refusal into a silently wrong filed figure, which is strictly worse.</item>
+    /// </list></para>
+    ///
+    /// <para>🔴 <b>THE RUPEE FIGURE, MEASURED ON <c>GstAmendmentRegistrationScopeTests</c>' three-registration
+    /// book.</b> Karnataka and Tamil Nadu each issue ONE §34 credit note in May against their OWN April invoice.
+    /// Karnataka's Table 9C must hold <b>one</b> row and its 3B prior-period correction must be <b>−₹1,800.00</b>.
+    /// With 9A scoped and 9C not, it holds <b>two</b> — the second naming Tamil Nadu's <c>TN/S/22</c> — and the
+    /// correction reads <b>−₹5,400.00</b>: ₹3,600.00 of another GSTIN's credit note claimed as Karnataka's
+    /// correction, a <b>200% overstatement</b>, while Tamil Nadu declares the same note in its own return. One note,
+    /// filed twice, against two GSTINs — the same shape as <c>T1-64</c>/<c>T1-72</c>
+    /// (<c>Gstr3b.ReadReversals</c>) and <c>T2-119</c> (ii) (<c>Gstr1.BuildTable9B</c>).</para>
+    ///
+    /// <para><b>Vendor-attested (R7, opened by content).</b> TallyPrime's GSTR-1 report presents "<i>Amended Credit
+    /// or Debit Notes (Registered) – 9C</i>" and "<i>Amended Credit or Debit Notes (Unregistered) – 9C</i>" as
+    /// sections of the same report whose registration is chosen with "<i>Press F3 (Company/Tax Registration) and
+    /// select the registration for which you want to view the report</i>"
+    /// (<c>help.tallysolutions.com/gstr-1-report-in-tallyprime/</c>) — so 9C is per registration.
+    /// ⚠️ <b>And the sentence that cuts the other way, recorded rather than omitted:</b> the same page also says
+    /// "<i>If you had created multiple registrations, the report displays the combined GST details and activities
+    /// across registrations</i>", which describes the vendor's UNSCOPED landing view. This product does not offer
+    /// one — <c>EnsureRegistrationScoped</c> refuses it — a divergence already shipped at v61 and deliberately not
+    /// touched here. What both sentences agree on is that once a registration IS named, the report is THAT
+    /// registration's.</para>
+    /// </summary>
+    /// <param name="registrationId">The registration the return is being filed for (census 6.23). <c>null</c> ⇒ a
+    /// single-registration company, where <c>RegistrationOf</c> normalises every voucher to
+    /// <c>GstRegistration.PrimaryId</c> and the filter is a no-op — every pre-v61 book is byte-identical (ER-13).</param>
+    public static Gstr1Amendments Build(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -110,18 +153,34 @@ public sealed record Gstr1Amendments(
         if (!company.GstEnabled || company.Gst?.RegistrationType == GstRegistrationType.Composition)
             return new Gstr1Amendments(from, to, false, [], []);
 
-        var table9C = BuildTable9C(company, from, to);
-        var table9A = BuildTable9A(company, from, to);
+        var table9C = BuildTable9C(company, from, to, registrationId);
+        var table9A = BuildTable9A(company, from, to, registrationId);
         return new Gstr1Amendments(from, to, true, table9A, table9C);
     }
 
     /// <summary>Table 9C (CDNRA / CDNURA) — the §34 credit/debit notes posted in <c>[from, to]</c> whose original invoice
     /// falls in a <b>prior</b> filed period (dated before <c>from</c>): the no-schema proxy for a cross-period CDN
     /// amendment (§5.1). Each row carries the original-invoice reference and the note's signed revised tax (a credit note
-    /// negative, a debit note positive). Deterministic order (note date, then original ref, then note type).</summary>
-    private static IReadOnlyList<Gstr1CdnAmendmentRow> BuildTable9C(Company company, DateOnly from, DateOnly to)
+    /// negative, a debit note positive). Deterministic order (note date, then original ref, then note type).
+    ///
+    /// <para>🔴 <b>T2-123 — SCOPED TO <paramref name="registrationId"/>; see <see cref="Build"/> for the measured
+    /// figure.</b> This method walks <c>company.CreditDebitNoteLinks</c> directly rather than through
+    /// <c>GstReportSupport.PostedDirectionalVouchers</c>, so it must apply the registration filter itself — exactly
+    /// as <c>Gstr3b.ReadCdn</c> and <c>Gstr1.BuildTable9B</c> already do for the same collection. The note belongs to
+    /// the registration whose voucher ISSUED it, which is also what CGST Act §34(2) binds: the duty to declare falls
+    /// on the person "<i>who issues</i>" the note, so the filter must scope it OUT of this return without dropping it
+    /// from its own.</para>
+    /// </summary>
+    /// <param name="registrationId">The registration the return is being filed for (census 6.23); <c>null</c> ⇒ a
+    /// single-registration book, where the filter is a no-op (ER-13).</param>
+    private static IReadOnlyList<Gstr1CdnAmendmentRow> BuildTable9C(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId)
     {
         if (company.CreditDebitNoteLinks.Count == 0) return [];
+
+        // Normalised exactly as PostedDirectionalVouchers, BuildTable9B and BuildAdvanceTables do it, so naming the
+        // primary explicitly and leaving it null cannot disagree about which rows belong here.
+        var scope = registrationId is { } req ? (Guid?)(req == Guid.Empty ? GstRegistration.PrimaryId : req) : null;
 
         var rows = new List<Gstr1CdnAmendmentRow>();
         foreach (var link in company.CreditDebitNoteLinks)
@@ -134,6 +193,9 @@ public sealed record Gstr1Amendments(
             if (v is null || v.Date < from) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+            // 🔴 T2-123: the §34 note is this registration's amendment only if this registration issued it — a note
+            // issued under the Tamil Nadu GSTIN must not appear in, or move the 3B correction of, the Karnataka return.
+            if (scope is { } s && GstReportSupport.RegistrationOf(v) != s) continue;
 
             var heads = ReadForwardHeads(v);
             var taxable = GstReportSupport.InvoiceTaxableValue(v).Amount;
@@ -156,12 +218,22 @@ public sealed record Gstr1Amendments(
     /// <c>from</c>) reappears — re-stated — in the current period <c>[from, to]</c>. Because no persisted amend-link
     /// exists, this is best-effort (<see cref="Gstr1AmendmentRow.Advisory"/> = true). One-amendment-per-document: the
     /// LATEST current-period re-statement is the revised value (a second re-statement replaces, never stacks); the
-    /// referenced original is the LAST filed version. Deterministic order (original party GSTIN, then doc number).</summary>
-    private static IReadOnlyList<Gstr1AmendmentRow> BuildTable9A(Company company, DateOnly from, DateOnly to)
+    /// referenced original is the LAST filed version. Deterministic order (original party GSTIN, then doc number).
+    ///
+    /// <para>🔴 <b>T2-123 — <paramref name="registrationId"/> IS THREADED INTO BOTH <c>Gstr1.Build</c> CALLS.</b>
+    /// Unscoped, both of them hit <c>GstReportSupport.EnsureRegistrationScoped</c>'s refusal on a multi-registration
+    /// company, which is what made this whole projection THROW rather than project (measured — see
+    /// <see cref="Build"/>). It is also the correct comparison on its own terms: an amendment is a re-statement of a
+    /// document THIS registration filed, so prior and current must both be read in this registration's scope.</para>
+    /// </summary>
+    /// <param name="registrationId">The registration the return is being filed for (census 6.23); <c>null</c> ⇒ a
+    /// single-registration book, byte-identical (ER-13).</param>
+    private static IReadOnlyList<Gstr1AmendmentRow> BuildTable9A(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId)
     {
         // The already-filed B2B (dated before the current window) and the current-window B2B, keyed by (GSTIN, number).
-        var prior = Latest(Gstr1.Build(company, DateOnly.MinValue, from.AddDays(-1)).B2B);
-        var current = Latest(Gstr1.Build(company, from, to).B2B);
+        var prior = Latest(Gstr1.Build(company, DateOnly.MinValue, from.AddDays(-1), registrationId).B2B);
+        var current = Latest(Gstr1.Build(company, from, to, registrationId).B2B);
 
         var rows = new List<(int Seq, Gstr1AmendmentRow Row)>();
         foreach (var (key, revised) in current)
@@ -244,8 +316,17 @@ public sealed record Gstr3bCorrectionAdvisory(
     public bool RequiresCorrection => PriorPeriodCorrectionTax.Amount != 0m || PriorPeriodCorrectionTaxable.Amount != 0m;
 
     /// <summary>Builds the 3B-correction advisory for the current period <c>[from, to]</c>; a Composition / GST-off
-    /// company yields a not-applicable projection (ER-13).</summary>
-    public static Gstr3bCorrectionAdvisory Build(Company company, DateOnly from, DateOnly to)
+    /// company yields a not-applicable projection (ER-13).
+    ///
+    /// <para>🔴 <b>T2-123 — SCOPED, BECAUSE IT IS DERIVED ENTIRELY FROM <see cref="Gstr1Amendments"/>.</b> A 3B is
+    /// filed for one registration, so the prior-period correction flowing through it is that registration's. On the
+    /// three-registration book this is the figure that carried the whole error: Karnataka's correction reads
+    /// <b>−₹5,400.00</b> unscoped against a true <b>−₹1,800.00</b> (see <see cref="Gstr1Amendments.Build"/>).</para>
+    /// </summary>
+    /// <param name="registrationId">The registration the 3B is being filed for (census 6.23); <c>null</c> ⇒ a
+    /// single-registration book, byte-identical (ER-13).</param>
+    public static Gstr3bCorrectionAdvisory Build(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
         ArgumentNullException.ThrowIfNull(company);
 
@@ -255,7 +336,7 @@ public sealed record Gstr3bCorrectionAdvisory(
         // There is no direct amendment of a filed 3B: a correction of a prior period is declared in the CURRENT period's
         // return and flows through the current 3B. The correction is exactly the net tax of the GSTR-1 amendments of
         // prior periods declared now — the ordinary-invoice DIFFERENTIAL (9A) + the signed CDN adjustment (9C).
-        var amend = Gstr1Amendments.Build(company, from, to);
+        var amend = Gstr1Amendments.Build(company, from, to, registrationId);
 
         var tax = amend.Table9A.Sum(r => r.DifferentialTax.Amount) + amend.Table9C.Sum(r => r.RevisedTax.Amount);
         var taxable = amend.Table9A.Sum(r => r.DifferentialTaxableValue.Amount) + amend.Table9C.Sum(r => r.RevisedTaxableValue.Amount);

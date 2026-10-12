@@ -65,6 +65,34 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase, IMaste
     /// <summary>The financial years the amendments can be built for (the company FY + the two prior).</summary>
     public ObservableCollection<GstAdvFyOption> FinancialYears { get; } = new();
 
+    // --- T2-123 (census 6.23): WHICH REGISTRATION these amendments are declared for. ---
+
+    /// <summary>
+    /// 🔴 <b>The registrations this company can file under (census 6.23)</b> — the company's own first, then any
+    /// additional ones. Mirrors <c>GstOfflineReturnsViewModel</c>'s picker, and it is what makes T2-123's fix
+    /// REACHABLE rather than merely correct: before it, this screen passed no registration at all, the engine
+    /// REFUSED (<c>GstReportSupport.EnsureRegistrationScoped</c>) and a multi-registration company could not see its
+    /// amendment tables on any path. A single-GSTIN company gets exactly one entry, so
+    /// <see cref="ShowsRegistrationPicker"/> hides it and the screen is unchanged (ER-13).
+    /// </summary>
+    public ObservableCollection<GstRegistration> Registrations { get; } = new();
+
+    /// <summary>Whether the registration picker is worth showing — only once the company holds more than one.</summary>
+    public bool ShowsRegistrationPicker => Registrations.Count > 1;
+
+    private GstRegistration? _selectedRegistration;
+
+    /// <summary>The registration these amendments are declared for; changing it rebuilds both tables.</summary>
+    public GstRegistration? SelectedRegistration
+    {
+        get => _selectedRegistration;
+        set { if (SetProperty(ref _selectedRegistration, value)) Rebuild(); }
+    }
+
+    /// <summary>The id to scope both projections by. Falls back to the primary rather than to <c>null</c>, so the
+    /// screen never asks the engine for the return the engine refuses to build.</summary>
+    private Guid ScopedRegistrationId => _selectedRegistration?.Id ?? GstRegistration.PrimaryId;
+
     /// <summary>The Table-9A (B2BA) ordinary-invoice amendment rows.</summary>
     public ObservableCollection<Gstr1Amend9ARowVm> Table9A { get; } = new();
 
@@ -78,6 +106,10 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase, IMaste
         var fyStart = company.FinancialYearStart.Year;
         for (var y = fyStart; y >= fyStart - 2; y--)
             FinancialYears.Add(new GstAdvFyOption { StartYear = y });
+
+        foreach (var registration in company.Gst?.AllRegistrations ?? [])
+            Registrations.Add(registration);
+        _selectedRegistration = Registrations.FirstOrDefault();
 
         _selectedYear = FinancialYears.FirstOrDefault();
         Rebuild();
@@ -107,12 +139,14 @@ public sealed partial class GstAmendmentsReportViewModel : ViewModelBase, IMaste
 
         // v61 (census 6.23): both projections fold through GSTR-1 / GSTR-3B, which REFUSE an unscoped build on a
         // multi-registration company — amendments of one registration's prior periods cannot be derived from a
-        // return combining two GSTINs. This screen does not yet carry a registration selector, so the refusal is
-        // surfaced as its own status rather than reaching the shell as an unhandled exception.
+        // return combining two GSTINs. 🔴 T2-123: the screen now NAMES the registration (ScopedRegistrationId,
+        // defaulting to the primary), so the projection succeeds for every company instead of refusing on a
+        // multi-registration one. The catch stays: it is the guard against any OTHER engine refusal reaching the
+        // shell as an unhandled exception, which is not a claim that none can occur.
         try
         {
-            Amendments = Gstr1Amendments.Build(_company, fyFrom, fyTo);
-            Advisory = Gstr3bCorrectionAdvisory.Build(_company, fyFrom, fyTo);
+            Amendments = Gstr1Amendments.Build(_company, fyFrom, fyTo, ScopedRegistrationId);
+            Advisory = Gstr3bCorrectionAdvisory.Build(_company, fyFrom, fyTo, ScopedRegistrationId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {

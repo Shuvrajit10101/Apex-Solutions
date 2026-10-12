@@ -206,7 +206,7 @@ public sealed record Gstr9(
             }
         }
 
-        var rev = ReadTable7(company, fyFrom, fyTo);
+        var rev = ReadTable7(company, fyFrom, fyTo, registrationId);
         var (a8Gst, a8Cess) = ReadTable8A(company, fyFrom, fyTo);
         var (paidItc, paidCash) = ReadTable9(company, fyFrom, fyTo);
 
@@ -256,14 +256,45 @@ public sealed record Gstr9(
     /// <summary>Table 7 — Σ the posted ITC-reversal lines over the FY, sub-bucketed by rule via the
     /// <see cref="GstAdjustmentKind"/> tag (7A Rule 37/37A, 7C Rule 42, 7D Rule 43, 7E §17(5), 7H ineligible/§34 CN),
     /// GST heads with cess ring-fenced (ER-2). A reclaim (4(D)(1)) and a set-off / cash-payment (Table 6.1) are NOT
-    /// Table-7 reversals ⇒ excluded — so the sub-buckets sum to Σ the year's <see cref="Gstr3b.TotalItcReversed"/>.</summary>
+    /// Table-7 reversals ⇒ excluded — so the sub-buckets sum to Σ the year's <see cref="Gstr3b.TotalItcReversed"/>.
+    ///
+    /// <para>🔴 <b>T2-123 SWEEP FIND — SCOPED TO <paramref name="registrationId"/>, AND BEFORE THIS IT WAS THE ONE
+    /// UNSCOPED LEG OF ITS OWN <see cref="Build"/>.</b> Exactly the shape of <c>T1-64</c>/<c>T1-72</c>
+    /// (<c>Gstr3b.ReadReversals</c>) and <c>T2-119</c> (ii) (<c>Gstr1.BuildTable9B</c>): <c>Build</c> receives a
+    /// <c>registrationId</c> and hands it to the <c>Gstr3b</c> and <c>Gstr1</c> legs, while this sweep walked
+    /// <c>company.Vouchers</c> directly and folded EVERY registration's ITC reversals into whichever registration's
+    /// annual return was being built.
+    ///
+    /// <para><b>It is live, not latent, and the reach is named rather than assumed:</b>
+    /// <c>GstOfflineReturnsViewModel.ProjectGstr9</c> calls <c>Build(company, from, to, ScopedRegistrationId)</c>
+    /// from a screen that HAS a registration picker, and puts "<i>Table 7 ITC reversed</i>" on it. So on a
+    /// multi-registration book a branch's Rule 37/42/43/§17(5) reversal was reported in the head office's Table 7.
+    /// Worse, it made the ARTEFACT DISAGREE WITH ITSELF: this method's own summary promises the sub-buckets "sum to
+    /// Σ the year's <c>Gstr3b.TotalItcReversed</c>", and <c>Build</c> computes those monthly 3B legs SCOPED — so
+    /// Table 7 could not foot to the Table 4(B) figures sitting beside it in the same return.</para>
+    ///
+    /// <para>⚠️ <b>WHAT THIS DOES NOT CLOSE, SAID HERE RATHER THAN LEFT TO BE DISCOVERED.</b> Tables 8A, 9 and the
+    /// Electronic Ledgers remain company-wide: <c>Gstr2bSnapshot</c> carries neither a registration nor a voucher to
+    /// resolve one from, so scoping it is a SCHEMA change (v66, whose ownership is an open user decision), and
+    /// <c>GstChallan</c>/<c>GstSetoffLine</c> are the cash / credit POOLS that census 6.23 records as deliberately
+    /// company-wide — scoping their movement without scoping the closing balance would be internally inconsistent.
+    /// Those are not touched here.</para></para>
+    /// </summary>
+    /// <param name="registrationId">The registration the annual return is being filed for (census 6.23). <c>null</c>
+    /// ⇒ a single-registration company, where <c>RegistrationOf</c> normalises every voucher to
+    /// <c>GstRegistration.PrimaryId</c> and the filter is a no-op — every pre-v61 book is byte-identical (ER-13).</param>
     private static (decimal Rule37, decimal Rule42, decimal Rule43, decimal Section17_5, decimal Other, decimal Cess) ReadTable7(
-        Company company, DateOnly from, DateOnly to)
+        Company company, DateOnly from, DateOnly to, Guid? registrationId)
     {
+        // Normalised exactly as GstReportSupport.PostedDirectionalVouchers does it.
+        var scope = registrationId is { } req ? (Guid?)(req == Guid.Empty ? GstRegistration.PrimaryId : req) : null;
+
         decimal r37 = 0m, r42 = 0m, r43 = 0m, s175 = 0m, other = 0m, cess = 0m;
         foreach (var v in company.Vouchers)
         {
             if (v.Date < from) continue;
+            // 🔴 T2-123: the reversal belongs to the registration whose voucher posted it.
+            if (scope is { } s && GstReportSupport.RegistrationOf(v) != s) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
             foreach (var line in v.Lines)
