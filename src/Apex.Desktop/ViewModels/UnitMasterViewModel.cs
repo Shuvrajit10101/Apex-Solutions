@@ -72,6 +72,18 @@ public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExpo
     public string Caption => IsAltering ? "Unit Alteration" : "Unit Creation";
 
     /// <summary>
+    /// The commit button's label, matching the verb <see cref="Caption"/> names.
+    ///
+    /// <para>🔴 <b>T2-105, and this master is the worst of the label cases.</b> The control said
+    /// <i>"Create (Ctrl+A)"</i> in both modes over a handler that called <c>Create()</c> unconditionally, so a
+    /// click on the alteration screen made a DUPLICATE unit. That is worse than a duplicate category because
+    /// <see cref="IsCompositionReadOnly"/> deliberately locks the composition fields here — the screen tells the
+    /// operator they are editing the one unit every stock item is denominated in, and the lock is the evidence
+    /// they believe it.</para>
+    /// </summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
     /// True while the Simple/Compound toggle and the compound composition fields must be treated as READ-ONLY —
     /// i.e. whenever this screen is altering.
     ///
@@ -99,6 +111,7 @@ public sealed partial class UnitMasterViewModel : ViewModelBase, IMasterListExpo
         vm.LoadFrom(unit);
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         vm.OnPropertyChanged(nameof(IsCompositionReadOnly));
         return vm;
     }
