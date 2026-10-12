@@ -73,6 +73,18 @@ public sealed partial class StockCategoryMasterViewModel
     public string Caption => IsAltering ? "Stock Category Alteration" : "Stock Category Creation";
 
     /// <summary>
+    /// The commit button's label, matching the verb <see cref="Caption"/> names. Same shape as
+    /// <see cref="CostCentreMasterViewModel.CommitLabel"/>.
+    ///
+    /// <para>🔴 <b>T2-105.</b> This control's label was the literal <i>"Create (Ctrl+A)"</i> in BOTH modes while
+    /// its handler called <c>Create()</c> unconditionally — so on the alteration screen it both said and did the
+    /// wrong verb, and an operator who clicked instead of pressing the chord got a DUPLICATE category and a
+    /// success message. The handler now branches on <see cref="IsAltering"/>; this label is bound to the same
+    /// flag so the two cannot drift apart.</para>
+    /// </summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
     /// Opens this master in <b>Alter</b> mode over an existing stock category — the same form, pre-filled.
     /// Returns <c>null</c> if the id does not resolve. Mirrors <see cref="StockGroupMasterViewModel.ForAlter"/>.
     /// </summary>
@@ -87,6 +99,7 @@ public sealed partial class StockCategoryMasterViewModel
         vm.LoadFrom(category);
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
     }
 
