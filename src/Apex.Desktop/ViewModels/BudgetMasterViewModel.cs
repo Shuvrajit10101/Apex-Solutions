@@ -72,10 +72,173 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     /// <inheritdoc/>
     public string MasterKindLabel => "budget";
 
+    // ------------------------------------------- W46 AF (census 2.9): the ALTER verb, and WHY IT ARRIVES NOW
+    //
+    // 🔴 THIS SCREEN WAS CREATE+DELETE ONLY, AND THE REASON WAS A GROUNDING GAP, NOT A CODE GAP. The W33 C3
+    // block in MainWindowViewModel.AlterHighlightedMasterListRow said so in as many words: an alter verb is
+    // "only honest where a VENDOR PAGE says what altering that master means", and no page had then been found
+    // for a budget, so "budget, scenario … keep create+delete only and their census rows stay PARTIAL".
+    //
+    // THE PAGE EXISTS, and it was opened and read BY CONTENT on 2026-10-11:
+    // help.tallysolutions.com/tally-prime/budgets-and-scenario/budgets-tally/ carries the heading
+    // "Alter a Budget" and these clauses verbatim —
+    //   · "Based on the financial situation of the company, market inflation, a need to cut costs, or to
+    //      increase or decrease investment in a particular function, you may need to alter budgets created for
+    //      groups, ledgers, or cost centres."
+    //   · "You can enable the facility to alter a budget in TallyPrime and then make the necessary changes, as
+    //      per your requirement."
+    //   · "As always press Ctrl+A to save the Budget Alteration screen."
+    // The vendor's own route is "Gateway of Tally > Alter > Budgets"; OURS is arrows + Ctrl+Enter on the
+    // existing-list, this product's established shape, and it is labelled ours here rather than passed off.
+    //
+    // 🔴 WHAT IS STILL NOT CLOSED, SAID HERE SO NOBODY READS THIS AS COMPLETING ROW 2.9. The same vendor
+    // sentence quoted above names COST CENTRES as a budget target, and `budget_lines` has group_id and
+    // ledger_id and no cost_centre_id, so that target needs a SCHEMA MIGRATION. v66 ownership is an open user
+    // decision (T2-125) and this track did not take it. Removing a line from the pending grid is also still
+    // absent. 2.9 stays PARTIAL.
+
+    /// <summary>The id of the budget being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
+    private Guid _editingId = Guid.Empty;
+
     /// <inheritdoc/>
-    /// <remarks>Create-only screen — no <c>ForAlter</c> factory exists for a budget — so it is never
-    /// mid-alteration.</remarks>
-    public bool IsAltering => false;
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The screen heading — it names the VERB that is running, because the form is identical in both
+    /// modes. The altering caption is the vendor's own screen name, <i>"Budget Alteration"</i>.</summary>
+    public string Caption => IsAltering ? "Budget Alteration" : "Budget Creation";
+
+    /// <summary>The commit button's label, matching the verb <see cref="Caption"/> names. The button carries a
+    /// bound label rather than a literal "Create (Ctrl+A)" for the reason
+    /// <see cref="CostCentreMasterViewModel.CommitLabel"/> records.</summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing budget — the same form, pre-filled, with the
+    /// budget's existing lines already in the pending grid. Returns <c>null</c> if the id does not resolve.
+    /// </summary>
+    public static BudgetMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid budgetId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindBudget(budgetId) is not { } budget) return null;
+
+        var vm = new BudgetMasterViewModel(company, storage, onChanged);
+        vm._editingId = budgetId;
+        vm.LoadFrom(budget);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
+        return vm;
+    }
+
+    /// <summary>
+    /// Loads an existing budget's values into the form — the name, both period dates, and every existing line
+    /// into the pending grid, so <see cref="Alter"/> writing the grid back is a no-op until the operator
+    /// actually changes something.
+    /// </summary>
+    public void LoadFrom(Budget budget)
+    {
+        ArgumentNullException.ThrowIfNull(budget);
+        Name = budget.Name;
+        PeriodFromText = budget.PeriodFrom.ToString(DateFormat, CultureInfo.InvariantCulture);
+        PeriodToText = budget.PeriodTo.ToString(DateFormat, CultureInfo.InvariantCulture);
+
+        PendingLines.Clear();
+        foreach (var line in budget.Lines)
+            PendingLines.Add(RowFor(line));
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: re-validates the name (unique <i>excluding this budget</i>), the period and the
+    /// line set, then writes all of them back onto the existing budget and persists.
+    /// </summary>
+    /// <remarks>
+    /// 🔴 <b>THE NAME CHECK EXCLUDES THIS BUDGET'S OWN ROW, AND THAT IS THE WHOLE DIFFERENCE FROM
+    /// <see cref="Create"/>.</b> <c>Create</c>'s check is <c>FindBudgetByName(name) is not null</c>, which on an
+    /// alteration screen refuses the budget's OWN unchanged name — the exact shape that got census rows 3.2 and
+    /// 3.5 demoted (an alteration button that could not save). Accepting Ctrl+A with the name untouched is
+    /// therefore a test in its own right, not an incidental.
+    /// </remarks>
+    public bool Alter()
+    {
+        Message = null;
+
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing budget.";
+            return false;
+        }
+        if (_company.FindBudget(_editingId) is not { } budget)
+        {
+            Message = "The budget being altered no longer exists.";
+            return false;
+        }
+
+        var name = (Name ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Message = "A budget name is required.";
+            return false;
+        }
+        if (_company.Budgets.Any(b => b.Id != _editingId
+                                      && string.Equals(b.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            Message = $"A budget named '{name}' already exists.";
+            return false;
+        }
+        if (!TryParseDate(PeriodFromText, out var from))
+        {
+            Message = "From date must be dd-MMM-yyyy (e.g. 01-Apr-2024).";
+            return false;
+        }
+        if (!TryParseDate(PeriodToText, out var to))
+        {
+            Message = "To date must be dd-MMM-yyyy (e.g. 31-Mar-2025).";
+            return false;
+        }
+        if (to < from)
+        {
+            Message = "To date must be on or after the From date.";
+            return false;
+        }
+        if (PendingLines.Count == 0)
+        {
+            Message = "Add at least one budget line (a group/ledger with an amount).";
+            return false;
+        }
+
+        // The restore runs FIRST and UNCONDITIONALLY if the save throws — the shape W0-13 A1 earned on Create
+        // just below, for the same reason: a failed save must not leave the altered figures on the shared
+        // aggregate, or every LATER save carries them.
+        var beforeName = budget.Name;
+        var beforeFrom = budget.PeriodFrom;
+        var beforeTo = budget.PeriodTo;
+        var beforeLines = budget.Lines.ToList();
+
+        budget.Name = name;
+        budget.PeriodFrom = from;
+        budget.PeriodTo = to;
+        budget.ReplaceLines(PendingLines.Select(r => r.Line));
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            budget.Name = beforeName;
+            budget.PeriodFrom = beforeFrom;
+            budget.PeriodTo = beforeTo;
+            budget.ReplaceLines(beforeLines);
+            if (!SaveFailure.IsReportable(ex)) throw;
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshList();
+        Message = $"Budget '{name}' altered ({budget.Lines.Count} line(s)).";
+        _onChanged();
+        return true;
+    }
 
     /// <inheritdoc/>
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
@@ -206,16 +369,54 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             ? BudgetLine.ForGroup(SelectedTarget.GroupId!.Value, SelectedType, new Money(amount))
             : BudgetLine.ForLedger(SelectedTarget.LedgerId!.Value, SelectedType, new Money(amount));
 
-        PendingLines.Add(new PendingBudgetLineRow
-        {
-            Target = SelectedTarget.Display,
-            Type = TypeLabel(SelectedType),
-            Amount = IndianFormat.AmountAlways(amount),
-            Line = line,
-        });
+        var row = RowFor(line);
+
+        // 🔴 W46 AF — RE-STATING A TARGET OVERWRITES ITS FIGURE, IT DOES NOT APPEND A SECOND LINE. This is
+        // OURS, not a vendor clause. 🔴 CORRECTED BY THE W46 REVIEW: this comment used to say "BudgetVariance
+        // sums every line that matches a target … and the variance silently halves", and that is FALSE — read
+        // `BudgetVarianceReport.Build`, which emits ONE ROW PER LINE and sums nothing. The real fault is just as
+        // disqualifying and is what the rule exists for: two lines for the same group+measure render the SAME
+        // target TWICE, each measured against the same actual, so the report shows two contradictory budgeted
+        // figures and two variances for one target with nothing saying which is in force. (The vendor's own
+        // Ledger/Group Budget screen is a grid of one row per Account Name, so one figure per target is also
+        // the shape the page describes.) Before the Alter verb existed the bug was unreachable in practice
+        // (a budget was built once, in one sitting); the moment the pending grid is PRE-FILLED from an existing
+        // budget, correcting one amount is the ordinary act and appending is the wrong answer to it.
+        var existing = PendingLines.FirstOrDefault(r => SameTarget(r.Line, line));
+        if (existing is not null)
+            PendingLines[PendingLines.IndexOf(existing)] = row;
+        else
+            PendingLines.Add(row);
 
         LineAmountText = string.Empty;
         return true;
+    }
+
+    /// <summary>True iff two budget lines name the same target AND the same measure — the identity under which
+    /// one line replaces another in the pending grid.</summary>
+    private static bool SameTarget(BudgetLine a, BudgetLine b) =>
+        a.Type == b.Type && a.GroupId == b.GroupId && a.LedgerId == b.LedgerId;
+
+    /// <summary>
+    /// The pending-grid row for an engine line — the one place the three display strings are derived, so a line
+    /// loaded by <see cref="LoadFrom"/> reads identically to one just typed in by <see cref="AddLine"/>.
+    /// </summary>
+    private PendingBudgetLineRow RowFor(BudgetLine line)
+    {
+        var display = Targets.FirstOrDefault(t => t.GroupId == line.GroupId && t.LedgerId == line.LedgerId)
+                             ?.Display
+                      // A target whose group/ledger has since been deleted still has to render: naming it
+                      // "(unknown)" keeps the row visible and countable instead of dropping a budgeted figure
+                      // out of the grid, which an Alter would then silently write away.
+                      ?? "(unknown target)";
+
+        return new PendingBudgetLineRow
+        {
+            Target = display,
+            Type = TypeLabel(line.Type),
+            Amount = IndianFormat.AmountAlways(line.Amount.Amount),
+            Line = line,
+        };
     }
 
     /// <summary>

@@ -57,4 +57,29 @@ public sealed class Budget
 
     /// <summary>Adds a budget line (targeting a group or a ledger).</summary>
     public void AddLine(BudgetLine line) => _lines.Add(line);
+
+    /// <summary>
+    /// Replaces every line of this budget with <paramref name="lines"/> — the write half of
+    /// <b>Budget Alteration</b> (census 2.9).
+    /// </summary>
+    /// <remarks>
+    /// <para>🔴 <b>WHY A WHOLESALE REPLACE RATHER THAN A PER-LINE MUTATOR.</b> <see cref="BudgetLine"/> is
+    /// immutable by construction (every property is get-only and the ctor is the only validation choke point —
+    /// see its remarks on the sub-paisa throw), so "change a line's amount" cannot be expressed as a setter
+    /// without defeating that validation. The master screen therefore rebuilds the whole set from its pending
+    /// grid and hands it over here, which is also exactly what the persistence layer does on save
+    /// (<c>budget_lines</c> is delete-all + re-insert, keyed only by <c>budget_id</c>), so no orphan is possible.</para>
+    /// <para>The list is copied, not aliased: the caller's collection is its own screen state and must not
+    /// become the aggregate's.</para>
+    /// </remarks>
+    public void ReplaceLines(IEnumerable<BudgetLine> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        var replacement = lines.ToList();
+        if (replacement.Any(l => l is null))
+            throw new ArgumentException("A budget line may not be null.", nameof(lines));
+
+        _lines.Clear();
+        _lines.AddRange(replacement);
+    }
 }

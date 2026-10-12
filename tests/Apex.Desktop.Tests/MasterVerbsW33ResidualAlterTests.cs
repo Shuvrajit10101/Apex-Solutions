@@ -615,18 +615,25 @@ public sealed class MasterVerbsW33ResidualAlterTests
 
     // ============================================================ the arm itself, and the six that did NOT join
 
-    /// <summary>🔴 <b>THE HONEST NEGATIVE.</b> The six residual masters that gained DELETE in this cluster did not
-    /// gain ALTER, and this locks that in BOTH directions: their screens stay on the shared delete arm
-    /// (<c>MasterListScreen</c> resolves) while <c>IsAltering</c> stays false because no <c>ForAlter</c> exists —
-    /// so if a later slice wires one and forgets this file, the test goes red here rather than the census quietly
-    /// drifting to COMPLETE.</summary>
+    /// <summary>🔴 <b>THE HONEST NEGATIVE.</b> The residual masters that gained DELETE in this cluster but not
+    /// ALTER, locked in BOTH directions: their screens stay on the shared delete arm (<c>MasterListScreen</c>
+    /// resolves) while <c>IsAltering</c> stays false because no <c>ForAlter</c> exists — so if a later slice
+    /// wires one and forgets this file, the test goes red here rather than the census quietly drifting.
+    ///
+    /// <para>🔴 <b>THE LIST WENT FROM SIX TO FIVE (census 3.11, price list, wave 42) AND IS NOW THREE: BUDGET
+    /// AND SCENARIO LEFT IT IN WAVE 46 / TRACK AF.</b> Both now have a <c>ForAlter</c> and a Ctrl+Enter arm, on
+    /// vendor pages opened by content on 2026-10-11 — <i>"Alter a Budget" … "As always press Ctrl+A to save the
+    /// Budget Alteration screen"</i>
+    /// (help.tallysolutions.com/tally-prime/budgets-and-scenario/budgets-tally/) and <i>"Alter Master &gt;
+    /// Scenario" … "accept the Scenario Alteration screen"</i>
+    /// (help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/). Their positive tests live in
+    /// <c>BudgetScenarioAlterAndExcludeTests</c>. <b>Batch, BOM and the reorder definition stay here</b>; the
+    /// reorder page still 404s, so inventing its alter shape remains refused.</para></summary>
     [AvaloniaTheory]
     [InlineData("Batch", Screen.BatchMaster)]
     [InlineData("Bill of Materials", Screen.BomMaster)]
-    [InlineData("Budget", Screen.BudgetMaster)]
-    [InlineData("Scenario", Screen.ScenarioMaster)]
     [InlineData("Reorder Levels", Screen.ReorderLevelsMaster)]
-    public void The_six_masters_without_a_vendor_documented_alter_are_delete_only(string label, Screen screen)
+    public void The_masters_without_a_vendor_documented_alter_are_delete_only(string label, Screen screen)
     {
         var (window, vm, dir) = NewWindow("W33 Alter Absent Co");
         try

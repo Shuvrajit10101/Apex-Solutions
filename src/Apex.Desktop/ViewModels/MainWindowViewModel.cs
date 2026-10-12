@@ -11694,7 +11694,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Currency", altering symbol / formal name / ISO code / decimal places —
             // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. 🔴 The "other six"
             // this comment named are now FIVE — the price list left the list at census 3.11, on its own vendor
-            // page; see the arm below. Batch, BOM, budget, scenario and reorder keep create+delete only and their
+            // page; see the arm below. 🔴 AND THAT FIVE IS NOW **THREE**: budget and scenario left the list in
+            // W46 / track AF, each on its own vendor page (see the two arms at the END of this switch). Only
+            // BATCH, BOM and REORDER keep create+delete only and their
             // census rows stay PARTIAL. Inventing an alter shape for a master no source describes is how this
             // project has previously shipped a verb nobody asked for.
             case Screen.PriceLevelsMaster:
@@ -11712,7 +11714,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // "You can alter a price list by overwriting the details entered in the Price List screen", reached via
             // "Press Alt+G (Go To) > Alter Master > Price List"
             // [help.tallysolutions.com/selling-buying-prices/, opened and read by content 2026-10-04]. The list in
-            // that block is now FIVE (batch, BOM, budget, scenario, reorder); the reorder page 404s, so reorder
+            // that block was then FIVE (batch, BOM, budget, scenario, reorder) and is now THREE (batch, BOM,
+            // reorder) — budget and scenario left it in W46 / track AF; the reorder page 404s, so reorder
             // alter stays withheld rather than invented.
             //
             // The row the arrows walk here is the dated VERSION history, so Ctrl+Enter opens one version for
@@ -11745,6 +11748,39 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     is not { } m) return false;
                 OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.CurrencyMaster, m.Caption,
                     () => CurrencyMaster = m);
+                return true;
+            }
+
+            // ─────────────────────────────── W46 AF: the BUDGET and SCENARIO alter arms (census 2.9, 2.10)
+            //
+            // 🔴 THE W33 C3 BLOCK ABOVE NAMED BUDGET AND SCENARIO AMONG THE MASTERS THAT KEEP CREATE+DELETE
+            // ONLY, ON THE EXPLICIT GROUND THAT NO VENDOR PAGE SAID WHAT ALTERING THEM MEANS. THAT GROUND IS
+            // GONE — BOTH PAGES EXIST AND BOTH WERE OPENED AND READ BY CONTENT ON 2026-10-11:
+            //   · Budget — "Alter a Budget": "You can enable the facility to alter a budget in TallyPrime and
+            //     then make the necessary changes, as per your requirement" … "As always press Ctrl+A to save
+            //     the Budget Alteration screen", reached by "Gateway of Tally > Alter > Budgets"
+            //     [help.tallysolutions.com/tally-prime/budgets-and-scenario/budgets-tally/].
+            //   · Scenario — "Press Alt+G (Go To) > Alter Master > Scenario" … "Select the Scenario you want to
+            //     alter from the List of Scenarios" … "Modify the details as required and, as always, accept
+            //     the Scenario Alteration screen"
+            //     [help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/].
+            // That list is now THREE (batch, BOM, reorder). The reorder page still 404s, so reorder alter stays
+            // withheld rather than invented. The ROUTE here (arrows + Ctrl+Enter on the existing-list) is OURS,
+            // as it is for every other arm in this switch.
+            case Screen.BudgetMaster:
+            {
+                if (BudgetMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.BudgetMaster, m.Caption,
+                    () => BudgetMaster = m);
+                return true;
+            }
+            case Screen.ScenarioMaster:
+            {
+                if (ScenarioMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.ScenarioMaster, m.Caption,
+                    () => ScenarioMaster = m);
                 return true;
             }
 
@@ -12331,11 +12367,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.PosBilling:
                 AcceptPosBillingOrAlteration();
                 return;
+            // 🔴 W46 AF — THESE TWO BRANCH NOW. They used to be a bare unconditional `Create()`, which is the
+            // EXACT shape that got census rows 3.2 and 3.5 DEMOTED: on an alteration screen the unchanged name
+            // fails Create's own uniqueness check, so the operator's correction is lost rather than saved. The
+            // keyboard arm and the mouse buttons (OnCreateBudgetClick / OnCreateScenarioClick) must agree.
             case Screen.BudgetMaster:
-                BudgetMaster?.Create();
+                if (BudgetMaster is { IsAltering: true }) BudgetMaster.Alter();
+                else BudgetMaster?.Create();
                 return;
             case Screen.ScenarioMaster:
-                ScenarioMaster?.Create();
+                if (ScenarioMaster is { IsAltering: true }) ScenarioMaster.Alter();
+                else ScenarioMaster?.Create();
                 return;
             // W33 C3: the currency form now serves Create and Alter through the one screen, so Ctrl+A branches.
             // 🔴 The RATE form on the same page is untouched: it has its own accept (CreateRate) and adds a dated
