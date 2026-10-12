@@ -476,6 +476,17 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// <summary>The screen caption — the one visible signal telling the operator which verb Ctrl+A will run.</summary>
     public string Caption => IsAltering ? "Stock Item Alteration" : "Stock Item Creation";
 
+    /// <summary>
+    /// The commit button's label, matching the verb <see cref="Caption"/> names.
+    ///
+    /// <para>🔴 <b>T2-105, and this is the instance that reaches the Balance Sheet.</b> The control said
+    /// <i>"Create (Ctrl+A)"</i> in both modes over a handler that called <c>Create()</c> unconditionally, so a
+    /// click on the alteration screen made a DUPLICATE stock item. A duplicate stock item carries its own
+    /// opening balance, its own costing method and its own inventory, so it does not merely clutter a list — it
+    /// SPLITS the closing-stock figure. Label and handler now both branch on <see cref="IsAltering"/>.</para>
+    /// </summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
     /// <summary>Opens this master in <b>Alter</b> mode over an existing stock item (WI-3) — the same form,
     /// pre-filled. Returns <c>null</c> if the id does not resolve.</summary>
     public static StockItemMasterViewModel? ForAlter(
@@ -489,6 +500,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         vm.LoadFrom(item);
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
     }
 

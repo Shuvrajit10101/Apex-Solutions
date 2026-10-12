@@ -90,6 +90,16 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
     public string Caption => IsAltering ? "Godown Alteration" : "Godown Creation";
 
     /// <summary>
+    /// The commit button's label, matching the verb <see cref="Caption"/> names.
+    ///
+    /// <para>🔴 <b>T2-105.</b> The control said <i>"Create (Ctrl+A)"</i> in both modes over a handler that called
+    /// <c>Create()</c> unconditionally, so a click on the alteration screen made a DUPLICATE godown — and a
+    /// duplicate godown splits where stock is reported to be. Label and handler now both branch on
+    /// <see cref="IsAltering"/>.</para>
+    /// </summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
     /// Opens this master in <b>Alter</b> mode over an existing godown — the same form, pre-filled. Returns
     /// <c>null</c> if the id does not resolve. This is the vendor's <i>"Godowns &gt; and select Alter"</i>.
     /// </summary>
@@ -104,6 +114,7 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
         vm.LoadFrom(godown);
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
     }
 
