@@ -7606,11 +7606,13 @@
                               <!-- The vendor's Alt+B, given a pointer affordance as well as the chord. Visible
                                    only on the Multi Ledger Alteration screen, which is the surface the vendor
                                    documents it on. -->
-                              <Button Grid.Column="1" Content="Zero Opening Balance (Alt+B)" Padding="12,6"
+                              <Button Grid.Column="1" Name="MultiMasterZeroOpeningButton"
+                                      Content="Zero Opening Balance (Alt+B)" Padding="12,6"
                                       Margin="0,0,8,0"
                                       IsVisible="{Binding ShowsZeroOpeningBalance}"
                                       Click="OnMultiMasterZeroOpeningClick"/>
-                              <Button Grid.Column="2" Content="{Binding CommitLabel}" Padding="14,6"
+                              <Button Grid.Column="2" Name="MultiMasterCommitButton"
+                                      Content="{Binding CommitLabel}" Padding="14,6"
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnMultiMasterCreateClick"/>
                             </Grid>

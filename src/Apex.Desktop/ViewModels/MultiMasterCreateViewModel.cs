@@ -162,8 +162,13 @@ public sealed partial class MultiMasterRowViewModel : ViewModelBase
     /// <summary>The master's name as it was LOADED, so the alter arm can tell a changed row from an untouched one.</summary>
     public string OriginalName { get; init; } = string.Empty;
 
-    /// <summary>The master's parent as it was LOADED (by id), for the same reason as <see cref="OriginalName"/>.</summary>
-    public Guid? OriginalUnderId { get; init; }
+    /// <summary>
+    /// The master's parent as it was LOADED, by id, with <see cref="Guid.Empty"/> meaning "no parent" (a primary
+    /// godown). Deliberately NOT nullable: the row's own <see cref="Under"/> expresses "no parent" as the
+    /// <b>Primary</b> sentinel option, whose <c>Id</c> is <see cref="Guid.Empty"/>, so comparing a
+    /// <c>Guid?</c> against it would report every primary row as CHANGED on load and rewrite it on every accept.
+    /// </summary>
+    public Guid OriginalUnderId { get; init; }
 
     /// <summary>The opening balance as it was LOADED, rendered exactly as the box shows it.</summary>
     public string OriginalOpeningBalanceText { get; init; } = string.Empty;
@@ -256,7 +261,7 @@ public sealed partial class MultiMasterRowViewModel : ViewModelBase
     public bool IsChanged =>
         IsExisting
         && (!string.Equals((Name ?? string.Empty).Trim(), OriginalName, StringComparison.Ordinal)
-            || Under?.Id != OriginalUnderId
+            || (Under?.Id ?? Guid.Empty) != OriginalUnderId
             || !string.Equals((OpeningBalanceText ?? string.Empty).Trim(),
                               OriginalOpeningBalanceText, StringComparison.Ordinal)
             || OpeningIsCredit != OriginalOpeningIsCredit);
@@ -454,13 +459,26 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
     /// <summary>True while the header names the "All Items" sentinel, i.e. each row carries its own parent.</summary>
     public bool IsAllItems => SelectedUnderGroup?.Parent is null;
 
-    /// <summary>The singular noun for this family's parent, used in hints and refusals.</summary>
+    /// <summary>The singular noun for this family's parent, used in the header hint.</summary>
     private string ParentNoun => Kind switch
     {
         MultiMasterKind.Godown => "parent godown",
         MultiMasterKind.CostCentre => "cost category",
         MultiMasterKind.StockItem => "stock group",
         _ => "group",
+    };
+
+    /// <summary>
+    /// The refusal for a row with no parent chosen. It names the COLUMN the operator has to go to, which is why
+    /// it is a whole sentence per family rather than a noun dropped into one template — "pick a parent godown"
+    /// does not tell an operator which cell is empty, and "pick an Under group" does.
+    /// </summary>
+    private string PickParentRefusal => Kind switch
+    {
+        MultiMasterKind.Godown => "pick an Under godown (or ◦ Primary).",
+        MultiMasterKind.CostCentre => "pick a Category.",
+        MultiMasterKind.StockItem => "pick an Under stock group.",
+        _ => "pick an Under group.",
     };
 
     /// <summary>The plural noun for this family's masters, used in hints and confirmations.</summary>
@@ -531,7 +549,37 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         }
     }
 
-    /// <summary>Rebuilds both parent pickers from the company (the "All Items" sentinel stays first).</summary>
+    /// <summary>
+    /// The row-picker option standing for "no parent at all", offered only where a parentless master is legal.
+    ///
+    /// <para>🔴 <b>IT EXISTS BECAUSE WITHOUT IT THE MULTI GODOWN ALTERATION SCREEN WAS UNUSABLE, and the way that
+    /// was found is worth recording: the first draft of this screen loaded every godown, found
+    /// <c>Main Location.ParentId</c> to be <c>null</c>, could represent it with no option in the picker, and so
+    /// refused the WHOLE batch with "Row 1 (Main Location): pick a parent godown" — over a grid the operator had
+    /// not touched.</b> Main Location is the only godown most companies have, so the screen refused itself. The
+    /// sentinel's <c>Id</c> is <see cref="Guid.Empty"/>, which <see cref="ParentIdOrNull"/> maps back to
+    /// <c>null</c>.</para>
+    ///
+    /// <para><b>Ours, labelled (RULING 9).</b> The vendor's godown text says the operator "<i>will be prompted to
+    /// select the parent godown for each godown name</i>", which implies a parent is always given; our own single
+    /// Godown master allows Primary, and a multi screen that could not express what the single screen stores
+    /// would be unable to show the company's own data. Offered on the godown family only: a ledger, a stock item
+    /// and a cost centre each require a real parent, and primary GROUPS are not loaded at all.</para>
+    /// </summary>
+    private static readonly MultiMasterParent PrimarySentinel = new(Guid.Empty, "◦ Primary");
+
+    /// <summary>True where a parentless master is legal, i.e. where <see cref="PrimarySentinel"/> is offered.</summary>
+    private bool AllowsPrimaryParent => Kind == MultiMasterKind.Godown;
+
+    /// <summary>Maps a chosen parent back to a domain parent id — the Primary sentinel becomes <c>null</c>.</summary>
+    private static Guid? ParentIdOrNull(MultiMasterParent parent)
+        => parent.Id == Guid.Empty ? null : parent.Id;
+
+    /// <summary>
+    /// Rebuilds both parent pickers from the company. The header keeps the "All Items" sentinel first and holds
+    /// REAL parents only — a "Primary" row there would read as a filter and could not act as one, since the
+    /// filter matches a parent id.
+    /// </summary>
     private void RefreshParentOptions()
     {
         var previousId = SelectedUnderGroup?.Parent?.Id;
@@ -539,6 +587,7 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         UnderOptions.Clear();
         UnderGroupOptions.Clear();
         UnderGroupOptions.Add(new MultiMasterUnderOption("All Items", null));
+        if (AllowsPrimaryParent) UnderOptions.Add(PrimarySentinel);
         foreach (var p in CandidateParents().OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
         {
             UnderOptions.Add(p);
@@ -629,11 +678,16 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
                 UnderIsEditable = true,   // the parent is one of the things an alteration changes
                 ExistingId = seed.Id,
                 OriginalName = seed.Name,
-                OriginalUnderId = seed.UnderId,
+                OriginalUnderId = seed.UnderId ?? Guid.Empty,
                 OriginalOpeningBalanceText = seed.OpeningText,
                 OriginalOpeningIsCredit = seed.OpeningIsCredit,
                 Name = seed.Name,
-                Under = seed.UnderId is { } uid ? UnderOptions.FirstOrDefault(p => p.Id == uid) : null,
+                // A null parent resolves to the Primary sentinel where one is offered (godowns). Where it is not,
+                // EnumerateExisting has already excluded any master whose parent this picker cannot represent, so
+                // the FirstOrDefault below cannot silently leave the cell empty over a master that HAS a parent.
+                Under = seed.UnderId is { } uid
+                    ? UnderOptions.FirstOrDefault(p => p.Id == uid)
+                    : (AllowsPrimaryParent ? PrimarySentinel : null),
                 OpeningBalanceText = seed.OpeningText,
                 OpeningIsCredit = seed.OpeningIsCredit,
             };
@@ -658,6 +712,23 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
     /// show in the Under column, and <c>GroupService.AlterGroup</c> requires a stated Nature of Group for one —
     /// which this grid has no column for and which, for a predefined head, it is not allowed to change at all.
     /// Loading them would put rows on screen that could only ever be refused.</para>
+    ///
+    /// <para>🔴 <b>AND A LEDGER UNDER THE RESERVED PROFIT &amp; LOSS HEAD IS EXCLUDED FOR THE SAME REASON, which
+    /// this screen found the hard way.</b> <c>Company.ProfitAndLossHead</c> is a <see cref="Group"/> that is
+    /// deliberately NOT in <c>Company.Groups</c> — hence <c>FindGroupOrHeadByName</c> existing beside
+    /// <c>FindGroupByName</c> — so the seeded <i>Profit &amp; Loss A/c</i> ledger sits under a parent no group
+    /// picker in this application can offer. The first draft loaded it anyway, left its Under cell empty, and
+    /// refused the whole batch with "<i>Row 4 (Profit &amp; Loss A/c): pick a group</i>" over a grid the operator
+    /// had not touched. Excluding it is the conservative answer: the alternative — putting the reserved head in
+    /// the picker — would newly permit moving ORDINARY ledgers under it, which no source asks for.</para>
+    ///
+    /// <para>⚠️ <b>A latent defect in the SINGLE Ledger master is recorded here rather than left unsaid, because
+    /// it is the same root cause and this is where it was found.</b>
+    /// <c>LedgerMasterViewModel.ForAlter</c> resolves its picker with
+    /// <c>SelectedGroup = Groups.FirstOrDefault(g =&gt; g.Id == ledger.GroupId) ?? SelectedGroup</c>. For the
+    /// P&amp;L A/c ledger that lookup MISSES and falls back to whatever was already selected, so the screen shows
+    /// a group the ledger is not under — and accepting would silently RE-PARENT it. That is outside this slice
+    /// and is reported, not patched here.</para>
     /// </summary>
     private IEnumerable<ExistingSeed> EnumerateExisting(MultiMasterParent? filter)
     {
@@ -665,6 +736,7 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         {
             case MultiMasterKind.Ledger:
                 return _company.Ledgers
+                    .Where(l => _company.Groups.Any(g => g.Id == l.GroupId))
                     .Where(l => filter is null || l.GroupId == filter.Id)
                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase)
                     .Select(l => new ExistingSeed(
@@ -823,7 +895,7 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
             // --- parent: the header when one is named, else this row's own pick.
             var under = headerParent ?? row.Under;
             if (under is null)
-                return Refuse($"{label}: pick a{(ParentNoun.StartsWith('a') ? "n" : string.Empty)} {ParentNoun}.");
+                return Refuse($"{label}: {PickParentRefusal}");
 
             // --- opening balance (ledger grid only): the single-ledger master's three refusals, by row.
             var opening = Money.Zero;
@@ -912,7 +984,9 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
             case MultiMasterKind.Godown:
             {
                 var inventory = new InventoryService(_company);
-                foreach (var p in pending) inventory.CreateGodown(p.Name, p.Under.Id);
+                // ParentIdOrNull, not p.Under.Id: the ◦ Primary sentinel's Guid.Empty is not a godown and
+                // CreateGodown would refuse it as a missing parent.
+                foreach (var p in pending) inventory.CreateGodown(p.Name, ParentIdOrNull(p.Under));
                 break;
             }
 
@@ -984,7 +1058,7 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
 
             var under = row.Under;
             if (under is null)
-                return Refuse($"{label}: pick a{(ParentNoun.StartsWith('a') ? "n" : string.Empty)} {ParentNoun}.");
+                return Refuse($"{label}: {PickParentRefusal}");
 
             var opening = Money.Zero;
             var isDebit = !row.OpeningIsCredit;
@@ -1109,7 +1183,8 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
                     // unconditionally. Omitting them would clear a stored alias, un-flag a third-party godown and
                     // detach its job/project cost centre — none of which this grid shows.
                     inventory.AlterGodown(
-                        p.Id, p.Name, p.Under.Id, godown.Alias, godown.ThirdParty, godown.JobCostCentreId);
+                        p.Id, p.Name, ParentIdOrNull(p.Under),
+                        godown.Alias, godown.ThirdParty, godown.JobCostCentreId);
                 }
                 break;
             }

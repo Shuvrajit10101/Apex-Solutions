@@ -115,9 +115,31 @@ public sealed class MultiMasterGridReachabilityTests
         return Descendants(containers[i]).OfType<Grid>().First();
     }
 
+    /// <summary>
+    /// Row <paramref name="i"/>'s own cells — the row grid's direct children PLUS the direct children of the
+    /// family panel nested in its last column.
+    ///
+    /// <para>🔴 <b>Why one extra level and not a tree walk.</b> WBB-1 moved the family-specific cells (Opening
+    /// Balance + Dr/Cr for ledgers; Units + Qty + Rate + Amount for stock items) into a single <c>Auto</c> column
+    /// holding one fixed-width <see cref="Grid"/> per family, so a family that shows neither reserves no width.
+    /// Those cells are therefore one level deeper than before. A full tree walk would NOT do instead: the Under
+    /// picker's own control template contains a <c>TextBox</c> and several borders of its own, so a tree-wide
+    /// search re-counts the picker's internals as row cells — the same trap <see cref="RowGrid"/> already
+    /// records. Taking only the DIRECT children of direct-child Grids reaches the family panel and nothing
+    /// inside a ComboBox, because a ComboBox is not a Grid.</para>
+    /// </summary>
+    private static List<T> RowCells<T>(MainWindow window, int i) where T : Control
+    {
+        var grid = RowGrid(window, i);
+        var cells = grid.GetVisualChildren().OfType<T>().ToList();
+        foreach (var panel in grid.GetVisualChildren().OfType<Grid>().Where(p => p.IsVisible))
+            cells.AddRange(panel.GetVisualChildren().OfType<T>());
+        return cells;
+    }
+
     /// <summary>Row <paramref name="i"/>'s own text cells (Name, Opening Balance) — not the picker's internals.</summary>
     private static List<TextBox> RowTextBoxes(MainWindow window, int i)
-        => RowGrid(window, i).GetVisualChildren().OfType<TextBox>().ToList();
+        => RowCells<TextBox>(window, i);
 
     // ------------------------------------------------------------------ the grid actually renders
 
@@ -138,11 +160,11 @@ public sealed class MultiMasterGridReachabilityTests
             Assert.Equal(2, boxes.Count);                       // Name of Ledger, Opening Balance
             Assert.All(boxes, b => Assert.True(b.Focusable, "a grid cell a keyboard cannot focus is unreachable."));
 
-            var picker = RowGrid(window, 0).GetVisualChildren().OfType<ComboBox>().Single();
+            var picker = RowCells<ComboBox>(window, 0).Single();
             Assert.True(picker.Focusable);
 
             // Space toggles the Dr/Cr cell, so the side needs no pointer either.
-            var side = RowGrid(window, 0).GetVisualChildren().OfType<CheckBox>().Single();
+            var side = RowCells<CheckBox>(window, 0).Single();
             Assert.True(side.Focusable);
         }
         finally { Close(window, tempDir); }
