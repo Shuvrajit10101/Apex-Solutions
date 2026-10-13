@@ -19752,6 +19752,30 @@
                                                Foreground="{StaticResource BrandNavy}"/>
                                 </StackPanel>
 
+                                <!-- Census 12.3 — the REPORT header knobs. The vendor's own sub-form is
+                                     F7 (Title) > Header Information, taking a Title AND a Subtitle, and its
+                                     configuration page names "financial reports" among the documents it
+                                     configures (help.tallysolutions.com/configure-printing-for-invoices-reports/);
+                                     working-with-reports/ attests the same from the other side — "updating the
+                                     title/sub-title of the report will not require you to open the F12
+                                     Configuration list anymore".
+                                     Hidden, not disabled, over a voucher/invoice: those take the title override
+                                     through the document group above and have no sub-title band at all, so
+                                     showing this group there would offer one knob twice and one that does
+                                     nothing. ReportPdf honours both, which is what makes the group legal here —
+                                     see PrintConfigViewModel.SupportsReportHeaderKnobs. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsReportHeaderKnobs}">
+                                  <TextBlock Text="Report title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = the report's own heading)"/>
+
+                                  <TextBlock Text="Report sub-title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding SubtitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = company, period and any filter clause)"/>
+                                </StackPanel>
+
                                 <!-- W2-31 (census 12.4) page knobs — every document kind.
                                      These captions named F8 / F9 / F5 / F10 while NOTHING routed those keys for
                                      this panel (`PrintConfigPanel` appears nowhere in MainWindow.axaml.cs), so

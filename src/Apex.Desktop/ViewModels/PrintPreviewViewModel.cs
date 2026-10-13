@@ -90,9 +90,27 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     public string Title => "Print Preview";
 
-    /// <summary>True for a voucher / tax-invoice preview — the F12 print-config knobs (title override, narration
-    /// toggle, copy marking) apply. False for a plain report preview (those knobs are inert there).</summary>
+    /// <summary>True for a voucher / tax-invoice preview — the F12 <b>document</b> knobs (title override,
+    /// narration toggle, copy marking) apply. False for a plain report preview, where the narration line and the
+    /// CGST Rule 48(1) copy have nothing to act on.
+    ///
+    /// <para>🔴 It is NOT the predicate for the title override any more: census 12.3 gave a REPORT print its own
+    /// title/sub-title override, which is <see cref="SupportsReportHeaderOverride"/>. Widening THIS flag would
+    /// have been the wrong fix — it would have put a narration checkbox and three statutory copy-marking radios
+    /// on a Trial Balance's F12 panel, i.e. three controls the report renderer cannot honour, which is the
+    /// dead-knob defect <c>PrintConfigViewModel</c>'s own predicates exist to forbid.</para></summary>
     public bool SupportsPrintConfig => Kind is PrintKind.Voucher or PrintKind.Invoice;
+
+    /// <summary>
+    /// Census 12.3 — true for a report preview (single or multi-document job), where the F12 <b>title and
+    /// sub-title override</b> applies. The vendor offers it on reports explicitly; the quotations are on
+    /// <see cref="PrintConfig.TitleOverride"/>.
+    ///
+    /// <para>Deliberately disjoint from <see cref="SupportsPrintConfig"/>: a voucher and an invoice already take
+    /// the title override through their own renderers and have no sub-title band, so the two flags never both
+    /// claim the same knob.</para>
+    /// </summary>
+    public bool SupportsReportHeaderOverride => Kind is PrintKind.Report or PrintKind.ReportSet;
 
     /// <summary>
     /// True while this preview is holding the supplier payment-advice LETTERS (census 8.7) — the one thing that
@@ -164,11 +182,22 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         }
     }
 
-    // ---- F12 print-config knobs (RQ-12) — apply to voucher/invoice prints; inert for a report. ----
+    // ---- F12 print-config knobs (RQ-12). The narration and copy-marking knobs are voucher/invoice-only; the
+    //      TITLE and SUB-TITLE overrides reach a report print too (census 12.3). ----
 
-    /// <summary>F12: an optional document-title override (blank ⇒ the template default, e.g. "TAX INVOICE").
-    /// Changing it re-renders.</summary>
+    /// <summary>F12: an optional document-title override (blank ⇒ the template default, e.g. "TAX INVOICE", or a
+    /// report's own heading). Changing it re-renders — on a voucher, an invoice AND a report (census 12.3).</summary>
     [ObservableProperty] private string _titleOverride = string.Empty;
+
+    /// <summary>
+    /// F12: an optional sub-title override for a REPORT print (census 12.3; blank ⇒ the report's own sub-title,
+    /// which carries the company, the period and any narrowing clause). Changing it re-renders.
+    ///
+    /// <para>The vendor's sub-form takes a Title and a Subtitle together — <i>"In the Header Information
+    /// sub-screen, provide the required <b>Title</b> and <b>Subtitle</b> for the document and save"</i>
+    /// (<c>help.tallysolutions.com/configure-printing-for-invoices-reports/</c>, by content 2026-10-13).</para>
+    /// </summary>
+    [ObservableProperty] private string _subtitleOverride = string.Empty;
 
     /// <summary>F12: whether the narration line prints (default on). Toggling re-renders.</summary>
     [ObservableProperty] private bool _showNarration = true;
@@ -377,6 +406,9 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     private PrintConfig BuildPrintConfig() => new()
     {
         TitleOverride = string.IsNullOrWhiteSpace(TitleOverride) ? null : TitleOverride.Trim(),
+        // Census 12.3. Null rather than "" when blank, so PrintReport.WithHeaderOverride takes its
+        // return-the-same-instance path and an unconfigured report print is byte-identical (ER-13).
+        SubtitleOverride = string.IsNullOrWhiteSpace(SubtitleOverride) ? null : SubtitleOverride.Trim(),
         ShowNarration = ShowNarration,
         CopyMarking = CopyMarking,
     };
@@ -417,8 +449,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
                 _advices!, _adviceCompanyName, _adviceCompanyAddress, _config, AdviceFreshPageEach),
             // W2-32: the SET goes through the multi-document overload, so the pane and the paper agree about a
             // job — one PDF, each document on its own sheet, numbering running across the whole job.
-            PrintKind.ReportSet => ReportPdf.Render(_documents!, _config),
-            _ => ReportPdf.Render(_report!, _config),
+            // Census 12.3: both report paths now carry the F12 print config, so the operator's title and
+            // sub-title override reaches the paper. With neither override set the bytes are unmoved.
+            PrintKind.ReportSet => ReportPdf.Render(_documents!, _config, BuildPrintConfig()),
+            _ => ReportPdf.Render(_report!, _config, BuildPrintConfig()),
         };
         OnPropertyChanged(nameof(PdfBytes));
 
@@ -432,10 +466,15 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             PrintKind.PaymentAdviceLetter => BuildAdvicePreviewReport(),
             // A set has no single preview report; the first document stands in for the pane's own bookkeeping
             // (nothing reads it on this path — the pagination below walks _previewDocuments instead).
-            PrintKind.ReportSet => _documents![0],
-            _ => _report!,
+            // 🔴 Census 12.3 — the SAME override the PDF above took. A preview that read the un-overridden
+            // document would show the operator one heading and print another, which is the preview-lies-about-
+            // the-paper defect this pane exists to prevent.
+            PrintKind.ReportSet => _documents![0].WithHeaderOverride(BuildPrintConfig()),
+            _ => _report!.WithHeaderOverride(BuildPrintConfig()),
         };
-        _previewDocuments = Kind == PrintKind.ReportSet ? _documents! : new[] { _previewReport };
+        _previewDocuments = Kind == PrintKind.ReportSet
+            ? _documents!.Select(d => d.WithHeaderOverride(BuildPrintConfig())).ToList()
+            : new[] { _previewReport };
 
         Pages.Clear();
         int pageNo = 0;
@@ -467,9 +506,23 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     partial void OnLastPageChanged(int value) => Render();
     partial void OnStartPageNumberChanged(int value) => Render();
 
-    // The F12 knobs only affect a voucher/invoice render; re-render on change (a no-op guard keeps the report
-    // preview from re-rendering pointlessly since those bytes never read the print config).
-    partial void OnTitleOverrideChanged(string value) { if (SupportsPrintConfig) Render(); }
+    // 🔴 CENSUS 12.3 — the TITLE override now also moves a REPORT's bytes, so its guard widened. Leaving it on
+    // SupportsPrintConfig alone was the live bug in the first draft of this slice: the override reached
+    // ReportPdf, the PDF would have honoured it, and typing in the box re-rendered NOTHING on a report — the
+    // knob worked and looked broken, which is indistinguishable from broken.
+    partial void OnTitleOverrideChanged(string value)
+    {
+        if (SupportsPrintConfig || SupportsReportHeaderOverride) Render();
+    }
+
+    /// <summary>Census 12.3 — the sub-title override is report-only, so it re-renders on exactly that.</summary>
+    partial void OnSubtitleOverrideChanged(string value)
+    {
+        if (SupportsReportHeaderOverride) Render();
+    }
+
+    // Narration and the statutory copy marking stay voucher/invoice-only: the report renderer has no narration
+    // line and no copy band, so re-rendering a report on these would re-render identical bytes.
     partial void OnShowNarrationChanged(bool value) { if (SupportsPrintConfig) Render(); }
     partial void OnCopyMarkingChanged(CopyMarking value) { if (SupportsPrintConfig) Render(); }
 
