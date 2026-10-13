@@ -1958,6 +1958,16 @@ entries is not being audited, and that is why these are filed together.**
 
 ## 3. Grouped by area
 
+> 🔴 **▶ 2026-10-13 — THE EIGHT PHASE-0 ENTRIES (`IV-74` … `IV-81`, §2E) ARE **NOT** IN THE GROUPINGS BELOW,
+> AND THE PER-AREA COUNTS IN THE HEADINGS ARE THEREFORE UNDERSTATED. STATED RATHER THAN QUIETLY PATCHED,
+> because §7 of this document is *"Coverage, counted rather than claimed"* and an uncounted claim here is the
+> exact defect it exists to catch.** Where they would sit: **MST** gains `IV-74` (unit composition lock),
+> `IV-75` (base currency), `IV-76` (GST block reduction), `IV-77` (batch master) and `IV-80` (godown F12 gates)
+> — i.e. **MST goes from 3 to 8**; **ENT** gains `IV-78` (Applicable Upto) and `IV-81` (the mis-labelled F10,
+> which is a *retraction* rather than a divergence); **RPT** gains `IV-79` (Day Book Dr/Cr). ⚠️ **Read §2E
+> directly until these tables are re-derived — and note that `IV-81` should be counted NOWHERE, because it
+> records that we MATCH the vendor.**
+
 ### TAX — tax & money (7)
 Wrong figures on documents the customer files, pays or is paid on.
 
