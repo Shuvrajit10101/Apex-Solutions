@@ -814,8 +814,37 @@ are no longer open defects — they are kept for the record, with the fixing com
 
 ---
 
-### IV-21 · No Alt+H Multi-Masters — every ledger, group and stock item is created one form at a time
+### IV-21 · ~~No Alt+H Multi-Masters — every ledger, group and stock item is created one form at a time~~ — **CLOSED IN CODE 2026-10-13**
 **MEDIUM** · Class **B** · Area **MST** · relates to `tally-fidelity-defects.md` D4
+
+> 🟢 **CLOSED 2026-10-13 (wave 1, track bb, branch `claude/apex-bb-multimaster`) — ALL THREE PARTS OF THE
+> VERDICT, AND THE "Fix" ROW BELOW WAS FOLLOWED EXACTLY INCLUDING ITS OPENING-BALANCE COLUMN.** Measured at
+> `origin/main` `bf9b1e6` BEFORE any code was written, because the † banner's own greps had gone stale twice:
+> `MultiMasterKind` held **Ledger and AccountGroup only**; `grep -rniE "multi[- ]?alter" src/` returned **exactly
+> one** hit and it was a grounding *comment* (`MultiMasterCreateViewModel.cs:104`); and the only `Key.H` arms in
+> `MainWindow.axaml.cs` were the two `Ctrl+H` arms, so **Alt+H fell through and did nothing at all.**
+>
+> What now ships: **five families** (Ledger · Group · **Stock Item** · **Godown** · **Cost Centre**), **both
+> vendor verbs** (Multi Create / Multi Alter), **Alt+H** bound on the Chart of Accounts, and the vendor's
+> **Alt+B (Zero Opening Balance)** on the Multi Ledger Alteration screen. The Opening Balance column this row
+> asked for had already shipped with PR #54 and now works on the ALTER verb too.
+>
+> 🔴 **THE CITATION IN THE TABLE BELOW IS INOPERATIVE AND IS KEPT ONLY TO SHOW WHAT IT WAS.** It reads
+> **[corpus]** *SG p.66 / p.68 / p.69*, and ruling 14 (2026-09-04) struck the corpus — `tally/` is empty and was
+> never git-tracked. **The verdict survived the source change rather than depending on it:** the vendor's own
+> pages say the same thing and were opened BY CONTENT on 2026-10-13 —
+> `help.tallysolutions.com/tally-prime/charts-of-accounts-tally/` for the chord, both verbs, the *"Under Group"*
+> header defaulting to *"All Items"*, the *Name of Ledger / Under / Opening Balance* columns, the *Multi Ledger
+> Alteration* screen and Alt+B; plus `stock-items-faq/`, `inventory-storage-using-godowns-locations-tally/` and
+> `cost-centre-or-profit-centre-tally/` for the other three families. Each quote sits on `MultiMasterKind`.
+>
+> ⚠️ **CLOSED IS NOT COMPLETE, and the difference is written down rather than left to a reader.** Three things
+> the vendor documents here are still absent: **Employees / Employee Groups** (attested, and **out of scope** by
+> user rulings 29+30 — Area 7), **Cost Categories** (attested on the cost-centre page, left for a later slice
+> rather than half-built), and 🔴 **`Delete Multiple Unused Masters` — a THIRD Multi Masters verb, found as a
+> heading on the Chart of Accounts page during this slice, which has NO CENSUS ROW AT ALL and is owed one.**
+> What this slice OWNS as divergences is filed as **`IV-82`…`IV-87` in §2F**, and `IV-82` is a finding against
+> the census rather than against us: row 2.12's target of *"the vendor's **SIX** families"* has **no source**.
 
 > **† 2026-08-15 — verdict STANDS; but the D4 cross-reference is now STALE.** "Alt+H", "MultiCreate",
 > "Multi Create" and "Multi-Master" still return zero source hits, and `MainWindowViewModel.cs:1180` still emits
@@ -1953,6 +1982,96 @@ entries is not being audited, and that is why these are filed together.**
 | **What was mis-stated** | `VoucherTypeNavigationIdentityTests` called bare F10 *"a deliberate, documented divergence — decision D7 option A / X6"*. **It is not a divergence; D7/X6 does not apply to it.** The claim is **struck in the test comment, not deleted**, so the mislabel can be audited. |
 | **Consequence taken** | Census row **4.18's first clause** — *"no seeded shortcut, so it is menu-only"* — was carried as a **GAP** on the strength of this reading and is now **WITHDRAWN**: the vendor is menu-only too, under F10. **This is one of three gaps that vanished in Phase 0 without anything being built.** |
 | **Fix** | **Done** — the label is corrected in the test and the gap is withdrawn on the row. No code change; none is owed. |
+
+---
+
+## 2F. ADDED 2026-10-13 — WAVE 1 TRACK BB: WHAT THE **MULTI MASTERS** SLICE OWNS (census rows 2.12 / 3.3)
+
+**Scope note.** These came out of *building* the thing `IV-21` asked for, so unlike §2E they are the divergences
+a shipped screen now carries. Every vendor sentence quoted below was read off a page opened **BY CONTENT** on
+2026-10-13; the four URLs are named per entry. 🔴 **No Tally.ERP 9 page is quoted.** Searches for multi-master
+screens surface `/docs/te9rel*/` results (notably *Creating Multiple Stock Categories*) above the TallyPrime
+ones; R7 (ruling 14) makes only TallyPrime ground truth and they were discarded.
+
+🔴 **ONE OF THESE SIX GOES AGAINST THE CENSUS RATHER THAN AGAINST THE VENDOR, and it is listed first because it
+changes what a future slice would build.** `IV-82` records that census row 2.12's own target — *"two of the
+vendor's **SIX** families"* — has **no source behind the number six**. A register that only ever files
+"the vendor is silent, so ours is fine" is not being audited.
+
+### IV-82 · "Two of the vendor's **SIX** families" is an uncited count — the vendor page **refuses to close the list**
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM, and it is a MEASUREMENT defect rather than a product defect.** No customer is harmed. But the number was the stated target of a census row, so a slice built to it would have stopped at six families for no reason, and a reviewer checking "did they ship all six?" would be checking against nothing. |
+| **What TallyPrime documents** | A list it explicitly leaves open. Verbatim, `help.tallysolutions.com/tally-prime/charts-of-accounts-tally/`: *"Similarly, you can create other masters such as stock items, groups, employees, **and so on**"*, and the matching *"Similarly, you can **alter** other masters such as stock items, groups, employees, and so on."* The page walks the feature in full **for Ledgers only** — its four headings are *View Chart of Accounts*, *Create Multiple Masters*, *Alter Multiple Masters*, *Delete Multiple Unused Masters* — and enumerates no fixed family set anywhere. |
+| **What the families actually are, each on its own page** | **Ledgers**, **Groups**, **Stock Items**, **Employees** (Chart of Accounts page) · **Godowns** (`inventory-storage-using-godowns-locations-tally/`) · **Cost Centres** *and* **Cost Categories** (`cost-centre-or-profit-centre-tally/`) · **Stock Items** again, by screen name (`stock-items-faq/`). That is **at least seven named across pages, plus "and so on"** — not six. |
+| **How it got in** | Row 2.12's evidence sentence has been corrected once already (§1.3 item 19 struck a `Multi Ledger`/`MultiLedger` grep that targeted a Tally.ERP 9 name). The "six" appears to have been written in the same pass and was never sourced. It is the same shape as row **2.5**, where the census measured us against `{Automatic, Manual, None}` while the vendor's set was four — *"the TARGET LIST was wrong, so the gap could not have been closed by building to it."* |
+| **What was built instead** | Five families — Ledger, Group, **Stock Item**, **Godown**, **Cost Centre** — each with its own citation on `MultiMasterKind`, and **no test anywhere pins a family COUNT**. Pinning six would enshrine an uncited number as fidelity, which is precisely what cost row 3.5 its promotion (`IV-74`). |
+| **🔴 Deliberately NOT built, and why** | **Employees** and **Employee Groups** are vendor-attested and are **out of scope by user rulings 29+30** (Area 7, payroll). **Cost Categories** are attested on the cost-centre page and were left for a later slice rather than half-built. **`Delete Multiple Unused Masters`** is a THIRD Multi Masters verb, discovered as a heading on the Chart of Accounts page during this slice — it has **no census row at all** and is owed one. |
+| **Fix** | Correct row 2.12's cell to drop "of the vendor's six" and state the attested families with their URLs. **A12's call, not the build track's** — the build track proposes. |
+
+---
+
+### IV-83 · The **◦ Primary** option on the godown grid is ours — the vendor's wording implies a parent is always given
+
+| | |
+|---|---|
+| **Severity** | **LOW.** It adds a capability rather than withholding one, and it matches what our own single Godown master already stores. |
+| **What TallyPrime documents** | A prompt for a parent on every row. Verbatim, `help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/`: *"If you select **Under Godown > All Items**, you will be prompted to select the parent godown for each godown name that you specify under the **Name** column."* The header name **Under Godown** and the column name **Name** are the vendor's and are cloned exactly. The page does not say what happens for a godown that has no parent. |
+| **What we ship** | A `◦ Primary` sentinel in the per-row picker (`Guid.Empty`, mapped back to `null` by `ParentIdOrNull`). |
+| **🔴 Why it is not optional for us** | **Without it the Multi Godown Alteration screen refused itself.** The first draft loaded every godown, found `Main Location.ParentId == null`, could represent it with no picker option, and refused the whole batch with *"Row 1 (Main Location): pick a parent godown"* — over a grid the operator had not touched. Main Location is the only godown most companies have. A multi screen that cannot express what the single screen stores cannot show the company's own data. |
+| **Fix** | None proposed. Labelled and kept. |
+
+---
+
+### IV-84 · The **Multi Ledger Alteration** header acts as a **filter**, and reloading it discards uncommitted edits
+
+| | |
+|---|---|
+| **Severity** | **LOW-MEDIUM.** The discard is a real surprise an operator can meet. |
+| **What TallyPrime documents** | Only the verb. Verbatim, `help.tallysolutions.com/tally-prime/charts-of-accounts-tally/`: *"In **Chart of Accounts**, press **Alt+H** (Multi-Masters) > **Multi Alter** > press **Enter**. In the **Multi Ledger Alteration** screen, change the name of ledger, **Group**, and **Opening Balance** of the ledgers."* **The page never says what the header field does on the alteration screen** — on the CREATE screen it says the field "defaults to All Items" and sets the parent for every row. |
+| **What we ship** | On Alter the header selects which masters LOAD (`All Items` loads them all), and changing it re-reads the grid from the company. The screen's own hint changes wording with the verb ("…to **load** only its ledgers" vs "…to **put** every row under it") so the two meanings are not silently interchangeable. |
+| **🔴 The surprise, stated rather than hidden** | Changing the header after editing rows **discards those edits**, because the reload comes from the company. |
+| **Fix** | If a user ruling asks for it: warn before a reload that would discard pending edits, or re-apply them by id. Not built on a guess. |
+
+---
+
+### IV-85 · What Multi **Alter** may change is narrower than the single-master screens — three exclusions, each preventing wrong money or a wrong quantity
+
+| | |
+|---|---|
+| **Severity** | **LOW**, and the vendor records a limit of the same shape on its own side. |
+| **What TallyPrime documents** | For ledgers, exactly what we allow: *"change the name of ledger, **Group**, and **Opening Balance**"* plus *"To remove the opening balances from all the ledgers, press **Alt+B** (Zero Opening Balance)"* (`charts-of-accounts-tally/`). For stock items it documents its OWN reduction: *"Currently, TallyPrime does not support viewing and editing all the details related to stock items in the **Multi Stock Item Alteration** screen"* (`stock-items-faq/`). It does **not** enumerate which fields its stock-item alteration screen does carry. |
+| **What we ship** | Alter edits the **name** and the **parent**, plus the **Opening Balance + Dr/Cr** on the ledger grid. Three exclusions, each with an engineering reason: a stock item's **base unit** is never re-assigned (it would silently reinterpret every quantity already recorded against it — the same exclusion `StockItemMasterViewModel` makes); a stock item's **opening quantity** is never re-applied (it would ADD a second opening allocation on every accept and multiply opening stock, which is closing stock, which is the Balance Sheet); and a **primary** group is not loaded into the group grid at all (it has no parent to show and its Nature of Group is not alterable here). |
+| **🔴 A fourth exclusion that is NOT a design choice but a consequence of our own data model** | A ledger under the reserved **Profit & Loss** head is excluded from the alteration grid. `Company.ProfitAndLossHead` is a `Group` deliberately **absent from `Company.Groups`** — which is why `FindGroupOrHeadByName` exists beside `FindGroupByName` — so no group picker in this application can offer it. The first draft loaded the seeded *Profit & Loss A/c* ledger anyway and refused the whole untouched batch with *"Row 4 (Profit & Loss A/c): pick a group"*. Excluding it is the conservative answer; the alternative, putting the reserved head in the picker, would newly permit moving **ordinary** ledgers under it, which no source asks for. |
+| **⚠️ AND A LATENT DEFECT IN THE *SINGLE* LEDGER MASTER, FOUND HERE AND NOT PATCHED HERE** | `LedgerMasterViewModel.ForAlter` resolves its picker with `SelectedGroup = Groups.FirstOrDefault(g => g.Id == ledger.GroupId) ?? SelectedGroup`. For the P&L A/c ledger that lookup **MISSES** and falls back to whatever was already selected, so the screen shows a group the ledger is **not** under — and accepting would silently **RE-PARENT** it. Outside this slice; **owed a TIER register row.** |
+| **Fix** | The three design exclusions: keep, labelled. The P&L exclusion: revisit only alongside the single-master defect above, because they share a root cause. |
+
+---
+
+### IV-86 · The stock-item grid's **column set**, and its read-only computed **Amount**, are ours
+
+| | |
+|---|---|
+| **Severity** | **LOW.** |
+| **What TallyPrime documents** | The screen **names**, and nothing about its columns. `help.tallysolutions.com/stock-items-faq/` gives *"Alt+H (Multi-Masters) to open the **Multi Stock Item Creation** or **Multi Stock Item Alteration** screens"* — both cloned verbatim as our titles. 🔴 **The column set could not be sourced.** Web-search summaries offer *"Name of Items, Units, Opening Qty, Rate, and Amount"*, but **no page this project opened by content carries those strings** — `charts-of-accounts-tally/`, `manage-stock-item-tally/`, `tally-prime/inventory/manage-stock-item-tally/` and `tally-prime/vat-masters/india-vat-stock-item-tally/` were each opened and each lacks them. **A search snippet is not a citation**, so the column set is recorded as OURS. |
+| **What we ship** | `Name of Item · Under · Units · Opening Qty · Rate · Amount`, with **Amount read-only and computed** as Qty × Rate. |
+| **🔴 Why Amount is not editable, which is a deliberate step AWAY from the reference product** | TallyPrime's grids generally let an operator key an Amount and back-solve the Rate. We do not: two editable boxes over one derived third are **three ways to disagree about an opening valuation**, and an opening valuation is Balance-Sheet money. The cell is blank whenever either input is blank or unparseable, so it never shows a figure the batch would refuse. |
+| **Also ours on this family** | A **rate with no quantity** is refused rather than silently discarded; the cost grid's columns are `Name of Cost Centre · Category` with **no parent column**, so every centre it creates is top-level (a per-row parent picker would have to be re-scoped to each row's own category to keep the domain's *"a parent must be in the SAME category"* invariant, and a picker that silently offers an invalid parent is worse than no picker — re-parent from the single Cost Centre master). |
+| **Fix** | If the column set is ever sourced, reconcile. Until then: labelled. |
+
+---
+
+### IV-87 · Multi Masters is reachable from the **Create cascade** as well as from Alt+H, and the Alt+H column names the family on every row
+
+| | |
+|---|---|
+| **Severity** | **LOW** — additive. |
+| **What TallyPrime documents** | One door, and the family taken from context. Verbatim, `help.tallysolutions.com/tally-prime/charts-of-accounts-tally/`: *"Press **Alt+G** (Go To) > type or select **Chart of Accounts** > **Ledgers** and press Enter"*, then *"Press **Alt+H** (Multi-Masters) > **Multi Create**"*. The menu offers two rows — Multi Create / Multi Alter — and the master **family** comes from whichever Chart of Accounts the operator is standing in. |
+| **What we ship** | **Alt+H is now bound** (census row 2.12 recorded it as unbound and it was: the only `Key.H` arms in the shell were two `Ctrl+H` arms). Our Chart of Accounts is **one accounting tree holding groups and ledgers together**, so there is no single family to infer — the Alt+H column therefore names the family on every row, under a header per verb. The create grids are ALSO reachable through `Masters → Create → Multi Masters`, which is the route that shipped in PR #54 and whose tests still hold. |
+| **Why** | The UI contract requires every capability to be reachable by the arrows-and-Enter cascade and **never only by a chord**. The chord ADDS the vendor's route rather than replacing ours. |
+| **Ruling 25 honoured** | No **Display** row is offered on either verb, and a test asserts the column contains no row whose label mentions "Display". |
+| **Fix** | None proposed. |
 
 ---
 
