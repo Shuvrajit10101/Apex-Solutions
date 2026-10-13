@@ -2097,6 +2097,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // of careful, correct-looking, unreachable code counted as delivered. Nothing was wrong with it. This
         // row is the door. Do not remove it without removing the engine.
         col.Add(new MenuItemViewModel("Ledger Break-up", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census 11.10 (wave 46) — THE FOURTH COST REPORT, and the level this family never had. The vendor lists
+        // it beside the other three: "You can view the monthly breakup of income and expense details along with
+        // the closing balance for the selected Cost Centre" and "Press Alt+G (Go To) > type Cost Centre Monthly
+        // Summary" (help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/,
+        // by content 2026-10-13). The census called it absent "because that primitive does not exist (T1-32)";
+        // Apex.Ledger.Reports.CostCentreMonthlySummary is that primitive and this row is its door.
+        col.Add(new MenuItemViewModel("Cost Centre Monthly Summary", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -13047,6 +13054,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // documented with zero production callers and is cited by name in seven source comments as this
             // project's canonical unreachable-delivered-code example.
             case "Ledger Break-up": OpenReport(ReportKind.CostCentreLedgerBreakup); break;
+            // Census 11.10 (wave 46) — the missing monthly level, vendor-attested on the same page as the three
+            // above it. Gated by ReportFeatureGate.CostCentres like its three siblings, so the saved-view door
+            // (Alt+K) cannot reach it on a company with F11 Cost Centres off.
+            case "Cost Centre Monthly Summary": OpenReport(ReportKind.CostCentreMonthlySummary); break;
             case "Budget Variance": OpenReport(ReportKind.BudgetVariance); break;
             // W-Y4 (census 11.11, gap 1) — RE-HOMED off Screen.InterestReport onto ReportKind. The default window
             // is unchanged (both compute books-begin → last-voucher-date), so no figure moves; F2/Alt+F2 now act.

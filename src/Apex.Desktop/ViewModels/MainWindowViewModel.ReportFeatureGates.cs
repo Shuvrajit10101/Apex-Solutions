@@ -325,6 +325,12 @@ public sealed partial class MainWindowViewModel
             [ReportKind.CostCategorySummary] = ReportFeatureGate.CostCentres,
             [ReportKind.CostCentreBreakup] = ReportFeatureGate.CostCentres,
             [ReportKind.CostCentreLedgerBreakup] = ReportFeatureGate.CostCentres,
+            // Census 11.10, wave 46 — the fourth cost kind. It sits in the SAME conditional "Cost Centres" menu
+            // column as the three above it, so it takes the same gate: without this entry the kind would have no
+            // decision and be DENIED, and with the wrong one (None) a saved view (Alt+K) would re-open a cost
+            // centre's monthly income and expense on a company that has F11 Cost Centres switched OFF — the exact
+            // Pay-Sheet-through-a-saved-view hole this table was written to make impossible.
+            [ReportKind.CostCentreMonthlySummary] = ReportFeatureGate.CostCentres,
             [ReportKind.BudgetVariance] = ReportFeatureGate.None,
             [ReportKind.GratuityProvisionRegister] = ReportFeatureGate.GratuityEnrolment,
             [ReportKind.BonusRegister] = ReportFeatureGate.BonusEnrolment,

@@ -621,6 +621,30 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Cost centre picker (census 11.10) — the Cost Centre Monthly Summary is scoped to ONE
+                             centre: "You can view the monthly breakup of income and expense details along with the
+                             closing balance for the selected Cost Centre"
+                             (help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/).
+                             It shares Grid.Row 2 with the scenario, bank and payroll pickers and is mutually
+                             exclusive with all three: ShowCostCentrePicker is true on exactly ONE ReportKind, and on
+                             that kind SupportsScenario, ShowChequeBankPicker and ShowPayrollMonthPicker are all
+                             false. The label column is Auto, not a fixed track, so the caption cannot be sliced. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowCostCentrePicker}">
+                          <TextBlock Grid.Column="0" Text="Cost Centre" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding CostCentreOptions}"
+                                    SelectedItem="{Binding SelectedCostCentre, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:CostCentreOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- Payroll wage-month + employee picker (Phase 8 slice 8): every payroll report is scoped to
                              one wage month; the Payslip is additionally scoped to a single employee. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
