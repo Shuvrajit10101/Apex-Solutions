@@ -2165,6 +2165,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
         FilterMinRupees = _sortFilter.Min?.Amount,
         FilterMaxRupees = _sortFilter.Max?.Amount,
         FilterNameContains = _sortFilter.NameContains,
+        // 🔴 T2-125(iv): the two parameters Save View used to DROP. A view saved as "Purchases only, with
+        // narration" re-opened as the whole book without narration, and nothing said so. Captured
+        // UNCONDITIONALLY — the backing fields are already reset to their defaults by Show(Kind) whenever the
+        // viewer moves to a kind that does not support them, so there is no inert value here to capture.
+        VoucherTypeFilterId = _voucherTypeFilterId,
+        ShowNarration = _showNarration,
         ComparativeColumns = _extraColumns.Count == 0
             ? null
             : _extraColumns.Select(c => new SavedComparativeColumn
@@ -2219,6 +2225,29 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 view.FilterMinRupees is { } min ? Money.FromRupees(min) : null,
                 view.FilterMaxRupees is { } max ? Money.FromRupees(max) : null)
             .WithNameContains(view.FilterNameContains);
+
+        // ---- the two Day-Book-family parameters (T2-125(iv)) ----
+        // 🔴 RE-BOUND TO THE LIVE COMPANY, NOT RESTORED BLIND — the same ER-9 rule the scenario NAME follows a
+        // few lines up. A saved voucher-type id whose type has since been DELETED falls back to the vendor's
+        // unfiltered book, because a filter that matches nothing would render an empty Day Book under a subtitle
+        // claiming "— Purchase only", which is the wrong-figures shape and not a cosmetic one. The type's NAME is
+        // re-read from the live company rather than stored, so a renamed type shows its current name.
+        //
+        // 🔴 AND BOTH ARE GATED ON THE SAME PREDICATES THE SETTERS USE. A view saved on a Day Book is applied to
+        // a report of the saved kind (the shell opens one), so the gates normally agree — but honouring a
+        // narrowing on a kind that cannot apply it is precisely the dead-field defect census T1-14 records.
+        //
+        // The BACKING FIELDS are assigned, not the public setters: SetVoucherTypeFilter / SetShowNarration each
+        // call Show(Kind), and this method ends with its own Show(Kind). That is the identical reasoning — and
+        // the identical #pragma — the _selectedScenario assignment above documents.
+        var savedTypeId = SupportsVoucherTypeFilter ? view.VoucherTypeFilterId : null;
+        var savedType = savedTypeId is { } stid ? _company.FindVoucherType(stid) : null;
+        _voucherTypeFilterId = savedType?.Id;
+        _voucherTypeFilterName = savedType?.Name ?? string.Empty;
+        _showNarration = SupportsNarration && view.ShowNarration;
+        OnPropertyChanged(nameof(VoucherTypeFilterId));
+        OnPropertyChanged(nameof(VoucherTypeFilterName));
+        OnPropertyChanged(nameof(ShowNarration));
 
         // ---- comparative columns (RQ-4) ----
         _extraColumns.Clear();

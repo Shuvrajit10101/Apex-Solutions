@@ -2905,9 +2905,21 @@
                                             Click="OnToggleItemInvoiceClick"
                                             Foreground="#CFE0FF" FontSize="11"
                                             VerticalAlignment="Center"/>
-                                  <!-- Accounting (service) invoice is SALES ONLY — the purchase side is deferred
-                                       scope and silently dropped §194J TDS, so the affordance is not offered there
-                                       (CanBeAccountingInvoice, not CanBeItemInvoice). -->
+                                  <!-- 🔴 CORRECTED 2026-10-13 — THIS COMMENT WAS FALSE AND IS STRUCK RATHER THAN
+                                       DELETED, because a stale sentence in shipped source is a defect class this
+                                       project has caught repeatedly. It read: ~~"Accounting (service) invoice is
+                                       SALES ONLY — the purchase side is deferred scope and silently dropped
+                                       §194J TDS, so the affordance is not offered there."~~ The DEFERRAL WAS
+                                       LIFTED: VoucherEntryViewModel.CanBeAccountingInvoice is
+                                       `_type.BaseType is VoucherBaseType.Sales or VoucherBaseType.Purchase`, and
+                                       that property's own history paragraph records WHY the purchase arm was
+                                       re-opened — TDS and RCM were wired to the Particulars lines
+                                       (DetectAccountingTdsShape / DetectAccountingRcmShape), with
+                                       PurchaseAccountingInvoiceTdsTests as the regression guard proving §194J
+                                       still fires. So the affordance IS offered on a Purchase, and the binding
+                                       below has been correct all along; only this caption was wrong.
+                                       The binding is still CanBeAccountingInvoice and NOT CanBeItemInvoice —
+                                       that part of the old note was right and is kept. -->
                                   <CheckBox IsVisible="{Binding CanBeAccountingInvoice}"
                                             Content="Accounting Invoice (Ctrl+H)"
                                             IsChecked="{Binding IsAccountingInvoice, Mode=OneWay}"

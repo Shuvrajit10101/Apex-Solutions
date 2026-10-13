@@ -415,29 +415,31 @@ public sealed class VoucherGstRegistrationAttributionTests
                 StateCode = Maharashtra,
             };
             var services = AddLedger(c, "Software Licence", "Indirect Expenses", true);
+            services.SalesPurchaseGst = new StockItemGstDetails
+            {
+                Taxability = GstTaxability.Taxable,
+                RateBasisPoints = 1800,
+                SupplyType = GstSupplyType.Services,
+                HsnSac = "9983",
+            };
 
-            // An input service bought BY the head office: ₹50,000 @ 18% intra ⇒ CGST 4,500 + SGST 4,500.
-            var tax = new GstService(c).ComputeInvoiceTax(
-                new[] { new GstService.TaxableLine(Money.FromRupees(50_000m), 1800) }, false, GstTaxDirection.Input);
-
+            // 🔴 THE ACCOUNTING (SERVICE) INVOICE MODE, AND THE ROUTE MATTERS — a first draft of this test keyed
+            // the four legs by hand on the plain Dr/Cr grid and GSTR-6 reported 0.00. That was the test being
+            // wrong, not the code: Gstr6 reads tax off each EntryLine's `Gst` STAMP, and the plain grid posts no
+            // stamp (Gstr1.AccumulateHsn says so in terms — "the plain grid posts NO tax legs"). An ISD receives
+            // input SERVICES, so the accounting-invoice mode is its real entry route, and it is available on
+            // Purchase (CanBeAccountingInvoice = Sales or Purchase; the purchase arm was gated off once and was
+            // re-opened when TDS/RCM were wired to the Particulars lines).
             vm.OpenVoucher(VoucherBaseType.Purchase);
             var e = vm.VoucherEntry!;
+            e.Mode = VoucherEntryMode.AccountingInvoice;
             e.Date = D1;
-            e.Lines[0].SelectedLedger = services;
-            e.Lines[0].Side = DrCr.Debit;
-            e.Lines[0].AmountText = "50000";
-            e.Lines[1].SelectedLedger = supplier;
-            e.Lines[1].Side = DrCr.Credit;
-            e.Lines[1].AmountText = "59000";
-            e.AddLine();
-            e.Lines[2].SelectedLedger = c.FindLedger(tax.TaxLines[0].LedgerId);
-            e.Lines[2].Side = DrCr.Debit;
-            e.Lines[2].AmountText = "4500";
-            e.AddLine();
-            e.Lines[3].SelectedLedger = c.FindLedger(tax.TaxLines[1].LedgerId);
-            e.Lines[3].Side = DrCr.Debit;
-            e.Lines[3].AmountText = "4500";
-            e.Recalculate();
+            e.SelectedParty = e.Parties.Single(p => p.Ledger?.Id == supplier.Id);
+            var leg = e.AccountingInvoiceLines[0];
+            leg.SelectedLedger = e.AccountingInvoiceLedgers.Single(l => l.Id == services.Id);
+            leg.AmountText = "50000";
+            e.RecalculateAccountingInvoice();
+            Pump(w);
 
             // 🔴 F3 → the ISD. The picker offers it, because an ISD is exactly the registration that RECEIVES
             // input-service invoices — that is its whole statutory function (§20 / Rule 39).
