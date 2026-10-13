@@ -718,7 +718,8 @@ public sealed record ItcGateView(
             if (!string.IsNullOrWhiteSpace(registration.Gstin)
                 && string.Equals(registration.Gstin, snapshot.RecipientGstin, StringComparison.OrdinalIgnoreCase))
                 return registration.Id;
-        return GstRegistration.PrimaryId; // MUTATION 5 point // MUTATION 5 point
+        // Rung 3 — never null. See this method's summary for why the primary and not "withhold everywhere".
+        return GstRegistration.PrimaryId;
     }
 
     private static bool IsCreditDebitNote(Gstr2bDocType docType) => docType is
