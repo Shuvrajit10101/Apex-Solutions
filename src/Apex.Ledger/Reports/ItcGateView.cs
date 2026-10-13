@@ -359,9 +359,21 @@ public sealed record ItcGateView(
         candidates.RemoveAll(c => c.VoucherId is not null
             && c.CgstPaisa <= 0 && c.SgstPaisa <= 0 && c.IgstPaisa <= 0 && c.CessPaisa <= 0);
 
+        // 🔴 WHOSE STATEMENT THIS IS — resolved ONCE, here, and read by BOTH the Portal-2B total immediately below
+        // and the credit-note candidate loop further down. It used to be resolved only for the candidate loop, which
+        // is exactly the MIXED SCOPE the gap register files as T2-121(iv): "Portal2b still sums snapshot.Lines
+        // UNSCOPED while the credit-note candidates built from THOSE SAME LINES are withheld." Measured shape: a
+        // two-registration book with the branch selected and the primary's 2B chosen read "ITC in 2B 14,400.00"
+        // beside "books eligible 0.00 / claimable 0.00" and zero candidates — a part with no whole. One resolution
+        // feeding both loops makes the two halves incapable of disagreeing.
+        var statementOwner = RegistrationOfStatement(company, snapshot);
+        var portalLines = statementOwner != (registrationId ?? GstRegistration.PrimaryId)
+            ? Array.Empty<Gstr2bLine>()
+            : snapshot.Lines;
+
         // Portal 2B ITC-Available figure (§16(2)(aa) basis). Exclude the supplier-flagged RCM lines (they bypass 2B ITC).
         decimal p2bCgst = 0m, p2bSgst = 0m, p2bIgst = 0m;
-        foreach (var l in snapshot.Lines)
+        foreach (var l in portalLines)
         {
             if (!l.ItcAvailable || l.ReverseCharge) continue;
             p2bCgst += PaisaToRupees(l.CgstPaisa);
@@ -401,15 +413,18 @@ public sealed record ItcGateView(
         // precisely because of that. A credit note inside it reverses THAT GSTIN's credit and no other's, and lands
         // in THAT registration's Table 4(B)(1) — §39 makes the return a per-registered-person document.
         //
-        // 🔴 ER-13 — A SINGLE-REGISTRATION BOOK IS UNTOUCHED. The lines are withheld only when the statement's
-        // recipient GSTIN resolves to a registration this company HOLDS and that registration is not the one being
-        // built for. A book with one registration can never satisfy that, and neither can an imported statement
-        // whose GSTIN matches no registration (left to the caller rather than silently dropped — an import for an
-        // unheld GSTIN is a different defect and not this method's to decide).
-        var statementOwner = RegistrationOfStatement(company, snapshot);
-        var portalLines = statementOwner is { } owner && owner != (registrationId ?? GstRegistration.PrimaryId)
-            ? Array.Empty<Gstr2bLine>()
-            : snapshot.Lines;
+        // 🔴 ER-13 — A SINGLE-REGISTRATION BOOK IS UNTOUCHED. Its only registration IS the primary, so every rung
+        // of RegistrationOfStatement returns the primary, which always equals the scope being built for, and
+        // nothing is ever withheld.
+        //
+        // 🔴 `statementOwner` / `portalLines` ARE NOW RESOLVED ONCE, FURTHER UP, AND SHARED WITH THE PORTAL-2B
+        // TOTAL. They used to be computed here, for this loop alone — which is precisely T2-121(iv)'s mixed
+        // scope. ~~The lines are withheld only when the statement's recipient GSTIN resolves to a registration
+        // this company HOLDS … an import for an unheld GSTIN is a different defect and not this method's to
+        // decide.~~ 🔴 THAT SECOND HALF IS SUPERSEDED AND IS STRUCK RATHER THAN DELETED: the resolver is now
+        // TOTAL (the v66 anchor, then the GSTIN, then the primary), so an unheld GSTIN no longer falls through to
+        // the caller's pick — which is the whole of T2-121(iii). See RegistrationOfStatement for why the primary
+        // and not "withhold everywhere", and why the old rationale is spent.
         foreach (var l in portalLines)
         {
             if (!IsCreditDebitNote(l.DocType) || l.ReverseCharge) continue;
@@ -653,14 +668,54 @@ public sealed record ItcGateView(
     /// having its candidates silently dropped. GSTIN comparison is case-insensitive: a GSTIN is upper-case by
     /// construction, but a hand-edited import file is not a reason to mis-attribute a reversal.
     /// </summary>
-    private static Guid? RegistrationOfStatement(Company company, Gstr2bSnapshot snapshot)
+    /// <summary>
+    /// 🔴 <b>WHICH REGISTRATION A 2B STATEMENT BELONGS TO — TOTAL SINCE SCHEMA v66, AND THAT TOTALITY IS THE FIX
+    /// FOR <c>T2-121(iii)</c>.</b>
+    ///
+    /// <para><b>The hole this closes, as the register measured it.</b> This resolver matched on
+    /// <c>RecipientGstin</c> alone and returned <c>null</c> when the GSTIN named <b>no registration the company
+    /// holds</b>; its caller then admitted the statement's lines under <b>every</b> registration, and
+    /// <c>GstReversalService.RegistrationOfPortalLine</c> fell through the same way — so one ₹6,000 portal credit
+    /// note was postable as <b>₹12,000.00 of reversal across two filed returns</b>. It was reachable by editing
+    /// the primary GSTIN after an import, or by restoring canonical XML (<c>ImportPlan</c> stages a snapshot with
+    /// an arbitrary <c>RecipientGstin</c> and never compares it to the company's registrations).</para>
+    ///
+    /// <para><b>The order, and why each rung is where it is.</b>
+    /// <list type="number">
+    ///   <item><b>The stored anchor</b> (<see cref="Gstr2bSnapshot.GstRegistrationId"/>, v66) when it is
+    ///   explicitly set. It is a fact recorded at import time — the vendor's own <i>Import GST Returns</i> screen
+    ///   names the registration — and an id cannot fall through when a GSTIN is later edited.</item>
+    ///   <item><b>The GSTIN match</b>, for a snapshot written before v66 or staged by an importer. Kept, and kept
+    ///   SECOND rather than dropped: <see cref="Gstr2bSnapshot.OwningRegistrationId"/> collapses an unset anchor
+    ///   to the primary, so testing it first would mis-attribute a pre-v66 snapshot that genuinely names a
+    ///   branch's GSTIN. This rung is what keeps that evidence.</item>
+    ///   <item><b><see cref="GstRegistration.PrimaryId"/>, never <c>null</c>.</b> A statement that resolves
+    ///   nowhere else belongs, by the only rule available, to the registration the book has always had — so its
+    ///   candidate is raised ONCE, under one registration, instead of once per registration.</item>
+    /// </list></para>
+    ///
+    /// <para>⚠️ <b>WHY "THE PRIMARY" AND NOT "WITHHOLD EVERYWHERE" — argued, because it is a decision about
+    /// money.</b> Withholding would silently drop a reversal the operator may owe, and this gate is advisory
+    /// (ER-14): it posts nothing, and the operator decides. Raising one candidate under one registration says
+    /// something, once; dropping it says nothing at all. The earlier rationale for the fall-through — recorded on
+    /// the test that pinned it, that <i>"an import for an unheld GSTIN is a different defect"</i> we could not
+    /// fix here — <b>no longer holds: this wave fixes the import path</b>, which now requires the file to be
+    /// addressed to the SELECTED registration's GSTIN, so an operator cannot create this shape at all.</para>
+    ///
+    /// <para><b>ER-13 — a single-registration book is byte-identical.</b> Its only registration IS the primary,
+    /// so every rung returns the primary, which always equals the scope being built for, and nothing is ever
+    /// withheld. Every existing fixture that imports a 2B under the company's own GSTIN resolves on rung 2 to
+    /// exactly the registration it resolved to before.</para>
+    /// </summary>
+    private static Guid RegistrationOfStatement(Company company, Gstr2bSnapshot snapshot)
     {
-        if (company.Gst is not { } gst) return null;
+        if (snapshot.GstRegistrationId is { } anchored) return anchored;    // v66: the recorded fact
+        if (company.Gst is not { } gst) return GstRegistration.PrimaryId;
         foreach (var registration in gst.AllRegistrations)
             if (!string.IsNullOrWhiteSpace(registration.Gstin)
                 && string.Equals(registration.Gstin, snapshot.RecipientGstin, StringComparison.OrdinalIgnoreCase))
                 return registration.Id;
-        return null;
+        return GstRegistration.PrimaryId; // MUTATION 5 point // MUTATION 5 point
     }
 
     private static bool IsCreditDebitNote(Gstr2bDocType docType) => docType is
