@@ -22,10 +22,22 @@ namespace Apex.Desktop.Tests;
 ///
 /// <para><b>Why only two of the eight masters this cluster wired for delete.</b> An alter verb needs a
 /// <c>ForAlter</c> factory and a decision about what altering that master MEANS, and building one is only honest
-/// where a source says. Two of the eight are documented by the vendor and both are built here; the other six
+/// where a source says. Two of the eight are documented by the vendor and both are built here; ~~the other six
 /// (batch, BOM, budget, scenario, price list, reorder definition) keep create+delete and their census rows stay
-/// PARTIAL. Inventing an alter shape for a master no source describes is the failure mode this project has
+/// PARTIAL.~~ Inventing an alter shape for a master no source describes is the failure mode this project has
 /// already paid for.</para>
+///
+/// <para>🔴 <b>THE STRUCK LIST ABOVE WAS TRUE WHEN WRITTEN AND IS NOW FALSE — CORRECTED 2026-10-12 (wave 46)
+/// BY A12, struck rather than deleted so a reader can see what moved.</b> It went SIX → FIVE when the price
+/// list gained its alter verb (PR #142, census 3.11) and FIVE → <b>THREE</b> when budget and scenario gained
+/// theirs (PR #156, census 2.9 / 2.10, this wave). <b>The live list is BATCH, BOM and the REORDER
+/// DEFINITION</b> — the three that still hard-code <c>IsAltering =&gt; false</c> with no <c>ForAlter</c>, which
+/// is why their unbranched <c>Create()</c> is currently CORRECT. The reorder page still 404s, so inventing its
+/// alter shape remains refused. <b>This sentence is the governing comment for the whole withholding
+/// discipline, so a wrong list here is how a later slice re-withholds a verb that already exists</b> — the
+/// reviewer that caught it declined to edit it only because doing so would have dirtied the tree against the
+/// SHA it had reported, and routed it to A12 instead. ⚠️ <b>This corrects the sentence ONLY; it does not close
+/// <c>T2-101</c>, whose item (i) remains open.</b></para>
 ///
 /// <para><b>FIDELITY (R7 / ruling 14) — CITED, AND EVERY URL WAS OPENED AND READ ON 2026-09-25.</b>
 /// <list type="bullet">
