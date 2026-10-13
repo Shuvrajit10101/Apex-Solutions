@@ -3228,8 +3228,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>
     /// 🔴 <b>Stamps <see cref="Voucher.GstRegistrationId"/> on a voucher this screen is about to post, and is
     /// the ONLY place on this screen that writes it.</b> Called on every <c>new Voucher(...)</c> this file
-    /// builds — the three creation paths (plain grid, accounting invoice, item invoice) and the two alteration
-    /// replacements — so a path cannot be added that posts an unattributed voucher without deleting a call.
+    /// <b>POSTS</b> — the three creation paths (plain grid, accounting invoice, item invoice) and the two
+    /// alteration replacements — so a path cannot be added that posts an unattributed voucher without deleting
+    /// a call.
+    ///
+    /// <para>🔴 <b>FIVE OF THE SIX, AND THE SIXTH IS NAMED RATHER THAN GLOSSED.</b> An earlier draft of this
+    /// sentence said "every <c>new Voucher(...)</c> this file builds", which is <b>not true</b> and is the kind
+    /// of near-miss claim this project keeps catching. The sixth is the <c>temp</c> voucher in the
+    /// additional-cost landed-rate <b>preview</b>: it is handed to
+    /// <c>AdditionalCostApportionment.ForPurchase</c> to compute display columns, is <b>never posted and never
+    /// persisted</b>, and that apportionment does not read the registration. So it correctly carries no stamp —
+    /// and saying which one and why is what lets a future reader confirm that rather than take it on trust.</para>
     ///
     /// <para><b>The primary is written as <c>null</c>, never as the all-zero Guid.</b> That is the contract
     /// <c>vouchers.gst_registration_id</c> has carried since v61 and the reason no book was ever back-filled:
