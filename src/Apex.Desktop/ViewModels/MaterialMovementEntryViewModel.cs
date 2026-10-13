@@ -132,6 +132,29 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
     /// </summary>
     public bool IsVoucherNumberEditable => _type.AllowsManualNumberEntry;
 
+    /// <summary>
+    /// 🔴 <b>THE NUMBER THIS SCREEN ACTUALLY POSTS — census 5.10 / T2-131.</b> The build read <c>number: 0</c>, but
+    /// <c>InventoryPostingService.Post</c> numbers only a type whose method
+    /// <see cref="VoucherType.AssignsNumberAutomatically"/> — so on a <b>Manual</b>-numbering Material In/Out type
+    /// the operator's keyed Voucher No. was <b>discarded</b> and the movement posted as <c>0</c>, invisible in every
+    /// register because <c>VoucherNumberFormatter.Render</c> returns <c>""</c> for <c>&lt;= 0</c>.
+    ///
+    /// <para>🔴 <b>THIS SCREEN HAS THREE BUILD BRANCHES AND THE CENSUS CELL NAMED ONLY ONE.</b> Fixing the inline
+    /// <c>InventoryVoucher.MaterialMovement(…)</c> call alone would have closed the ONE-SIDED movement and left the
+    /// two-sided TRANSFORM (<c>JobWorkService.BuildConsumingMaterialIn</c>) and TRANSFER
+    /// (<c>JobWorkService.BuildMaterialOutTransfer</c>) still discarding — the branches an operator reaches by
+    /// enabling Allow Consumption, or by sending goods out against an order, which is the ordinary job-work case.
+    /// Both builders therefore now take the number too; their default is <c>0</c>, so no other caller moved.</para>
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14) — <i>help.tallysolutions.com/use-voucher-numbering-methods/</i>, verbatim:
+    /// Manual is <i>"Select this to manually enter the voucher number in each voucher"</i>; Automatic (Manual
+    /// Override) is <i>"Select this if you want to automate the number for vouchers, and manually override the
+    /// automated number, if required"</i>.</b> The <c>&gt; 0</c> clamp and the full per-method reasoning are
+    /// written out once on <c>VoucherEntryViewModel.NumberToPost</c>; this is the same decision, asked of the
+    /// type rather than compared to one member.</para>
+    /// </summary>
+    private int NumberToPost => IsVoucherNumberEditable && VoucherNumber > 0 ? VoucherNumber : 0;
+
     [ObservableProperty] private JobWorkOrderOption? _selectedOrder;
     [ObservableProperty] private Godown? _sourceGodown;
     [ObservableProperty] private Godown? _destinationGodown;
@@ -389,15 +412,20 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
             // RQ-49, ER-4). A consuming Material In produces the finished good valued = Σ live consumed cost; a
             // Material Out transfer re-adds exactly what it removes (value-neutral). A one-sided movement (a worker's
             // pure receipt or FG dispatch, RQ-50) has nothing to re-value against, so it posts its lines as entered.
+            // census 5.10 — the KEYED Voucher No. on a Manual type reaches ALL THREE branches, not just the
+            // inline one. See NumberToPost for why the two JobWorkService builders had to take it as well.
+            var keyedNumber = NumberToPost;
             var jobWork = new JobWorkService(_company);
             if (AllowConsumption && source.Count > 0 && dest.Count > 0)
-                voucher = jobWork.BuildConsumingMaterialIn(_type.Id, Date, source, dest, links, narration, partyId);
+                voucher = jobWork.BuildConsumingMaterialIn(
+                    _type.Id, Date, source, dest, links, narration, partyId, number: keyedNumber);
             else if (!IsMaterialIn && source.Count > 0 && dest.Count > 0)
-                voucher = jobWork.BuildMaterialOutTransfer(_type.Id, Date, source, dest, links, narration, partyId);
+                voucher = jobWork.BuildMaterialOutTransfer(
+                    _type.Id, Date, source, dest, links, narration, partyId, number: keyedNumber);
             else
                 voucher = InventoryVoucher.MaterialMovement(
                     Guid.NewGuid(), _type.Id, Date, source, dest, orderLinks: links,
-                    number: 0, narration: narration, partyId: partyId);
+                    number: keyedNumber, narration: narration, partyId: partyId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
