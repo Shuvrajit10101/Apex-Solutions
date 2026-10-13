@@ -1318,11 +1318,22 @@ public sealed class VoucherAlterRefusalTests
         //     screen. They answer "does the engine number this voucher" and "may the operator type the number";
         //     an ALTERATION of any type is refused or allowed identically under all five methods. Deleting these
         //     two names here would re-arm the guard for the next genuine L5 flag, which is the point of the row.
+        //   • SupportsInsertionBehaviour (v66, census 5.5) — 🔴 THIS GUARD FIRED ON THE DAY THE PROPERTY WAS
+        //     ADDED, which is exactly what it is for, and the exclusion is a CATEGORY judgement rather than a
+        //     convenience. It is the third member of the Numbering-alone family above: it reads `Numbering` and
+        //     NOTHING ELSE (`Numbering is Automatic or MultiUserAuto`), consults no base kind, and so cannot
+        //     name a family that needs its own entry screen. It answers "does the vendor offer this type the
+        //     Renumber-vs-Retain switch at all" — a question about an INSERT into a number series, which no
+        //     ALTERATION of an existing voucher reaches: `VoucherInsertion.Plan` is the only reader, it is
+        //     called from the Day-Book Alt+I door, and an alteration is refused or allowed identically whether
+        //     the type retains or renumbers. Note what is deliberately NOT excluded: the SETTABLE
+        //     `RetainOriginalVoucherNo` is not a derived predicate and never enters this reflection at all.
         var notSpecialisedTypeFlags = new[]
         {
             nameof(VoucherType.IsPredefined),
             nameof(VoucherType.AssignsNumberAutomatically),
             nameof(VoucherType.AllowsManualNumberEntry),
+            nameof(VoucherType.SupportsInsertionBehaviour),
         };
         var derivedFlags = typeof(VoucherType).GetProperties()
             .Where(p => p.PropertyType == typeof(bool) && p.CanRead && !p.CanWrite)

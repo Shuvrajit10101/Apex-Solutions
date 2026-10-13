@@ -3138,6 +3138,117 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>The posted voucher being altered, or <see cref="Guid.Empty"/> for a fresh entry.</summary>
     public Guid AlteringVoucherId => _alteringVoucherId;
 
+    // =============================================================== F3 — Company/Tax Registration (census 6.23)
+
+    private Guid _gstRegistrationId = GstRegistration.PrimaryId;
+
+    /// <summary>
+    /// 🔴 <b>THE REGISTRATION THIS VOUCHER WILL BE RECORDED UNDER</b> — the vendor's <b>F3 (Company/Tax
+    /// Registration)</b> selection, carried on the screen that posts (census row 6.23; gap register
+    /// <b>T2-121(i)</b>). <see cref="GstRegistration.PrimaryId"/> for the company's own first registration,
+    /// which is the default and the only possible value on a single-registration book.
+    ///
+    /// <para><b>R7 — ATTESTED, opened BY CONTENT 2026-10-13.</b>
+    /// <c>help.tallysolutions.com/tally-prime/gst-regular-sales/gst-sales-tally/</c>, verbatim: <i>"For
+    /// TallyPrime 3.0 &amp; later, if you have multiple registrations, press F3 (Company/Tax Registration) and
+    /// select the registration under which you want to create the voucher."</i> The same page dates the
+    /// capability — <i>"For TallyPrime 2.1 or earlier, multiple registrations under the same company are not
+    /// supported"</i>.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS IS THE FIX FOR FOUR SEPARATE FINDINGS AND NOT A CONVENIENCE.</b> Before it,
+    /// <see cref="Voucher.GstRegistrationId"/> was written in exactly TWO places in all of <c>src/</c> — the
+    /// reversal stamp and the DB read-back — and <b>neither was a voucher-entry path</b>. So no voucher could
+    /// ever carry a non-primary registration, and therefore <b>every non-primary registration's ITC gate,
+    /// GSTR-3B and GSTR-6 rendered STRUCTURALLY ZERO</b> while an empty GSTR-3B looks exactly like a valid NIL
+    /// return an operator could file. Rules 37 / 37A / 43 were unpostable there, and census row <b>6.24
+    /// (ISD)</b> was arithmetically always zero because an ISD can only ever be an additional registration.
+    /// This property is the missing half.</para>
+    /// </summary>
+    public Guid SelectedGstRegistrationId => _gstRegistrationId;
+
+    /// <summary>The selected registration itself, or <c>null</c> when the company has no GST block at all.</summary>
+    public GstRegistration? SelectedGstRegistration =>
+        _company.Gst?.FindRegistration(_gstRegistrationId);
+
+    /// <summary>Every registration the voucher could be recorded under — the primary plus the additional ones.
+    /// Empty when the company has no GST block.</summary>
+    public IReadOnlyList<GstRegistration> AvailableGstRegistrations =>
+        _company.Gst?.AllRegistrations ?? Array.Empty<GstRegistration>();
+
+    /// <summary>
+    /// Whether the F3 selection is OFFERED at all. False on every single-registration book, which is why those
+    /// books see no new affordance, keep F3 = Change Company, and post byte-identical vouchers (ER-13) — the
+    /// vendor itself scopes the instruction with <i>"if you have multiple registrations"</i>.
+    /// </summary>
+    public bool CanSelectGstRegistration => _company.Gst is { IsMultiRegistration: true };
+
+    /// <summary>The caption the screen header and the button bar show for the current selection.</summary>
+    public string GstRegistrationCaption =>
+        SelectedGstRegistration is { } r
+            ? (string.IsNullOrWhiteSpace(r.Gstin) ? r.Name : $"{r.Name} — {r.Gstin}")
+            : "—";
+
+    /// <summary>
+    /// The sentence that refuses the F3 selection on an ALTERATION, named rather than silent.
+    /// <para>🔴 <b>THIS REFUSAL IS OURS AND IS LABELLED AS SUCH.</b> The vendor's page says F3 selects the
+    /// registration to <i>"create the voucher"</i> under; it does not say what moving a POSTED voucher between
+    /// registrations does, and nothing sourceable was found that does. Moving one is not an edit to a field —
+    /// it moves the voucher out of one filed return and into another, under a different GSTIN, which is the
+    /// wrong-filed-document class this build refuses by construction elsewhere (<c>GstReportSupport</c>'s own
+    /// unscoped-return throw). So an alteration CARRIES the posted attribution verbatim, exactly as it carries
+    /// the provisional-state vector under <c>LedgerService.Replace</c> §12.8, and the selector says so instead
+    /// of appearing to work. See <c>docs/invented-vs-cloned.md</c>.</para>
+    /// </summary>
+    public const string RegistrationLockedOnAlterationRefusal =
+        "The GST registration a voucher was recorded under cannot be changed by altering it — the voucher " +
+        "belongs to that registration's filed return. Cancel or delete it and record it again under the other " +
+        "registration.";
+
+    /// <summary>
+    /// Applies an F3 (Company/Tax Registration) selection. Returns <c>null</c> on success, or the named sentence
+    /// to show the operator.
+    /// <para>Refuses an id the company does not hold, so a stale picker row can never stamp a voucher with a
+    /// registration that has since been deleted.</para>
+    /// </summary>
+    public string? SelectGstRegistration(Guid registrationId)
+    {
+        if (IsAltering) return RegistrationLockedOnAlterationRefusal;
+        if (_company.Gst is not { } gst)
+            return "This company has no GST details, so there is no registration to record the voucher under.";
+        if (gst.FindRegistration(registrationId) is not { } chosen)
+            return "That GST registration is no longer on this company. Nothing was changed.";
+
+        _gstRegistrationId = chosen.Id;
+        OnPropertyChanged(nameof(SelectedGstRegistrationId));
+        OnPropertyChanged(nameof(SelectedGstRegistration));
+        OnPropertyChanged(nameof(GstRegistrationCaption));
+        return null;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Stamps <see cref="Voucher.GstRegistrationId"/> on a voucher this screen is about to post, and is
+    /// the ONLY place on this screen that writes it.</b> Called on every <c>new Voucher(...)</c> this file
+    /// builds — the three creation paths (plain grid, accounting invoice, item invoice) and the two alteration
+    /// replacements — so a path cannot be added that posts an unattributed voucher without deleting a call.
+    ///
+    /// <para><b>The primary is written as <c>null</c>, never as the all-zero Guid.</b> That is the contract
+    /// <c>vouchers.gst_registration_id</c> has carried since v61 and the reason no book was ever back-filled:
+    /// NULL <i>means</i> the company's own first registration. Writing <c>Guid.Empty</c> instead would also
+    /// violate the column's <c>REFERENCES gst_registrations(id)</c> clause, since the primary registration
+    /// deliberately has no row in that table.</para>
+    ///
+    /// <para><b>On an ALTERATION the posted value is carried verbatim</b> (see
+    /// <see cref="RegistrationLockedOnAlterationRefusal"/>): <paramref name="carryFrom"/> is the posted voucher,
+    /// and its attribution — including a <c>null</c> — is what the replacement gets.</para>
+    /// </summary>
+    private Voucher StampGstRegistration(Voucher voucher, Voucher? carryFrom = null)
+    {
+        voucher.GstRegistrationId = carryFrom is not null
+            ? carryFrom.GstRegistrationId
+            : _gstRegistrationId == GstRegistration.PrimaryId ? null : _gstRegistrationId;
+        return voucher;
+    }
+
     /// <summary>
     /// 🔴 <b>True while this screen holds keying that discarding it would DESTROY</b> — the predicate the shell's
     /// type F-keys (F4–F9) consult before they replace this screen with another voucher type.
@@ -3360,6 +3471,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             VoucherNumber = voucher.Number;
             Date = voucher.Date;
             Narration = voucher.Narration ?? string.Empty;
+
+            // 🔴 v66 / census 6.23 — the posted voucher's GST REGISTRATION, seeded so the header shows which
+            // registration's return this voucher belongs to while it is being altered. It is seeded and NOT
+            // editable: SelectGstRegistration refuses while IsAltering, and StampGstRegistration carries the
+            // posted value verbatim onto the replacement. See RegistrationLockedOnAlterationRefusal for why.
+            _gstRegistrationId = voucher.GstRegistrationId ?? GstRegistration.PrimaryId;
 
             // 🔴 the provisional-state vector — see this method's summary.
             IsOptional = voucher.Optional;
@@ -3664,6 +3781,21 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             referenceNo: referenceNo,
             referenceDate: referenceDate,
             isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
+
+        // v66 / census 6.23 — the attribution belongs to the registration's FILED return, so an alteration must
+        // not move it (see RegistrationLockedOnAlterationRefusal).
+        //
+        // 🔴 `carryFrom` IS DEFENCE IN DEPTH AND IS HONESTLY LABELLED AS SUCH — it is NOT what makes this
+        // correct today, and no test pins it. MEASURED, not assumed: dropping `carryFrom: existing` here leaves
+        // VoucherGstRegistrationAttributionTests green at 5/5, because RehydrateFrom seeds _gstRegistrationId
+        // from the posted voucher and SelectGstRegistration then REFUSES every reachable attempt to move it, so
+        // the screen's own value is already the posted one. The load-bearing mechanism is that seed — removing
+        // IT reddens Altering_a_posted_voucher_refuses_the_registration_change_by_name_and_carries_the_original
+        // with `Expected: 7e5ce78c-… / Actual: 00000000-…`. This argument is kept, not deleted, because the
+        // seed is one new door away from being bypassable and the field it guards decides which GSTIN a filed
+        // document was issued under. Do NOT write a test claiming to pin this line: it would be pinning the
+        // seed. (Same category as the Alt+X arm's !IsTyping clauses, labelled the same way for the same reason.)
+        StampGstRegistration(replacement, carryFrom: existing);
 
         return CommitAlteration(
             existing, replacement,
@@ -4317,6 +4449,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             referenceDate: built.ReferenceDate,
             isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
 
+        // v66 / census 6.23 — carried verbatim, same rule AND the same honest label as the plain-grid
+        // alteration above: `carryFrom` is defence in depth here too, and the seed in RehydrateFrom is what the
+        // behaviour actually rests on. See that call site for the measurement.
+        StampGstRegistration(replacement, carryFrom: existing);
+
         return CommitAlteration(
             existing, replacement,
             "The altered item invoice is out of balance. Not altered.");
@@ -4933,6 +5070,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             applicableUpto: applicableUpto,
             referenceNo: referenceNo,
             referenceDate: referenceDate);
+
+        // 🔴 v66 / census 6.23 / T2-121(i): the F3 (Company/Tax Registration) attribution. BEFORE the post, so
+        // the engine and every GST projection see the registration the operator chose.
+        StampGstRegistration(voucher);
 
         var posted = _service.Post(voucher); // throws on unbalanced/invalid — never persisted
         undo.Push(() => _company.RemoveVoucher(posted));
@@ -6267,6 +6408,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             // they are; and a hand-keyed As-Voucher sale is excluded structurally (it never sets this).
             isAccountingInvoice: true);
 
+        // 🔴 v66 / census 6.23 / T2-121(i): the F3 attribution on the accounting-invoice path too. A service
+        // invoice is exactly the document whose GSTIN decides which return it lands in.
+        StampGstRegistration(voucher);
+
         try
         {
             var posted = _service.Post(voucher); // enforces pairing/atomicity — never persisted on failure
@@ -7086,6 +7231,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             inventoryLines: built.InventoryLines,
             referenceNo: built.ReferenceNo,
             referenceDate: built.ReferenceDate);
+
+        // 🔴 v66 / census 6.23 / T2-121(i): the F3 attribution on the item-invoice path.
+        StampGstRegistration(voucher);
 
         try
         {

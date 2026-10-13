@@ -1356,6 +1356,95 @@ public sealed class GstActionsUiViewModelTests : IDisposable
         Assert.Equal(Screen.Gateway, off.CurrentScreen);
     }
 
+    // ---------------------------------------------------------------- v66 / T2-121(ii): the GST Registration field
+
+    /// <summary>
+    /// 🔴 <b>T2-121(ii) IS ANSWERED <i>YES</i>, AND THIS IS THE TEST OF THE ANSWER.</b> The question was <i>"may a
+    /// GSTR-2B be imported for a NON-PRIMARY registration?"</i> — and before v66 the answer was structurally no:
+    /// the screen read <c>_company.Gst?.Gstin</c>, so the parser's <c>GSTIN_MISMATCH</c> refused a branch's or an
+    /// ISD's own statement outright, which <c>T2-121</c> recorded as <i>"the only reason (iii) is unreachable
+    /// today"</i>.
+    ///
+    /// <para><b>R7, opened BY CONTENT 2026-10-13.</b> The vendor's <i>Import GST Returns</i> screen carries the
+    /// field: <i>"GST Registration: It will be selected by default. In case of multiple GST registrations, select
+    /// the required one."</i> (<c>help.tallysolutions.com/india-gst-status-gstr-2b-reconciliation-tally-2/</c>).
+    /// So refusing the import would have been a <b>divergence</b>, not caution.</para>
+    ///
+    /// <para>🔴 <b>AND THE DUPLICATE IS CLOSED BY THE ANCHOR, NOT BY A REFUSAL</b>, which is the half the brief
+    /// insisted must land with the permission: the stored snapshot carries the registration <b>id</b>, so a later
+    /// edit of the primary GSTIN cannot make every GSTIN-matching lookup fall through to the caller's own pick —
+    /// the path by which one ₹6,000 portal note became ₹12,000 across two filed returns.</para>
+    /// </summary>
+    [Fact]
+    public void Import2b_a_branch_registrations_own_statement_imports_and_anchors_to_that_registration()
+    {
+        var vm = NewRegularGstCompany("Import Branch Co");
+        var c = vm.Company!;
+        var branch = AddSecondRegistration(c);
+
+        vm.OpenImportGstr2b();
+        var page = vm.ImportGstr2b!;
+
+        // The field is offered, and "it will be selected by default" — the default being the primary, which is
+        // byte-identical to every pre-v66 import (ER-13).
+        Assert.True(page.CanSelectRegistration);
+        Assert.Equal(2, page.Registrations.Count);
+        Assert.Equal(GstRegistration.PrimaryId, page.ImportRegistrationId);
+
+        // 🔴 FIRST, THE PRE-v66 BEHAVIOUR IS SHOWN STILL TO HOLD WHERE IT SHOULD: with the PRIMARY selected, the
+        // branch's statement is correctly refused — it is addressed to a GSTIN that is not the chosen one.
+        var branchPage = new ImportGstr2bViewModel(
+            c, _storage, onChanged: null,
+            readBytes: _ => Portal2bJson(branch.Gstin!),
+            now: () => new DateTimeOffset(2024, 5, 14, 0, 0, 0, TimeSpan.Zero));
+        branchPage.FilePath = @"C:\portal\branch-042024.json";
+        Assert.False(branchPage.Import());
+        Assert.Equal("GSTIN_MISMATCH", branchPage.ErrorCode);
+        Assert.Empty(c.Gstr2bSnapshots);
+
+        // …and now SELECT THE BRANCH. The identical bytes import.
+        branchPage.SelectedRegistration = branchPage.Registrations.Single(r => r.Id == branch.Id);
+        Assert.Equal(branch.Id, branchPage.ImportRegistrationId);
+        Assert.True(branchPage.Import(), branchPage.Message);
+        Assert.Null(branchPage.ErrorCode);
+
+        // 🔴 THE OBSERVABLE ARTEFACT: the stored snapshot is ANCHORED to the branch, by id.
+        var snap = Assert.Single(c.Gstr2bSnapshots);
+        Assert.Equal(branch.Id, snap.GstRegistrationId);
+        Assert.Equal(branch.Id, snap.OwningRegistrationId);
+        Assert.Equal(branch.Gstin, snap.RecipientGstin);
+
+        // The operator is told which registration it landed under, and the listed row names it.
+        Assert.Contains(branch.Name, branchPage.Message!);
+        Assert.Equal(branch.Name, Assert.Single(branchPage.Imported).Registration);
+    }
+
+    /// <summary>
+    /// <b>ER-13 — a single-registration book sees NOTHING NEW.</b> The vendor scopes its own sentence with
+    /// <i>"in case of multiple GST registrations"</i>, so on a one-GSTIN company the field is not offered, the
+    /// import behaves exactly as it did at v65, and the stored anchor is <c>null</c> — which is the contract the
+    /// column's declaration states and the reason no book needed back-filling.
+    /// </summary>
+    [Fact]
+    public void Import2b_a_single_registration_book_is_offered_no_picker_and_stores_a_null_anchor()
+    {
+        var vm = NewRegularGstCompany("Import Single Reg Co");
+        var c = vm.Company!;
+        var page = NewImportVm(c, Portal2bJson(GstinMaharashtra));
+        page.FilePath = @"C:\portal\gstr2b-042024.json";
+
+        Assert.False(page.CanSelectRegistration);
+        Assert.True(page.Import(), page.Message);
+
+        var snap = Assert.Single(c.Gstr2bSnapshots);
+        // 🔴 NULL, not the all-zero Guid — the latter would also violate the column's
+        // REFERENCES gst_registrations(id) clause, since the primary deliberately has no row in that table.
+        Assert.Null(snap.GstRegistrationId);
+        Assert.Equal(GstRegistration.PrimaryId, snap.OwningRegistrationId);
+        // And the message says nothing about a registration, because there is no choice to report.
+        Assert.DoesNotContain(" for ", page.Message!);
+    }
+
     // ================================================================ Screen 5: Generate e-Invoice
 
     /// <summary>Switches on e-invoicing from the FY start with the applicability override, so the seeded B2B sale is
