@@ -660,17 +660,20 @@ public sealed record ItcGateView(
         voucher.PartyId is Guid pid && !string.IsNullOrWhiteSpace(company.FindLedger(pid)?.PartyGst?.Gstin);
 
     /// <summary>
-    /// 🔴 <b>The registration a GSTR-2B statement was issued to — read off the statement, not off a combo box.</b>
-    /// A 2B is made available to ONE registered person (CGST Rules, rule 60(7)/(8), cited in full at the call site),
-    /// so its recipient GSTIN names which of the company's registrations owns the credit the statement reports and
-    /// the credit notes inside it reverse. Returns <c>null</c> when no registration this company holds carries that
-    /// GSTIN — an imported statement for an unheld GSTIN — so the caller's own scope is left to decide rather than
-    /// having its candidates silently dropped. GSTIN comparison is case-insensitive: a GSTIN is upper-case by
-    /// construction, but a hand-edited import file is not a reason to mis-attribute a reversal.
-    /// </summary>
-    /// <summary>
-    /// 🔴 <b>WHICH REGISTRATION A 2B STATEMENT BELONGS TO — TOTAL SINCE SCHEMA v66, AND THAT TOTALITY IS THE FIX
-    /// FOR <c>T2-121(iii)</c>.</b>
+    /// 🔴 <b>The registration a GSTR-2B statement was issued to — read off the statement, not off a combo box —
+    /// AND TOTAL SINCE SCHEMA v66, WHICH IS THE FIX FOR <c>T2-121(iii)</c>.</b>
+    ///
+    /// <para>A 2B is made available to ONE registered person (CGST Rules, rule 60(7)/(8), cited in full at the
+    /// call site), so the statement names which of the company's registrations owns the credit it reports and
+    /// the credit notes inside it reverse. GSTIN comparison on rung 2 below is case-insensitive: a GSTIN is
+    /// upper-case by construction, but a hand-edited import file is not a reason to mis-attribute a
+    /// reversal.</para>
+    ///
+    /// <para>~~Returns <c>null</c> when no registration this company holds carries that GSTIN — an imported
+    /// statement for an unheld GSTIN — so the caller's own scope is left to decide rather than having its
+    /// candidates silently dropped.~~ 🔴 <b>THAT SENTENCE DESCRIBED THE DEFECT AND IS STRUCK: THIS METHOD NO
+    /// LONGER RETURNS <c>null</c> AT ALL.</b> It is kept, struck, because it records what the resolver used to
+    /// promise and therefore why its callers were written to tolerate a null.</para>
     ///
     /// <para><b>The hole this closes, as the register measured it.</b> This resolver matched on
     /// <c>RecipientGstin</c> alone and returned <c>null</c> when the GSTIN named <b>no registration the company

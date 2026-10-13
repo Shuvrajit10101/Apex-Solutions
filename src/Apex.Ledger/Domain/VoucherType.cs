@@ -262,9 +262,12 @@ public sealed class VoucherType
     /// half.</para>
     ///
     /// <para>⚠️ <b>SCOPED TO THE TWO METHODS THE VENDOR SCOPES IT TO, AND NOT READ UNDER THE OTHER THREE.</b> The
-    /// same page withholds the setting from Manual and None — <i>"Note: This option will not be available if you
-    /// have selected 'Manual' or 'None' as the method of voucher numbering."</i> — and
-    /// <see cref="Services.VoucherInsertion.Plan"/> already returns before it would be consulted for
+    /// same page presents <i>"Numbering behaviour on the insertion/deletion"</i> inside its <b>Automatic</b>
+    /// section and again in its <b>Multi-user Auto</b> section, and the field is <b>absent from the Manual and
+    /// None descriptions altogether</b>. 🔴 <b>THAT IS THE EVIDENCE, AND IT IS STRUCTURAL ABSENCE RATHER THAN A
+    /// STATED PROHIBITION — said this way because a verbatim prohibition WAS claimed here and is WRONG; see
+    /// <see cref="Services.VoucherInsertion"/>'s remarks for the correction and what the Note actually
+    /// scopes.</b> <see cref="Services.VoucherInsertion.Plan"/> already returns before this is consulted for
     /// <see cref="NumberingMethod.None"/>, <see cref="NumberingMethod.Manual"/> and
     /// <see cref="NumberingMethod.AutomaticManualOverride"/>. So a type that carries <c>true</c> under one of
     /// those methods is inert rather than wrong, and <see cref="SupportsInsertionBehaviour"/> is what the master

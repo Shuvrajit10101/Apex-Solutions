@@ -1445,6 +1445,51 @@ public sealed class GstActionsUiViewModelTests : IDisposable
         Assert.DoesNotContain(" for ", page.Message!);
     }
 
+    /// <summary>
+    /// 🔴 <b>A REGISTRATION THAT CARRIES NO GSTIN IS REFUSED BY NAME — IT MUST NOT BORROW THE COMPANY'S.</b>
+    ///
+    /// <para><b>This test exists because of a defect in my own first version of the import change, caught in
+    /// self-review before it was gated.</b> <c>ImportRecipientGstin</c> read
+    /// <c>SelectedRegistration?.Gstin ?? _company.Gst?.Gstin</c>. <see cref="GstRegistration.Gstin"/> is
+    /// documented <i>"null for a registration type that carries none"</i>, so selecting such a registration fell
+    /// through to the <b>company's own</b> GSTIN — and the parser would then <b>ACCEPT a statement addressed to
+    /// the PRIMARY while the snapshot was anchored to the OTHER registration</b>. One taxpayer's GSTR-2B stored
+    /// as another's, which is precisely the class the v66 anchor exists to prevent. It also made the no-GSTIN
+    /// refusal dead code, since the expression could never be null while the company had a GSTIN.</para>
+    ///
+    /// <para>The fall-back is now on "no selection at all", so a single-registration book still reads the
+    /// company's GSTIN exactly as it always did (ER-13) and this refusal is reachable.</para>
+    /// </summary>
+    [Fact]
+    public void Import2b_a_registration_with_no_gstin_is_refused_and_does_not_borrow_the_companys()
+    {
+        var vm = NewRegularGstCompany("Import No Gstin Regn Co");
+        var c = vm.Company!;
+        // An additional registration carrying NO GSTIN — a registration type that has none.
+        var noGstin = new GstRegistration(
+            Guid.NewGuid(), "Unregistered Branch", "24", gstin: null,
+            GstRegistrationType.Unregistered, FyStart);
+        c.Gst!.AddRegistration(noGstin);
+        c.Gst!.EnsureValid();
+
+        // The file IS addressed to the company's own (primary) GSTIN — the exact shape that used to slip through.
+        var page = NewImportVm(c, Portal2bJson(GstinMaharashtra));
+        page.FilePath = @"C:\portal\gstr2b-042024.json";
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == noGstin.Id);
+
+        Assert.False(page.Import());
+        Assert.Contains("has no GSTIN", page.Message!, StringComparison.Ordinal);
+        // 🔴 NOTHING IMPORTED — not a snapshot anchored to the wrong registration, and not one at all.
+        Assert.Empty(c.Gstr2bSnapshots);
+        Assert.Empty(page.Imported);
+
+        // …and selecting the PRIMARY imports the same bytes fine, so the refusal is about the chosen
+        // registration and not about the file.
+        page.SelectedRegistration = page.Registrations.Single(r => r.IsPrimary);
+        Assert.True(page.Import(), page.Message);
+        Assert.Null(Assert.Single(c.Gstr2bSnapshots).GstRegistrationId);
+    }
+
     // ================================================================ Screen 5: Generate e-Invoice
 
     /// <summary>Switches on e-invoicing from the FY start with the applicability override, so the seeded B2B sale is

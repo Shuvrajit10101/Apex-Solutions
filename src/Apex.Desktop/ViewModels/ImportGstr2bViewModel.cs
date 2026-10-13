@@ -110,9 +110,19 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
     /// <para>🔴 This one expression is what makes a branch's own 2B importable at all. Before v66 the screen read
     /// <c>_company.Gst?.Gstin</c>, so the parser's <c>GSTIN_MISMATCH</c> refused a branch's or an ISD's statement
     /// outright, which is what T2-121(ii) recorded as "the only reason (iii) is unreachable today".</para>
+    /// <para>🔴 <b>THE FALL-BACK IS ON "NO SELECTION", NOT ON "THE SELECTION HAS NO GSTIN" — AND THAT
+    /// DISTINCTION IS A DEFECT I WROTE AND THEN CAUGHT IN MY OWN REVIEW.</b> The first version read
+    /// <c>SelectedRegistration?.Gstin ?? _company.Gst?.Gstin</c>. <see cref="GstRegistration.Gstin"/> is
+    /// documented <i>"null for a registration type that carries none"</i>, so selecting such a registration fell
+    /// through to the <b>company's own</b> GSTIN: the parser would then ACCEPT a statement addressed to the
+    /// primary while <see cref="ImportRegistrationId"/> anchored it to the OTHER registration — one taxpayer's
+    /// 2B stored as another's, which is the whole class this column exists to prevent. It also made the
+    /// no-GSTIN refusal below <b>dead code</b>, because the expression could never be null while the company had
+    /// a GSTIN. Falling back only when there is no selection at all keeps ER-13 (a single-registration book has
+    /// no picker and reads the company's GSTIN exactly as it always did) and makes that refusal live.</para>
     /// </summary>
     private string? ImportRecipientGstin =>
-        SelectedRegistration?.Gstin ?? _company.Gst?.Gstin;
+        SelectedRegistration is { } chosen ? chosen.Gstin : _company.Gst?.Gstin;
 
     /// <summary>Every snapshot already imported into the company (latest first).</summary>
     public ObservableCollection<ImportedSnapshotRowVm> Imported { get; } = new();
