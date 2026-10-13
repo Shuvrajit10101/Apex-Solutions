@@ -8341,16 +8341,6 @@ public sealed class PayrollPayHeadOption
 /// (<c>help.tallysolutions.com/print-cheques/</c>, "Cheque Printing Report").
 /// <see cref="LedgerId"/> is <see cref="Guid.Empty"/> on the <see cref="AllBanks"/> entry, which means no filter.
 /// </summary>
-/// <summary>One entry of the census-11.10 cost-centre scope picker — the centre's id and its display name
-/// (qualified by its cost category, because two categories may legitimately hold a centre of the same name and
-/// an unqualified list would offer the operator two identical rows).</summary>
-public sealed class CostCentreOption
-{
-    public Guid CentreId { get; init; }
-    public string Display { get; init; } = string.Empty;
-    public override string ToString() => Display;
-}
-
 public sealed class ChequeBankOption
 {
     public Guid LedgerId { get; init; }
@@ -8360,6 +8350,22 @@ public sealed class ChequeBankOption
     /// <summary>The unfiltered head of the list. A NEW instance per call would break <c>SelectedItem</c>
     /// identity in the ComboBox, so it is a single shared instance.</summary>
     public static readonly ChequeBankOption AllBanks = new() { Display = "All Banks" };
+}
+
+/// <summary>
+/// One entry of the census-11.10 cost-centre scope picker — the centre's id and its display name, qualified by
+/// its cost category because two categories may legitimately hold a centre of the same name and an unqualified
+/// list would offer the operator two identical rows.
+///
+/// <para>There is no "All Centres" head entry, unlike <see cref="ChequeBankOption.AllBanks"/>: the vendor's
+/// sentence is "the monthly breakup … for the <b>selected</b> Cost Centre", and a company-wide roll-up would
+/// double-count any line classified under more than one cost category. See <c>InitCostCentrePicker</c>.</para>
+/// </summary>
+public sealed class CostCentreOption
+{
+    public Guid CentreId { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
 }
 
 /// <summary>One column of the shared payroll matrix (Pay Sheet / Payroll Register / Attendance / Payment Advice):
