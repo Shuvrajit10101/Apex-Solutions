@@ -317,6 +317,14 @@ public sealed class GstSetOffSchemaTests
         -- the ALTERs to land on.
         CREATE TABLE groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
         CREATE TABLE stock_groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        -- gstr2b_snapshots is required because the chain now runs through the v65 -> v66 registration-attribution
+        -- migration (census 6.23 / T2-121(ii)), whose ALTER TABLE gstr2b_snapshots ADD COLUMN gst_registration_id
+        -- needs the table to exist. 🔴 A real database of THIS EXACT VINTAGE always has it — v43 is the version
+        -- that CREATED it (Phase 9 slice 6), so a genuine v43 book cannot be missing it; this fixture is a minimal
+        -- hand-written subset, so the table is declared here for the ALTER to land on — exactly as voucher_types,
+        -- stock_items and voucher_inventory_lines are above. Left empty: v66 back-fills nothing and has no UPDATE,
+        -- which is the point.
+        CREATE TABLE gstr2b_snapshots (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, return_period TEXT NOT NULL DEFAULT '', recipient_gstin TEXT NOT NULL DEFAULT '');
         """;
 
     private static long ReadSchemaVersion(string dbPath) => ReadScalar(dbPath, "SELECT version FROM schema_version LIMIT 1;");

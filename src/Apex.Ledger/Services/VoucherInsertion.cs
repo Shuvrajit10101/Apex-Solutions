@@ -109,14 +109,28 @@ public sealed record VoucherInsertionPlan(
 /// "declared gap" is worse than no note at all — it invites a later agent to build a guard that is already
 /// there.</para>
 ///
-/// <para><b>DECLARED GAP, labelled as ours and NOT claimed as built.</b> The vendor's per-voucher-type
+/// <para>~~<b>DECLARED GAP, labelled as ours and NOT claimed as built.</b> The vendor's per-voucher-type
 /// <i>"Numbering behaviour on the insertion/deletion"</i> switch — <i>"Renumber Vouchers"</i> versus <i>"Retain
 /// Original Voucher No."</i> — is NOT shipped, because it is a persisted per-type setting and this slice carries
 /// no schema budget (a <c>voucher_types</c> column is a migration, and the next migration owns v59). This build
-/// implements the vendor's stated DEFAULT only — <i>"Renumber Vouchers … is set as default when you migrate your
-/// data to TallyPrime 3.0 or later from any of the earlier versions, or you create a new company or a voucher
-/// type in the latest release"</i> — so no operator choice is silently misread; the alternative simply cannot be
-/// selected yet. Adding it is a schema change and a census follow-up, not a hidden default here.</para>
+/// implements the vendor's stated DEFAULT only … the alternative simply cannot be selected yet.~~</para>
+///
+/// <para>🔴 <b>THE GAP ABOVE IS CLOSED AT SCHEMA v66 AND THE PARAGRAPH IS STRUCK RATHER THAN DELETED</b>, so a
+/// reader can see what the limitation was. The switch is now
+/// <see cref="VoucherType.RetainOriginalVoucherNo"/> — a persisted <c>voucher_types</c> column
+/// (<c>retain_original_voucher_no</c>), defaulting to <c>false</c> = the vendor's own <i>Renumber Vouchers</i>
+/// default, so <b>every pre-v66 book plans exactly the plan it planned before</b> (ER-13). When a type carries
+/// <c>true</c>, <see cref="Plan"/> renumbers NOTHING and the newcomer is appended at <c>max + 1</c> — which is
+/// the vendor's own description of the option: <i>"Set this option, if you do not want to change the existing
+/// voucher numbers on insertion of new vouchers or deletion of existing vouchers."</i></para>
+///
+/// <para>⚠️ <b>WHAT IS STILL OURS AND IS NOT CLAIMED CLONED: THE DELETION HALF.</b> The vendor's sentence names
+/// <i>insertion</i> AND <i>deletion</i>. This build's <c>LedgerService.Delete</c> renumbers nothing on delete —
+/// it never did — so under <i>Renumber Vouchers</i> a deletion leaves a GAP where the vendor would close it, and
+/// under <i>Retain Original Voucher No.</i> our behaviour coincides with the vendor's by accident rather than by
+/// implementation. <b>The flag is therefore honoured on the INSERT path only</b>, and the deletion half is a
+/// documented divergence labelled as ours rather than a silently-half-wired setting. See
+/// <c>docs/invented-vs-cloned.md</c>.</para>
 /// </summary>
 public static class VoucherInsertion
 {
@@ -186,6 +200,15 @@ public static class VoucherInsertion
         }
 
         // ── Automatic and Multi-user Auto — the two methods that renumber ─────────────────────────────────
+        // 🔴 v66 / census 5.5: unless this type elects the vendor's OTHER insertion behaviour. "Retain Original
+        // Voucher No." is, in the vendor's words, for an operator who does "not want to change the existing
+        // voucher numbers on insertion of new vouchers" — so the newcomer is appended at max + 1 and NOTHING
+        // already posted moves. Placed here, after the three out-of-scope methods have already returned, because
+        // the vendor withholds the setting from Manual and None and reading it there would honour a knob the
+        // vendor does not offer. Default false = Renumber Vouchers = the behaviour every pre-v66 book had.
+        if (type.RetainOriginalVoucherNo)
+            return new VoucherInsertionPlan(null, NextNumber(company, type.Id), none, type.Numbering);
+
         var order = DayBookOrder(company);
         var anchorRank = order.IndexOf(anchor.Id);
         if (anchorRank < 0)

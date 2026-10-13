@@ -240,6 +240,48 @@ public sealed class VoucherType
     public bool ProvideNarrationForEachLedger { get; set; }
 
     /// <summary>
+    /// The vendor's per-voucher-type <b><i>"Numbering behaviour on the insertion/deletion"</i></b> switch, read
+    /// from the <i>Retain Original Voucher No.</i> end (census row <b>5.5</b>; schema <b>v66</b>).
+    /// <c>false</c> = <i>Renumber Vouchers</i>; <c>true</c> = <i>Retain Original Voucher No.</i>
+    ///
+    /// <para><b>R7 — ATTESTED, opened BY CONTENT 2026-10-13.</b>
+    /// <c>help.tallysolutions.com/use-voucher-numbering-methods/</c> describes both options verbatim.
+    /// <i>Renumber Vouchers</i>: <i>"This option is set as default when you migrate your data to TallyPrime 3.0 or
+    /// later from any of the earlier versions, or you create a new company or a voucher type in the latest
+    /// release."</i> and <i>"This setting ensures that when you insert or delete a voucher, the existing voucher
+    /// numbers are adjusted automatically."</i> <i>Retain Original Voucher No.</i>: <i>"Set this option, if you do
+    /// not want to change the existing voucher numbers on insertion of new vouchers or deletion of existing
+    /// vouchers."</i> The page also gives the purpose: <i>"These options are useful, depending on your business
+    /// practices, when you are importing external data or syncing data from different sources in to the
+    /// destination company."</i></para>
+    ///
+    /// <para>🔴 <b>DEFAULT <c>false</c> IS THE VENDOR'S OWN DEFAULT, so v66 back-fills nothing and no existing
+    /// book's numbering changes (ER-13).</b> Before v66 this build implemented the vendor's default only and the
+    /// alternative could not be selected at all — which is exactly what row 5.5's cell and
+    /// <see cref="Services.VoucherInsertion"/>'s own "DECLARED GAP" paragraph said. This property closes that
+    /// half.</para>
+    ///
+    /// <para>⚠️ <b>SCOPED TO THE TWO METHODS THE VENDOR SCOPES IT TO, AND NOT READ UNDER THE OTHER THREE.</b> The
+    /// same page withholds the setting from Manual and None — <i>"Note: This option will not be available if you
+    /// have selected 'Manual' or 'None' as the method of voucher numbering."</i> — and
+    /// <see cref="Services.VoucherInsertion.Plan"/> already returns before it would be consulted for
+    /// <see cref="NumberingMethod.None"/>, <see cref="NumberingMethod.Manual"/> and
+    /// <see cref="NumberingMethod.AutomaticManualOverride"/>. So a type that carries <c>true</c> under one of
+    /// those methods is inert rather than wrong, and <see cref="SupportsInsertionBehaviour"/> is what the master
+    /// screen uses to avoid offering a knob that would do nothing.</para>
+    /// </summary>
+    public bool RetainOriginalVoucherNo { get; set; }
+
+    /// <summary>
+    /// Whether the vendor offers this type's <i>"Numbering behaviour on the insertion/deletion"</i> switch at all
+    /// — true for <see cref="NumberingMethod.Automatic"/> and <see cref="NumberingMethod.MultiUserAuto"/> only,
+    /// per the page quoted on <see cref="RetainOriginalVoucherNo"/>. Published so the master screen and the
+    /// planner cannot disagree about when the setting is live.
+    /// </summary>
+    public bool SupportsInsertionBehaviour =>
+        Numbering is NumberingMethod.Automatic or NumberingMethod.MultiUserAuto;
+
+    /// <summary>
     /// The date-effective <b>Prefix</b> rows (numbering-design-v2 §1.2, §1.3). Get-only and ctor-injected (mirrors
     /// <see cref="Voucher.InventoryLines"/>/<see cref="Voucher.PosTenders"/>): the rendered number selects the row whose
     /// <see cref="VoucherNumberAffix.ApplicableFrom"/> is the latest on/before the voucher date. May be empty (ER-13:
@@ -299,6 +341,7 @@ public sealed class VoucherType
         bool prefillWithZero = false,
         bool printAfterSaving = false,
         bool provideNarrationForEachLedger = false,
+        bool retainOriginalVoucherNo = false,
         IEnumerable<VoucherNumberAffix>? prefixes = null,
         IEnumerable<VoucherNumberAffix>? suffixes = null,
         IEnumerable<VoucherClass>? classes = null)
@@ -331,6 +374,7 @@ public sealed class VoucherType
         PrefillWithZero = prefillWithZero;
         PrintAfterSaving = printAfterSaving;
         ProvideNarrationForEachLedger = provideNarrationForEachLedger;
+        RetainOriginalVoucherNo = retainOriginalVoucherNo;
         _prefixes = prefixes?.ToList() ?? new List<VoucherNumberAffix>();
         _suffixes = suffixes?.ToList() ?? new List<VoucherNumberAffix>();
         _classes = classes?.ToList() ?? new List<VoucherClass>();

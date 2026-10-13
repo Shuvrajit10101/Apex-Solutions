@@ -1671,6 +1671,34 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 65;
         }
 
+        // v65 → v66 (USER RULING 30(3)+(4); census 5.5 and 6.23; T2-121(ii) / T2-125): TWO columns in ONE
+        // migration — voucher_types.retain_original_voucher_no (the vendor's per-type "Numbering behaviour on the
+        // insertion/deletion" switch) and gstr2b_snapshots.gst_registration_id (which registration an imported
+        // GSTR-2B/2A belongs to). Purely additive and it back-fills NOTHING: 0 is the vendor's own Renumber
+        // default and the only behaviour this build had, and NULL already means "the company's own first
+        // registration", which is the only registration the pre-v66 import path could write. So every voucher
+        // number, every insertion plan and every reconciled statement reads exactly as it did at v65 (ER-13).
+        // See Schema.MigrateV65ToV66 for which of ruling 30's five queued items are here and which is declined.
+        if (version == 65)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV65ToV66;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 66);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 66;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -2828,7 +2856,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
                    allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
                    is_rcm_payment_voucher, is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero,
-                   print_after_saving, provide_narration_for_each_ledger
+                   print_after_saving, provide_narration_for_each_ledger, retain_original_voucher_no
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2873,6 +2901,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v53 (W2-03; census 5.11): the two attested user flags, read verbatim.
                 printAfterSaving: r.GetInt64(22) != 0,
                 provideNarrationForEachLedger: r.GetInt64(23) != 0,
+                // v66 (census 5.5): "Numbering behaviour on the insertion/deletion", read verbatim. 0 on every
+                // pre-v66 type = the vendor's Renumber default = exactly what this build did before.
+                retainOriginalVoucherNo: r.GetInt64(24) != 0,
                 prefixes: prefixByType.GetValueOrDefault(id),
                 suffixes: suffixByType.GetValueOrDefault(id),
                 // v58 (census 9.9): the named voucher classes, ctor-injected like the affixes above.
@@ -3430,7 +3461,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, statement_type, return_period, recipient_gstin, generated_on, source_file_hash, imported_at,
-                   summary_igst_paisa, summary_cgst_paisa, summary_sgst_paisa, summary_cess_paisa
+                   summary_igst_paisa, summary_cgst_paisa, summary_sgst_paisa, summary_cess_paisa,
+                   gst_registration_id
             FROM gstr2b_snapshots WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3448,7 +3480,12 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.GetString(5),
                 ParseDateTimeOffset(r.GetString(6)),
                 r.GetInt64(7), r.GetInt64(8), r.GetInt64(9), r.GetInt64(10),
-                linesBySnapshot.TryGetValue(id, out var lines) ? lines : new List<Gstr2bLine>()));
+                linesBySnapshot.TryGetValue(id, out var lines) ? lines : new List<Gstr2bLine>(),
+                // v66 (census 6.23 / T2-121(ii)): the owning registration, read VERBATIM. NULL stays null here —
+                // nothing is defaulted to a registration at the storage boundary; Gstr2bSnapshot.OwningRegistrationId
+                // is the one place that says what null means, exactly as GstReportSupport.RegistrationOf does for a
+                // voucher. Defaulting it here would hide a book whose column was never written.
+                gstRegistrationId: r.IsDBNull(11) ? null : Guid.Parse(r.GetString(11))));
         }
         return list;
     }
@@ -6807,8 +6844,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
                      use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher,
                      is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero,
-                     print_after_saving, provide_narration_for_each_ledger)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz, $pas, $pnl);
+                     print_after_saving, provide_narration_for_each_ledger, retain_original_voucher_no)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz, $pas, $pnl, $rovn);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -6835,6 +6872,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$pfz", t.PrefillWithZero ? 1 : 0);            // v47 (numbering S3)
             cmd.Parameters.AddWithValue("$pas", t.PrintAfterSaving ? 1 : 0);           // v53 (W2-03; census 5.11)
             cmd.Parameters.AddWithValue("$pnl", t.ProvideNarrationForEachLedger ? 1 : 0); // v53 (W2-03; census 5.11)
+            cmd.Parameters.AddWithValue("$rovn", t.RetainOriginalVoucherNo ? 1 : 0);    // v66 (census 5.5)
             cmd.ExecuteNonQuery();
         }
     }
@@ -7180,8 +7218,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.CommandText = """
                     INSERT INTO gstr2b_snapshots
                         (id, company_id, statement_type, return_period, recipient_gstin, generated_on, source_file_hash,
-                         imported_at, summary_igst_paisa, summary_cgst_paisa, summary_sgst_paisa, summary_cess_paisa)
-                    VALUES ($id, $cid, $type, $period, $gstin, $gen, $hash, $imp, $igst, $cgst, $sgst, $cess);
+                         imported_at, summary_igst_paisa, summary_cgst_paisa, summary_sgst_paisa, summary_cess_paisa,
+                         gst_registration_id)
+                    VALUES ($id, $cid, $type, $period, $gstin, $gen, $hash, $imp, $igst, $cgst, $sgst, $cess, $reg);
                     """;
                 cmd.Parameters.AddWithValue("$id", s.Id.ToString("D"));
                 cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7195,6 +7234,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$cgst", s.SummaryCgstPaisa);
                 cmd.Parameters.AddWithValue("$sgst", s.SummarySgstPaisa);
                 cmd.Parameters.AddWithValue("$cess", s.SummaryCessPaisa);
+                // v66 (census 6.23 / T2-121(ii)): written VERBATIM — a null stays NULL rather than being
+                // normalised to GstRegistration.PrimaryId's all-zero Guid. NULL is the contract the column's own
+                // declaration states ("the company's own first registration"), it is what every pre-v66 row holds,
+                // and writing the zero Guid instead would also violate the REFERENCES gst_registrations(id)
+                // clause, since the primary registration deliberately has no row in that table.
+                cmd.Parameters.AddWithValue(
+                    "$reg", s.GstRegistrationId is { } reg && reg != GstRegistration.PrimaryId
+                        ? reg.ToString("D")
+                        : (object)DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
 
