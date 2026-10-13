@@ -200,7 +200,7 @@ public sealed class MultiMasterGridReachabilityTests
         {
             OpenMultiLedger(window, vm);
             var m = vm.MultiMasterCreate!;
-            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
             Pump(window);
 
             // Typed into the RENDERED cells, so the two-way binding is part of what is under test.
@@ -242,7 +242,7 @@ public sealed class MultiMasterGridReachabilityTests
         {
             OpenMultiLedger(window, vm);
             var m = vm.MultiMasterCreate!;
-            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
             m.Rows[0].Name = "Romeo Ltd";
             Pump(window);
 

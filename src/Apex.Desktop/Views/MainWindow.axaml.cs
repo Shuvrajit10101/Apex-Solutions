@@ -1084,6 +1084,30 @@ public partial class MainWindow : Window
         // chooser — that is the whole point of the feature. Alt+letter emits no character, so allowing it while
         // typing costs nothing. Scoped by BrowseRequest() returning null on every screen with no path, so this is
         // a safe no-op app-wide.
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ 🔴 Alt+B — ZERO OPENING BALANCE, on the Multi Ledger Alteration grid. (WBB-1 / census row 2.12.) │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // Vendor, verbatim (help.tallysolutions.com/tally-prime/charts-of-accounts-tally/, opened by content
+        // 2026-10-13, in the Alter Multiple Masters section): "To remove the opening balances from all the
+        // ledgers, press Alt+B (Zero Opening Balance)."
+        //
+        // It STAGES the change in the grid; nothing is written until Ctrl+A, like every other edit on that screen.
+        // Placed FIRST among this file's Alt+B arms deliberately, so the scoping is decided here rather than
+        // depending on the arm below returning null — though it does: BrowseRequest() switches on specific
+        // screens and MultiMasterCreate is not one of them, so the browse arm was never going to claim this key
+        // here. ZeroOpeningBalances() is itself gated on ShowsZeroOpeningBalance (the ledger grid in ALTER mode
+        // only), so the chord is a no-op on the create grid and on the other four families; `e.Handled` follows
+        // that gate rather than being set unconditionally, so Alt+B keeps falling through everywhere it used to.
+        if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
+            && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
+            && vm.CurrentScreen == Screen.MultiMasterCreate
+            && vm.MultiMasterCreate is { ShowsZeroOpeningBalance: true } grid)
+        {
+            grid.ZeroOpeningBalances();
+            e.Handled = true;
+            return;
+        }
+
         if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Alt)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && vm.BrowseRequest() is not null)
@@ -1335,6 +1359,29 @@ public partial class MainWindow : Window
             && vm.IsReportContext && vm.Company is not null)
         {
             vm.OpenChangeViewMenu();
+            e.Handled = true;
+            return;
+        }
+
+        // ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+        // │ 🔴 Alt+H — MULTI-MASTERS. (WBB-1 / census row 2.12.)                                             │
+        // └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+        // THE VENDOR'S OWN DOOR TO THE MULTI-MASTER GRIDS, AND CENSUS ROW 2.12 RECORDED IT AS UNBOUND — which it
+        // was: before this arm the only Key.H arms in this file were the two Ctrl+H arms immediately above, so
+        // Alt+H fell through and did nothing at all. Vendor, verbatim
+        // (help.tallysolutions.com/tally-prime/charts-of-accounts-tally/, opened by content 2026-10-13): "press
+        // Alt+H (Multi-Masters) > Multi Create and press Enter", and "press Alt+H (Multi-Masters) > Multi Alter >
+        // press Enter". The godowns page quotes the same chord from the same screen.
+        //
+        // 🔴 IT DISPLACES NOTHING, and the `== KeyModifiers.Alt` EXACT match is what guarantees that rather than a
+        // comment claiming it: Ctrl+H (both arms above) and Ctrl+Alt+H are excluded by the match itself, not by
+        // ordering. Scoped to the Chart of Accounts — the one screen the vendor documents the chord on — so it is
+        // a quiet no-op app-wide, exactly like the Ctrl+J Exception Reports chord it mirrors. !IsTyping keeps it
+        // out of the tree's own filter box.
+        if (e.Key == Key.H && e.KeyModifiers == KeyModifiers.Alt
+            && vm.IsChartOfAccountsScreen && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.OpenMultiMasters();
             e.Handled = true;
             return;
         }
@@ -2399,8 +2446,29 @@ public partial class MainWindow : Window
     }
 
     /// <summary>W2-20 — the pointer equivalent of Ctrl+A on the multi-master grid (same all-or-nothing Accept).</summary>
+    /// <summary>
+    /// 🔴 The multi-master grid's commit button. It calls <c>Accept()</c> — the SAME method the Ctrl+A arm calls —
+    /// which branches on the grid's <c>Mode</c> internally.
+    ///
+    /// <para><b>There is deliberately no <c>IsAltering</c> branch in this handler, and that is the point.</b>
+    /// T2-105 is a class of defect in which a pointer handler and a keyboard arm call two DIFFERENT commit
+    /// methods and eventually disagree: on four Area-3 masters the handler ran a bare unconditional
+    /// <c>Create()</c> over an alteration screen, duplicating the master or silently losing the correction. The
+    /// remedy here is structural rather than careful — the view model exposes ONE commit method, so there is no
+    /// second method for this handler to call by mistake and no branch here to get wrong. The button's caption is
+    /// bound to <c>CommitLabel</c> for the same reason.</para>
+    /// </summary>
     private void OnMultiMasterCreateClick(object? sender, RoutedEventArgs e)
         => Vm?.MultiMasterCreate?.Accept();
+
+    /// <summary>
+    /// The pointer affordance for the vendor's <b>Alt+B (Zero Opening Balance)</b> on the Multi Ledger Alteration
+    /// grid. <c>ZeroOpeningBalances()</c> is gated on the grid's own <c>ShowsZeroOpeningBalance</c>, so this is a
+    /// no-op anywhere the button is not visible — the gate lives in the view model, where it is headlessly
+    /// testable, rather than in the button's visibility alone.
+    /// </summary>
+    private void OnMultiMasterZeroOpeningClick(object? sender, RoutedEventArgs e)
+        => Vm?.MultiMasterCreate?.ZeroOpeningBalances();
 
     /// <summary>
     /// W2-14 — puts the caret in the Go To search box the instant the overlay is realised, so Alt+G is followed
