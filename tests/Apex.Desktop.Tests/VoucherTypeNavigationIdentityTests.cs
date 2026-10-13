@@ -22,8 +22,16 @@ namespace Apex.Desktop.Tests;
 /// <list type="bullet">
 /// <item><b>Credit Note / Debit Note had no menu row anywhere.</b> Reachable only by Alt+F6 / Alt+F5 or the
 /// Day-Book Alt+A picker, so an operator who does not already know the accelerator could not find them. They now
-/// sit under the Vouchers section beside Sales and Purchase, in the corpus's ordering (Book p.24 lists Credit
-/// Note at #11 and Debit Note at #12 of the 24 predefined types) — decision D9 option A.</item>
+/// sit under the Vouchers section beside Sales and Purchase, in ~~the corpus's ordering (Book p.24 lists Credit
+/// Note at #11 and Debit Note at #12 of the 24 predefined types)~~ — decision D9 option A.
+/// 🔴 <b>THE CITATION ABOVE IS UNRESOLVABLE AND IS STRUCK 2026-10-13 (PHASE 0, wave 1), NOT DELETED.</b>
+/// "Book p.24" is a <c>tally/</c> corpus page reference, and under <b>CLAUDE.md R7 / user ruling 14</b> the
+/// corpus is GONE — the directory is empty and was never git-tracked, so <b>no reader can ever check this
+/// claim</b>. The ORDERING it asserts is not being retracted (the menu rows ship and are tested below); what is
+/// retracted is the pretence that it is cited. <b>It needs a <c>help.tallysolutions.com</c> page listing the
+/// predefined voucher types in order before it may be called sourced again</b> — flagged by the vendor pass and
+/// recorded here rather than silently dropped, because a dead citation in a shipped test is the shape this
+/// project has already had to strip out of shipped code once.</item>
 /// <item><b>Physical Stock advertised a key that did something else.</b> Seeded "F10", menu row printed "F10",
 /// while Ctrl+F7 was bound to nothing and F10 opens Apex's Other Vouchers menu. TallyPrime's key is
 /// <b>Ctrl+F7</b> ("To open Physical Stock | Ctrl+F7"); F10 there lists vouchers/masters. Decision X1.</item>
@@ -219,8 +227,23 @@ public sealed class VoucherTypeNavigationIdentityTests
 
     /// <summary>
     /// Ctrl+F7 shadows nothing: every neighbouring modifier+F-key still opens the screen it always opened, and
-    /// bare F10 still opens Apex's "Other Vouchers" menu (a deliberate, documented divergence — decision D7
-    /// option A / X6 — since Other Vouchers is the only route to Memorandum / Reversing Journal / Job Work).
+    /// bare F10 still opens Apex's "Other Vouchers" menu ~~(a deliberate, documented divergence — decision D7
+    /// option A / X6 — since Other Vouchers is the only route to Memorandum / Reversing Journal / Job Work)~~.
+    ///
+    /// <para>🔴 <b>THE "DIVERGENCE" LABEL ABOVE IS FALSE AND IS CORRECTED 2026-10-13 (PHASE 0, wave 1) — WE
+    /// MATCH THE VENDOR HERE. It is struck rather than deleted so the mislabel can be audited.</b> The vendor
+    /// documents <b>exactly this route</b>. Verbatim, from
+    /// <c>help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/</c>, opened BY CONTENT:
+    /// <i>"Press Alt + G (Go to) &gt; Create Voucher &gt; press <b>F10</b> (Other vouchers) &gt; type or select
+    /// <b>Reversing Journal</b>."</i> and <i>"Alternatively, Gateway of Tally &gt; Vouchers &gt; press
+    /// <b>F10</b> (Other vouchers) &gt; type or select Reversing Journals."</i> So bare F10 → Other Vouchers is
+    /// <b>FIDELITY, not a divergence</b>, and "D7 option A / X6" does not apply to it.</para>
+    ///
+    /// <para>⚠️ <b>Why a harmless-direction mislabel is still worth correcting:</b> a divergence register is how
+    /// this project decides what to re-examine and what to leave alone. An entry claiming we diverge where we
+    /// actually match invites a later slice to "fix" a faithful behaviour — and census row 4.18 had in fact
+    /// carried "no seeded shortcut, so it is menu-only" as a GAP on the strength of this reading. That gap is
+    /// now withdrawn: the vendor is menu-only too.</para>
     /// </summary>
     [AvaloniaFact]
     public void CtrlF7_does_not_shadow_any_neighbouring_accelerator()

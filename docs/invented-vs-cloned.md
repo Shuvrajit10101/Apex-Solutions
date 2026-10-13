@@ -1840,7 +1840,133 @@ is the premise, and it checks out.
 
 ---
 
+## 2E. ADDED 2026-10-13 — PHASE 0 OF THE PLAN-TO-FINISH (wave 1): EIGHT ENTRIES, AND SEVERAL GO AGAINST US
+
+**Scope note, and the reason this batch is unlike the others above.** These eight did not come out of building
+anything. They came out of a **read-only vendor pass** run specifically to test whether a sizing pass's claim
+that "45 clauses are already closed" survived contact with the vendor documentation. Every URL below was opened
+**BY CONTENT** and every quoted sentence was read off the page, not inferred. 🔴 **Tally.ERP 9 pages were
+DISCARDED, not quoted** — searches for units, currency, reorder levels and batches all surface `/docs/te9rel*/`
+and `/article/Tally.ERP9/` results ABOVE the TallyPrime ones, R7 (ruling 14) makes only TallyPrime ground truth,
+and a prior campaign fabrication quoted ERP 9.
+
+🔴 **READ THE DIRECTION OF EACH ENTRY BEFORE READING ITS SEVERITY.** Three of the eight (`IV-74`, `IV-75`,
+`IV-76`) are cases where **we are LESS capable or MORE restrictive than the vendor and had not recorded it** —
+`IV-75` is outright **contradicted** by the vendor page. Two (`IV-77`, `IV-79`) say the opposite: a thing our own
+backlog treated as a gap is **not owed at all**, so building it would be inventing. One (`IV-81`) is a
+divergence label that was simply **false** — we match. **A register that only ever accumulates "ours is fine"
+entries is not being audited, and that is why these are filed together.**
+
+### IV-74 · The compound-unit **composition lock** on the Unit Alteration screen is OURS — the vendor's alteration screen excludes no field
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM** — no wrong figure, but a capability the vendor grants is refused, and a **test asserted the refusal with the word "must"**, which made our choice read as fidelity. That mislabel is the real finding. |
+| **What TallyPrime does** | Gives **Compound Unit** its own subsection under *Alter Units for Stock Items* and states no restriction. Verbatim, `help.tallysolutions.com/manage-stock-item-tally/` (read 2026-10-13): *"Press Alt + G (Go To) > Alter Master > type or select Unit and press Enter."* … *"In the Unit Alteration screen, make the necessary changes, as per your requirement."* … *"Press Ctrl+A to save."* **No field is excluded and no restriction is stated.** |
+| **What we ship** | `UnitMasterViewModel.IsCompositionReadOnly => IsAltering` — the alteration screen **hard-locks** base unit, conversion factor and alternate unit whenever it is altering. |
+| **How it got in** | On a real engineering ground, stated in the view model: re-pointing a Dozen from 12 Nos to 10 Nos would **silently restate every posted quantity** denominated in it. That reasoning is sound. What was missing is that it was never checked against a source, and the census cell for row 3.5 had itself written the test — *"If the vendor permits it, that is a divergence and the row should stay `PARTIAL`"* — and then nobody ran it. |
+| **🔴 The honest limit of the finding** | **The vendor does not explicitly PERMIT editing the conversion factor either** — the page never names that field. So this is vendor **silence on the factor** against a **blanket permission on the screen**. Recorded as silence, not as a vendor claim, because the difference decides whether a future slice is cloning or inventing. |
+| **Consequence taken** | **Census row 3.5 was REFUSED promotion to `COMPLETE`** on 2026-10-13 — the one Phase-0 candidate A12 declined. `InventoryMasterPointerAlterTests` previously asserted *"The alteration screen must lock the composition."*; the assertion is **KEPT** (deleting it would let the shipped behaviour change unnoticed) and **relabelled as ours**, naming this entry. |
+| **Fix** | **A USER DECISION (R12).** Route **(1)**: adopt the vendor's permissiveness and allow composition edits on alteration — this needs a restatement strategy for already-posted quantities, so it is **not free**. Route **(2)**: keep the lock as a labelled divergence and say so on the screen's own face, which is cheap and is what we effectively do today. **A12 recommends (2) until a user ruling says otherwise, because (1) silently rewrites history and no test in the tree would catch that.** |
+
+---
+
+### IV-75 · Refusing to alter the **base currency** is OURS, and the vendor page **CONTRADICTS** it
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM-HIGH for the register** — the refusal is not merely unsourced, it is **the opposite of what the vendor documents**, and the campaign record carried a false claim in its favour for weeks. No wrong figure is produced; a capability is withheld. |
+| **What TallyPrime does** | Alters the base currency on an ordinary alteration screen. Verbatim, `help.tallysolutions.com/create-alter-or-delete-currencies/` (read 2026-10-13, **200** — this is the live slug that replaces the page which 404'd for two previous agents): *"**You can also alter the base currency. The screen for altering it is similar to the Currency Creation screen.**"* The **only** base-currency carve-out on the page is about the *rates*: *"Modify the **Rates of Exchange** , if required."* … *"**You will not see this option if you are altering the Base currency.**"* |
+| **What we ship** | `CurrencyMasterViewModel.ForAlter` returns `null` for the base currency; `MainWindowViewModel`'s `Ctrl+Enter` arm now raises a lifecycle notice naming **Alter Company (F3)** and returns `true` so the chord cannot fall through. |
+| **🔴 The false claim this corrects** | The campaign record held that *"the vendor separates base-currency alteration into a distinct procedure"*. **That is FALSE** — the page says the screen is *similar to the Currency Creation screen*. Only *Rates of Exchange* is withheld, which is a **sub-option**, not a procedure. |
+| **What was genuinely fixed, and what was not** | `T1-37` closed the **silence** of the refusal — before it, `Ctrl+Enter` on the base currency did nothing at all, no message, no beep, and the operator could not tell a deliberate refusal from a dead keystroke. Mutation **M2a** reddens the notice test by name. **The refusal ITSELF was never sourced and is now known to be contradicted.** |
+| **Fix** | **A USER DECISION (R12).** Route **(1)**, the faithful one: allow base-currency alteration on the currency master, withholding **only** the Rates of Exchange grid, exactly as the page describes. The cost is real but bounded — the company profile and the currency master must not desynchronise, which is the legitimate concern behind the original refusal. Route **(2)**: keep routing the operator to Alter Company (F3) as a labelled divergence; the notice already names the destination, so it is honest, just not faithful. **Also unimplemented and attested on the same page:** *"If you use the same symbol for two currencies, TallyPrime automatically prefixes the second currency symbol with letters from its formal name (e.g., "U$") to avoid confusion."* |
+
+---
+
+### IV-76 · Our master **GST block is a REDUCTION** of the vendor's design — four flat fields where the vendor offers a source-mode choice
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM** — it is a missing capability rather than a wrong figure, but it is the capability that decides **where a rate comes from**, so it shapes every downstream GST figure the operator cannot otherwise explain. |
+| **What TallyPrime does** | For **both** HSN/SAC **and** GST Rate it offers a choice of source: *As per Company/Group* · *Specify Details Here* · *Use GST Classification* · *Specify in Voucher* — plus a **Description**, a **slab-based** tax rate, and an F12 *"Provide breakup of Tax Rate"*. Attested on `help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` and `help.tallysolutions.com/set-up-gst-rate-hsn-sac-details/` (both read 2026-10-13): *"The steps to set up GST Rates and HSN/SAC Details remain the same in **all masters**."* and *"For any other masters: In the master creation or alteration screen, set GST applicability to **Applicable**."* |
+| **What we ship** | Four flat fields on `MasterGstBlockEditor` (`TaxabilityChoices`, `SupplyTypeChoices` and their neighbours) and **none of the four source modes**: `grep` over `src/` returns **ZERO** hits for "As per Company/Group", "Specify Details Here", "Use GST Classification" and "Specify in Voucher". |
+| **How it got in** | By building the storage first and the screen to match the storage. `MasterGstDetails` is a flat record, so the editor became flat too. Nobody compared the editor to a vendor page because the **hierarchy** was the thing under test. |
+| **🔴 One thing this entry DISCHARGES rather than adds** | The census's long-standing caveat that the **accounting-Group** rung of the hierarchy was *"NOT independently sourced"* is **closed** — the page was found and it names *"**Ledger Group**"* and *"**Accounting Group**"* explicitly, in both resolver order strings, matching our two arrays. **That half was fidelity all along.** |
+| **Fix** | Build the source-mode choice on the master GST block (census row 3.13 is the owner; row 6.4's capture clause depends on it). ⚠️ **Note that a GST Classification master already exists in the product (census 6.25) but is NOT offered as a *mode* here — so part of this is wiring, not new capability.** 🔴 **One field must NOT be assumed:** *"Type of Supply"* is attested on the Stock **Item** page, and no TallyPrime page was found naming it on a Stock **Group** screen — so the Stock-Group field list is **not** fully sourced on that field. |
+
+---
+
+### IV-77 · We ship a **standalone Batch / Lot master** the vendor does not appear to have — and that makes a "missing Alter verb" not a gap
+
+| | |
+|---|---|
+| **Severity** | **LOW for the customer, HIGH for the backlog** — nothing is mis-stated on any document, but census row 3.8 carried *"No Alter"* as a gap for a master the vendor does not publish, so the gap was unbuildable by construction and would have been "fixed" by inventing a screen. |
+| **What TallyPrime does** | Routes **every** batch operation through the **Stock Item** master and the voucher's item allocation. No TallyPrime page documenting a Batch master was found. Verbatim, `help.tallysolutions.com/tally-prime/inventory/manage-inventory-batch-wise-tally/` (read 2026-10-13): *"In the Stock Item Creation/Stock Item Alteration screen, set the option **Maintain in batches** to Yes."* and *"You can alter the details in the Stock Item Masters, by pressing **Alt + S** (Stock Alter)."* |
+| **What we ship** | A standalone Batch/Lot master with its own menu row (gated on the F11 batch flag), Create and — since the W33 residual cluster — a guarded `Alt+D` Delete on the shared master-list arm. No Alter. |
+| **🔴 Stated as an honest negative, deliberately** | *"We could not find the page"* and *"the page does not exist"* are different claims and **only the second licenses a divergence label.** This is filed as the second: every vendor batch route found runs through the item. If a TallyPrime batch-master page is later produced, **this entry is wrong and should be struck**, and that is the right way for it to fail. |
+| **Fix** | **None proposed as clone work.** The withheld Alter verb is **not** a gap — there is no vendor batch-master alteration to clone, and the existing withholding (recorded by evidence in `MainWindowViewModel`) was the correct call for the right reason. **Whether this master should exist in this shape at all is a USER call**, not a wave: retiring it would move batch entry onto the Stock Item master and is a real migration. |
+
+---
+
+### IV-78 · Refusing to move **Applicable Upto** during an alteration is OURS — the vendor is permissive about the screen and silent on the field
+
+| | |
+|---|---|
+| **Severity** | **LOW** — a withheld correction on an off-books voucher. Nothing posted to the books is affected, because a Reversing Journal is not posted to any book. |
+| **What TallyPrime does** | Permits alteration from the register and says nothing about this field. Verbatim, `help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/` (read 2026-10-13): *"All vouchers are maintained in a Reversing Journal Register. These are not posted to any books of accounts and cannot be included in regular reports. **You can view or alter Reversing Journals from the register.**"* On the field itself, only: *"**Applicable Upto**: This is the date up to which the Reversing Journal is available for inclusion in a scenario report."* |
+| **What we ship** | The field rehydrates and re-parses on alteration, but moving it is **refused by name** — pinned by `VoucherAlterForAlterTests.Constraint2_moving_applicable_upto_during_an_alteration_is_refused_by_name`. |
+| **How it got in** | As a deliberate constraint when voucher alteration was built: moving the date changes which scenario reports the entry appears in, retrospectively. Reasonable, unsourced. |
+| **Fix** | **None proposed.** Kept as a labelled divergence; census row 4.18 no longer counts it as a gap. If a user ruling adopts the vendor's permissiveness, the named test is the one to invert. |
+
+---
+
+### IV-79 · A **Dr/Cr split** on the Day Book would be OURS to invent — the vendor's Day Book page sets out **no column layout at all**
+
+| | |
+|---|---|
+| **Severity** | **LOW for the customer, HIGH for scheduling** — census row 11.4 carried the single Amount column as gap **(a)**, i.e. as a fidelity debt. It is not one, and scheduling it as clone work would have spent a slice on an invention. |
+| **What TallyPrime does** | Publishes **no column layout** for the Day Book. On `help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/` (read 2026-10-13) the only column words on the page are in the F7 gross-profit context — *"press **F7** (Show Profit) to see the Gross Profit against the **Transaction Value** and **Cost**"* — a different feature. The page **does** attest the chords we already ship: *"Open Day Book and press **Ctrl+F** (Apply Filter)"*, *"you can also press **F6** (Multi-Filter) and **F7** (Advanced Filter)"*, *"Press **Alt+F5** (Detailed) for a detailed format of the report."* |
+| **What we ship** | `src/Apex.Ledger/Reports/DayBook.cs` carries a single `Money Amount` on the row record. |
+| **Fix** | **Do not schedule as clone work.** If the user wants a Dr/Cr split it ships as a **labelled divergence behind a user ruling** — it cannot be justified by R7, because R7's first source speaks on this page and says nothing about columns. **The gap shrinks from a fidelity debt to an unsourced wish.** |
+
+---
+
+### IV-80 · Adding the two godown fields **unconditionally** would itself be a divergence — both are **F12-gated** in the vendor
+
+| | |
+|---|---|
+| **Severity** | **LOW, and it is a trap rather than a defect** — the fields are genuinely missing (census row 3.7 stays `PARTIAL`), but the obvious build is the wrong one and **no test in the tree would have caught it**. |
+| **What TallyPrime does** | Hides both fields behind F12. Verbatim, `help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/` (read 2026-10-13, **200** — the TallyPrime slug that replaces the **Tally.ERP 9** route census row 3.7's header still quotes, which R7 does not make ground truth): *"**Allow storage of materials** — By default, each godown can store materials. However, you can set a godown to not store any materials. To do so, setting this option to Yes to displays the Allow storage of materials option on the Godown Creation screen. Set that option to No."* · *"**Use address for Locations** — You can add the Locations address by enabling this option. The Locations address can be printed in your invoices by configuring invoice printing."* · and the page's own rule *"What you see on the screen can vary based on your choices. Press **F12** (Configure) to change the options."* |
+| **What we ship** | Neither field, on a Godown Creation screen with no F12 configuration layer for them. |
+| **Fix** | Build **two F12 switches plus two conditionally-shown fields** — not two fields. Recorded here because the row's gap sentence reads as "two missing fields" and a slice taking it at face value would ship a screen the vendor never shows. |
+
+---
+
+### IV-81 · 🔴 A **MIS-LABELLED** divergence: bare **F10 → Other Vouchers** is what the vendor documents — **we MATCH**
+
+| | |
+|---|---|
+| **Severity** | **LOW in direction, worth correcting in kind.** Nothing the customer sees is wrong. What was wrong is the **register**, and a register that claims we diverge where we match invites a later slice to "fix" a faithful behaviour. |
+| **What TallyPrime does** | Documents exactly our route. Verbatim, `help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/` (read 2026-10-13): *"Press Alt + G (Go to) > Create Voucher > press **F10** (Other vouchers) > type or select **Reversing Journal**."* and *"Alternatively, Gateway of Tally > Vouchers > press **F10** (Other vouchers) > type or select Reversing Journals."* |
+| **What we ship** | The same: `Key.F10` → `ShowOtherVouchersMenu()` in `src/Apex.Desktop/Views/MainWindow.axaml.cs`, with the page item dispatching to `OpenVoucher(VoucherBaseType.ReversingJournal)`, pressed through the real `MainWindow` tunnel by `VoucherTypeNavigationIdentityTests`. |
+| **What was mis-stated** | `VoucherTypeNavigationIdentityTests` called bare F10 *"a deliberate, documented divergence — decision D7 option A / X6"*. **It is not a divergence; D7/X6 does not apply to it.** The claim is **struck in the test comment, not deleted**, so the mislabel can be audited. |
+| **Consequence taken** | Census row **4.18's first clause** — *"no seeded shortcut, so it is menu-only"* — was carried as a **GAP** on the strength of this reading and is now **WITHDRAWN**: the vendor is menu-only too, under F10. **This is one of three gaps that vanished in Phase 0 without anything being built.** |
+| **Fix** | **Done** — the label is corrected in the test and the gap is withdrawn on the row. No code change; none is owed. |
+
+---
+
 ## 3. Grouped by area
+
+> 🔴 **▶ 2026-10-13 — THE EIGHT PHASE-0 ENTRIES (`IV-74` … `IV-81`, §2E) ARE **NOT** IN THE GROUPINGS BELOW,
+> AND THE PER-AREA COUNTS IN THE HEADINGS ARE THEREFORE UNDERSTATED. STATED RATHER THAN QUIETLY PATCHED,
+> because §7 of this document is *"Coverage, counted rather than claimed"* and an uncounted claim here is the
+> exact defect it exists to catch.** Where they would sit: **MST** gains `IV-74` (unit composition lock),
+> `IV-75` (base currency), `IV-76` (GST block reduction), `IV-77` (batch master) and `IV-80` (godown F12 gates)
+> — i.e. **MST goes from 3 to 8**; **ENT** gains `IV-78` (Applicable Upto) and `IV-81` (the mis-labelled F10,
+> which is a *retraction* rather than a divergence); **RPT** gains `IV-79` (Day Book Dr/Cr). ⚠️ **Read §2E
+> directly until these tables are re-derived — and note that `IV-81` should be counted NOWHERE, because it
+> records that we MATCH the vendor.**
 
 ### TAX — tax & money (7)
 Wrong figures on documents the customer files, pays or is paid on.

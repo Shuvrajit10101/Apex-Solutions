@@ -278,6 +278,24 @@ public sealed class InventoryMasterPointerAlterTests
     /// <para>⚠️ The screen itself is the evidence the operator believed they were editing in place:
     /// <c>UnitMasterViewModel.IsCompositionReadOnly =&gt; IsAltering</c> deliberately LOCKS the composition
     /// fields on this screen, which is only coherent if the screen is altering.</para>
+    ///
+    /// <para>🔴 <b>THE COMPOSITION-LOCK ASSERTION BELOW PINS *OUR* BEHAVIOUR, NOT THE VENDOR'S — RELABELLED
+    /// 2026-10-13 (PHASE 0, wave 1), AND THE ASSERTION IS DELIBERATELY KEPT.</b> The vendor page was opened BY
+    /// CONTENT — <c>help.tallysolutions.com/manage-stock-item-tally/</c>, section <i>Alter Units for Stock
+    /// Items</i>, which gives <b>Compound Unit</b> its own subsection and says <i>"In the Unit Alteration
+    /// screen, make the necessary changes, as per your requirement."</i> — and it <b>excludes no field and
+    /// states no restriction</b>. It never names the conversion factor either, so this is vendor SILENCE on the
+    /// factor against a blanket permission on the screen; <b>no vendor sentence supports our refusal</b>. The
+    /// lock is therefore filed as our divergence <b>IV-74</b> in <c>docs/invented-vs-cloned.md</c>, and census
+    /// row <b>3.5 was REFUSED promotion to COMPLETE</b> on this finding.</para>
+    ///
+    /// <para>⚠️ <b>WHY THE WORDING MATTERS AND WHY THE TEST STAYS.</b> This assertion previously read
+    /// <i>"The alteration screen must lock the composition."</i> — the word <b>must</b> makes our choice read as
+    /// fidelity, which is the <b>"a test pins the wrong answer"</b> shape this project has been bitten by twice.
+    /// The lock is still the SHIPPED behaviour and still has a real engineering justification (re-pointing a
+    /// Dozen from 12 Nos to 10 Nos would silently restate every posted quantity), so deleting the assertion
+    /// would let the behaviour change unnoticed. <b>It is kept, and relabelled as OURS.</b> If a user ruling
+    /// later adopts the vendor's permissiveness, THIS is the assertion to invert.</para>
     /// </summary>
     [AvaloniaFact]
     public void Clicking_commit_on_the_unit_alteration_screen_alters_the_symbol_and_creates_no_duplicate()
@@ -292,7 +310,12 @@ public sealed class InventoryMasterPointerAlterTests
             AlterHighlighted(k.Window);
             var master = k.Vm.UnitMaster!;
             Assert.True(master.IsAltering);
-            Assert.True(master.IsCompositionReadOnly, "The alteration screen must lock the composition.");
+            // OURS, not fidelity — see IV-74 and the relabelling note in this test's summary. The vendor's
+            // Unit Alteration screen excludes no field; this lock is our own choice and is pinned as such.
+            Assert.True(
+                master.IsCompositionReadOnly,
+                "OUR DIVERGENCE IV-74: this build locks the composition on the alteration screen. The vendor "
+                + "attests no such refusal, so this assertion pins Apex's behaviour, not TallyPrime's.");
 
             master.Symbol = "Pcs";
             ClickCommit(k.Window, "UnitCommitButton");
