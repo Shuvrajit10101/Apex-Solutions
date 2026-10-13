@@ -376,6 +376,90 @@ public sealed class VoucherGstRegistrationAttributionTests
     }
 
     /// <summary>
+    /// 🔴 <b>CENSUS ROW 6.24's STATED PRECONDITION, MEASURED RATHER THAN CLAIMED.</b> That row's cell gives the
+    /// reason ISD was sequenced where it was: <i>"ISD is credit <b>distribution</b> across registrations; it was
+    /// sequenced behind 6.23 and 6.23 landed <c>PARTIAL</c> with <b>no voucher-side registration
+    /// attribution</b>, so there is no distribution flow for an ISD return to project."</i> This test drives the
+    /// operator route end to end and shows that precondition is now met: F3 → the ISD registration → an input
+    /// service → Ctrl+A, and <c>Gstr6.Build</c> reports the credit.
+    ///
+    /// <para>🔴 <b>AND HERE IS WHAT THIS DOES <i>NOT</i> SHOW, STATED PLAINLY SO THE CLAIM IS NOT READ WIDER
+    /// THAN IT IS.</b> The GSTR-6 engine was <b>already</b> exercised with non-zero data —
+    /// <c>Gstr6IsdReturnTests</c> hand-sets <c>GstRegistrationId = isd.Id</c> on a hand-built voucher and pins
+    /// ₹4,500 / ₹4,500 / ₹9,000 received plus the whole Rule-39 distribution. So this change does <b>not</b>
+    /// make a never-tested report live; it supplies the <b>operator route to the data the engine was already
+    /// tested against</b>. That distinction is the difference between a true statement and an over-claim, and
+    /// row 6.24 is <b>not</b> proposed for promotion on the strength of it: the ISD slice's own blocking
+    /// findings (<c>T1-72</c> and the Rule 39(1)(c)/(k)/(l) and Table 6A/6B/6C/9/10 gaps that
+    /// <c>T2-121(ix)</c> calls "its own slice") are untouched by this wave.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_voucher_recorded_under_an_ISD_registration_reaches_the_GSTR_6_the_engine_already_computes()
+    {
+        var (w, vm, dir, _) = NewWindow("IsdRoute", withBranch: true);
+        try
+        {
+            var c = vm.Company!;
+            // A head-office ISD beside the operating registration — CBIC's own ABC Ltd shape.
+            var isdId = Guid.NewGuid();
+            c.Gst!.AddRegistration(new GstRegistration(
+                isdId, "Head Office (ISD)", Maharashtra, GstinFor(Maharashtra, "AAACS1206D"),
+                GstRegistrationType.InputServiceDistributor, FyStart));
+            c.Gst!.EnsureValid();
+
+            var supplier = AddLedger(c, "Service Supplier", "Sundry Creditors", false);
+            supplier.PartyGst = new PartyGstDetails
+            {
+                RegistrationType = GstRegistrationType.Regular,
+                Gstin = GstinFor(Maharashtra, "AAACT1206D"),
+                StateCode = Maharashtra,
+            };
+            var services = AddLedger(c, "Software Licence", "Indirect Expenses", true);
+
+            // An input service bought BY the head office: ₹50,000 @ 18% intra ⇒ CGST 4,500 + SGST 4,500.
+            var tax = new GstService(c).ComputeInvoiceTax(
+                new[] { new GstService.TaxableLine(Money.FromRupees(50_000m), 1800) }, false, GstTaxDirection.Input);
+
+            vm.OpenVoucher(VoucherBaseType.Purchase);
+            var e = vm.VoucherEntry!;
+            e.Date = D1;
+            e.Lines[0].SelectedLedger = services;
+            e.Lines[0].Side = DrCr.Debit;
+            e.Lines[0].AmountText = "50000";
+            e.Lines[1].SelectedLedger = supplier;
+            e.Lines[1].Side = DrCr.Credit;
+            e.Lines[1].AmountText = "59000";
+            e.AddLine();
+            e.Lines[2].SelectedLedger = c.FindLedger(tax.TaxLines[0].LedgerId);
+            e.Lines[2].Side = DrCr.Debit;
+            e.Lines[2].AmountText = "4500";
+            e.AddLine();
+            e.Lines[3].SelectedLedger = c.FindLedger(tax.TaxLines[1].LedgerId);
+            e.Lines[3].Side = DrCr.Debit;
+            e.Lines[3].AmountText = "4500";
+            e.Recalculate();
+
+            // 🔴 F3 → the ISD. The picker offers it, because an ISD is exactly the registration that RECEIVES
+            // input-service invoices — that is its whole statutory function (§20 / Rule 39).
+            Assert.Contains(e.AvailableGstRegistrations, r => r.Id == isdId);
+            Assert.Null(e.SelectGstRegistration(isdId));
+            Assert.True(e.Accept(), e.Message);
+
+            var posted = Assert.Single(c.Vouchers);
+            Assert.Equal(isdId, posted.GstRegistrationId);
+
+            // 🔴 AND THE RETURN REPORTS IT. Before this, no entry path could stamp a non-primary registration,
+            // an ISD can only ever BE one, and Gstr6.Build sweeps PostedDirectionalVouchers scoped to it — so
+            // for an operator the sweep was necessarily empty.
+            var r6 = Gstr6.Build(c, FyStart, new DateOnly(2025, 3, 31), isdId);
+            Assert.Equal(4_500m, r6.ReceivedCgst.Amount);
+            Assert.Equal(4_500m, r6.ReceivedSgst.Amount);
+            Assert.Equal(9_000m, r6.TotalReceived.Amount);
+        }
+        finally { Cleanup(w, dir); }
+    }
+
+    /// <summary>
     /// 🔴 <b>AN ALTERATION CANNOT MOVE A VOUCHER BETWEEN REGISTRATIONS, AND IT SAYS SO BY NAME.</b> This refusal
     /// is OURS, not the vendor's: its page describes F3 for <i>creating</i> a voucher and says nothing about a
     /// posted one. Moving one is not a field edit — it moves a document out of one filed return and into

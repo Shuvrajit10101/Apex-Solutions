@@ -6433,6 +6433,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     // =============================================================== F3 — Company/Tax Registration (census 6.23)
 
+    /// <summary>The voucher screen's own <see cref="ScreenTitle"/>, held while the F3 registration picker sits
+    /// over it so taking a row restores the title the voucher had rather than a reconstruction of it.</summary>
+    private string? _voucherTitleBeforeRegistrationPicker;
+
     /// <summary>
     /// 🔴 <b>Whether the voucher screen's F3 means <i>Tax Registration</i> rather than <i>Change Company</i></b>
     /// — true only on a LIVE voucher-entry screen belonging to a company that actually holds more than one GST
@@ -6478,6 +6482,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // The voucher's OWN title, remembered rather than reconstructed. PickVoucherRegistration used to rebuild
+        // it as $"Accounting Voucher Creation — {type.Name}", which is exactly what OpenVoucher sets and so was
+        // right for every surface reachable today — but it would silently rewrite the title of any FUTURE door
+        // that opens Screen.VoucherEntry under a different one. Remembering it cannot drift.
+        _voucherTitleBeforeRegistrationPicker = ScreenTitle;
+
         var picker = new GatewayColumn("Company/Tax Registration") { Kind = GatewayColumnKind.DataDriven };
         picker.Add(MenuItemViewModel.Header("Select Registration"));
         foreach (var registration in entry.AvailableGstRegistrations)
@@ -6519,7 +6529,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentScreen == Screen.GstRegistrationPicker && Columns.Count > 0)
             Columns.RemoveAt(Columns.Count - 1);
         CurrentScreen = Screen.VoucherEntry;
-        ScreenTitle = $"Accounting Voucher Creation — {entry.Type.Name}";
+        ScreenTitle = _voucherTitleBeforeRegistrationPicker ?? ScreenTitle;
+        _voucherTitleBeforeRegistrationPicker = null;
         ActiveColumnIndex = Columns.Count - 1;
         SyncActiveColumn();
 
