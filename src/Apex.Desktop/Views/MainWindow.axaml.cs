@@ -2445,7 +2445,6 @@ public partial class MainWindow : Window
         if (master.IsAltering) master.Alter(); else master.Create();
     }
 
-    /// <summary>W2-20 — the pointer equivalent of Ctrl+A on the multi-master grid (same all-or-nothing Accept).</summary>
     /// <summary>
     /// 🔴 The multi-master grid's commit button. It calls <c>Accept()</c> — the SAME method the Ctrl+A arm calls —
     /// which branches on the grid's <c>Mode</c> internally.

@@ -7494,34 +7494,49 @@
                               </Grid>
                             </Border>
 
-                            <!-- The column headings. The family-specific cells sit in ONE Auto column holding two
-                                 alternative fixed-width panels, so a family that shows neither (groups, godowns,
-                                 cost centres) reserves no width at all and its Name column keeps the slack. The
-                                 header and the row template below declare the SAME fixed widths, which is what
-                                 keeps the two aligned. -->
+                            <!-- The column headings.
+                                 🔴 FLAT, AND THE SIX FAMILY-SPECIFIC COLUMNS ARE `Auto` WITH AN EXPLICIT Width ON
+                                 EVERY CELL. The first draft nested one fixed-width panel per family inside a
+                                 single Auto column, which laid out correctly and broke
+                                 `XamlLayoutInvariantTests.Header_and_row_template_column_definitions_must_match`:
+                                 that invariant takes the LAST header grid before the items control, which became
+                                 the INNER panel ("90,110,100,110") and no longer matched the row template's outer
+                                 grid. The invariant was right to complain — it cannot see a two-level pairing, so
+                                 a layout it cannot check is a layout nothing checks. Flattening removes the
+                                 second level entirely: header and row now declare the IDENTICAL string.
+                                 WHY `Auto` RATHER THAN FIXED: an `Auto` column whose only child is collapsed
+                                 measures ZERO, so a family that shows none of these six (groups, godowns, cost
+                                 centres) reserves no width and its `*` Name column keeps the slack — which is
+                                 what the nesting was for. WHY AN EXPLICIT Width AND MATCHING Margin ON EVERY
+                                 CELL: header and row are DIFFERENT grids, so their Auto columns size
+                                 independently; only identical Width + Margin on both sides makes them agree. -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="40,*,210,Auto">
+                              <Grid ColumnDefinitions="40,*,210,Auto,Auto,Auto,Auto,Auto,Auto">
                                 <TextBlock Grid.Column="0" Text="#" Classes="colHdr" TextAlignment="Right"/>
                                 <TextBlock Grid.Column="1" Text="{Binding NameColumnHeader}" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="{Binding UnderColumnHeader}" Classes="colHdr"/>
 
-                                <!-- Ledger: Opening Balance + Dr/Cr. -->
-                                <Grid Grid.Column="3" ColumnDefinitions="140,64"
-                                      IsVisible="{Binding ShowsOpeningBalance}">
-                                  <TextBlock Grid.Column="0" Text="Opening Balance" Classes="colHdr"
-                                             TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="1" Text="Dr/Cr" Classes="colHdr"/>
-                                </Grid>
+                                <!-- Stock item CREATE only: Units · Opening Qty · Rate · Amount. -->
+                                <TextBlock Grid.Column="3" Text="Units" Classes="colHdr"
+                                           Width="90" Margin="4,0"
+                                           IsVisible="{Binding ShowsUnits}"/>
+                                <TextBlock Grid.Column="4" Text="Opening Qty" Classes="colHdr"
+                                           Width="110" Margin="4,0" TextAlignment="Right"
+                                           IsVisible="{Binding ShowsOpeningQuantity}"/>
+                                <TextBlock Grid.Column="5" Text="Rate" Classes="colHdr"
+                                           Width="100" Margin="4,0" TextAlignment="Right"
+                                           IsVisible="{Binding ShowsOpeningQuantity}"/>
+                                <TextBlock Grid.Column="6" Text="Amount" Classes="colHdr"
+                                           Width="110" Margin="4,0" TextAlignment="Right"
+                                           IsVisible="{Binding ShowsOpeningQuantity}"/>
 
-                                <!-- Stock item CREATE: Units + Opening Qty + Rate + Amount. -->
-                                <Grid Grid.Column="3" ColumnDefinitions="90,110,100,110"
-                                      IsVisible="{Binding ShowsOpeningQuantity}">
-                                  <TextBlock Grid.Column="0" Text="Units" Classes="colHdr"/>
-                                  <TextBlock Grid.Column="1" Text="Opening Qty" Classes="colHdr"
-                                             TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="2" Text="Rate" Classes="colHdr" TextAlignment="Right"/>
-                                  <TextBlock Grid.Column="3" Text="Amount" Classes="colHdr" TextAlignment="Right"/>
-                                </Grid>
+                                <!-- Ledger only (both verbs): Opening Balance · Dr/Cr. -->
+                                <TextBlock Grid.Column="7" Text="Opening Balance" Classes="colHdr"
+                                           Width="140" Margin="4,0" TextAlignment="Right"
+                                           IsVisible="{Binding ShowsOpeningBalance}"/>
+                                <TextBlock Grid.Column="8" Text="Dr/Cr" Classes="colHdr"
+                                           Width="64" Margin="6,0,0,0"
+                                           IsVisible="{Binding ShowsOpeningBalance}"/>
                               </Grid>
                             </Border>
 
@@ -7531,7 +7546,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:MultiMasterRowViewModel">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="40,*,210,Auto" Margin="0,2">
+                                      <Grid ColumnDefinitions="40,*,210,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,2">
                                         <TextBlock Grid.Column="0" Text="{Binding Number}" Margin="0,0,6,0"
                                                    TextAlignment="Right" VerticalAlignment="Center"
                                                    FontSize="11" Foreground="#6A6A6A"/>
@@ -7549,39 +7564,40 @@
                                           </ComboBox.ItemTemplate>
                                         </ComboBox>
 
-                                        <!-- Ledger: Opening Balance + Dr/Cr. -->
-                                        <Grid Grid.Column="3" ColumnDefinitions="140,64"
-                                              IsVisible="{Binding ShowsOpeningBalance}">
-                                          <TextBox Grid.Column="0" Text="{Binding OpeningBalanceText, Mode=TwoWay}"
-                                                   Margin="4,0" FontSize="12.5" TextAlignment="Right"/>
-                                          <CheckBox Grid.Column="1" Content="Cr" Margin="6,0,0,0"
-                                                    IsChecked="{Binding OpeningIsCredit, Mode=TwoWay}"
-                                                    VerticalAlignment="Center"/>
-                                        </Grid>
+                                        <!-- Stock item CREATE only. Every Width/Margin pair here matches its
+                                             heading above, which is what keeps the two Auto grids in step. -->
+                                        <ComboBox Grid.Column="3" Width="90" Margin="4,0"
+                                                  IsVisible="{Binding ShowsUnits}"
+                                                  ItemsSource="{Binding UnitOptions}"
+                                                  SelectedItem="{Binding Unit, Mode=TwoWay}"
+                                                  PlaceholderText="Unit…">
+                                          <ComboBox.ItemTemplate>
+                                            <DataTemplate x:DataType="vm:MultiMasterUnitOption">
+                                              <TextBlock Text="{Binding Display}"/>
+                                            </DataTemplate>
+                                          </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBox Grid.Column="4" Text="{Binding OpeningQuantityText, Mode=TwoWay}"
+                                                 Width="110" Margin="4,0" FontSize="12.5" TextAlignment="Right"
+                                                 IsVisible="{Binding ShowsOpeningQuantity}"/>
+                                        <TextBox Grid.Column="5" Text="{Binding OpeningRateText, Mode=TwoWay}"
+                                                 Width="100" Margin="4,0" FontSize="12.5" TextAlignment="Right"
+                                                 IsVisible="{Binding ShowsOpeningQuantity}"/>
+                                        <!-- Amount is a READ-ONLY computed display (Qty × Rate) — see AmountText
+                                             for why it is not a second editable box over one derived third. -->
+                                        <TextBlock Grid.Column="6" Text="{Binding AmountText}"
+                                                   Width="110" Margin="4,0" FontSize="12.5" TextAlignment="Right"
+                                                   VerticalAlignment="Center" Foreground="#4A4A4A"
+                                                   IsVisible="{Binding ShowsOpeningQuantity}"/>
 
-                                        <!-- Stock item CREATE: Units + Opening Qty + Rate + Amount. Amount is a
-                                             READ-ONLY computed display (Qty × Rate) — see AmountText for why it
-                                             is not a second editable box over one derived third. -->
-                                        <Grid Grid.Column="3" ColumnDefinitions="90,110,100,110"
-                                              IsVisible="{Binding ShowsOpeningQuantity}">
-                                          <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="4,0"
-                                                    ItemsSource="{Binding UnitOptions}"
-                                                    SelectedItem="{Binding Unit, Mode=TwoWay}"
-                                                    PlaceholderText="Unit…">
-                                            <ComboBox.ItemTemplate>
-                                              <DataTemplate x:DataType="vm:MultiMasterUnitOption">
-                                                <TextBlock Text="{Binding Display}"/>
-                                              </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                          </ComboBox>
-                                          <TextBox Grid.Column="1" Text="{Binding OpeningQuantityText, Mode=TwoWay}"
-                                                   Margin="4,0" FontSize="12.5" TextAlignment="Right"/>
-                                          <TextBox Grid.Column="2" Text="{Binding OpeningRateText, Mode=TwoWay}"
-                                                   Margin="4,0" FontSize="12.5" TextAlignment="Right"/>
-                                          <TextBlock Grid.Column="3" Text="{Binding AmountText}" Margin="4,0"
-                                                     FontSize="12.5" TextAlignment="Right"
-                                                     VerticalAlignment="Center" Foreground="#4A4A4A"/>
-                                        </Grid>
+                                        <!-- Ledger only (both verbs). -->
+                                        <TextBox Grid.Column="7" Text="{Binding OpeningBalanceText, Mode=TwoWay}"
+                                                 Width="140" Margin="4,0" FontSize="12.5" TextAlignment="Right"
+                                                 IsVisible="{Binding ShowsOpeningBalance}"/>
+                                        <CheckBox Grid.Column="8" Content="Cr" Width="64" Margin="6,0,0,0"
+                                                  IsVisible="{Binding ShowsOpeningBalance}"
+                                                  IsChecked="{Binding OpeningIsCredit, Mode=TwoWay}"
+                                                  VerticalAlignment="Center"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>

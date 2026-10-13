@@ -364,13 +364,16 @@ public sealed class MultiMasterChordReachabilityTests
     // ================================================================= the stock-item grid renders its columns
 
     /// <summary>
-    /// 🔴 <b>The Multi Stock Item Creation grid renders its own cells.</b> The family-specific cells live in a
-    /// nested fixed-width panel, so a family that shows neither panel reserves no width — which also means a
-    /// binding mistake there would leave the grid visually fine and functionally empty. The Units picker in
-    /// particular is REQUIRED to create an item, so a grid that rendered no picker could not create anything.
+    /// 🔴 <b>The Multi Stock Item Creation grid renders its own cells, and the LEDGER cells stay hidden on it.</b>
+    ///
+    /// <para>The nine grid columns are shared by all five families and shown per family by <c>IsVisible</c>, so a
+    /// binding mistake would leave the grid looking fine and being functionally empty — and the Units picker is
+    /// REQUIRED to create an item, so a grid that rendered no picker could create nothing at all. Visibility is
+    /// asserted on the realised controls, in both directions: the stock-item cells must be visible AND the
+    /// ledger cells must not, because a stock item has no opening BALANCE.</para>
     /// </summary>
     [AvaloniaFact]
-    public void The_stock_item_grid_renders_a_units_picker_and_its_quantity_cells()
+    public void The_stock_item_grid_renders_a_units_picker_and_hides_the_ledger_cells()
     {
         var (window, vm, _, tempDir) = NewCompany("Multi Item Render Co");
         try
@@ -385,24 +388,28 @@ public sealed class MultiMasterChordReachabilityTests
             var list = Descendants(window).OfType<ItemsControl>()
                 .FirstOrDefault(c => c.Name == "MultiMasterRows");
             Assert.NotNull(list);
+            // Direct children only — the Under picker's own template holds a TextBox and borders of its own, so
+            // a tree walk re-counts the picker's internals as row cells.
             var rowGrid = Descendants(list!.GetRealizedContainers().First()).OfType<Grid>().First();
+            var cells = rowGrid.GetVisualChildren().OfType<Control>().ToList();
 
-            // The row's own direct cells: the Name box and the Under picker.
-            Assert.Single(rowGrid.GetVisualChildren().OfType<TextBox>());
+            // Units + Opening Qty + Rate + Amount are shown; Opening Balance + Dr/Cr are not.
+            var pickers = cells.OfType<ComboBox>().Where(c => c.IsVisible).ToList();
+            Assert.Equal(2, pickers.Count);                    // the Under picker and the Units picker
+            Assert.All(pickers, p => Assert.True(p.Focusable,
+                "a cell a keyboard cannot focus makes the grid unusable."));
 
-            var panel = rowGrid.GetVisualChildren().OfType<Grid>().Single(p => p.IsVisible);
-            var unitPicker = panel.GetVisualChildren().OfType<ComboBox>().Single();
-            Assert.True(unitPicker.Focusable, "a Units cell a keyboard cannot focus makes the grid unusable.");
-
-            // Opening Qty and Rate are keyed; Amount is a read-only computed TextBlock, never a third box.
-            var boxes = panel.GetVisualChildren().OfType<TextBox>().ToList();
-            Assert.Equal(2, boxes.Count);
+            // Name + Opening Qty + Rate are keyed. Opening Balance is hidden on this family, so it is NOT keyable.
+            var boxes = cells.OfType<TextBox>().Where(b => b.IsVisible).ToList();
+            Assert.Equal(3, boxes.Count);
             Assert.All(boxes, b => Assert.True(b.Focusable));
-            Assert.Single(panel.GetVisualChildren().OfType<TextBlock>());
 
-            // The ledger panel is NOT rendered on this family — a stock item has no opening BALANCE.
-            Assert.DoesNotContain(rowGrid.GetVisualChildren().OfType<Grid>(),
-                p => p.IsVisible && p.GetVisualChildren().OfType<CheckBox>().Any());
+            // Amount is a read-only computed TextBlock, never a fourth box.
+            Assert.Contains(cells.OfType<TextBlock>(), t => t.IsVisible && t.Width == 110d);
+
+            // 🔴 The ledger-only Dr/Cr cell must be present in the template and HIDDEN here.
+            var side = cells.OfType<CheckBox>().Single();
+            Assert.False(side.IsVisible, "a stock item has no opening BALANCE, so Dr/Cr must not be offered.");
         }
         finally { Close(window, tempDir); }
     }
