@@ -116,6 +116,30 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 **A full clone requires 219 named capabilities. We have 77 complete, 137 partial, 5 absent, 0 undetermined.**
 🔴 **AND THE COMPLETE COUNT HAS NOW GONE DOWN TWICE IN ONE WAVE — `75 → 73 → 71`. READ THAT AS THE CENSUS WORKING, NOT AS WORK LOST.** **All four moves are demotions that correct grade inflation already live on `main`** — rows **2.7** and **6.12** on wave 42's first pass, rows **3.2** and **3.5** on its second — **every one of them re-verified first-hand by A12 before the token moved, and NOT ONE row was promoted to balance them.** The landed code of both passes is real and is recorded on rows 2.1, 2.3, 2.8 and 3.11; **it simply did not earn a new `COMPLETE`, and saying so is the point.** ⚠️ **Note what the two newest demotions have in common, because it is a measurement method and not a coincidence: both rows were graded `COMPLETE` on evidence sentences that themselves say *"reachable from the keyboard"* and *"all three keyboard-reachable"*. The grade was true of the route that was tested and false of the route that was not.**
 
+> **▶ 🔴🔴 2026-10-16 — WAVE 46, WAVE 1. THREE REVIEWED-`READY` BRANCHES LANDED AND ONE WAS WITHHELD. FIVE
+> ROWS PROMOTED, AND THE FIVE ARE ONE CLAUSE CLOSING ACROSS FIVE CELLS, NOT FIVE SEPARATE ADVANCES.**
+>
+> Literal `awk` output now: **`TOTAL rows=219 C=77 P=137 A=5 U=0 sum=219`**; the run immediately before, on
+> `main` at **`bf9b1e6`**, was **`TOTAL rows=219 C=72 P=142 A=5 U=0 sum=219`**. **The move is `+0 rows,
+> +5 complete, −5 partial`.** Area 4 moves `18 rows · 7 complete / 11 partial` → `18 rows · 12 complete /
+> 6 partial`; every other area is **unchanged**. Every integer was re-derived by re-running §1.2a's own `awk`
+> before and after; **not one was hand-edited**, and `sum == rows` on both runs.
+> `CensusDerivationDriftLockTests` green, **7/7**.
+>
+> **WHAT THE FIVE PROMOTIONS ARE, STATED HONESTLY:** 4.9, 4.11, 4.12, 4.15 and 4.16 each held `PARTIAL` on
+> **one** unstruck clause — *"not exercised end-to-end through the UI"* — and **one test file closed that
+> clause for all of them at once. This is five cells moving on a single piece of work, and reading it as five
+> advances would overstate it.** 🔴 **The double-count trap was checked for and avoided:** A12 re-read all five
+> cells on `main` before moving any token and confirmed **none** was already `COMPLETE`; **4.10 was run as a
+> deliberate control arm and claims nothing**, because it was already `COMPLETE`; **4.13 and 4.14 were NOT
+> claimed**, because they are held on T1-8, which this work does not touch. **4.12 and 4.16 state their gaps
+> only as *"As above"* — their neighbours were opened and graded from rather than guessed**, which is the
+> liability those two cells already warn about.
+>
+> ⚠️ **AND SIX SENTENCES WERE STRUCK WITH NO GRADE MOVED** — 5.5, 5.10, 6.23, 6.24, 11.13 and 12.3. **Striking
+> a reason that has gone false is bookkeeping; promoting is a measurement. The two are deliberately not mixed
+> in this commit**, and row **6.19** is this document's precedent for that posture.
+>
 > **▶ 🔴🔴 2026-10-13 — PHASE 0 OF THE PLAN-TO-FINISH (wave 1). A SIZING PASS CLAIMED "45 CLAUSES ALREADY
 > CLOSED". A TRUTH PASS AND A VENDOR PASS WERE RUN AGAINST IT, AND A12 GRADED THE RESULT: IT IS WORTH
 > **ONE WHOLE-ROW PROMOTION**, NOT 45 ROWS — AND THE GAP BETWEEN THOSE TWO NUMBERS IS THE MOST USEFUL THING
