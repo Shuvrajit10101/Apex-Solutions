@@ -1935,8 +1935,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // vendor's six" in census row 2.12 is an uncited internal number — the vendor page closes its list with
         // "and so on" — and MultiMasterKind carries the per-family citations. Employees and Employee Groups are
         // attested and deliberately absent: Area 7 is out of scope by user rulings 29+30.
+        //
+        // 🔴 NO SHORTCUT HINT ON THESE ROWS, and the omission is deliberate. "Multi Ledger" used to advertise
+        // "Alt+H". The chord is real but it is SCOPED to the Chart of Accounts — OpenMultiMasters early-returns
+        // unless IsChartOfAccountsScreen, and the Key.H arm in MainWindow.axaml.cs tests the same flag — so it
+        // is inert on every screen that shows this column, which is the only place the hint was ever displayed.
+        // And even where it does fire it opens the Multi Masters MENU, not Multi Ledger Creation. A hint for a
+        // chord that does nothing here, to a destination that is not this row, is worse than no hint: contrast
+        // the "Ledger / Alt+C" row above, whose arm is global and whose destination is that very master.
         col.Add(MenuItemViewModel.Header("Multi Masters"));
-        col.Add(new MenuItemViewModel("Multi Ledger", () => { }, "Alt+H", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Multi Ledger", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Multi Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Multi Stock Item", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Multi Godown", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -6607,11 +6615,35 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Cost Centre Alteration</b> grid.</summary>
     public void ShowMultiCostCentreAlter() => ShowMultiMaster(MultiMasterKind.CostCentre, MultiMasterMode.Alter);
 
+    /// <summary>
+    /// Opens one Multi Masters grid in a new cascade column.
+    ///
+    /// <para>The tree INSTANCE is captured and refreshed, the same shape <see cref="ShowLedgerAlter"/> and
+    /// <see cref="ShowAccountGroupAlter"/> use. <c>ChartOfAccounts</c> is read into a local BEFORE
+    /// <c>OpenPageColumn</c>, which runs <c>ClearSubScreens</c> and nulls the property; a
+    /// <c>() =&gt; ChartOfAccounts?.Refresh()</c> closure would silently never fire. It is null when the grid was
+    /// opened from the Create cascade instead, and the null-conditional makes that the no-op it should be.</para>
+    ///
+    /// <para>🔴 <b>AND THE REPORTED SYMPTOM THIS REPLACED <c>onChanged: () =&gt; { }</c> FOR DOES NOT ACTUALLY
+    /// REPRODUCE — measured, and recorded here rather than claimed as a fix.</b> A wave-1 review read this as a
+    /// live defect: escape back from the grid to a Chart of Accounts still showing the OLD names, "which reads
+    /// as a failed save". It cannot happen on the current column model. <c>OpenPageColumn</c> keeps <b>at most
+    /// one page column, always the rightmost</b>, and the Chart of Accounts IS a page column — so opening this
+    /// grid trims it away entirely rather than leaving it beneath. Escape therefore returns to the root menu,
+    /// not to a stale tree, and the next Chart of Accounts is a fresh view model read off the live company.
+    /// Proved by mutation: reverting this argument to <c>() =&gt; { }</c> leaves
+    /// <c>MultiMasterAlterRollbackTests</c> wholly green. The wiring is kept because it matches the two sibling
+    /// routes exactly and is the right behaviour the moment a page column is ever allowed to survive beneath
+    /// another — but it is <b>consistency, not a repaired defect</b>, and saying otherwise would be the kind of
+    /// overstated closure this project has had to strike before.</para>
+    /// </summary>
     private void ShowMultiMaster(MultiMasterKind kind, MultiMasterMode mode)
     {
         if (Company is null) return;
 
-        var grid = new MultiMasterCreateViewModel(kind, mode, Company, _storage, onChanged: () => { });
+        var tree = ChartOfAccounts;
+        var grid = new MultiMasterCreateViewModel(
+            kind, mode, Company, _storage, onChanged: () => tree?.Refresh());
         OpenPageColumn(new GatewayColumn(grid.Title, grid), Screen.MultiMasterCreate,
             grid.Title, () => MultiMasterCreate = grid);
     }

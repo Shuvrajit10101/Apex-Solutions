@@ -814,10 +814,33 @@ are no longer open defects — they are kept for the record, with the fixing com
 
 ---
 
-### IV-21 · ~~No Alt+H Multi-Masters — every ledger, group and stock item is created one form at a time~~ — **CLOSED IN CODE 2026-10-13**
+### IV-21 · ~~No Alt+H Multi-Masters — every ledger, group and stock item is created one form at a time~~ — **BUILT 2026-10-13, REMEDIATED 2026-10-16**
 **MEDIUM** · Class **B** · Area **MST** · relates to `tally-fidelity-defects.md` D4
 
-> 🟢 **CLOSED 2026-10-13 (wave 1, track bb, branch `claude/apex-bb-multimaster`) — ALL THREE PARTS OF THE
+> 🔴 **2026-10-16 — THIS BANNER SAID "CLOSED IN CODE" WHILE THE ALTER VERB IT CLOSED ON CARRIED A
+> DATA-INTEGRITY DEFECT. That was overstated closure and it is corrected here rather than quietly rewritten.**
+> The wave-1 adversarial review of `claude/apex-bb-multimaster` found, and reproduced in three families, that a
+> **REFUSED Multi Alter batch was not all-or-nothing**: the rows written before the refusing row stayed mutated
+> in the live aggregate and **became durable on the next unrelated save**, so a ledger rename the operator was
+> told had been refused reached disk — and a rename is resolved by id by every historical voucher. The class
+> doc claimed all-or-nothing, which was true of the CREATE arm and false of the ALTER arm, and the catch block
+> justified itself with "the in-memory aggregate is reloaded from disk by the caller's Escape/re-open", which
+> was simply false (`CompanyStorage.Load` is reached only from company-open and company-unlock).
+>
+> **FIXED on the same branch**, by `Apex.Ledger.Services.MasterStateSnapshot`: both arms take a rollback point
+> before the first write and restore it on any refusal, so a refused batch leaves the book exactly as it was —
+> including `RecomputeNatureFor`'s nature cascade over descendants that were never rows of the batch. Proved by
+> re-reading from SQLite after a later unrelated save, and by mutation: deleting the restore reddens five named
+> tests in `MultiMasterAlterRollbackTests`. A pre-validation pass was rejected as the fix because it is
+> *unsound* here — the cycle and same-category guards judge the state the book will be in once the OTHER rows
+> of the batch are applied.
+>
+> ⚠️ **And the register's voice on this row is the "CLOSED IS NOT COMPLETE" paragraph below, not the green tick
+> above it.** Three vendor-documented things are still absent (Employees / Employee Groups, Cost Categories,
+> `Delete Multiple Unused Masters`), so **census row 2.12 stays PARTIAL**; the build closing IV-21's three-part
+> verdict is not the same as the census cell being satisfied.
+
+> 🟢 **BUILT 2026-10-13 (wave 1, track bb, branch `claude/apex-bb-multimaster`) — ALL THREE PARTS OF THE
 > VERDICT, AND THE "Fix" ROW BELOW WAS FOLLOWED EXACTLY INCLUDING ITS OPENING-BALANCE COLUMN.** Measured at
 > `origin/main` `bf9b1e6` BEFORE any code was written, because the † banner's own greps had gone stale twice:
 > `MultiMasterKind` held **Ledger and AccountGroup only**; `grep -rniE "multi[- ]?alter" src/` returned **exactly
@@ -2072,6 +2095,19 @@ vendor's **SIX** families"* — has **no source behind the number six**. A regis
 | **Why** | The UI contract requires every capability to be reachable by the arrows-and-Enter cascade and **never only by a chord**. The chord ADDS the vendor's route rather than replacing ours. |
 | **Ruling 25 honoured** | No **Display** row is offered on either verb, and a test asserts the column contains no row whose label mentions "Display". |
 | **Fix** | None proposed. |
+
+---
+
+### IV-88 · 🔴 ADDED 2026-10-16 — **all-or-nothing commit** on both verbs is ours, and it was BROKEN on the Alter verb before it was true
+
+| | |
+|---|---|
+| **Severity** | The divergence is **LOW** and additive. **The defect it is recorded alongside was BLOCKING**, and it is written here because §2F is the slice's own register and the slice shipped the claim before it shipped the behaviour. |
+| **What TallyPrime documents** | **Nothing.** None of the four pages reached (`charts-of-accounts-tally/`, `stock-items-faq/`, `inventory-storage-using-godowns-locations-tally/`, `cost-centre-or-profit-centre-tally/`) says what happens to the other rows of a multi-row batch when one row is refused. Searched by content; no sentence speaks. **Ours, labelled (ruling 9).** |
+| **What we ship** | One bad row refuses the WHOLE batch, naming the offending row, on Multi Create and Multi Alter alike. The operator's typing survives the refusal so the bad row can be corrected in place. |
+| **Why** | A partial write leaves the operator guessing which of twenty names landed, and the engine's uniqueness guard structurally cannot see a name typed twice in the same batch (neither copy exists yet), so a batch-level pass is needed regardless. |
+| 🔴 **What was wrong, and how it was found** | The ALTER arm pre-validated name / in-batch duplicate / parent / opening-balance and then wrote row by row. The refusals the **engine** owns fire inside that loop, so a batch refused on row 3 had already written rows 1–2 into the shell's **live** aggregate; the screen said "refused" and the **next unrelated save made it durable**. Reproduced in three families by the wave-1 adversarial review. Two statements in our own source were false: the class doc's all-or-nothing claim (true of Create, false of Alter) and the catch block's "the in-memory aggregate is reloaded from disk by the caller's Escape/re-open" — `CompanyStorage.Load` has exactly two call sites, company-open and company-unlock, and **neither is Escape**. |
+| **Fix** | **Done 2026-10-16.** `Apex.Ledger.Services.MasterStateSnapshot` — a rollback point taken before the first write and restored on any refusal. It is built by **reflection over every writable property** of every master in the six covered collections, not from a hand-written field list, so a property added later is covered the day it is added; the completeness test writes a property no batch path touches and proves it comes back. It also undoes `RecomputeNatureFor`'s nature cascade over descendants that were never rows of the batch. A fuller pre-validation was rejected as **unsound**: the cycle and same-category guards judge the state the book will be in once the other rows are applied. Evidence is a re-read **from SQLite after a later unrelated save**, plus mutation — deleting the restore reddens five named tests. |
 
 ---
 

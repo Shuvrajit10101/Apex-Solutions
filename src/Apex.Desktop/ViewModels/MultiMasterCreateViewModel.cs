@@ -282,12 +282,19 @@ public sealed partial class MultiMasterRowViewModel : ViewModelBase
 /// <para><b>Divergences, LABELLED AS OURS (RULING 9)</b> — the source is silent on each:
 /// <list type="bullet">
 ///   <item>the per-row <b>Dr/Cr side</b> (see <see cref="MultiMasterRowViewModel.OpeningIsCredit"/>);</item>
-///   <item><b>all-or-nothing Accept.</b> Every row is validated BEFORE anything is written, and one bad row
-///     refuses the whole batch naming the offending row. A partial write leaves the operator guessing which
-///     of twenty names landed; worse, the engine's own uniqueness guard cannot see a name entered twice in
-///     the SAME batch (neither exists yet), so without a batch-level pass row 12 would silently create a
-///     duplicate of row 3. The operator's typing survives a refusal so the bad row can simply be corrected.
-///     </item>
+///   <item><b>all-or-nothing Accept</b>, on BOTH verbs. The screen-level pass validates every row before
+///     anything is written, and one bad row refuses the whole batch naming the offending row. A partial write
+///     leaves the operator guessing which of twenty names landed; worse, the engine's own uniqueness guard
+///     cannot see a name entered twice in the SAME batch (neither exists yet), so without a batch-level pass
+///     row 12 would silently create a duplicate of row 3. The operator's typing survives a refusal so the bad
+///     row can simply be corrected.
+///     <para>🔴 <b>The screen-level pass is NOT what makes this true, and saying it was is how this went
+///     wrong once already.</b> The ENGINE guards run inside each service call, row by row, and no amount of
+///     pre-validation can soundly predict them for groups, godowns and cost centres — their cycle and
+///     same-category checks judge the state the book will be in once the OTHER rows of the batch are applied.
+///     What makes the claim true is <see cref="MasterStateSnapshot"/>: both arms take a rollback point before
+///     the first write and restore it on any refusal, so a refused batch leaves the aggregate byte-for-byte as
+///     it was. See <see cref="Accept"/>.</para></item>
 ///   <item>the <b>column set of every grid but the ledger one</b>, and the read-only computed <b>Amount</b>
 ///     (see <see cref="MultiMasterRowViewModel.AmountText"/>). The godown grid's <b>"Under Godown"</b> header and
 ///     its <b>"Name"</b> column ARE the vendor's, quoted on <see cref="MultiMasterKind"/>; the rest are ours.</item>
@@ -862,6 +869,18 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
     /// the names already claimed earlier in this same batch, so a name typed twice is caught even though neither
     /// copy exists yet. Nothing is written and <see cref="CompanyStorage.Save"/> is not called at all unless the
     /// batch is wholly valid — so a refused batch cannot leave a partial set of masters behind.</para>
+    ///
+    /// <para>🔴 <b>AND THE SECOND HALF OF THAT SENTENCE USED TO BE FALSE ON THE ALTER ARM.</b> "Validate
+    /// everything first" covers only the refusals this screen owns — the name, the in-batch duplicate, the
+    /// parent-not-null, the opening-balance parse. The refusals the ENGINE owns
+    /// (<c>EnsureLedgerRenameAllowed</c>, <c>EnsureLedgerGroupValid</c>, <c>EnsureGroupAlterAllowed</c>,
+    /// <c>EnsureGroupReparentValid</c>, <c>EnsureGodownParentValid</c>, <c>AlterCostCentre</c>'s same-category
+    /// and cycle checks) fire INSIDE the per-row write loop, so a batch refused on row three had already written
+    /// rows one and two into <c>_company</c> — the shell's one live aggregate — and the next unrelated screen to
+    /// save made the half-batch durable. A ledger rename resolves by id, so the books followed a rename the
+    /// operator had just been told was refused. Both arms therefore take a <see cref="MasterStateSnapshot"/>
+    /// before the first write and <see cref="MasterStateSnapshot.Restore"/> it on any refusal. The proof is a
+    /// re-read FROM SQLITE after a later save, never a look at this view model.</para>
     /// </summary>
     public bool Accept() => IsAltering ? AlterBatch() : CreateBatch();
 
@@ -924,6 +943,10 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         }
 
         // ------------------------------------------------------------- every row passed: write the batch.
+        // The rollback point is taken even here, where the pre-validation is believed to be complete, because
+        // "believed complete" is exactly what the ALTER arm's comment used to say — and it was wrong. A create
+        // batch refused half-way would otherwise leave the earlier rows' masters in the live aggregate.
+        var rollback = MasterStateSnapshot.Capture(_company);
         try
         {
             WriteCreateBatch(pending);
@@ -931,7 +954,8 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
         catch (InvalidOperationException ex)
         {
             // Defensive: every case above is pre-validated, so this arm should be unreachable. If the engine
-            // ever refuses anyway, say so plainly rather than leaving a half-written batch silently persisted.
+            // ever refuses anyway, put the book back and say so plainly.
+            rollback.Restore();
             return Refuse(ex.Message);
         }
 
@@ -1077,19 +1101,29 @@ public sealed partial class MultiMasterCreateViewModel : ViewModelBase
             return false;
         }
 
+        // 🔴 THE ROLLBACK POINT. The pre-validation above cannot see the ENGINE guards, and for groups, godowns
+        // and cost centres it structurally never will: their cycle and same-category checks judge the aggregate
+        // as it will stand once the OTHER rows of this batch are applied, so a row-by-row pass against the
+        // pre-batch state would accept combinations that are illegal together. The only sound way to know a
+        // batch is legal is to apply it, which is safe exactly because applying it can be undone.
+        var rollback = MasterStateSnapshot.Capture(_company);
         try
         {
             WriteAlterBatch(pending);
         }
         catch (InvalidOperationException ex)
         {
-            // 🔴 A refusal HERE has already mutated some of the batch in memory, so the company object must not be
-            // trusted afterwards — and it is NOT saved. The in-memory aggregate is reloaded from disk by the
-            // caller's Escape/re-open, and the grid is reloaded below from whatever the company now holds so the
-            // operator is never left reading stale text over a half-applied batch. The pre-validation above is
-            // what makes this arm practically unreachable; it exists because "practically" is not "provably".
+            // 🔴 A refusal here has already written the rows BEFORE the bad one. Put every one of them back
+            // before anything else happens, because _company is the shell's live aggregate and the next screen
+            // that saves — for any unrelated reason — would otherwise make the half-batch durable.
+            //
+            // 🔴 The comment that used to stand here said the aggregate "is reloaded from disk by the caller's
+            // Escape/re-open". That was FALSE and it was the stated justification for tolerating the mutation:
+            // CompanyStorage.Load is reached only from MainWindowViewModel's OpenCompany and UnlockCompany, and
+            // Escape pops a column and reloads nothing. Do not replace this restore with that belief again.
+            rollback.Restore();
             Refuse(ex.Message);
-            LoadExistingRowsPreservingMessage();
+            LoadExistingRowsPreservingMessage();   // the grid re-reads the restored company, so it shows the truth
             return false;
         }
 
