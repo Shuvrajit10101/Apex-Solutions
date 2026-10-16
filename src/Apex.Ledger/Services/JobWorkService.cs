@@ -76,6 +76,13 @@ public sealed class JobWorkService
     /// good). The result is an un-posted <see cref="InventoryVoucher.MaterialMovement"/>; the caller posts it
     /// through <see cref="InventoryPostingService"/> (which is balance-exempt for a consuming Material In, RQ-49).
     /// </summary>
+    /// <param name="number">The voucher number to build with. 🔴 <b>Census 5.10 / T2-131.</b> Defaults to
+    /// <c>0</c> — "unset" — which is what every pre-existing caller passed implicitly, so none of them moved. The
+    /// material-movement entry screen now passes the operator's KEYED number here, because
+    /// <c>InventoryPostingService.Post</c> assigns a number only under a method that numbers automatically: a
+    /// <b>Manual</b>-numbering type built through this builder posted as <c>0</c> and was invisible in every
+    /// register. Fixing only the screen's own inline <c>MaterialMovement(…)</c> call would have left this
+    /// two-sided branch — the ordinary job-work case — still discarding it.</param>
     public InventoryVoucher BuildConsumingMaterialIn(
         Guid typeId,
         DateOnly date,
@@ -83,7 +90,8 @@ public sealed class JobWorkService
         IReadOnlyList<InventoryAllocation> produce,
         IEnumerable<Guid>? orderLinks = null,
         string? narration = null,
-        Guid? partyId = null)
+        Guid? partyId = null,
+        int number = 0)
     {
         ArgumentNullException.ThrowIfNull(consume);
         ArgumentNullException.ThrowIfNull(produce);
@@ -105,7 +113,7 @@ public sealed class JobWorkService
         var destination = ValueDestinationToTotal(produce, totalConsumed);
 
         return InventoryVoucher.MaterialMovement(
-            Guid.NewGuid(), typeId, date, source, destination, orderLinks, number: 0, narration, partyId);
+            Guid.NewGuid(), typeId, date, source, destination, orderLinks, number, narration, partyId);
     }
 
     /// <summary>
@@ -126,6 +134,9 @@ public sealed class JobWorkService
     /// outward line's own rate. See <see cref="RatePerLineUnit"/>.
     /// </para>
     /// </summary>
+    /// <param name="number">The voucher number to build with — see
+    /// <see cref="BuildConsumingMaterialIn"/>'s <c>number</c> parameter. Defaults to <c>0</c>, so no pre-existing
+    /// caller moved; the entry screen passes the operator's keyed number on a Manual type (census 5.10).</param>
     public InventoryVoucher BuildMaterialOutTransfer(
         Guid typeId,
         DateOnly date,
@@ -133,7 +144,8 @@ public sealed class JobWorkService
         IReadOnlyList<InventoryAllocation> destination,
         IEnumerable<Guid>? orderLinks = null,
         string? narration = null,
-        Guid? partyId = null)
+        Guid? partyId = null,
+        int number = 0)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(destination);
@@ -189,7 +201,7 @@ public sealed class JobWorkService
         }
 
         return InventoryVoucher.MaterialMovement(
-            Guid.NewGuid(), typeId, date, src, dst, orderLinks, number: 0, narration, partyId);
+            Guid.NewGuid(), typeId, date, src, dst, orderLinks, number, narration, partyId);
     }
 
     // ---------------------------------------------------------------- valuation helpers

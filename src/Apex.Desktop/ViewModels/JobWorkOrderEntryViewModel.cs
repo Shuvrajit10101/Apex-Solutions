@@ -118,6 +118,24 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
     /// </summary>
     public bool IsVoucherNumberEditable => _type.AllowsManualNumberEntry;
 
+    /// <summary>
+    /// 🔴 <b>THE NUMBER THIS SCREEN ACTUALLY POSTS — census 5.10 / T2-131.</b> The build read <c>number: 0</c>, but
+    /// <c>InventoryPostingService.Post</c> numbers only a type whose method
+    /// <see cref="VoucherType.AssignsNumberAutomatically"/>, so a <b>Manual</b>-numbering Job Work order posted as
+    /// <c>0</c> with the operator's keyed Voucher No. discarded.
+    ///
+    /// <para>⚠️ <b>SCOPE, STATED RATHER THAN QUIETLY WIDENED.</b> This screen is <b>Area 9 (Job Work), OUTSIDE the
+    /// filing core</b> that rulings 29/30 define, so it is not a row this track may grade. It is fixed here only
+    /// because it is the <i>identical one-line expression</i> as the three in-core screens, on one build branch,
+    /// with <see cref="IsVoucherNumberEditable"/> and <c>VoucherNumber</c> already present — leaving the fourth
+    /// screen of ONE defect broken while closing three would be the kind of split that gets re-measured as a new
+    /// gap later. No Area-9 behaviour beyond the number is touched and no Area-9 row is claimed.</para>
+    ///
+    /// <para>Rationale, the <c>&gt; 0</c> clamp and the vendor grounding
+    /// (<i>help.tallysolutions.com/use-voucher-numbering-methods/</i>) are written out once on
+    /// <c>VoucherEntryViewModel.NumberToPost</c>.</para>
+    /// </summary>
+    private int NumberToPost => IsVoucherNumberEditable && VoucherNumber > 0 ? VoucherNumber : 0;
 
     [ObservableProperty] private string _orderNo = string.Empty;
     [ObservableProperty] private string _durationOfProcess = string.Empty;
@@ -388,7 +406,8 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
 
             voucher = InventoryVoucher.JobWork(
                 Guid.NewGuid(), _type.Id, Date, order,
-                number: 0, narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
+                number: NumberToPost, // census 5.10 — the KEYED number on a Manual type; 0 lets the engine assign
+                narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
                 partyId: SelectedParty?.Ledger?.Id);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
