@@ -292,7 +292,22 @@ public static class VoucherAlterationEligibility
         // Rows 25 and 27 — a §34 credit/debit note. RegisterSection34Link mints a fresh Guid.NewGuid() link on
         // EVERY Accept, so a re-accept adds a SECOND GstCreditDebitNoteLink for one note. §3.3 classes the link
         // CARRY — and CARRY means do not rebuild it, which the entry path does unconditionally.
-        if (company.CreditDebitNoteLinks.Any(l => l.CdnVoucherId == id))
+        //
+        // 🔴 NARROWED TO THE PLAIN-GRID NOTE (census 4.7/4.8), AND THE NARROWING IS EXACTLY AS WIDE AS THE
+        // INVERSE THAT NOW EXISTS. `VoucherEntryViewModel.ReplaceSection34Link` carries the link's own Id onto
+        // the replacement instead of minting a second, and `RehydrateSection34From` puts the posted link back on
+        // the panel so there is something true to carry — but only the ITEM-INVOICE door is driven through it
+        // end-to-end (Alt+F6/Alt+F5 → Ctrl+H → Item Invoice, the vendor's own route, which is the door census
+        // 4.7/4.8 names). A plain-grid §34 note reaches `AcceptAlterationCore`, whose own re-derivation chain
+        // (`VoucherAlterationDerivedLegs.Invert`, `ReDeriveEngineLegs`) has not been proven over a note's
+        // hand-keyed Output-tax legs, so it stays refused BY NAME rather than opened on an argument by symmetry.
+        // The predicate therefore reads `HasInventoryLines` — not the note's base type — because what decides
+        // which door opens is the posted shape, which is the same property `RehydrateFrom` routes on.
+        //
+        // 🔴 THE REFUSAL SENTENCE IS NOT WEAKENED FOR THE DOOR IT STILL GUARDS: for a plain-grid note the
+        // double-link hazard is live and unchanged, because `AcceptAlterationCore` reaches the same
+        // `CommitAlteration` but is never let that far.
+        if (!voucher.HasInventoryLines && company.CreditDebitNoteLinks.Any(l => l.CdnVoucherId == id))
             return "This note carries a §34 credit/debit-note link to its original invoice. The entry screen mints "
                  + "a fresh link on every accept, so re-accepting would leave the note carrying two links and "
                  + "GSTR-1 would report it twice.";
@@ -373,27 +388,31 @@ public static class VoucherAlterationEligibility
                  + "schema column for the list rate and the discount; a purchase item invoice, whose posted "
                  + "rate IS the keyed rate, opens today.";
 
-        // 🔴 CENSUS 4.7/4.8 (T0-10) — A RETURN NOTE ENTERED AS AN ITEM INVOICE IS REFUSED, DELIBERATELY, AND THIS
-        // ARM SHIPPED IN THE SAME SLICE THAT MADE IT REACHABLE.
+        // 🔴 CENSUS 4.7/4.8 (T0-10) — THE RETURN-NOTE ITEM-INVOICE ARM IS LIFTED, AND ITS OWN PRECONDITION IS
+        // WHAT LIFTED IT. The struck arm read:
         //
-        // Until that slice a note could not carry inventory lines at all, so `HasInventoryLines && CreditNote` was
-        // unreachable and every note fell through to "alterable" correctly. The moment notes became item-invoice
-        // carriers that fall-through went live over a path NOTHING has exercised — and one specific hazard is
-        // already visible without running it: the §34 link (GstCreditDebitNoteLink, the record GSTR-1 Table 9B
-        // reads) is registered by the ACCEPT path. AcceptAlteration does not register or re-point one, so altering
-        // a §34 note would leave its link pointing at the superseded voucher, or drop it — a filed return
-        // disagreeing with the books, which is the worst class of defect this project tracks.
+        //     "This voucher is a CREDIT / DEBIT NOTE entered as an ITEM INVOICE. … its return link is registered
+        //      when the note is accepted, with no inverse yet for re-accepting it."
         //
-        // 🔴 SO THIS IS NOT "notes are hard". It is: the forward path is proven end-to-end and ships; the inverse
-        // is NOT proven and therefore does not ship, and the operator is told which it is rather than discovering
-        // it in a return. Lifting this arm needs the §34 link's alteration inverse first, and a test that a
-        // re-accepted note still reaches Table 9B exactly once.
-        if (voucher.HasInventoryLines && VoucherEffects.IsReturnNote(type.BaseType))
-            return "This voucher is a CREDIT / DEBIT NOTE entered as an ITEM INVOICE. Its accounting legs and its "
-                 + "stock movement are both derived, and — where the note carries GST §34 details — its return "
-                 + "link is registered when the note is accepted, with no inverse yet for re-accepting it. "
-                 + "Re-opening it could leave that link pointing at a superseded voucher, so altering a return "
-                 + "note arrives with its own inverse in a later slice. Cancel the note and enter a fresh one.";
+        // and it named the exact bar for removing itself: *"Lifting this arm needs the §34 link's alteration
+        // inverse first, and a test that a re-accepted note still reaches Table 9B exactly once."* Both now
+        // exist. `VoucherEntryViewModel.RehydrateSection34From` seeds the panel from the posted
+        // GstCreditDebitNoteLink, and `ReplaceSection34Link` — run by `CommitAlteration` after `Replace` and
+        // before the save — re-points that ONE link, CARRYING ITS Id instead of minting a second.
+        //
+        // 🔴 WHY THE DOUBLE LINK WAS NEVER A DISPLAY BUG. `Gstr1.BuildTable9B` walks
+        // `company.CreditDebitNoteLinks` and folds one row AND one signed CGST/SGST/IGST contribution PER LINK,
+        // so a second link does not duplicate a line — it DOUBLES the note's reversal in the filed return.
+        // `Section34AlterationTests` posts a §34 note, alters it, and reads Table 9B back off the RELOADED book:
+        // one row, one link, and the return's net figures equal to the amended note's own posted tax legs.
+        //
+        // 🔴 WHAT IS STILL REFUSED, AND IT IS REFUSED BY NAME ELSEWHERE RATHER THAN HERE: turning the §34 tick ON
+        // for a note posted without a link, and clearing it OFF on a note that has one — the two transitions
+        // that would create or withdraw a statutory declaration from an alteration screen. Those sentences live
+        // in `ReplaceSection34Link`, where the live panel can be compared with the posted link; this predicate
+        // reads only the posted voucher and cannot see the tick at all.
+        //
+        // AND the plain-grid §34 note is still refused, above, by the narrowed OffLineSideEffectRefusal arm.
 
         // Row 18 — 🔴 NO LONGER "UNDETERMINED", AND THE REASON CHANGED (finding L1-04). The round trip WAS measured
         // after this arm shipped: with the arm lifted and SeedAlterationMode pointed at the plain grid, a wholly

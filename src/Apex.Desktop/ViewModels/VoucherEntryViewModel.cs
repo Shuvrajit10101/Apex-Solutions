@@ -2832,6 +2832,120 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         undo.Push(() => _company.RemoveCreditDebitNoteLink(link));
     }
 
+    /// <summary>
+    /// 🔴 <b>Census 4.7/4.8 — THE §34 LINK'S ALTERATION INVERSE.</b> Seeds the §34 panel from the
+    /// <see cref="GstCreditDebitNoteLink"/> the posted note already carries, so an alteration re-opens the note
+    /// the BOOK holds rather than a blank panel.
+    ///
+    /// <para><b>Why this had to exist before the alteration arm could ship.</b>
+    /// <see cref="VoucherAlterationEligibility"/> refused a §34 note by name, and its sentence said why:
+    /// <c>RegisterSection34Link</c> mints a fresh <see cref="Guid"/> on every accept, so a re-accept would leave
+    /// ONE note carrying TWO links. <c>Gstr1.BuildTable9B</c> walks <c>company.CreditDebitNoteLinks</c> and folds
+    /// one row — and one signed CGST/SGST/IGST contribution — PER LINK, so the second link does not merely
+    /// duplicate a display row: it DOUBLES the note's reversal in the filed return. The inverse is therefore not
+    /// cosmetic.</para>
+    ///
+    /// <para>🔴 <b>THE OVERRIDE FLAG IS REPRODUCED, NOT GRANTED.</b> <c>CdnOverrideTimeLimit</c> is not stored on
+    /// the link, and a §34 credit note whose posting had to tick it would otherwise be refused on re-accept by
+    /// the §34(2) cut-off — an alteration blocked by a guard the POSTING already cleared, on a voucher that is
+    /// on the book either way. So it is seeded TRUE only when the posted note is genuinely past its own cut-off
+    /// (which is the only state in which the posting can have used it), and left FALSE otherwise. That is
+    /// rehydrating what was posted, exactly as every other field here does; it never hands an in-time note an
+    /// override it did not have, and <c>Section34AlterationTests</c> pins both halves.</para>
+    /// </summary>
+    private void RehydrateSection34From(Voucher voucher)
+    {
+        if (!CanBeSection34Note) return;
+        if (_company.CreditDebitNoteLinks.FirstOrDefault(l => l.CdnVoucherId == voucher.Id) is not { } link)
+            return;
+
+        IsSection34Note = true;
+        SelectedCdnReasonCode = link.ReasonCode;
+        CdnIs9BTarget = link.Is9BTarget;
+
+        if (link.OriginalInvoiceVoucherId is { } originalId
+            && CdnOriginalInvoices.FirstOrDefault(o => o.Invoice?.Id == originalId) is { } picked)
+        {
+            SelectedCdnOriginalInvoice = picked;
+        }
+        else
+        {
+            // ER-12's second limb — a consolidated / unregistered reference. The picker's own consolidated
+            // sentinel is selected (never the "(none)" one, which is what the Accept guard refuses on), and the
+            // denormalised number and date are put back into the typed fields they came out of.
+            //
+            // 🔴 AND THIS BRANCH ALSO CATCHES A LINKED ORIGINAL THAT IS NO LONGER OFFERED — a linked invoice
+            // that has since been CANCELLED is filtered out of `BuildSection34Pickers` by name. Falling back to
+            // the denormalised number/date keeps the note's statutory reference intact instead of silently
+            // resolving to "(none)" and then being refused for a reference the book still holds.
+            SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault(o => o.IsConsolidated)
+                                      ?? SelectedCdnOriginalInvoice;
+            CdnOriginalInvoiceNumber = link.OriginalInvoiceNumber ?? string.Empty;
+            CdnOriginalInvoiceDateText =
+                link.OriginalInvoiceDate is { } od ? ApexDate.Format(od) : string.Empty;
+        }
+
+        // See the summary: reproduced from the posted state, never granted.
+        CdnOverrideTimeLimit =
+            link.CdnType == CdnType.Credit
+            && link.OriginalInvoiceDate is { } basis
+            && voucher.Date > CreditDebitNoteService.NovemberThirtyFollowing(basis);
+
+        UpdateSection34Panel();
+    }
+
+    /// <summary>
+    /// 🔴 <b>Census 4.7/4.8 — the §34 link's write half, run by <see cref="CommitAlteration"/>.</b> Returns a
+    /// named refusal, or <c>null</c> having re-pointed the note's single link at the amended values.
+    ///
+    /// <para><b>THE LINK'S <see cref="GstCreditDebitNoteLink.Id"/> IS CARRIED, NOT RE-MINTED</b>, which is the
+    /// whole difference between this and <see cref="RegisterSection34Link"/>. One note keeps exactly one link,
+    /// so <c>Gstr1</c> Table 9B folds it exactly once; and because <c>CanonicalMapper</c> orders the collection
+    /// by <c>l.Id</c>, an alteration that changes nothing about the §34 details leaves the canonical export
+    /// byte-identical rather than re-ordering it.</para>
+    ///
+    /// <para>🔴 <b>THE TWO TRANSITIONS ARE REFUSED BY NAME RATHER THAN SHIPPED UNTESTED.</b> Turning the §34
+    /// tick ON for a note posted without a link would CREATE a statutory declaration from an alteration screen,
+    /// and turning it OFF would DESTROY one — in both cases moving the note into or out of GSTR-1 Table 9B with
+    /// nothing on screen saying a return had changed. Neither is this slice's to ship, and a silent no-op (which
+    /// is what the alteration path did before this method existed, because it called nothing at all) is the
+    /// failure mode ORCHESTRATOR RULING 1 names. The operator is told which verb to use instead.</para>
+    /// </summary>
+    private string? ReplaceSection34Link(Guid cdnVoucherId, Stack<Action> undo)
+    {
+        var existing = _company.CreditDebitNoteLinks.FirstOrDefault(l => l.CdnVoucherId == cdnVoucherId);
+
+        if (existing is null && !ShowSection34Details) return null;        // not a §34 note, before or after
+
+        if (existing is null)
+            return "This note was posted WITHOUT §34 GST details, so it has no credit/debit-note link and does "
+                 + "not appear in GSTR-1 Table 9B. Adding one here would create a statutory declaration from an "
+                 + "alteration screen. Cancel the note and enter a fresh §34 note instead.";
+
+        if (!ShowSection34Details)
+            return "This note was posted WITH §34 GST details and is declared in GSTR-1 Table 9B. Clearing the "
+                 + "§34 tick here would withdraw it from a filed return with nothing recording the withdrawal. "
+                 + "Cancel the note instead, which reverses it on the books and in the return together.";
+
+        var (originalId, number, date) = ResolveCdnOriginal();
+        var replacement = new GstCreditDebitNoteLink(
+            existing.Id,                 // 🔴 carried — see this method's summary
+            cdnVoucherId,
+            Section34Type,               // derived from the voucher type, which Replace refuses to change
+            originalId, number, date,
+            SelectedCdnReasonCode!,      // ValidateSection34 has already refused a blank one
+            CdnIs9BTarget);
+
+        _company.RemoveCreditDebitNoteLink(existing);
+        _company.AddCreditDebitNoteLink(replacement);
+        undo.Push(() =>
+        {
+            _company.RemoveCreditDebitNoteLink(replacement);
+            _company.AddCreditDebitNoteLink(existing);
+        });
+        return null;
+    }
+
     // =============================================================== GST on advances (catalog §12; Phase 9 slice 2b; RQ-25; Rule 50/51)
 
     /// <summary>The action a voucher type offers against an outstanding advance.</summary>
@@ -3532,6 +3646,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             IsPostDated = voucher.PostDated;
             if (voucher.ApplicableUpto is { } upto) ApplicableUptoText = ApexDate.Format(upto);
 
+            // 🔴 Census 4.7/4.8 — THE §34 PANEL, SEEDED FROM THE POSTED LINK. Without this a posted §34 note
+            // re-opens with the panel OFF and every field blank, so the operator is shown a note that is not the
+            // one on the book — and `ReplaceSection34Link` would then read an empty panel. See that method.
+            RehydrateSection34From(voucher);
+
             // The counterparty capture is only keyed on a Purchase/Sales; on every other type AcceptAlteration
             // carries the posted values straight through instead (TryResolveReferenceCapture hands back null/null
             // off those two natures, which would DROP a reference an import had put there).
@@ -3922,6 +4041,38 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             return false;
         }
 
+        // 🔴 Census 4.7/4.8 — THE §34 LINK'S INVERSE, AFTER Replace AND BEFORE THE SAVE, so the link and the
+        // voucher it annotates reach disk in ONE aggregate write and are unwound together if that write fails.
+        // A no-op on every voucher that is not a §34 note, so every other family is byte-identical (ER-13).
+        //
+        // 🔴 AFTER Replace rather than before, and the order is load-bearing: `Replace` is the step that can
+        // still refuse (unbalanced, a provisional-state move, a diverged statutory record), and a link already
+        // re-pointed at that moment would be left describing a replacement the book never took.
+        var undoSection34 = new Stack<Action>();
+        if (ReplaceSection34Link(existing.Id, undoSection34) is { } linkRefusal)
+        {
+            try { _service.Replace(existing.Id, existing, out _); }
+            catch (Exception rollbackFailure)
+                when (rollbackFailure is InvalidVoucherException or InvalidOperationException
+                   or UnbalancedVoucherException)
+            {
+                Message = $"{linkRefusal} (Putting the original voucher back ALSO failed: "
+                        + $"{rollbackFailure.Message} — close this company without saving.)";
+                return false;
+            }
+
+            // The refused alteration appended one edit-log entry and the rollback Replace above appended a
+            // second; neither describes anything that reached disk. Newest first — the only order
+            // DiscardUncommittedEditLogEntry accepts. Same discipline as the save-failure path below.
+            for (var i = 0; i < 2; i++)
+                if (_company.LastVoucherEditLogEntry is { } appended)
+                    _service.DiscardUncommittedEditLogEntry(appended);
+
+            RollBackOptional(existing.Id, optionalEntry, optionalWas);
+            Message = linkRefusal;
+            return false;
+        }
+
         try
         {
             _storage.Save(_company);
@@ -3930,6 +4081,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             try
             {
+                // The link first, then the voucher — the mirror of the order they were applied in.
+                while (undoSection34.Count > 0) undoSection34.Pop()();
                 _service.Replace(existing.Id, existing, out _);
 
                 // 🔴 v52 — DISCARD BOTH EDIT-LOG ENTRIES, NEWEST FIRST. The failed alteration appended one and the
@@ -4423,6 +4576,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             Message = refusal;
             return false;
         }
+
+        // 🔴 Census 4.7/4.8 — THE SAME §34 GUARD THE FRESH ACCEPT RUNS, in the same place in the order.
+        // `AcceptItemInvoice` calls this before it builds; without it here an alteration could blank the reason
+        // code or the original-invoice reference and `ReplaceSection34Link` would then write a link the ER-12
+        // constructor refuses — a throw out of the commit instead of a sentence the operator can act on.
+        if (!ValidateSection34()) return false;
 
         if (BuildItemInvoice() is not { } built) return false;
 
