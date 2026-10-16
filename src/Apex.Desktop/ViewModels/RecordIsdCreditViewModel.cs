@@ -235,11 +235,16 @@ public sealed partial class RecordIsdCreditViewModel : ViewModelBase, IMasterLis
         Recorded.Clear();
 
         var scope = ScopedRegistrationId;
-        // 🔴 Accumulated in RUPEES, not paisa. An earlier revision summed `(long)Math.Round(total * 100m, …)`
-        // here and drift-lock D3 (OneRuleDriftLockTests.RupeesToPaisaHasOneHome) correctly failed it: that is a
-        // second copy of the rupees→paisa rule whose one home is PaisaConversion. This total is a DISPLAY sum of
-        // figures that are already exact to the paisa — each row's heads came straight off posted line amounts —
-        // so there is nothing to convert and no rounding decision to re-make.
+        // 🔴 Accumulated in RUPEES, not paisa. An earlier revision converted each row to paisa by hand here, and
+        // drift-lock D3 (OneRuleDriftLockTests.RupeesToPaisaHasOneHome) correctly failed it: that is a second
+        // copy of the rupees-to-paisa rule, whose one home is PaisaConversion. This total is a DISPLAY sum of
+        // figures already exact to the paisa — each row's heads come straight off posted line amounts — so
+        // there is nothing to convert and no rounding decision to re-make.
+        //
+        // (The offending expression is deliberately NOT quoted above: D3 scans raw file text, comments
+        // included, so writing it out — even to explain it — re-trips the lock. That is not a flaw in the lock;
+        // a grep-based invariant cannot tell a quotation from a reintroduction, and the conservative direction
+        // is the right one for a money rule.)
         decimal totalCredit = 0m;
 
         foreach (var v in _company.Vouchers
