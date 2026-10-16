@@ -7179,23 +7179,29 @@
                                             Content="Add space between amount and symbol"
                                             IsChecked="{Binding SpaceBetweenAmountAndSymbol, Mode=TwoWay}"/>
                                 </WrapPanel>
-                                <Grid ColumnDefinitions="260,*,260,110">
+                                <!-- TWO rows, not one four-column row. A single "260,*,260,110" starved the
+                                     * column to 8px at the narrowest tracked viewport and
+                                     XamlLayoutInvariantTests.Star_columns_must_stay_wide_enough_to_read
+                                     caught it: the captions here are long and fixed tracks eat the width. -->
+                                <Grid ColumnDefinitions="260,*">
                                   <TextBlock Grid.Column="0" Text="Word representing amount after decimal"
                                              FontWeight="SemiBold" TextWrapping="Wrap"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Name="CurrencyDecimalWordBox"
                                            Text="{Binding DecimalWord, Mode=TwoWay}"
                                            PlaceholderText="e.g. Cent"/>
-                                  <TextBlock Grid.Column="2" Text="No. of decimal places for amounts in words"
-                                             FontWeight="SemiBold" TextWrapping="Wrap" Margin="10,0,0,0"
+                                </Grid>
+                                <Grid ColumnDefinitions="260,*">
+                                  <TextBlock Grid.Column="0" Text="No. of decimal places for amounts in words"
+                                             FontWeight="SemiBold" TextWrapping="Wrap"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
                                   <!-- Blank is NOT zero: blank means "use the number of decimal places"
                                        (the pre-v67 behaviour), 0 means "write no minor unit in words". The
                                        vendor rule "equal to or lesser than the number specified in Number of
                                        decimal places" is enforced on Ctrl+A. -->
-                                  <TextBox Grid.Column="3" Name="CurrencyDecimalPlacesForWordsBox"
+                                  <TextBox Grid.Column="1" Name="CurrencyDecimalPlacesForWordsBox"
                                            Text="{Binding DecimalPlacesForWordsText, Mode=TwoWay}"
-                                           TextAlignment="Right" PlaceholderText="blank = same"/>
+                                           TextAlignment="Right" PlaceholderText="blank = use the decimal places"/>
                                 </Grid>
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding CurrencyMessage}"
