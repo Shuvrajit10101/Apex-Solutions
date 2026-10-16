@@ -104,7 +104,13 @@ public class VoucherOptionalStateVerbTests
         // "Optional":false here would describe the AFTER state and be worthless to an auditor.
         var entry = Assert.Single(book.Company.VoucherEditLog);
         Assert.Equal(id, entry.VoucherId);
-        Assert.Equal(VoucherEditVerb.Alter, entry.Verb);
+        // 🔴 v66: SetOptional, NOT Alter. Until schema v66 the flag move logged under the Alter ordinal, so it was
+        // indistinguishable from a content replacement by verb alone — which is why
+        // DiscardUncommittedOptionalChange's guard could be handed a legitimate Replace entry and persuaded to drop
+        // that audit line while flipping the flag (see VoucherEditVerb.SetOptional). This assertion is the tripwire
+        // on the dedicated ordinal: put Alter back here and the guard's own test below goes green against a lie.
+        Assert.Equal(VoucherEditVerb.SetOptional, entry.Verb);
+        Assert.NotEqual(VoucherEditVerb.Alter, entry.Verb);
         Assert.Equal(Instant, entry.RecordedAt);
         Assert.Contains("\"Optional\":true", entry.BeforeSnapshot, StringComparison.Ordinal);
         Assert.Contains(ProvisionalNarration, entry.BeforeSnapshot, StringComparison.Ordinal);

@@ -60,7 +60,15 @@ public sealed class IsdRegistrationPersistenceTests
         // 🔴 Find the const BY GREP (`public const int CurrentVersion`), never by line number: it reads :289 on
         // some trees and :266 on others, which is filed as T1-63, and the prose near Schema.cs:159 (which says 59)
         // and :5409 (which says 61) has already misled agents twice.
-        Assert.Equal(65, Schema.CurrentVersion);
+        //
+        // 🔴 RE-BASELINED 65 -> 66, 2026-10-13. It tripped again, exactly as predicted above, when the
+        // registration-attribution track took v66 (user ruling 30(3)+(4); census 5.5 / 6.23). The prescribed
+        // check was performed before the number was changed, and this is the check to repeat next time:
+        // `git diff origin/main...HEAD -- src/Apex.Persistence.Sqlite/` on THIS file's own slice shows the v66
+        // DDL belongs to the attribution track, NOT to the ISD slice — the ISD still adds no DDL of its own and
+        // still round-trips through the registration_type / gst_reg_type INTEGER columns that already exist,
+        // which the round-trip test below proves independently of this number.
+        Assert.Equal(66, Schema.CurrentVersion);
     }
 
     [Fact]

@@ -20,6 +20,11 @@ public sealed class ImportedSnapshotRowVm
     public string ImportedAt { get; init; } = string.Empty;
     public string Lines { get; init; } = string.Empty;
     public string Tax { get; init; } = string.Empty;
+
+    /// <summary>v66 — the registration this statement was imported for (census 6.23 / T2-121(ii)). "—" when the
+    /// company has no GST block. Named on the row so two periods imported for two different GSTINs are
+    /// distinguishable without opening either.</summary>
+    public string Registration { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -66,6 +71,59 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
     public ObservableCollection<GstStatementType> StatementTypes { get; } =
         new(new[] { GstStatementType.Gstr2b, GstStatementType.Gstr2a });
 
+    /// <summary>
+    /// 🔴 <b>THE VENDOR'S OWN <i>GST Registration</i> FIELD ON THIS SCREEN</b> — the registration the statement is
+    /// being imported FOR (schema <b>v66</b>; census 6.23; gap register <b>T2-121(ii)</b>).
+    ///
+    /// <para><b>R7 — THE QUESTION T2-121(ii) ASKED IS ANSWERED <i>YES</i> BY THE VENDOR, BY CONTENT.</b> It asked
+    /// <i>"may a GSTR-2B be imported for a NON-PRIMARY registration?"</i>, and recorded that if the answer were
+    /// left open the ₹12,000-against-a-₹6,000-note duplicate re-opens.
+    /// <c>help.tallysolutions.com/india-gst-status-gstr-2b-reconciliation-tally-2/</c>, opened 2026-10-13,
+    /// documents the field verbatim: <i>"GST Registration: It will be selected by default. In case of multiple GST
+    /// registrations, select the required one."</i> So the answer is YES, and <b>refusing the import would have
+    /// been a divergence rather than caution</b> — which is why this screen gains a field rather than a refusal.</para>
+    ///
+    /// <para>🔴 <b>AND THE DUPLICATE IS CLOSED BY THE ANCHOR, NOT BY THE REFUSAL.</b> What re-opened it was a
+    /// statement whose <c>RecipientGstin</c> matched NO registration the company holds: every GSTIN-matching
+    /// lookup then returned <c>null</c>, both layers fell through to the caller's own pick, and one portal credit
+    /// note became postable against two returns. A stored registration <b>id</b> cannot fall through — see
+    /// <see cref="Gstr2bSnapshot.GstRegistrationId"/>. The import is permitted AND anchored; those are the two
+    /// halves of the one answer.</para>
+    ///
+    /// <para><b>Default = the primary registration</b>, which is byte-identical to every pre-v66 import (ER-13):
+    /// the old path hard-coded the primary's GSTIN and the parser refused any other.</para>
+    /// </summary>
+    [ObservableProperty] private GstRegistration? _selectedRegistration;
+
+    /// <summary>Every registration a statement could be imported for — the primary plus the additional ones.</summary>
+    public ObservableCollection<GstRegistration> Registrations { get; } = new();
+
+    /// <summary>Whether the picker is offered at all — false on a single-registration book, exactly as the
+    /// vendor scopes its own sentence ("in case of multiple GST registrations"). ER-13.</summary>
+    public bool CanSelectRegistration => _company.Gst is { IsMultiRegistration: true };
+
+    /// <summary>The registration id the next import will anchor the snapshot to.</summary>
+    public Guid ImportRegistrationId => SelectedRegistration?.Id ?? GstRegistration.PrimaryId;
+
+    /// <summary>
+    /// The GSTIN the parser must find on the file — <b>the SELECTED registration's</b>, not the company's.
+    /// <para>🔴 This one expression is what makes a branch's own 2B importable at all. Before v66 the screen read
+    /// <c>_company.Gst?.Gstin</c>, so the parser's <c>GSTIN_MISMATCH</c> refused a branch's or an ISD's statement
+    /// outright, which is what T2-121(ii) recorded as "the only reason (iii) is unreachable today".</para>
+    /// <para>🔴 <b>THE FALL-BACK IS ON "NO SELECTION", NOT ON "THE SELECTION HAS NO GSTIN" — AND THAT
+    /// DISTINCTION IS A DEFECT I WROTE AND THEN CAUGHT IN MY OWN REVIEW.</b> The first version read
+    /// <c>SelectedRegistration?.Gstin ?? _company.Gst?.Gstin</c>. <see cref="GstRegistration.Gstin"/> is
+    /// documented <i>"null for a registration type that carries none"</i>, so selecting such a registration fell
+    /// through to the <b>company's own</b> GSTIN: the parser would then ACCEPT a statement addressed to the
+    /// primary while <see cref="ImportRegistrationId"/> anchored it to the OTHER registration — one taxpayer's
+    /// 2B stored as another's, which is the whole class this column exists to prevent. It also made the
+    /// no-GSTIN refusal below <b>dead code</b>, because the expression could never be null while the company had
+    /// a GSTIN. Falling back only when there is no selection at all keeps ER-13 (a single-registration book has
+    /// no picker and reads the company's GSTIN exactly as it always did) and makes that refusal live.</para>
+    /// </summary>
+    private string? ImportRecipientGstin =>
+        SelectedRegistration is { } chosen ? chosen.Gstin : _company.Gst?.Gstin;
+
     /// <summary>Every snapshot already imported into the company (latest first).</summary>
     public ObservableCollection<ImportedSnapshotRowVm> Imported { get; } = new();
 
@@ -89,6 +147,16 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
     /// <summary>(Re)lists the already-imported snapshots. Imports nothing.</summary>
     public void Rebuild()
     {
+        // v66: the vendor's GST Registration field. Repopulated here (not only in the ctor) so a registration
+        // added while this screen is open appears without reopening it — the stale-constructor-list shape
+        // T2-121(v) files against the ITC gate.
+        Registrations.Clear();
+        foreach (var r in _company.Gst?.AllRegistrations ?? Array.Empty<GstRegistration>()) Registrations.Add(r);
+        // "It will be selected by default" — the vendor's own words. The default is the primary, which is what
+        // every pre-v66 import wrote. A selection that has since been deleted falls back rather than persisting.
+        if (SelectedRegistration is null || Registrations.All(r => r.Id != SelectedRegistration.Id))
+            SelectedRegistration = Registrations.FirstOrDefault(r => r.IsPrimary) ?? Registrations.FirstOrDefault();
+
         Imported.Clear();
         foreach (var s in _company.Gstr2bSnapshots.OrderByDescending(s => s.ImportedAt))
             Imported.Add(new ImportedSnapshotRowVm
@@ -98,9 +166,12 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
                 ImportedAt = ApexDate.Format(s.ImportedAt),
                 Lines = s.Lines.Count.ToString(CultureInfo.InvariantCulture),
                 Tax = R(s.SummaryIgstPaisa + s.SummaryCgstPaisa + s.SummarySgstPaisa + s.SummaryCessPaisa),
+                // v66: WHICH registration this statement belongs to, named on the row rather than inferred from
+                // its recipient GSTIN — see Gstr2bSnapshot.GstRegistrationId for why the id, not the GSTIN.
+                Registration = _company.Gst?.FindRegistration(s.OwningRegistrationId)?.Name ?? "—",
             });
 
-        var gstin = _company.Gst?.Gstin ?? "—";
+        var gstin = ImportRecipientGstin ?? "—";
         Subtitle = $"{_company.Name}  —  GSTIN {gstin}";
         StatusText = Imported.Count == 0
             ? "No statement imported yet — choose the portal's GSTR-2B JSON and import it."
@@ -124,9 +195,15 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(FilePath))
             return Fail(null, "Enter the path of the portal's GSTR-2B JSON file.");
 
-        var gstin = _company.Gst?.Gstin;
+        // 🔴 v66 (T2-121(ii)): the SELECTED registration's GSTIN, not the company's. See ImportRecipientGstin.
+        var gstin = ImportRecipientGstin;
         if (string.IsNullOrWhiteSpace(gstin))
-            return Fail(null, "This company has no GSTIN — enable GST before importing a statement.");
+            return Fail(
+                null,
+                CanSelectRegistration
+                    ? "The selected GST registration has no GSTIN, so no statement can be addressed to it. "
+                    + "Choose a registration that carries one."
+                    : "This company has no GSTIN — enable GST before importing a statement.");
 
         byte[] bytes;
         try
@@ -143,13 +220,20 @@ public sealed partial class ImportGstr2bViewModel : ViewModelBase
         if (!result.Parsed || result.Statement is null)
             return Fail(result.ErrorCode, Explain(result) + " Nothing was imported — the company is unchanged.");
 
-        var snapshot = Gstr2bImportService.Import(_company, result.Statement, _now());
+        // 🔴 v66: ANCHOR the snapshot to the chosen registration. This is the half that closes the duplicate
+        // T2-121(ii) warned would re-open — not the permission question, which the vendor answers YES.
+        var registrationId = ImportRegistrationId;
+        var snapshot = Gstr2bImportService.Import(
+            _company, result.Statement, _now(), idFactory: null, gstRegistrationId: registrationId);
         _storage.Save(_company);
         Rebuild();
 
         LastImportSucceeded = true;
+        var forWhich = CanSelectRegistration
+            ? $" for {_company.Gst?.FindRegistration(registrationId)?.Name ?? "the primary registration"}"
+            : string.Empty;
         Message = $"Imported {(snapshot.StatementType == GstStatementType.Gstr2b ? "GSTR-2B" : "GSTR-2A")} " +
-                  $"{snapshot.ReturnPeriod} — {snapshot.Lines.Count} line(s), tax " +
+                  $"{snapshot.ReturnPeriod}{forWhich} — {snapshot.Lines.Count} line(s), tax " +
                   $"₹{R(snapshot.SummaryIgstPaisa + snapshot.SummaryCgstPaisa + snapshot.SummarySgstPaisa + snapshot.SummaryCessPaisa)}.";
         _onChanged();
         return true;

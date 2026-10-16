@@ -755,6 +755,47 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV65ToV66"/> (<b>user ruling 30(3)+(4)</b>; census rows 5.5 and 6.23;
+    /// gap register <b>T2-121(ii)</b>, <b>T2-125</b>): removes <c>voucher_types.retain_original_voucher_no</c>
+    /// (<see cref="Schema.V66VoucherTypeColumns"/>) and <c>gstr2b_snapshots.gst_registration_id</c>
+    /// (<see cref="Schema.V66Gstr2bSnapshotColumns"/>), and stamps <c>schema_version</c> back to <b>65</b>.
+    ///
+    /// <para>🔴 <b><see cref="RebuildPreservingShape"/> TWICE, NOT <see cref="DropColumns"/>, and the reason is a
+    /// recorded failure rather than a preference.</b> BOTH tables are FK <b>PARENTS</b> —
+    /// <c>vouchers.type_id</c> and <c>inventory_vouchers.type_id</c> reference <c>voucher_types(id)</c>, and
+    /// <c>gstr2b_lines.snapshot_id</c> references <c>gstr2b_snapshots(id)</c> — and a <c>CREATE … AS SELECT</c>
+    /// rebuild of a parent silently loses the PRIMARY KEY, which is the <c>foreign key mismatch</c> failure
+    /// <see cref="V56ToV55"/> records.</para>
+    ///
+    /// <para><b>WHAT IS LOST, stated plainly, and NEITHER half moves a posted figure.</b> Dropping
+    /// <c>retain_original_voucher_no</c> returns every type to the vendor's default insertion behaviour; no
+    /// voucher number is rewritten by the downgrade itself, but a type that had elected <i>Retain Original
+    /// Voucher No.</i> will renumber on the next insert, because a v65 database has nowhere to keep the
+    /// election. Dropping <c>gst_registration_id</c> makes every imported statement read as the PRIMARY
+    /// registration's again — which is what a v65 build believes anyway, since its import path could only ever
+    /// have written one. ⚠️ <b>On a multi-registration book that imported a branch's own 2B, that is a real
+    /// loss of attribution</b>: the statement will reconcile against the primary's registration after the
+    /// downgrade. The downgrade is a test-fixture manoeuvre and never a production path, so this is an
+    /// acceptable residual — but such a book should not be downgraded and then handed back to an operator.</para>
+    ///
+    /// <para>⚠️ <b>This is now the TOP rung — <see cref="V65ToV64"/> sits below it.</b> Manufacturing an older
+    /// book out of a CURRENT one runs this FIRST and every lower rung after it: to reach v64 the caller runs
+    /// <c>V66ToV65</c> then <see cref="V65ToV64"/>. Calling <see cref="V65ToV64"/> alone on a v66 file stamps
+    /// the marker 64 while v66's two columns are still there, which is a lie the next open cannot detect.</para>
+    /// </summary>
+    public static void V66ToV65(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(
+            connection, "voucher_types", Schema.V66VoucherTypeColumns, "voucher_types_v65");
+        RebuildPreservingShape(
+            connection, "gstr2b_snapshots", Schema.V66Gstr2bSnapshotColumns, "gstr2b_snapshots_v65");
+
+        Exec(connection, "UPDATE schema_version SET version = 65;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV64ToV65"/> (census 3.4 / defect T0-2 / <b>user ruling 26</b>): removes
     /// the three <c>stock_items</c> columns (<see cref="Schema.V65StockItemColumns"/>) and stamps
     /// <c>schema_version</c> back to <b>64</b>.
@@ -783,9 +824,10 @@ public static class SchemaDowngrade
     /// but a book carrying any <c>valuation_remediated_from</c> row should not be downgraded and then handed back
     /// to an operator.</para>
     ///
-    /// <para>⚠️ <b>This is the TOP rung.</b> Manufacturing an older book out of a CURRENT one runs this FIRST and
-    /// every lower rung after it — to reach v63 the caller runs <c>V65ToV64</c> then <see cref="V64ToV63"/>.
-    /// Calling <see cref="V64ToV63"/> alone on a v65 file stamps the marker 63 while the three v65 columns are
+    /// <para>⚠️ <b>This is NO LONGER the TOP rung — <see cref="V66ToV65"/> now sits above it.</b> Manufacturing
+    /// an older book out of a CURRENT one runs <see cref="V66ToV65"/> FIRST, then this, then every lower rung —
+    /// to reach v63 the caller runs <c>V66ToV65</c> → <c>V65ToV64</c> → <see cref="V64ToV63"/>. Calling
+    /// <see cref="V64ToV63"/> alone on a v65 file stamps the marker 63 while the three v65 columns are
     /// still on <c>stock_items</c>, which is a lie the next open cannot detect.</para>
     /// </summary>
     public static void V65ToV64(SqliteConnection connection)

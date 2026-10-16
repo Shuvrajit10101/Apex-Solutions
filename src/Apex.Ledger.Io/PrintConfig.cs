@@ -49,8 +49,30 @@ public enum CopyMarking
 public sealed class PrintConfig
 {
     /// <summary>Overrides the printed document title (e.g. "TAX INVOICE" ⇒ "PROFORMA INVOICE"); blank ⇒ use the
-    /// template default.</summary>
+    /// template default.
+    ///
+    /// <para><b>Census 12.3 — this now reaches a REPORT print as well as a voucher/invoice one.</b> The vendor
+    /// offers the override on reports explicitly: the configuration page opens <i>"Before printing, exporting,
+    /// or sharing documents, like your invoices, <b>financial reports</b>, payment reminder letters, dashboard
+    /// tiles, and multi-account reports, you can configure them"</i> and its <i>Titles/Subtitles</i> section
+    /// reads <i>"In the sub-form, press <b>F7</b> (Title). In the Header Information sub-screen, provide the
+    /// required <b>Title</b> and <b>Subtitle</b> for the document and save."</i>
+    /// (<c>help.tallysolutions.com/configure-printing-for-invoices-reports/</c>, opened by content 2026-10-13).
+    /// <c>help.tallysolutions.com/working-with-reports/</c> attests the same capability from the other side:
+    /// <i>"updating the title/sub-title of the report will not require you to open the F12 Configuration list
+    /// anymore"</i> — which says in passing that the F12 Configuration list is where it used to live, i.e. that
+    /// a report's title and sub-title ARE F12 print configuration.</para></summary>
     public string? TitleOverride { get; init; }
+
+    /// <summary>
+    /// Overrides the printed <b>sub-title</b> band; blank ⇒ keep the document's own sub-title.
+    ///
+    /// <para>The vendor's sub-form takes a Title <b>and</b> a Subtitle together (quoted on
+    /// <see cref="TitleOverride"/>), so offering one without the other would be half the control. It is read
+    /// today by the report renderer only: a voucher and an invoice have no sub-title band to override, and
+    /// <see cref="VoucherPdf"/> / <see cref="InvoicePdf"/> deliberately ignore it rather than inventing one.</para>
+    /// </summary>
+    public string? SubtitleOverride { get; init; }
 
     /// <summary>When true (default) the narration line prints; F12 can suppress it.</summary>
     public bool ShowNarration { get; init; } = true;

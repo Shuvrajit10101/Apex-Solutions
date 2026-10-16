@@ -67,15 +67,47 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
     {
         _company = company ?? throw new ArgumentNullException(nameof(company));
 
-        foreach (var snap in GstAdvancedSnapshots.Gstr2b(company))
-            Snapshots.Add(new Gstr2bSnapshotOption { Snapshot = snap });
-
         foreach (var registration in company.Gst?.AllRegistrations ?? [])
             Registrations.Add(registration);
         _selectedRegistration = Registrations.FirstOrDefault();
 
-        _selectedSnapshot = Snapshots.FirstOrDefault();
+        // 🔴 v66 — SCOPED, and NOT populated once-and-forever (gap register T2-121(v)). See RefilterSnapshots.
+        RefilterSnapshots();
         Rebuild();
+    }
+
+    /// <summary>
+    /// 🔴 <b>Narrows <see cref="Snapshots"/> to the statements that belong to the SELECTED registration</b>, and
+    /// re-points <see cref="SelectedSnapshot"/> — the fix for gap-register <b>T2-121(v)</b>, which recorded that
+    /// this list was <i>"populated once in the CONSTRUCTOR and never refiltered when SelectedRegistration
+    /// changes, so another registration's statements stay in the picker"</i>.
+    ///
+    /// <para><b>WHY IT COULD NOT BE FIXED BEFORE SCHEMA v66, stated so the dependency is on the record.</b> A
+    /// snapshot carried no registration at all — only a <c>RecipientGstin</c> — and matching by GSTIN is exactly
+    /// the fall-through <b>T2-121(iii)</b> files: when a statement's recipient GSTIN matches no registration the
+    /// company holds (reachable by editing the primary GSTIN after an import, or by restoring canonical XML that
+    /// staged an arbitrary one) every GSTIN lookup returns <c>null</c> and the filter silently admits
+    /// everything. <c>Gstr2bSnapshot.OwningRegistrationId</c> is a stored id and cannot fall through.</para>
+    ///
+    /// <para><b>A single-registration book is unaffected (ER-13):</b> every snapshot's
+    /// <c>OwningRegistrationId</c> is the primary — NULL means exactly that — and the primary is the only
+    /// registration selectable, so the filter admits the identical list the constructor used to build.</para>
+    /// </summary>
+    private void RefilterSnapshots()
+    {
+        var scope = ScopedRegistrationId;
+        var previous = _selectedSnapshot?.Snapshot?.Id;
+
+        Snapshots.Clear();
+        foreach (var snap in GstAdvancedSnapshots.Gstr2b(_company))
+            if (snap.OwningRegistrationId == scope)
+                Snapshots.Add(new Gstr2bSnapshotOption { Snapshot = snap });
+
+        // Keep the operator's own choice when it survives the narrowing; otherwise take the first of the new set.
+        // Assigning the backing field directly is deliberate — the public setter calls Rebuild, and both callers
+        // of this method Rebuild immediately after, so routing through it would project the screen twice.
+        _selectedSnapshot = Snapshots.FirstOrDefault(o => o.Snapshot?.Id == previous) ?? Snapshots.FirstOrDefault();
+        OnPropertyChanged(nameof(SelectedSnapshot));
     }
 
     /// <summary>The selected 2B snapshot; changing it rebuilds the ITC gate.</summary>
@@ -93,7 +125,15 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
     public GstRegistration? SelectedRegistration
     {
         get => _selectedRegistration;
-        set { if (SetProperty(ref _selectedRegistration, value)) Rebuild(); }
+        set
+        {
+            if (!SetProperty(ref _selectedRegistration, value)) return;
+            // 🔴 v66 / T2-121(v): the SNAPSHOT LIST is part of the scope, not just the projection. Refiltering
+            // before Rebuild is what stops the screen reading one registration's portal statement against
+            // another registration's books — the mixed-scope shape T2-121(iv) files against Portal2b.
+            RefilterSnapshots();
+            Rebuild();
+        }
     }
 
     /// <summary>
@@ -124,9 +164,20 @@ public sealed partial class ItcGateReportViewModel : ViewModelBase, IMasterListE
         if (snap is null)
         {
             View = null;
-            Subtitle = $"{_company.Name}{RegistrationSuffix}  —  no GSTR-2B imported";
-            StatusText = "No GSTR-2B imported yet — import a 2B statement to gate the period's ITC (§16(2)(aa)).";
-            Message = "No GSTR-2B imported.";
+            // 🔴 v66 / T2-121(v): on a multi-registration book "no 2B" now means "none FOR THIS REGISTRATION",
+            // and the screen must say which — otherwise an operator who has imported the primary's 2B and
+            // selected the branch reads a bare "no GSTR-2B imported" and concludes the import failed.
+            var scoped = ShowsRegistrationPicker && _selectedRegistration is not null;
+            var forWhich = scoped ? $" for {_selectedRegistration!.Name}" : string.Empty;
+            Subtitle = $"{_company.Name}{RegistrationSuffix}  —  no GSTR-2B imported{forWhich}";
+            StatusText = scoped
+                ? $"No GSTR-2B imported for {_selectedRegistration!.Name} — import that registration's own 2B "
+                  + "statement to gate its ITC (§16(2)(aa)). A statement belongs to one GSTIN and cannot gate "
+                  + "another registration's credit."
+                : "No GSTR-2B imported yet — import a 2B statement to gate the period's ITC (§16(2)(aa)).";
+            Message = scoped
+                ? $"No GSTR-2B imported for {_selectedRegistration!.Name}."
+                : "No GSTR-2B imported.";
             return;
         }
 

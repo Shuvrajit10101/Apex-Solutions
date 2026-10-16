@@ -621,6 +621,30 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Cost centre picker (census 11.10) — the Cost Centre Monthly Summary is scoped to ONE
+                             centre: "You can view the monthly breakup of income and expense details along with the
+                             closing balance for the selected Cost Centre"
+                             (help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/).
+                             It shares Grid.Row 2 with the scenario, bank and payroll pickers and is mutually
+                             exclusive with all three: ShowCostCentrePicker is true on exactly ONE ReportKind, and on
+                             that kind SupportsScenario, ShowChequeBankPicker and ShowPayrollMonthPicker are all
+                             false. The label column is Auto, not a fixed track, so the caption cannot be sliced. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowCostCentrePicker}">
+                          <TextBlock Grid.Column="0" Text="Cost Centre" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding CostCentreOptions}"
+                                    SelectedItem="{Binding SelectedCostCentre, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:CostCentreOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- Payroll wage-month + employee picker (Phase 8 slice 8): every payroll report is scoped to
                              one wage month; the Payslip is additionally scoped to a single employee. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
@@ -2849,6 +2873,21 @@
                                             VerticalAlignment="Center">
                                       <TextBlock Text="Provisional — off books" Foreground="#EAF1FF" FontSize="10"/>
                                     </Border>
+                                    <!-- 🔴 census 6.23 / T2-121(i): WHICH GST registration this voucher will be
+                                         recorded under, shown on the document the operator is keying rather than
+                                         left to be inferred — the GSTIN decides which return the invoice lands
+                                         in, so a screen that cannot say it is a screen that cannot be checked.
+                                         Visible ONLY on a multi-registration company (CanSelectGstRegistration),
+                                         so every single-registration book renders exactly as before (ER-13).
+                                         F3 (Company/Tax Registration) changes it; see
+                                         MainWindowViewModel.OpenVoucherRegistrationPicker. -->
+                                    <Border IsVisible="{Binding CanSelectGstRegistration}"
+                                            Background="#2F4F7A" CornerRadius="3" Padding="6,1"
+                                            VerticalAlignment="Center">
+                                      <TextBlock Foreground="#EAF1FF" FontSize="10">
+                                        <Run Text="F3 "/><Run Text="{Binding GstRegistrationCaption}"/>
+                                      </TextBlock>
+                                    </Border>
                                   </StackPanel>
                                   <!-- census 5.10: read-only preview under an auto-numbering method... -->
                                   <TextBlock Grid.Column="1" Foreground="#CFE0FF" FontSize="12"
@@ -2890,9 +2929,21 @@
                                             Click="OnToggleItemInvoiceClick"
                                             Foreground="#CFE0FF" FontSize="11"
                                             VerticalAlignment="Center"/>
-                                  <!-- Accounting (service) invoice is SALES ONLY — the purchase side is deferred
-                                       scope and silently dropped §194J TDS, so the affordance is not offered there
-                                       (CanBeAccountingInvoice, not CanBeItemInvoice). -->
+                                  <!-- 🔴 CORRECTED 2026-10-13 — THIS COMMENT WAS FALSE AND IS STRUCK RATHER THAN
+                                       DELETED, because a stale sentence in shipped source is a defect class this
+                                       project has caught repeatedly. It read: ~~"Accounting (service) invoice is
+                                       SALES ONLY — the purchase side is deferred scope and silently dropped
+                                       §194J TDS, so the affordance is not offered there."~~ The DEFERRAL WAS
+                                       LIFTED: VoucherEntryViewModel.CanBeAccountingInvoice is
+                                       `_type.BaseType is VoucherBaseType.Sales or VoucherBaseType.Purchase`, and
+                                       that property's own history paragraph records WHY the purchase arm was
+                                       re-opened — TDS and RCM were wired to the Particulars lines
+                                       (DetectAccountingTdsShape / DetectAccountingRcmShape), with
+                                       PurchaseAccountingInvoiceTdsTests as the regression guard proving §194J
+                                       still fires. So the affordance IS offered on a Purchase, and the binding
+                                       below has been correct all along; only this caption was wrong.
+                                       The binding is still CanBeAccountingInvoice and NOT CanBeItemInvoice —
+                                       that part of the old note was right and is kept. -->
                                   <CheckBox IsVisible="{Binding CanBeAccountingInvoice}"
                                             Content="Accounting Invoice (Ctrl+H)"
                                             IsChecked="{Binding IsAccountingInvoice, Mode=OneWay}"
@@ -15199,30 +15250,61 @@
                                   <TextBox Grid.Column="3" Text="{Binding FilePath, Mode=TwoWay}" FontSize="11" Padding="4,2"
                                            PlaceholderText="Full path of the portal's GSTR-2B .json"/>
                                 </Grid>
+                                <!-- 🔴 v66 / census 6.23 / T2-121(ii): the vendor's own GST Registration field on
+                                     this screen. Verbatim, help.tallysolutions.com/india-gst-status-gstr-2b-
+                                     reconciliation-tally-2/ : "GST Registration: It will be selected by default.
+                                     In case of multiple GST registrations, select the required one." Visible ONLY
+                                     on a multi-registration book, which is the vendor's own scoping of that
+                                     sentence — a single-registration company renders exactly as before (ER-13).
+                                     The selection decides BOTH the GSTIN the parser must find on the file and the
+                                     registration the stored snapshot is anchored to. -->
+                                <Grid ColumnDefinitions="Auto,*" IsVisible="{Binding CanSelectRegistration}">
+                                  <TextBlock Grid.Column="0" Text="GST Registration" FontSize="11"
+                                             VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                  <ComboBox Grid.Column="1" FontSize="11" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Registrations}"
+                                            SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:GstRegistration">
+                                        <TextBlock FontSize="11">
+                                          <Run Text="{Binding Name}"/><Run Text="  "/><Run Text="{Binding Gstin}"/>
+                                        </TextBlock>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
                                 <Button Content="Import" Command="{Binding ImportActionCommand}" FontSize="11" Padding="16,4" HorizontalAlignment="Left"/>
                               </StackPanel>
                             </Border>
                             <TextBlock Grid.Row="3" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
                                        Foreground="#555555" Margin="0,0,0,6" TextWrapping="Wrap"/>
                             <Border Grid.Row="4" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="90,90,*,60,95">
+                              <!-- v66: a Registration column, so two periods imported for two different GSTINs are
+                                   distinguishable without opening either. Star-width (not fixed) because a
+                                   registration name is operator-supplied and a fixed track would clip it. -->
+                              <Grid ColumnDefinitions="90,90,*,*,60,95">
                                 <TextBlock Grid.Column="0" Text="Statement" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Period" Classes="colHdr"/>
-                                <TextBlock Grid.Column="2" Text="Imported" Classes="colHdr"/>
-                                <TextBlock Grid.Column="3" Text="Lines" Classes="colHdr" TextAlignment="Right"/>
-                                <TextBlock Grid.Column="4" Text="Tax" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="2" Text="Registration" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Imported" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Lines" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="5" Text="Tax" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
                             <ItemsControl Grid.Row="5" Background="White" ItemsSource="{Binding Imported}">
                               <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="vm:ImportedSnapshotRowVm">
                                   <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                    <Grid ColumnDefinitions="90,90,*,60,95" Height="26">
+                                    <Grid ColumnDefinitions="90,90,*,*,60,95" Height="26">
                                       <TextBlock Grid.Column="0" Text="{Binding Statement}" Margin="6,0" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"/>
                                       <TextBlock Grid.Column="1" Text="{Binding Period}" Margin="6,0" VerticalAlignment="Center" FontSize="11.5"/>
-                                      <TextBlock Grid.Column="2" Text="{Binding ImportedAt}" Margin="6,0" VerticalAlignment="Center" FontSize="11.5"/>
-                                      <TextBlock Grid.Column="3" Text="{Binding Lines}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
-                                      <TextBlock Grid.Column="4" Text="{Binding Tax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                      <!-- TextTrimming, not clipping: a registration name is operator-supplied and
+                                           unbounded, and a silently cut name is the truncation class this project
+                                           catalogues. -->
+                                      <TextBlock Grid.Column="2" Text="{Binding Registration}" Margin="6,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="3" Text="{Binding ImportedAt}" Margin="6,0" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                      <TextBlock Grid.Column="4" Text="{Binding Lines}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
+                                      <TextBlock Grid.Column="5" Text="{Binding Tax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="11.5" Margin="0,0,6,0"/>
                                     </Grid>
                                   </Border>
                                 </DataTemplate>
@@ -19808,6 +19890,30 @@
                                   <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
                                                IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
                                                Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+
+                                <!-- Census 12.3 — the REPORT header knobs. The vendor's own sub-form is
+                                     F7 (Title) > Header Information, taking a Title AND a Subtitle, and its
+                                     configuration page names "financial reports" among the documents it
+                                     configures (help.tallysolutions.com/configure-printing-for-invoices-reports/);
+                                     working-with-reports/ attests the same from the other side — "updating the
+                                     title/sub-title of the report will not require you to open the F12
+                                     Configuration list anymore".
+                                     Hidden, not disabled, over a voucher/invoice: those take the title override
+                                     through the document group above and have no sub-title band at all, so
+                                     showing this group there would offer one knob twice and one that does
+                                     nothing. ReportPdf honours both, which is what makes the group legal here —
+                                     see PrintConfigViewModel.SupportsReportHeaderKnobs. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsReportHeaderKnobs}">
+                                  <TextBlock Text="Report title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = the report's own heading)"/>
+
+                                  <TextBlock Text="Report sub-title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding SubtitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = company, period and any filter clause)"/>
                                 </StackPanel>
 
                                 <!-- W2-31 (census 12.4) page knobs — every document kind.

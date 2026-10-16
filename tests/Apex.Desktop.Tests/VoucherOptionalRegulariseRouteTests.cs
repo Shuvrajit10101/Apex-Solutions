@@ -96,7 +96,15 @@ public sealed class VoucherOptionalRegulariseRouteTests
         // entry 2's is the regular voucher with the same content, and the live voucher matches entry 2.
         Assert.Equal(2, book.Company.VoucherEditLog.Count);
         var flagMove = book.Company.VoucherEditLog[0];
-        Assert.Equal(VoucherEditVerb.Alter, flagMove.Verb);
+        // 🔴 v66 — AND THIS PAIR IS THE WHOLE POINT OF THE NEW ORDINAL. The two entries this one route writes are
+        // now DISTINGUISHABLE BY VERB: entry 0 is the flag move (SetOptional), entry 1 is the content Replace
+        // (Alter). Until v66 both read `Alter`, so an auditor reading this chain could not tell which line moved
+        // the voucher's money on the books and which merely rewrote its content — and
+        // DiscardUncommittedOptionalChange's guard could not tell either, which is the hazard
+        // VoucherEditVerb.SetOptional records. Asserting BOTH verbs, in order, is what pins that.
+        Assert.Equal(VoucherEditVerb.SetOptional, flagMove.Verb);
+        Assert.Equal(VoucherEditVerb.Alter, book.Company.VoucherEditLog[1].Verb);
+        Assert.NotEqual(flagMove.Verb, book.Company.VoucherEditLog[1].Verb);
         Assert.Equal(posted.Id, flagMove.VoucherId);
         Assert.Contains("\"Optional\":true", flagMove.BeforeSnapshot, StringComparison.Ordinal);
         Assert.Contains("\"Optional\":false",
