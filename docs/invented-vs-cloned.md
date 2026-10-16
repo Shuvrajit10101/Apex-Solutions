@@ -1938,8 +1938,8 @@ entries is not being audited, and that is why these are filed together.**
 |---|---|
 | **Severity** | **LOW, and it is a trap rather than a defect** — the fields are genuinely missing (census row 3.7 stays `PARTIAL`), but the obvious build is the wrong one and **no test in the tree would have caught it**. |
 | **What TallyPrime does** | Hides both fields behind F12. Verbatim, `help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/` (read 2026-10-13, **200** — the TallyPrime slug that replaces the **Tally.ERP 9** route census row 3.7's header still quotes, which R7 does not make ground truth): *"**Allow storage of materials** — By default, each godown can store materials. However, you can set a godown to not store any materials. To do so, setting this option to Yes to displays the Allow storage of materials option on the Godown Creation screen. Set that option to No."* · *"**Use address for Locations** — You can add the Locations address by enabling this option. The Locations address can be printed in your invoices by configuring invoice printing."* · and the page's own rule *"What you see on the screen can vary based on your choices. Press **F12** (Configure) to change the options."* |
-| **What we ship** | Neither field, on a Godown Creation screen with no F12 configuration layer for them. |
-| **Fix** | Build **two F12 switches plus two conditionally-shown fields** — not two fields. Recorded here because the row's gap sentence reads as "two missing fields" and a slice taking it at face value would ship a screen the vendor never shows. |
+| **What we ship** | 🟢 **CLOSED 2026-10-16 BY SCHEMA v67 (census 3.7).** ~~Neither field, on a Godown Creation screen with no F12 configuration layer for them.~~ Both fields ship, and **each is behind its own F12 switch** — `companies.config_allow_storage_of_materials` / `config_use_address_for_locations`, surfaced as `GodownMasterViewModel.ShowAllowStorageOfMaterials` / `ShowAddress`. **The gate decides whether the value is WRITTEN, not merely whether the control is drawn** (the `ShowJobCostCentre` contract): with a switch off, Create and Alter write the vendor default. `godowns.allow_storage_of_materials` is `DEFAULT 1`, which is the vendor's own *"By default, each godown can store materials"*. |
+| **Fix** | **DONE — and the trap was real.** The warning was that "build two fields" would have been the wrong build; what shipped is two F12 switches plus two conditionally-shown fields. Mutation **M3** (let the gate draw the fields but not decide what is written) reddens `With_the_f12_switches_off_neither_godown_field_is_shown_and_the_vendor_defaults_are_written` by name, and mutation **M5** (flip the `DEFAULT 1` to `0`) reddens three schema tests including the `CreateV1` equivalence. ⚠️ **STILL OURS, and not closed by v67:** the address is ONE free-text box, not the vendor's multi-line address block, and *"The Locations address can be printed in your invoices"* is **not** built — no invoice prints it. And `AllowStorageOfMaterials = false` is an ELECTION only: it does not yet refuse a stock movement into the godown. |
 
 ---
 
@@ -2002,6 +2002,76 @@ as the vendor's.
 | **Fix** | **Its own slice**, and POS first: `PosBillingViewModel`'s two `new Voucher(...)` sites need the same stamp and the shell needs the F3 row enabled on `Screen.PosBilling`. ⚠️ Note the collision to resolve before building it: on `Screen.PosBilling` the vendor's **Alt+I** is already spent on the tender-mode toggle in this build (census row 5.5's own U-6 chord note), so the POS screen's chord budget is already contested and should be ruled, not assumed. |
 
 ---
+
+## 2G. ADDED 2026-10-16 — SCHEMA v67: THE AREA-2/3 MASTER-FIELD STORAGE MIGRATION (census 2.4 / 2.7 / 2.9 / 2.11 / 3.7)
+
+**Scope note.** These five came out of **building** the twenty-two master-field columns, so each one names a
+line this wave shipped rather than a line a read-only pass observed. Every vendor sentence quoted below was
+opened **BY CONTENT** on 2026-10-16 and read off the page. 🔴 **No Tally.ERP 9 page is quoted** — R7 (ruling
+14) makes only TallyPrime ground truth. 🔴 **`IV-75` (the base-currency alteration refusal) IS DELIBERATELY
+UNTOUCHED BY THIS WAVE.** The vendor contradicts our refusal, that is a **USER DECISION**, and this track's
+brief said in terms: build the formatting options and leave the refusal alone. It did.
+
+---
+
+### IV-85 · 🔴 **DECLINED, NOT BUILT: census row 2.10's "no period" is NOT a vendor gap — the Scenario Creation screen has no period field**
+
+| | |
+|---|---|
+| **Severity** | **NONE as a divergence — this is a CENSUS CORRECTION, and it is recorded here because the alternative was shipping an invention under a fidelity row.** |
+| **What TallyPrime does** | `help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/`, opened **BY CONTENT** 2026-10-16: the Scenario Creation screen's fields are **Name**, **Include actuals**, and the voucher types to **Include** / **Exclude**. **There is no period, no From and no To on the master.** The period is chosen on the REPORT the scenario is applied to. |
+| **What we ship** | The same three. `scenarios` has exactly `id, company_id, name, include_actuals`. |
+| **What was asked for** | The v67 brief named *"a scenario period from/to (2.10)"* as one of the six rows the migration carries, on the strength of census row 2.10's own cell (*"no period"*). |
+| **What was done** | **Nothing — and that is the result.** No `scenarios.period_from` / `period_to` column was added. Building it would have been an INVENTION shipped under a fidelity row, and a round-trip test over it would have **pinned the wrong answer** — the failure this project has now hit three times. |
+| **Fix** | **Census row 2.10's "no period" clause should be STRUCK by A14/A12**, not carried forward. The absence is pinned by `MasterFieldsV67SchemaTests.The_scenario_master_gains_no_period_because_the_vendor_screen_has_none`, which asserts the four columns exactly, so a later wave adding them has to come to this entry and argue against the page. ⚠️ The row's OTHER clauses (no Alter, no Delete, `Scenario.ExcludeType` with no Desktop caller) are untouched and still open. |
+
+---
+
+### IV-86 · One alias per master, where the vendor says **"multiple aliases"**
+
+| | |
+|---|---|
+| **Severity** | **LOW.** Nothing is mis-stated on a document; an operator who wants a second alias simply cannot record one. |
+| **What TallyPrime does** | `help.tallysolutions.com/cost-centre-or-profit-centre-tally/`, opened by content 2026-10-16, in the Cost **CATEGORY** section as well as the Cost Centre section: *"**Name &amp; alias**: As in other masters, you can specify multiple aliases."* |
+| **What we ship** | **ONE** alias. v67 added `cost_categories.alias` (census 2.7 — the field the row was DEMOTED for on 2026-10-04), matching `cost_centres.alias`, `godowns.alias`, `stock_items.alias` and every other master in this product, all of which are single. |
+| **Why** | Widening every master from a column to an alias collection is a change across the schema, the readers, the writers, the Io canonical formats and every master screen. It is **not smuggled in under row 2.7**, whose gap was the absence of ANY alias on the category. |
+| **Fix** | Its own slice. Recorded so the next reader does not take the single alias for fidelity. |
+
+---
+
+### IV-87 · A cost-centre budget is **one measure per line**, where the vendor's Cost Centre Budget screen carries **three figures per centre**
+
+| | |
+|---|---|
+| **Severity** | **LOW–MEDIUM. No posted figure moves, but the SHAPE of a cost-centre budget differs, so an operator coming from the reference product must enter it differently.** |
+| **What TallyPrime does** | `help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16: the budget screen offers *"Set **Groups** to **Yes**"*, *"Set **Ledgers** to **Yes**"* and *"Set **Cost Centres** to **Yes**"*, and *"In the **Cost Centre Budget** screen, select the required **Cost Centre**, **Expenses**, **Income** and **Closing Balance**."* — i.e. **three figures against one centre**. |
+| **What we ship** | v67 added `budget_lines.cost_centre_id` and `BudgetLine.ForCostCentre`, so the **target** is now faithful (the gap census row 2.9 names is closed). But a `BudgetLine` carries **one** `BudgetType` and **one** amount, so a three-figure cost-centre budget is expressed as up to **three LINES** against the same centre. |
+| **Why** | `BudgetLine`'s one-measure shape is shared with the group and ledger targets and with `BudgetVarianceReport`, which emits one row per line. Giving the cost-centre target three columns would have forked the line model. |
+| **Fix** | Recorded, not built. ⚠️ Note the related invariant that DID have to change: `BudgetMasterViewModel.SameTarget` now compares `CostCentreId`, because every cost-centre line has `GroupId` and `LedgerId` both null and the two-field test made all of them compare EQUAL — budgeting a second centre would have overwritten the first. Mutation **M2** reddens `Budgeting_a_second_cost_centre_adds_a_line_rather_than_overwriting_the_first`. |
+
+---
+
+### IV-88 · A cost centre has **no opening balance**, so *On Closing Balance* on a cost-centre budget means *cumulative allocations to date*
+
+| | |
+|---|---|
+| **Severity** | **LOW, but it is an arithmetic reading and therefore worth naming.** |
+| **What TallyPrime does** | Names a *Closing Balance* column on the Cost Centre Budget screen (`help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16) and does not define, on that page, what it is computed over. |
+| **What we ship** | `BudgetVarianceReport.CostCentreActualSigned`: `OnClosingBalance` sums every **counted** allocation dated on or before the period end; `OnNettTransactions` bounds it below by the period start. A cost allocation exists only on a posted voucher line — **there is no opening-allocation master anywhere in this schema** — so the two measures differ only by the lower bound. The voucher filter is the SHARED `LedgerBalances.CountsAsOf`, so the budget's "actual" agrees with the Cost Centre Summary for the same window rather than disagreeing with it. |
+| **Why** | Any other reading would require an opening balance the model does not have. |
+| **Fix** | Recorded. If a later slice gives cost centres opening allocations, this reading must be revisited. |
+
+---
+
+### IV-89 · The eleven new Voucher Type fields are an **ELECTION ONLY** — v67 stores them and nothing acts on them
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM as a RISK OF OVERSTATED CLOSURE, which is the failure this register exists to catch — three slices have shipped green holding 34, 42 and 17 defects. Nothing a customer sees is WRONG; what would be wrong is reading census row 2.4 as closed.** |
+| **What TallyPrime does** | `help.tallysolutions.com/voucher-types-tally/`, opened by content 2026-10-16, carries all eleven on the Voucher Type screen and **acts on each**: effective dates add a voucher-entry field and drive ageing, *Optional by default* opens a new voucher unposted, the Printing block feeds the printed document, and the Invoice Sharing block really does share. |
+| **What we ship** | v67 captures, stores, round-trips and **surfaces on the master** the operator's election on all eleven (`VoucherTypeMasterFields`). It does **NOT**: add the voucher-entry effective-date field or prefer it for ageing; open a new voucher as Optional; change any accounting allocation; send a WhatsApp message (this product's WhatsApp surface is an **offline** document/link builder, census 14.10 — **nothing is transmitted**); generate a payment link or QR code (**none exists anywhere in this product**); or change what the print path emits. |
+| **Why** | Each is its own slice. Claiming otherwise is the "overstated closure" defect class. |
+| **Fix** | **Census row 2.4 must stay `PARTIAL`.** The *fields* are no longer missing and are no longer zero-hit; the *behaviours* are. Said here, in the service record and on each property, so three independent readers meet it. |
 
 ## 3. Grouped by area
 
