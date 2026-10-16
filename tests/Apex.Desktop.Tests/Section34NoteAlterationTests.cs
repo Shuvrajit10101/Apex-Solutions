@@ -495,6 +495,54 @@ public sealed class Section34NoteAlterationTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>A DUPLICATE (Alt+2) KEEPS THE §34 REFERENCE AND DROPS THE §34(2) OVERRIDE.</b>
+    ///
+    /// <para>This test exists because the alteration work would otherwise have opened a hole here. Alt+2 reuses
+    /// the SAME <c>RehydrateFrom</c> the alteration uses — one inverse, two doors — so the moment
+    /// <c>RehydrateSection34From</c> began seeding <c>CdnOverrideTimeLimit</c> from the posted note, a duplicate
+    /// of a note that had been forced past the 30-November cut-off would have carried that force onto a FRESH
+    /// document, with the guard never shown. <c>DetachAsDuplicate</c> clears it, and this pins both halves: the
+    /// reference and reason survive, the override does not.</para>
+    ///
+    /// <para><b>Mutation:</b> delete the <c>CdnOverrideTimeLimit = false</c> line from
+    /// <c>DetachAsDuplicate</c> and the override assertion reddens.</para>
+    /// </summary>
+    [Fact]
+    public void A_duplicate_of_a_section34_note_keeps_the_reference_and_drops_the_override()
+    {
+        var k = NewKit("S34 Dup Co");
+        var sale = PostOriginalInvoice(k, VoucherBaseType.Sales, 10m, "150.00");
+        var note = PostSection34Note(k, VoucherBaseType.CreditNote, sale, 4m, "150.00");
+
+        // Force the posted note past its own §34(2) cut-off, which is the only state in which the rehydration
+        // seeds the override at all — so the clearing below is falsifiable rather than vacuous.
+        var pastCutOff = CreditDebitNoteService.NovemberThirtyFollowing(sale.Date).AddDays(1);
+        var link = k.Vm.Company!.CreditDebitNoteLinks.Single(l => l.CdnVoucherId == note.Id);
+        Assert.True(note.Date <= CreditDebitNoteService.NovemberThirtyFollowing(link.OriginalInvoiceDate!.Value));
+
+        // The ALTERATION door on an in-time note: the override stays OFF (proved in the open test above).
+        // Here the duplicate door is proved to drop it even when the rehydration WOULD seed it, by rehydrating
+        // from a note dated past the cut-off.
+        var late = new Voucher(
+            note.Id, note.TypeId, pastCutOff, note.Lines, number: note.Number,
+            inventoryLines: note.InventoryLines, partyId: note.PartyId);
+        new LedgerService(k.Vm.Company!).Replace(note.Id, late, out _);
+        _storage.Save(k.Vm.Company!);
+
+        var alter = VoucherEntryViewModel.ForAlter(
+            k.Vm.Company!, note.Id, _storage, () => { }, () => { }).Entry!;
+        Assert.True(alter.CdnOverrideTimeLimit);                   // reproduced on the ALTERATION door
+
+        var dup = VoucherEntryViewModel.ForDuplicate(
+            k.Vm.Company!, note.Id, _storage, () => { }, () => { }).Entry!;
+        Assert.False(dup.IsAltering);
+        Assert.True(dup.IsSection34Note);                          // the reference survives…
+        Assert.Equal(sale.Id, dup.SelectedCdnOriginalInvoice!.Invoice!.Id);
+        Assert.Equal("01 Sales return", dup.SelectedCdnReasonCode);
+        Assert.False(dup.CdnOverrideTimeLimit);                    // …the FORCE does not
+    }
+
+    /// <summary>
     /// 🔴 <b>THE NARROWING IS EXACTLY AS WIDE AS THE INVERSE.</b> A §34 note keyed on the PLAIN Dr/Cr grid is
     /// still refused by the double-link sentence: only the item-invoice door has been driven end-to-end through
     /// <c>CommitAlteration</c>'s inverse, and the plain-grid door's own re-derivation chain has not been proved

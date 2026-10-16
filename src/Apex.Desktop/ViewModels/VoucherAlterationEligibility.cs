@@ -293,21 +293,30 @@ public static class VoucherAlterationEligibility
         // EVERY Accept, so a re-accept adds a SECOND GstCreditDebitNoteLink for one note. §3.3 classes the link
         // CARRY — and CARRY means do not rebuild it, which the entry path does unconditionally.
         //
-        // 🔴 NARROWED TO THE PLAIN-GRID NOTE (census 4.7/4.8), AND THE NARROWING IS EXACTLY AS WIDE AS THE
-        // INVERSE THAT NOW EXISTS. `VoucherEntryViewModel.ReplaceSection34Link` carries the link's own Id onto
-        // the replacement instead of minting a second, and `RehydrateSection34From` puts the posted link back on
-        // the panel so there is something true to carry — but only the ITEM-INVOICE door is driven through it
-        // end-to-end (Alt+F6/Alt+F5 → Ctrl+H → Item Invoice, the vendor's own route, which is the door census
-        // 4.7/4.8 names). A plain-grid §34 note reaches `AcceptAlterationCore`, whose own re-derivation chain
-        // (`VoucherAlterationDerivedLegs.Invert`, `ReDeriveEngineLegs`) has not been proven over a note's
-        // hand-keyed Output-tax legs, so it stays refused BY NAME rather than opened on an argument by symmetry.
-        // The predicate therefore reads `HasInventoryLines` — not the note's base type — because what decides
-        // which door opens is the posted shape, which is the same property `RehydrateFrom` routes on.
+        // 🔴 NARROWED TO EXCLUDE ONE DOOR (census 4.7/4.8), AND THE CARVE-OUT IS EXACTLY AS WIDE AS THE INVERSE
+        // THAT NOW EXISTS. `VoucherEntryViewModel.ReplaceSection34Link` carries the link's own Id onto the
+        // replacement instead of minting a second, and `RehydrateSection34From` puts the posted link back on the
+        // panel so there is something true to carry — but only the RETURN NOTE ENTERED AS AN ITEM INVOICE is
+        // driven through it end-to-end (Alt+F6/Alt+F5 → Ctrl+H → Item Invoice, the vendor's own route, which is
+        // the door census 4.7/4.8 names).
         //
-        // 🔴 THE REFUSAL SENTENCE IS NOT WEAKENED FOR THE DOOR IT STILL GUARDS: for a plain-grid note the
-        // double-link hazard is live and unchanged, because `AcceptAlterationCore` reaches the same
-        // `CommitAlteration` but is never let that far.
-        if (!voucher.HasInventoryLines && company.CreditDebitNoteLinks.Any(l => l.CdnVoucherId == id))
+        // 🔴 THE CARVE-OUT ASKS FOR THE BASE TYPE AS WELL AS THE SHAPE, AND THE FIRST DRAFT THAT ASKED ONLY
+        // `!HasInventoryLines` WAS MEASURED WRONG: it reddened
+        // `A_pos_bill_carrying_a_section_34_link_is_refused_at_the_pos_door_by_name`. A POS bill has inventory
+        // lines, so a shape-only carve-out opened the POS door to the very hazard that test pins — and the
+        // reason that test exists is the same one the challan arm below states in full: NOTHING structurally
+        // confines a `GstCreditDebitNoteLink` to a note-typed voucher (`ImportPlan` builds one straight from
+        // canonical XML with an arbitrary voucher id), so this arm must keep guarding every shape it has not
+        // been proved over. Both halves are therefore asked.
+        //
+        // 🔴 AND THE SENTENCE IS NOT WEAKENED FOR THE DOORS IT STILL GUARDS. A plain-grid §34 note reaches
+        // `AcceptAlterationCore`, whose re-derivation chain (`VoucherAlterationDerivedLegs.Invert`,
+        // `ReDeriveEngineLegs`) has not been proved over a note's hand-keyed Output-tax legs — so census rows 25
+        // and 27 stay refused by name rather than opened on an argument by symmetry.
+        if (!(voucher.HasInventoryLines
+              && company.FindVoucherType(voucher.TypeId) is { } noteType
+              && VoucherEffects.IsReturnNote(noteType.BaseType))
+            && company.CreditDebitNoteLinks.Any(l => l.CdnVoucherId == id))
             return "This note carries a §34 credit/debit-note link to its original invoice. The entry screen mints "
                  + "a fresh link on every accept, so re-accepting would leave the note carrying two links and "
                  + "GSTR-1 would report it twice.";

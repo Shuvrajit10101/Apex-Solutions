@@ -3581,6 +3581,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         _alteringVoucherId = Guid.Empty;
         VoucherNumber = _service.NextNumber(_type.Id);
+
+        // 🔴 Census 4.7/4.8 — THE §34(2) OVERRIDE IS DROPPED ON A DUPLICATE, AND THIS LINE EXISTS BECAUSE THE
+        // ALTERATION WORK WOULD OTHERWISE HAVE OPENED A HOLE HERE.
+        //
+        // `RehydrateSection34From` now seeds `CdnOverrideTimeLimit` from the posted note, which is right for an
+        // ALTERATION (the posting already exercised it on a voucher that is on the book either way) and WRONG
+        // for a duplicate — this method's own summary states the rule: "a duplicate is a NEW document and must
+        // be stamped by today's masters". Carried, the override would let a fresh §34 credit note past the
+        // 30-November cut-off with the operator never seeing the guard. The rest of the §34 panel IS kept: a
+        // duplicate of a note adjusting an invoice is a note adjusting that same invoice, and `Accept` mints it
+        // a link of its own through `RegisterSection34Link`.
+        CdnOverrideTimeLimit = false;
     }
 
     /// <summary>
