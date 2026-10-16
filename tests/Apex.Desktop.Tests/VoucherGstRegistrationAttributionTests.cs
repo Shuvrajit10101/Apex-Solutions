@@ -529,4 +529,57 @@ public sealed class VoucherGstRegistrationAttributionTests
         }
         finally { Cleanup(w, dir); }
     }
+
+    /// <summary>
+    /// 🔴 <b>A SECOND F3 WHILE THE PICKER IS OPEN MUST BE INERT — IT USED TO DESTROY THE HALF-KEYED
+    /// VOUCHER.</b> Added by the adversarial review, 2026-10-16, from a reproduction outside this file.
+    ///
+    /// <para><b>The defect, measured before the fix:</b> <c>OpenVoucherRegistrationPicker</c> sets
+    /// <c>CurrentScreen = Screen.GstRegistrationPicker</c> and then rebuilds the button bar, at which point
+    /// <c>IsVoucherRegistrationSelectable</c> — which required <c>CurrentScreen == Screen.VoucherEntry</c> —
+    /// went FALSE, so the bar re-advertised F3 as <i>Company</i>. The window's <c>case Key.F3</c> arm has no
+    /// "a menu column is open" guard, so the second press fired <c>ShowCompanySelect</c>, which runs
+    /// <c>ClearSubScreens</c> + <c>LeaveCascade</c>: <c>CurrentScreen CompanySelect</c>, <c>VoucherEntry</c>
+    /// <b>null</b>, <c>Columns</c> <b>0</b> — a keyed voucher thrown away with no confirmation, by the very
+    /// key that opened the picker.</para>
+    ///
+    /// <para><b>Why inert and not "toggle closed".</b> It is the rule every other menu column in this shell
+    /// already follows — <c>OpenChangeViewMenu</c> returns early on re-press for exactly this reason — and
+    /// Escape remains the one documented way out, so this adds no second exit to learn.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_second_F3_over_the_open_picker_is_inert_and_does_not_discard_the_keyed_voucher()
+    {
+        var (w, vm, dir, _) = NewWindow("F3Twice", withBranch: true);
+        try
+        {
+            var e = OpenKeyedSales(w, vm);
+            var columnsOverVoucher = vm.Columns.Count;
+
+            w.KeyPressQwerty(PhysicalKey.F3, RawInputModifiers.None);
+            Pump(w);
+            Assert.Equal(Screen.GstRegistrationPicker, vm.CurrentScreen);
+            var columnsWithPicker = vm.Columns.Count;
+
+            // 🔴 The bar must still SAY "Tax Regn" while the picker it opened is on screen — advertising
+            // "Company" over a Company/Tax Registration column is how the destructive press was invited.
+            Assert.Contains(vm.ButtonBar, b => b.Key == "F3" && b.Caption == "Tax Regn");
+
+            w.KeyPressQwerty(PhysicalKey.F3, RawInputModifiers.None);
+            Pump(w);
+
+            // Nothing moved: no second column stacked, no screen change, and above all the voucher is alive.
+            Assert.Equal(Screen.GstRegistrationPicker, vm.CurrentScreen);
+            Assert.Equal(columnsWithPicker, vm.Columns.Count);
+            Assert.Same(e, vm.VoucherEntry);
+
+            // …and Escape still lands back on the half-keyed voucher with every line intact.
+            w.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(w);
+            Assert.Equal(Screen.VoucherEntry, vm.CurrentScreen);
+            Assert.Equal(columnsOverVoucher, vm.Columns.Count);
+            Assert.Equal("10000", vm.VoucherEntry!.Lines[0].AmountText);
+        }
+        finally { Cleanup(w, dir); }
+    }
 }

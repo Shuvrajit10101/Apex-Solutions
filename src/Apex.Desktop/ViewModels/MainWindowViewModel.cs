@@ -6457,8 +6457,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// the dead-knob shape this project files as a defect. The accounting book is where the GST returns are
     /// folded from, which is why it is the half that ships first.</para>
     /// </summary>
+    /// <para>🔴 <b>IT STAYS TRUE WHILE THE PICKER ITSELF IS UP, AND THAT CLAUSE IS A WORK-LOSS GUARD RATHER
+    /// THAN A COSMETIC ONE (adversarial review, 2026-10-16).</b> Without
+    /// <c>Screen.GstRegistrationPicker</c> here, the button bar rebuilt by
+    /// <see cref="OpenVoucherRegistrationPicker"/> fell to the <c>else</c> arm and re-advertised F3 as
+    /// <i>Company</i> — so a SECOND press of the very key that opened the picker reached
+    /// <see cref="ShowCompanySelect"/>, which runs <c>ClearSubScreens</c> + <c>LeaveCascade</c> and
+    /// <b>DESTROYED the half-keyed voucher with no confirmation</b> (measured: <c>VoucherEntry</c> null,
+    /// <c>Columns</c> 0). Every other menu column in this shell is INERT on re-press — <c>OpenChangeViewMenu</c>
+    /// returns early for exactly that reason — and this one now is too.</para>
     public bool IsVoucherRegistrationSelectable =>
-        CurrentScreen == Screen.VoucherEntry
+        CurrentScreen is Screen.VoucherEntry or Screen.GstRegistrationPicker
         && VoucherEntry is { CanSelectGstRegistration: true };
 
     /// <summary>
@@ -6472,6 +6481,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void OpenVoucherRegistrationPicker()
     {
+        // Re-press is INERT, never a second column and never a route out of the voucher — the same rule
+        // OpenChangeViewMenu states. Tested first, because IsVoucherRegistrationSelectable is deliberately true
+        // on this screen so the button bar keeps saying "Tax Regn" while the picker is up.
+        if (CurrentScreen == Screen.GstRegistrationPicker) return;
         if (Company is null || !IsVoucherRegistrationSelectable || VoucherEntry is not { } entry) return;
 
         // An ALTERATION cannot move between registrations (the attribution belongs to a filed return). Say so
