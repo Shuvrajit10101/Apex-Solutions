@@ -56,7 +56,7 @@ public sealed class IncomeTaxCessRateSchemaTests
                 store.Save(CompanyFactory.CreateSeeded("Legacy Cess Co", FyStart));
 
             // ONE rung only — this test is about the v63 → v64 step in isolation.
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(63L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The downgraded book genuinely lacks them — otherwise the "migration" below proves nothing.
@@ -125,7 +125,7 @@ public sealed class IncomeTaxCessRateSchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(seeded);
 
             // Manufacture a genuine pre-v64 book.
-            using (var conn = Open(path)) { SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
             Assert.False(TableExists(path, Table));
 
             // Reopen through the production store — the migration runs — and load the company back.
@@ -259,7 +259,7 @@ public sealed class IncomeTaxCessRateSchemaTests
             // Down two rungs to a genuine v62 book.
             using (var conn = Open(path))
             {
-                SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn);
+                SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn);
                 SchemaDowngrade.V63ToV62(conn);
                 SqliteConnection.ClearPool(conn);
             }
@@ -279,7 +279,7 @@ public sealed class IncomeTaxCessRateSchemaTests
                 Assert.Contains(col, ColumnNames(path, "pay_head_computation_slabs"));
 
             // And back down one rung: v64's objects go, v63's columns stay, the marker says 63.
-            using (var conn = Open(path)) { SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(63L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.False(TableExists(path, Table));
             Assert.False(IndexExists(path, Index));
@@ -309,12 +309,23 @@ public sealed class IncomeTaxCessRateSchemaTests
             var c = CompanyFactory.CreateSeeded("Parent Co", FyStart);
             using (var store = new SqliteCompanyStore(path)) store.Save(c);
 
-            var before = string.Join("\n", ColumnNames(path, "companies").Select(n => ColumnContract(path, "companies", n)));
+            // 🔴 v67 IS THE FIRST RUNG IN THIS CHAIN THAT LEGITIMATELY REMOVES A `companies` COLUMN (census 3.7 —
+            // the two F12 switches that gate the godown fields), so the baseline excludes exactly those two and
+            // nothing else. The assertion below is therefore still the one this test was written for: every
+            // OTHER column's full contract — name, type, NOT NULL, DEFAULT and the **pk flag** — must come
+            // through the rebuild unchanged. Dropping the filter would make this red for a reason it is not
+            // about; widening it to "ignore differences" would retire the V56ToV55 trap it exists to catch.
+            var before = string.Join("\n", ColumnNames(path, "companies")
+                .Where(n => !Schema.V67CompanyColumns.Contains(n, StringComparer.OrdinalIgnoreCase))
+                .Select(n => ColumnContract(path, "companies", n)));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SchemaDowngrade.V65ToV64(conn); SchemaDowngrade.V64ToV63(conn); SqliteConnection.ClearPool(conn); }
 
             var after = string.Join("\n", ColumnNames(path, "companies").Select(n => ColumnContract(path, "companies", n)));
             Assert.Equal(before, after);
+            // …and the two v67 columns really are gone rather than merely filtered out of the baseline.
+            foreach (var col in Schema.V67CompanyColumns)
+                Assert.DoesNotContain(col, ColumnNames(path, "companies"));
 
             // The primary key still functions as an FK target: a child insert against it must succeed, and a
             // duplicate company id must still be rejected.

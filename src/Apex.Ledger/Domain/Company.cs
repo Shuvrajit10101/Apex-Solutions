@@ -462,6 +462,34 @@ public sealed class Company
     public bool EnableJobCosting { get; set; }
 
     /// <summary>
+    /// v67 (census row <b>3.7</b>): the vendor's <b>F12 (Configure)</b> switch <i>"Allow storage of
+    /// materials"</i> on the Godown screen. When off — which is every pre-v67 company — the Godown Creation
+    /// screen does not show <see cref="Godown.AllowStorageOfMaterials"/> at all.
+    ///
+    /// <para><b>R7 — ATTESTED, verbatim:</b> <i>"setting this option to Yes to displays the Allow storage of
+    /// materials option on the Godown Creation screen"</i>, under the page's own rule <i>"What you see on the
+    /// screen can vary based on your choices. Press F12 (Configure) to change the options."</i>
+    /// (<c>help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/</c>, opened by content
+    /// 2026-10-16.)</para>
+    ///
+    /// <para>🔴 <b>THIS SWITCH IS NOT AN EXTRA — IT IS HALF THE CAPABILITY.</b> Row 3.7's cell records in
+    /// terms that <i>"adding either field unconditionally to the Godown Creation screen would ITSELF be a
+    /// divergence"</i>. Defaults to <c>false</c> so "column absent" and "switch off" coincide (ER-13).</para>
+    /// </summary>
+    public bool ConfigAllowStorageOfMaterials { get; set; }
+
+    /// <summary>
+    /// v67 (census row <b>3.7</b>): the vendor's <b>F12 (Configure)</b> switch <i>"Use address for
+    /// Locations"</i>. When off — every pre-v67 company — the Godown Creation screen does not show
+    /// <see cref="Godown.Address"/>.
+    ///
+    /// <para><b>R7 — ATTESTED, verbatim:</b> <i>"<b>Use address for Locations</b> — You can add the Locations
+    /// address by enabling this option."</i> (same page as
+    /// <see cref="ConfigAllowStorageOfMaterials"/>.) Defaults to <c>false</c> (ER-13).</para>
+    /// </summary>
+    public bool ConfigUseAddressForLocations { get; set; }
+
+    /// <summary>
     /// Company configuration <b>"Warn on Negative Stock Balance"</b> (plan.md NS-4; schema v50). When on, a posting
     /// that leaves an (item, godown, batch) on-hand below zero produces an operator WARNING — it never rejects the
     /// posting. Negative stock itself is always permitted: TallyPrime has no built-in block anywhere, and its own

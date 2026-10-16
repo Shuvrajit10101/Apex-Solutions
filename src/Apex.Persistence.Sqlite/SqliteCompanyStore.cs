@@ -1699,6 +1699,35 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 66;
         }
 
+        // v66 → v67 (census 2.4, 2.7, 2.9, 2.11, 3.7 — cluster C2): TWENTY-TWO columns across SIX tables in ONE
+        // migration — the eleven remaining attested Voucher Type fields, the Cost Category alias, the cost-centre
+        // budget target, five of the six currency formatting options, and the two F12-GATED godown fields with
+        // their two company-level switches. Purely additive and it back-fills NOTHING: every added flag's DEFAULT
+        // is the behaviour this build already had (including DEFAULT 1 on godowns.allow_storage_of_materials,
+        // which is the vendor's own default), and every added text/id column is NULL = "not set". So every
+        // voucher type, category, budget line, currency and godown reads exactly as it did at v66 (ER-13).
+        // 🔴 Census row 2.10's "no period" clause is DECLINED, not deferred: the vendor's Scenario Creation screen
+        // has no period field. See Schema.MigrateV66ToV67 for the page and the reasoning.
+        if (version == 66)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV66ToV67;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 67);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 67;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -1741,7 +1770,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    use_tracking_numbers, enable_cost_tracking, enable_job_costing,
                    vat_enabled, vat_tin, vat_interstate_st_number, vat_applicable_from,
                    vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp,
-                   gst_primary_registration_name
+                   gst_primary_registration_name,
+                   config_allow_storage_of_materials, config_use_address_for_locations
             FROM companies WHERE id = $id;
             """;
         read.Parameters.AddWithValue("$id", companyId.ToString("D"));
@@ -1896,6 +1926,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 foreach (var classification in ReadGstClassifications(companyId))
                     company.Gst.AddClassification(classification);
             }
+
+            // v67 (census 3.7): the TWO F12 switches that GATE the godown fields (columns 103, 104).
+            // 🔴 DELIBERATELY OUTSIDE the GST block above — these are inventory configuration and have nothing
+            // to do with whether the company is GST-registered. Reading them inside it would have left a
+            // non-GST company's switches silently false no matter what the operator set, and no round-trip test
+            // over a GST company would have caught it. Both 0 on every pre-v67 book (ER-13).
+            company.ConfigAllowStorageOfMaterials = r.GetInt64(103) != 0;
+            company.ConfigUseAddressForLocations = r.GetInt64(104) != 0;
 
             // v25 (Phase 7 slice 1): TDS/TCS deductor config. The deductor identity (TAN/type/responsible person/
             // surcharge/cess/periodicity) is shared, stored once on the row, and read into whichever config(s) are
@@ -2856,7 +2894,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                    affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs,
                    allow_zero_valued, use_for_pos, use_for_job_work, allow_consumption, is_stat_payment,
                    is_rcm_payment_voucher, is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero,
-                   print_after_saving, provide_narration_for_each_ledger, retain_original_voucher_no
+                   print_after_saving, provide_narration_for_each_ledger, retain_original_voucher_no,
+                   use_effective_dates, optional_by_default, default_accounting_allocations,
+                   whatsapp_after_saving, generate_payment_link_after_saving,
+                   default_print_template, default_print_title, default_bank_ledger_id,
+                   default_jurisdiction, print_declaration, print_terms_and_conditions
             FROM voucher_types WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -2908,6 +2950,20 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 suffixes: suffixByType.GetValueOrDefault(id),
                 // v58 (census 9.9): the named voucher classes, ctor-injected like the affixes above.
                 classes: classesByType.GetValueOrDefault(id));
+            // v67 (census 2.4): the eleven remaining attested Voucher Type fields, read verbatim. Set through
+            // properties rather than widening a ctor that already takes twenty-five parameters. Every flag is 0
+            // and every text field NULL on a pre-v67 type, which is exactly what this build did (ER-13).
+            type.UseEffectiveDates = r.GetInt64(25) != 0;
+            type.OptionalByDefault = r.GetInt64(26) != 0;
+            type.DefaultAccountingAllocations = r.GetInt64(27) != 0;
+            type.WhatsAppAfterSaving = r.GetInt64(28) != 0;
+            type.GeneratePaymentLinkAfterSaving = r.GetInt64(29) != 0;
+            type.DefaultPrintTemplate = r.IsDBNull(30) ? null : r.GetString(30);
+            type.DefaultPrintTitle = r.IsDBNull(31) ? null : r.GetString(31);
+            type.DefaultBankLedgerId = r.IsDBNull(32) ? (Guid?)null : Guid.Parse(r.GetString(32));
+            type.DefaultJurisdiction = r.IsDBNull(33) ? null : r.GetString(33);
+            type.PrintDeclaration = r.IsDBNull(34) ? null : r.GetString(34);
+            type.PrintTermsAndConditions = r.IsDBNull(35) ? null : r.GetString(35);
             list.Add(type);
         }
         // v23 (RQ-38/DP-4): attach the retail-till config to each POS-flagged type (a second pass so the reader
@@ -3918,7 +3974,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, symbol, formal_name, decimal_places, is_base
+            SELECT id, symbol, formal_name, decimal_places, is_base,
+                   show_amounts_in_millions, suffix_symbol_to_amount, space_between_amount_and_symbol,
+                   decimal_word, decimal_places_for_words
             FROM currencies WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3931,7 +3989,17 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.GetString(1),
                 r.GetString(2),
                 decimalPlaces: (int)r.GetInt64(3),
-                isBaseCurrency: r.GetInt64(4) != 0));
+                isBaseCurrency: r.GetInt64(4) != 0)
+            {
+                // v67 (census 2.11): five of the vendor's six formatting options, read verbatim. The sixth is
+                // decimal_places above. decimal_places_for_words is NULL = "fall back to decimal_places",
+                // which is NOT the same as 0 — see Currency.DecimalPlacesForWords.
+                ShowAmountsInMillions = r.GetInt64(5) != 0,
+                SuffixSymbolToAmount = r.GetInt64(6) != 0,
+                SpaceBetweenAmountAndSymbol = r.GetInt64(7) != 0,
+                DecimalWord = r.IsDBNull(8) ? null : r.GetString(8),
+                DecimalPlacesForWords = r.IsDBNull(9) ? (int?)null : (int)r.GetInt64(9),
+            });
         }
         return list;
     }
@@ -3963,7 +4031,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, allocate_revenue, allocate_non_revenue, is_predefined
+            SELECT id, name, allocate_revenue, allocate_non_revenue, is_predefined, alias
             FROM cost_categories WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -3976,7 +4044,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 r.GetString(1),
                 allocateRevenueItems: r.GetInt64(2) != 0,
                 allocateNonRevenueItems: r.GetInt64(3) != 0,
-                isPredefined: r.GetInt64(4) != 0));
+                isPredefined: r.GetInt64(4) != 0)
+            {
+                // v67 (census 2.7): the vendor-attested category alias. NULL on every pre-v67 row (ER-13).
+                Alias = r.IsDBNull(5) ? null : r.GetString(5),
+            });
         }
         return list;
     }
@@ -4365,7 +4437,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT id, name, parent_id, alias, third_party, is_main_location, job_cost_centre_id
+            SELECT id, name, parent_id, alias, third_party, is_main_location, job_cost_centre_id,
+                   allow_storage_of_materials, address
             FROM godowns WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4384,6 +4457,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 // v58 (census 9.6): "Set job/project for job costing" — the cost centre this godown IS, as a
                 // job/project. NULL for every ordinary location, which is every pre-v58 godown (ER-13).
                 JobCostCentreId = r.IsDBNull(6) ? (Guid?)null : Guid.Parse(r.GetString(6)),
+                // v67 (census 3.7): the two F12-gated fields, read verbatim. 1 on every pre-v67 godown —
+                // "By default, each godown can store materials" is the VENDOR'S own default (ER-13).
+                AllowStorageOfMaterials = r.GetInt64(7) != 0,
+                Address = r.IsDBNull(8) ? null : r.GetString(8),
             });
         }
         return list;
@@ -4991,7 +5068,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT group_id, ledger_id, budget_type, amount_paisa
+            SELECT group_id, ledger_id, budget_type, amount_paisa, cost_centre_id
             FROM budget_lines WHERE budget_id = $bid ORDER BY line_order, id;
             """;
         cmd.Parameters.AddWithValue("$bid", budgetId.ToString("D"));
@@ -5001,9 +5078,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         {
             var type = (BudgetType)(int)r.GetInt64(2);
             var amount = Paisa.ToMoney(r.GetInt64(3));
-            list.Add(r.IsDBNull(0)
-                ? BudgetLine.ForLedger(Guid.Parse(r.GetString(1)), type, amount)
-                : BudgetLine.ForGroup(Guid.Parse(r.GetString(0)), type, amount));
+            // v67 (census 2.9): THREE mutually exclusive targets. cost_centre_id is NULL on every pre-v67 line,
+            // so the group/ledger arms below are reached exactly as they were before (ER-13).
+            list.Add(!r.IsDBNull(4)
+                ? BudgetLine.ForCostCentre(Guid.Parse(r.GetString(4)), type, amount)
+                : r.IsDBNull(0)
+                    ? BudgetLine.ForLedger(Guid.Parse(r.GetString(1)), type, amount)
+                    : BudgetLine.ForGroup(Guid.Parse(r.GetString(0)), type, amount));
         }
         return list;
     }
@@ -5828,7 +5909,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  use_tracking_numbers, enable_cost_tracking, enable_job_costing,
                  vat_enabled, vat_tin, vat_interstate_st_number, vat_applicable_from,
                  vat_periodicity, vat_dealer_type, vat_cst_rate_form_c_bp,
-                 gst_primary_registration_name)
+                 gst_primary_registration_name,
+                 config_allow_storage_of_materials, config_use_address_for_locations)
             VALUES
                 ($id, $name, $mail, $addr, $country, $state, $pin,
                  $fy, $books, $sym, $curname, $dp, $unit, $pcc, $loc, NULL,
@@ -5854,7 +5936,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                  $useuac, $pwdminlen, $pwdexpiry,
                  $usetrack, $costtrack, $jobcost,
                  $vaten, $vattin, $vatcstno, $vatfrom, $vatper, $vatdealer, $vatcstrate,
-                 $gstprimregname);
+                 $gstprimregname,
+                 $cfgstorage, $cfgaddr);
             """;
         // NOTE (ER-16): the four nic_*_enc credential BLOB columns are DELIBERATELY OMITTED from this INSERT — the pure
         // company writer never touches a secret. They default NULL on a fresh row and are written exclusively by the
@@ -5880,6 +5963,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         // v61 (census 6.23): the operator's override of the first registration's vendor "Registration Name".
         // NULL — every pre-v61 book, and every book that never renamed it — reads back as the auto-generated name.
         cmd.Parameters.AddWithValue("$gstprimregname", (object?)gst?.PrimaryRegistrationName ?? DBNull.Value);
+        // v67 (census 3.7): the two F12 switches that gate the godown fields. Read off the COMPANY, not off
+        // gst — they are inventory configuration and apply to a non-GST company exactly the same way.
+        cmd.Parameters.AddWithValue("$cfgstorage", c.ConfigAllowStorageOfMaterials ? 1 : 0);
+        cmd.Parameters.AddWithValue("$cfgaddr", c.ConfigUseAddressForLocations ? 1 : 0);
         cmd.Parameters.AddWithValue("$gsten", gst is { Enabled: true } ? 1 : 0);
         cmd.Parameters.AddWithValue("$gstin", (object?)gst?.Gstin ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$gsthome", (object?)gst?.HomeStateCode ?? DBNull.Value);
@@ -6797,8 +6884,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
-                INSERT INTO currencies (id, company_id, symbol, formal_name, decimal_places, is_base)
-                VALUES ($id, $cid, $sym, $fn, $dp, $base);
+                INSERT INTO currencies
+                    (id, company_id, symbol, formal_name, decimal_places, is_base,
+                     show_amounts_in_millions, suffix_symbol_to_amount, space_between_amount_and_symbol,
+                     decimal_word, decimal_places_for_words)
+                VALUES ($id, $cid, $sym, $fn, $dp, $base, $mil, $sfx, $spc, $dw, $dpw);
                 """;
             cmd.Parameters.AddWithValue("$id", cur.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -6806,6 +6896,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$fn", cur.FormalName);
             cmd.Parameters.AddWithValue("$dp", cur.DecimalPlaces);
             cmd.Parameters.AddWithValue("$base", cur.IsBaseCurrency ? 1 : 0);
+            // v67 (census 2.11): five of the vendor's six formatting options. DecimalPlacesForWords is NULL =
+            // "fall back to decimal_places", which is NOT 0 — see Currency.DecimalPlacesForWords.
+            cmd.Parameters.AddWithValue("$mil", cur.ShowAmountsInMillions ? 1 : 0);
+            cmd.Parameters.AddWithValue("$sfx", cur.SuffixSymbolToAmount ? 1 : 0);
+            cmd.Parameters.AddWithValue("$spc", cur.SpaceBetweenAmountAndSymbol ? 1 : 0);
+            cmd.Parameters.AddWithValue("$dw", (object?)cur.DecimalWord ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$dpw", cur.DecimalPlacesForWords is { } w ? w : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -6844,8 +6941,13 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                      affects_accounts, affects_stock, use_as_manufacturing_journal, track_additional_costs, allow_zero_valued,
                      use_for_pos, use_for_job_work, allow_consumption, is_stat_payment, is_rcm_payment_voucher,
                      is_gst_stat_adjustment, prevent_duplicate, number_width, prefill_with_zero,
-                     print_after_saving, provide_narration_for_each_ledger, retain_original_voucher_no)
-                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz, $pas, $pnl, $rovn);
+                     print_after_saving, provide_narration_for_each_ledger, retain_original_voucher_no,
+                     use_effective_dates, optional_by_default, default_accounting_allocations,
+                     whatsapp_after_saving, generate_payment_link_after_saving,
+                     default_print_template, default_print_title, default_bank_ledger_id,
+                     default_jurisdiction, print_declaration, print_terms_and_conditions)
+                VALUES ($id, $cid, $name, $base, $sc, $num, $abbr, $active, $pre, $aa, $as, $mfg, $tac, $azv, $pos, $ujw, $ac, $stat, $rcmpv, $gstadj, $pd, $nw, $pfz, $pas, $pnl, $rovn,
+                        $ued, $optd, $daa, $wa, $plink, $tmpl, $title, $bank, $juris, $decl, $terms);
                 """;
             cmd.Parameters.AddWithValue("$id", t.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -6873,6 +6975,18 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$pas", t.PrintAfterSaving ? 1 : 0);           // v53 (W2-03; census 5.11)
             cmd.Parameters.AddWithValue("$pnl", t.ProvideNarrationForEachLedger ? 1 : 0); // v53 (W2-03; census 5.11)
             cmd.Parameters.AddWithValue("$rovn", t.RetainOriginalVoucherNo ? 1 : 0);    // v66 (census 5.5)
+            // v67 (census 2.4): the eleven remaining attested Voucher Type fields, written verbatim.
+            cmd.Parameters.AddWithValue("$ued", t.UseEffectiveDates ? 1 : 0);
+            cmd.Parameters.AddWithValue("$optd", t.OptionalByDefault ? 1 : 0);
+            cmd.Parameters.AddWithValue("$daa", t.DefaultAccountingAllocations ? 1 : 0);
+            cmd.Parameters.AddWithValue("$wa", t.WhatsAppAfterSaving ? 1 : 0);
+            cmd.Parameters.AddWithValue("$plink", t.GeneratePaymentLinkAfterSaving ? 1 : 0);
+            cmd.Parameters.AddWithValue("$tmpl", (object?)t.DefaultPrintTemplate ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$title", (object?)t.DefaultPrintTitle ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$bank", (object?)t.DefaultBankLedgerId?.ToString("D") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$juris", (object?)t.DefaultJurisdiction ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$decl", (object?)t.PrintDeclaration ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$terms", (object?)t.PrintTermsAndConditions ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -7494,8 +7608,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO cost_categories
-                    (id, company_id, name, allocate_revenue, allocate_non_revenue, is_predefined)
-                VALUES ($id, $cid, $name, $rev, $nonrev, $pre);
+                    (id, company_id, name, allocate_revenue, allocate_non_revenue, is_predefined, alias)
+                VALUES ($id, $cid, $name, $rev, $nonrev, $pre, $alias);
                 """;
             cmd.Parameters.AddWithValue("$id", cat.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7503,6 +7617,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$rev", cat.AllocateRevenueItems ? 1 : 0);
             cmd.Parameters.AddWithValue("$nonrev", cat.AllocateNonRevenueItems ? 1 : 0);
             cmd.Parameters.AddWithValue("$pre", cat.IsPredefined ? 1 : 0);
+            // v67 (census 2.7): the vendor-attested category alias. NULL = no alias (ER-13).
+            cmd.Parameters.AddWithValue("$alias", (object?)cat.Alias ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -7919,8 +8035,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO godowns
-                    (id, company_id, name, parent_id, alias, third_party, is_main_location, job_cost_centre_id)
-                VALUES ($id, $cid, $name, $parent, $alias, $tp, $main, $jobcc);
+                    (id, company_id, name, parent_id, alias, third_party, is_main_location, job_cost_centre_id,
+                     allow_storage_of_materials, address)
+                VALUES ($id, $cid, $name, $parent, $alias, $tp, $main, $jobcc, $storage, $addr);
                 """;
             cmd.Parameters.AddWithValue("$id", g.Id.ToString("D"));
             cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -7931,6 +8048,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             cmd.Parameters.AddWithValue("$main", g.IsMainLocation ? 1 : 0);
             // v58 (census 9.6): the job/project cost-centre link. NULL for an ordinary godown (ER-13).
             cmd.Parameters.AddWithValue("$jobcc", (object?)g.JobCostCentreId?.ToString("D") ?? DBNull.Value);
+            // v67 (census 3.7): the two F12-gated godown fields. AllowStorageOfMaterials defaults TRUE — the
+            // vendor's own default ("By default, each godown can store materials") and this build's only
+            // prior behaviour (ER-13).
+            cmd.Parameters.AddWithValue("$storage", g.AllowStorageOfMaterials ? 1 : 0);
+            cmd.Parameters.AddWithValue("$addr", (object?)g.Address ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -8446,8 +8568,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Transaction = tx;
                 cmd.CommandText = """
                     INSERT INTO budget_lines
-                        (budget_id, line_order, group_id, ledger_id, budget_type, amount_paisa)
-                    VALUES ($bid, $ord, $gid, $lid, $type, $amt);
+                        (budget_id, line_order, group_id, ledger_id, budget_type, amount_paisa, cost_centre_id)
+                    VALUES ($bid, $ord, $gid, $lid, $type, $amt, $ccid);
                     """;
                 cmd.Parameters.AddWithValue("$bid", budget.Id.ToString("D"));
                 cmd.Parameters.AddWithValue("$ord", order++);
@@ -8455,6 +8577,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$lid", (object?)line.LedgerId?.ToString("D") ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$type", (int)line.Type);
                 cmd.Parameters.AddWithValue("$amt", Paisa.FromMoney(line.Amount));
+                // v67 (census 2.9): the third budget target. NULL on a group or ledger line (ER-13).
+                cmd.Parameters.AddWithValue("$ccid", (object?)line.CostCentreId?.ToString("D") ?? DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
         }

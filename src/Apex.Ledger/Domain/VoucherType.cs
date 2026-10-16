@@ -284,6 +284,84 @@ public sealed class VoucherType
     public bool SupportsInsertionBehaviour =>
         Numbering is NumberingMethod.Automatic or NumberingMethod.MultiUserAuto;
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v67 (census row 2.4) — THE ELEVEN REMAINING ATTESTED VOUCHER TYPE FIELDS. Every caption below is verbatim
+    // from help.tallysolutions.com/voucher-types-tally/ ("How to Create, Configure & Manage Voucher Types in
+    // TallyPrime"), opened BY CONTENT on 2026-10-16. Before v67 every one of these was a ZERO-HIT search over
+    // src/ — that is precisely the list row 2.4's cell names. Each defaults to the behaviour this build already
+    // had (false / null), so no existing book changes (ER-13).
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Use effective dates for vouchers"</i>. When set, a voucher of this
+    /// type carries an <b>effective date</b> distinct from its voucher date, and overdue/ageing is computed
+    /// from the effective date rather than the voucher date.
+    /// <para>⚠️ <b>STORAGE AND ELECTION ONLY in v67.</b> This records the per-type setting; the voucher-entry
+    /// field it is supposed to reveal, and the ageing path that should prefer it, are NOT built here. Said
+    /// plainly so no reader mistakes a persisted flag for a working feature.</para>
+    /// </summary>
+    public bool UseEffectiveDates { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Make this voucher type as 'Optional' by default"</i> — a new voucher
+    /// of this type opens already marked Optional (unposted) rather than regular.
+    /// <para>⚠️ <b>STORAGE AND ELECTION ONLY in v67</b> — voucher entry does not yet consult it.</para>
+    /// </summary>
+    public bool OptionalByDefault { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Enable default accounting allocations"</i>.
+    /// <para>⚠️ <b>STORAGE AND ELECTION ONLY in v67.</b></para>
+    /// </summary>
+    public bool DefaultAccountingAllocations { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"WhatsApp voucher after saving"</i>, from the page's <b>Invoice
+    /// Sharing</b> block.
+    /// <para>🔴 <b>NOTHING IS SENT, AND NOTHING HERE MAKES ANYTHING SENDABLE.</b> This product's WhatsApp
+    /// surface is an OFFLINE document/link builder (census 14.10) that transmits nothing. This flag records the
+    /// per-type election only.</para>
+    /// </summary>
+    public bool WhatsAppAfterSaving { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Generate Payment link/QR code after saving voucher"</i>, from the
+    /// page's <b>Invoice Sharing</b> block.
+    /// <para>🔴 <b>STORAGE AND ELECTION ONLY — no payment link and no QR code is generated anywhere in this
+    /// product, and v67 does not add one.</b></para>
+    /// </summary>
+    public bool GeneratePaymentLinkAfterSaving { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Default template to print"</i>, from the page's <b>Printing
+    /// Configuration</b> block. <c>null</c> = no per-type default, which is every pre-v67 type, so the print
+    /// path falls back exactly where it fell back before.
+    /// </summary>
+    public string? DefaultPrintTemplate { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Default title to print"</i> — the document title this type's printed
+    /// output carries. <c>null</c> = the existing derived title.
+    /// </summary>
+    public string? DefaultPrintTitle { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Default bank"</i> — the bank <see cref="Ledger"/> printed on this
+    /// type's documents. <c>null</c> = none, which is every pre-v67 type.
+    /// </summary>
+    public Guid? DefaultBankLedgerId { get; set; }
+
+    /// <summary>v67 (census 2.4): the vendor's <i>"Default jurisdiction"</i>. <c>null</c> = none.</summary>
+    public string? DefaultJurisdiction { get; set; }
+
+    /// <summary>v67 (census 2.4): the vendor's <i>"Set/alter declaration"</i> text. <c>null</c> = none.</summary>
+    public string? PrintDeclaration { get; set; }
+
+    /// <summary>
+    /// v67 (census 2.4): the vendor's <i>"Set/Alter Terms and Conditions"</i> text. <c>null</c> = none.
+    /// </summary>
+    public string? PrintTermsAndConditions { get; set; }
+
     /// <summary>
     /// The date-effective <b>Prefix</b> rows (numbering-design-v2 §1.2, §1.3). Get-only and ctor-injected (mirrors
     /// <see cref="Voucher.InventoryLines"/>/<see cref="Voucher.PosTenders"/>): the rendered number selects the row whose
