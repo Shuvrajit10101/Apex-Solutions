@@ -339,7 +339,19 @@ public sealed partial class RecordIsdCreditViewModel : ViewModelBase, IMasterLis
         return true;
     }
 
-    private static string Money(decimal amount) => amount.ToString("N2", CultureInfo.InvariantCulture);
+    /// <summary>
+    /// 🔴 <b>REVIEW FIX (wave 46, track gstscope). THIS WAS WESTERN GROUPING AND IT BYPASSED DRIFT-LOCK D2.</b>
+    /// It read <c>amount.ToString("N2", CultureInfo.InvariantCulture)</c>, which renders ₹12,34,567.00 as
+    /// "1,234,567.00" — every other money cell in this application groups in lakh/crore through
+    /// <see cref="IndianFormat"/>, whose single home is <c>IndianMoneyFormat.ActiveCulture</c>. Worse, that
+    /// culture is the one that honours F1 (Help) &gt; Settings &gt; Country &gt; "Show Quantity and Number in
+    /// millions", so this screen — and the snapshot it prints and exports — would have ignored an operator
+    /// setting every other grid obeys. D2's locks pattern-match <c>"#,##0.00"</c> against the invariant culture
+    /// and so could not see the <c>"N2"</c> spelling of the same mistake.
+    /// <para><c>AmountAlways</c>, not <c>Amount</c>: a zero head renders "0.00" here, which is the column
+    /// convention this screen already had and which a receipt's per-head split needs.</para>
+    /// </summary>
+    private static string Money(decimal amount) => IndianFormat.AmountAlways(amount);
 
     private static string Rupees(Voucher voucher)
     {

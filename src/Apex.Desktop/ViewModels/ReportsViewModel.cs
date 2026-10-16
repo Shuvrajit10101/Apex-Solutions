@@ -4197,6 +4197,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Col5 = IndianFormat.Amount(r.RcmItcOtherIgst),
             Col6 = IndianFormat.Amount(r.RcmItcOtherCess),
         });
+        // 🔴 REVIEW FIX (wave 46, track gstscope). 4(A)(4) IS NOW A REAL ROW AND MUST BE RENDERED. The ISD
+        // receipt slice wired Itc4A4Isd* into Gstr3b.NetItcAvailable*, so (C) below MOVES by the ISD credit —
+        // but the screen rendered no (A)(4) row and the advisory beneath still named 4(A)(4) among the tables
+        // this book "does not model". On a book with one ISD receipt the operator therefore read (C) 500.00
+        // over (A) rows that summed to nil, with a sentence above it saying the missing table was absent. A
+        // shown total that its own shown parts do not reach is the same class of defect as the old "Total
+        // output tax" that excluded 3.1(d).
+        Rows.Add(new ReportRow
+        {
+            Col1 = "(A)(4) ITC available — inward supplies from ISD",
+            Col3 = IndianFormat.Amount(r.Itc4A4IsdCgst),
+            Col4 = IndianFormat.Amount(r.Itc4A4IsdSgst),
+            Col5 = IndianFormat.Amount(r.Itc4A4IsdIgst),
+            Col6 = IndianFormat.Amount(r.Itc4A4IsdCess),
+        });
         Rows.Add(new ReportRow
         {
             Col1 = "(A)(5) ITC available — all other ITC",
@@ -4271,9 +4286,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
         "Not modelled in this book — 3.1(b) zero rated, 3.1(e) non-GST outward, 3.1.1 supplies u/s 9(5), " +
         "3.2 inter-State supplies to unregistered / composition / UIN holders. These are NOT nil; they are absent.";
 
-    /// <summary>The Table-4 / Table-5 rows this book does not model (census 6.9). See <see cref="NotModelled31"/>.</summary>
+    /// <summary>The Table-4 / Table-5 rows this book does not model (census 6.9). See <see cref="NotModelled31"/>.
+    /// <para>🔴 <b>REVIEW FIX (wave 46, track gstscope): 4(A)(4) WAS STRUCK FROM THIS LIST BECAUSE IT IS NOW
+    /// MODELLED.</b> The ISD-receipt slice made 4(A)(4) a computed, filed figure that enters 4(C); leaving it
+    /// named here told the operator in words that a figure the same screen had just added into their Net ITC
+    /// Available was absent. The sentence is a claim about the book, so it moves when the book does.</para></summary>
     public const string NotModelled4 =
-        "Not modelled in this book — 4(A)(1) import of goods, 4(A)(4) inward supplies from an ISD, " +
+        "Not modelled in this book — 4(A)(1) import of goods, " +
         "4(D)(2) ITC unavailable u/s 16(4), Table 5 exempt/nil/non-GST inward, Table 5.1 interest and late fee. " +
         "These are NOT nil; they are absent.";
 

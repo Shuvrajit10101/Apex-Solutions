@@ -228,7 +228,11 @@ public sealed class Gstr3bScreenTablesTests : IDisposable
         Assert.DoesNotContain(rows, r => r.Col1.StartsWith("(e)", StringComparison.Ordinal));
         Assert.DoesNotContain(rows, r => r.Col1.StartsWith("3.2", StringComparison.Ordinal));
         Assert.DoesNotContain(rows, r => r.Col1.StartsWith("(A)(1)", StringComparison.Ordinal));
-        Assert.DoesNotContain(rows, r => r.Col1.StartsWith("(A)(4)", StringComparison.Ordinal));
+        // 🔴 REVIEW FIX (wave 46, track gstscope). "(A)(4)" USED TO BE ASSERTED ABSENT HERE and that assertion
+        // became a test pinning the WRONG ANSWER the moment the ISD-receipt slice made 4(A)(4) a computed figure
+        // that enters 4(C). It is replaced by its opposite — the row must EXIST — rather than deleted, because
+        // the exhaustive intent of this test is what makes it worth keeping.
+        Assert.Contains(rows, r => r.Col1.StartsWith("(A)(4)", StringComparison.Ordinal));
 
         // The advisory says so in the words a reader needs, not just by omission.
         Assert.Contains("These are NOT nil; they are absent.", ReportsViewModel.NotModelled31);

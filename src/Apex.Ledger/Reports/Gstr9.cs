@@ -161,11 +161,20 @@ public sealed record Gstr9(
             rcmC += b.RcmOutwardCgst.Amount; rcmS += b.RcmOutwardSgst.Amount;
             rcmI += b.RcmOutwardIgst.Amount; rcmCess += b.RcmOutwardCess.Amount;
             taxableVal += b.TaxableOutwardValue.Amount; exempt += b.ExemptNilNonGstOutward.Amount;
-            // Table 6 ITC availed = forward 4(A)(5) + RCM 4(A)(2)/4(A)(3), per head (cess ring-fenced, ER-2).
-            itcC += b.ItcCgst.Amount + b.RcmItcOtherCgst.Amount;
-            itcS += b.ItcSgst.Amount + b.RcmItcOtherSgst.Amount;
-            itcI += b.ItcIgst.Amount + b.RcmItcImportIgst.Amount + b.RcmItcOtherIgst.Amount;
-            itcCess += b.RcmItcOtherCess.Amount;
+            // Table 6 ITC availed = forward 4(A)(5) + ISD 4(A)(4) + RCM 4(A)(2)/4(A)(3), per head (cess
+            // ring-fenced, ER-2).
+            // 🔴 REVIEW FIX (wave 46, track gstscope). THE 4(A)(4) TERM WAS MISSING AND IT IS FILED MONEY.
+            // The ISD-receipt slice added Itc4A4Isd* to the monthly 3B's Table 4(A) and Table 4(C) but not
+            // here, so a credit availed in May's 3B vanished from the annual return — breaking this loop's own
+            // stated invariant that "the annual figures CANNOT diverge from the monthly returns". It propagates:
+            // Table8B is Table6ItcAvailed, Table8D is 8A − 8B, and NetItc (6 − 7) is GSTR-9C's Table 12E, whose
+            // books counterpart 12A IS the Input-ledger debit the ISD receipt posts — so 9C reported an
+            // unreconciled ITC difference of exactly the ISD credit on a book that reconciled perfectly.
+            // GSTR-9 Table 6 carries row 6(G) "Input Tax credit received from ISD" for precisely this credit.
+            itcC += b.ItcCgst.Amount + b.Itc4A4IsdCgst.Amount + b.RcmItcOtherCgst.Amount;
+            itcS += b.ItcSgst.Amount + b.Itc4A4IsdSgst.Amount + b.RcmItcOtherSgst.Amount;
+            itcI += b.ItcIgst.Amount + b.Itc4A4IsdIgst.Amount + b.RcmItcImportIgst.Amount + b.RcmItcOtherIgst.Amount;
+            itcCess += b.Itc4A4IsdCess.Amount + b.RcmItcOtherCess.Amount;
             reclaimed += b.TotalItcReclaimed.Amount;
 
             foreach (var h in Gstr1.Build(company, from, to, registrationId).HsnSummary)
