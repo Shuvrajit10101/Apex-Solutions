@@ -621,6 +621,30 @@
                           </ComboBox>
                         </Grid>
 
+                        <!-- Cost centre picker (census 11.10) — the Cost Centre Monthly Summary is scoped to ONE
+                             centre: "You can view the monthly breakup of income and expense details along with the
+                             closing balance for the selected Cost Centre"
+                             (help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/).
+                             It shares Grid.Row 2 with the scenario, bank and payroll pickers and is mutually
+                             exclusive with all three: ShowCostCentrePicker is true on exactly ONE ReportKind, and on
+                             that kind SupportsScenario, ShowChequeBankPicker and ShowPayrollMonthPicker are all
+                             false. The label column is Auto, not a fixed track, so the caption cannot be sliced. -->
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="8,0,8,10"
+                              IsVisible="{Binding ShowCostCentrePicker}">
+                          <TextBlock Grid.Column="0" Text="Cost Centre" FontWeight="SemiBold"
+                                     VerticalAlignment="Center" Margin="0,0,10,0"
+                                     Foreground="{StaticResource BrandNavy}"/>
+                          <ComboBox Grid.Column="1" HorizontalAlignment="Stretch" MaxDropDownHeight="360"
+                                    ItemsSource="{Binding CostCentreOptions}"
+                                    SelectedItem="{Binding SelectedCostCentre, Mode=TwoWay}">
+                            <ComboBox.ItemTemplate>
+                              <DataTemplate x:DataType="vm:CostCentreOption">
+                                <TextBlock Text="{Binding Display}"/>
+                              </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                          </ComboBox>
+                        </Grid>
+
                         <!-- Payroll wage-month + employee picker (Phase 8 slice 8): every payroll report is scoped to
                              one wage month; the Payslip is additionally scoped to a single employee. -->
                         <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,Auto,*" Margin="8,0,8,10"
@@ -19726,6 +19750,30 @@
                                   <RadioButton GroupName="CopyMark" Content="Triplicate for Supplier"
                                                IsChecked="{Binding IsCopyTriplicate, Mode=TwoWay}"
                                                Foreground="{StaticResource BrandNavy}"/>
+                                </StackPanel>
+
+                                <!-- Census 12.3 — the REPORT header knobs. The vendor's own sub-form is
+                                     F7 (Title) > Header Information, taking a Title AND a Subtitle, and its
+                                     configuration page names "financial reports" among the documents it
+                                     configures (help.tallysolutions.com/configure-printing-for-invoices-reports/);
+                                     working-with-reports/ attests the same from the other side — "updating the
+                                     title/sub-title of the report will not require you to open the F12
+                                     Configuration list anymore".
+                                     Hidden, not disabled, over a voucher/invoice: those take the title override
+                                     through the document group above and have no sub-title band at all, so
+                                     showing this group there would offer one knob twice and one that does
+                                     nothing. ReportPdf honours both, which is what makes the group legal here —
+                                     see PrintConfigViewModel.SupportsReportHeaderKnobs. -->
+                                <StackPanel Spacing="14" IsVisible="{Binding SupportsReportHeaderKnobs}">
+                                  <TextBlock Text="Report title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding TitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = the report's own heading)"/>
+
+                                  <TextBlock Text="Report sub-title override" FontWeight="Bold"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Text="{Binding SubtitleOverride, Mode=TwoWay}"
+                                           PlaceholderText="(blank = company, period and any filter clause)"/>
                                 </StackPanel>
 
                                 <!-- W2-31 (census 12.4) page knobs — every document kind.

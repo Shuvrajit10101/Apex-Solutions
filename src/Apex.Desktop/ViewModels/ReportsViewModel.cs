@@ -334,6 +334,27 @@ public enum ReportKind
     /// seven separate source comments. Nothing about the engine needed fixing; it simply had no door.</summary>
     CostCentreLedgerBreakup,
 
+    /// <summary>
+    /// Census 11.10 — <b>Cost Centre Monthly Summary</b>: for ONE cost centre, the month-wise income and expense
+    /// allocated to it with the cumulative closing balance carried down the column.
+    ///
+    /// <para><b>Vendor-attested</b> at
+    /// <c>help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/</c>
+    /// (opened by content 2026-10-13): <i>"You can view the monthly breakup of income and expense details along
+    /// with the closing balance for the selected Cost Centre."</i> The census recorded this as absent "because
+    /// that primitive does not exist (T1-32)" — <see cref="Apex.Ledger.Reports.CostCentreMonthlySummary"/> is
+    /// that primitive.</para>
+    ///
+    /// <para>🔴 <b>It renders on the ACCOUNTING two-column grid, NOT on the wide matrix the other three
+    /// 11.10 reports use, and that is a reachability decision rather than a styling one.</b> The wide matrix has
+    /// no row selection and no Enter handler at all, so a report hosted there cannot be drilled, cannot be
+    /// Ctrl+J'd and cannot be navigated by keyboard — and this report's own shape (month | Dr | Cr | running
+    /// closing) is exactly <see cref="LedgerMonthlySummary"/>'s, which the Dr/Cr grid already renders. Putting it
+    /// on the matrix would have shipped the vendor's figures on a surface where the vendor's own
+    /// <i>"Select the required month and press Enter"</i> gesture is physically impossible.</para>
+    /// </summary>
+    CostCentreMonthlySummary,
+
     /// <summary>Census 11.11 — <b>Budget Variance</b>: per budget line, Budget / Actual / Variance and the
     /// variance percentage, over the posted vouchers in the budget's own period.
     /// 🔴 <b>A KNOWN DIVERGENCE, LABELLED RATHER THAN HIDDEN.</b> The vendor has no dedicated Budget Variance
@@ -1109,6 +1130,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         InitPayrollPickers();
         InitChequeBankPicker();
+        InitCostCentrePicker();
 
         Show(kind);
     }
@@ -1189,6 +1211,40 @@ public sealed partial class ReportsViewModel : ViewModelBase
             .OrderBy(l => l.Name, StringComparer.Ordinal))
             ChequeBanks.Add(new ChequeBankOption { LedgerId = l.Id, Display = l.Name });
         SelectedChequeBank = ChequeBanks[0];
+    }
+
+    /// <summary>
+    /// Populates the census-11.10 <b>Cost Centre Monthly Summary</b> scope picker — every cost centre of the
+    /// company, qualified by its cost category, in (category, centre) name order.
+    ///
+    /// <para>🔴 <b>There is NO "All Centres" head entry, and that is a fidelity decision rather than an
+    /// omission.</b> The vendor's sentence is <i>"the monthly breakup … for the selected Cost Centre"</i> — a
+    /// monthly summary of ALL centres at once is a different report the vendor does not describe, and a
+    /// company-wide roll-up would additionally be WRONG arithmetic here: cost categories are parallel axes, so
+    /// summing centres across categories double-counts one entry line (spec §4.2 rule C-27) and the closing
+    /// column would not foot. The three company-wide cost reports carry an overlap warning for exactly that
+    /// reason; this report avoids needing one by staying single-centre.</para>
+    ///
+    /// <para>The default assignment cannot trigger a premature rebuild, by the same argument
+    /// <see cref="InitChequeBankPicker"/> makes: <see cref="Kind"/> still holds the enum's zero value
+    /// (<see cref="ReportKind.TrialBalance"/>) because <see cref="Show"/> has not run, and
+    /// <see cref="OnSelectedCostCentreChanged"/> guards on <see cref="ShowCostCentrePicker"/>.</para>
+    /// </summary>
+    private void InitCostCentrePicker()
+    {
+        foreach (var centre in _company.CostCentres
+            .OrderBy(c => _company.FindCostCategory(c.CategoryId)?.Name ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(c => c.Name, StringComparer.Ordinal))
+        {
+            var category = _company.FindCostCategory(centre.CategoryId)?.Name;
+            CostCentreOptions.Add(new CostCentreOption
+            {
+                CentreId = centre.Id,
+                Display = string.IsNullOrEmpty(category) ? centre.Name : $"{centre.Name}  ({category})",
+            });
+        }
+
+        SelectedCostCentre = CostCentreOptions.FirstOrDefault();
     }
 
     // =============================================================== RQ-1 / RQ-2 / RQ-6 report parameters
@@ -1733,6 +1789,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.CostCategorySummary: RunStatutoryForm(BuildCostCategorySummary); break;
             case ReportKind.CostCentreBreakup: RunStatutoryForm(BuildCostCentreBreakupReport); break;
             case ReportKind.CostCentreLedgerBreakup: RunStatutoryForm(BuildCostCentreLedgerBreakup); break;
+            // NOT RunStatutoryForm: that wrapper drives the wide matrix. This kind renders on the Dr/Cr grid —
+            // see the enum member's own note for why that is a reachability decision, not a styling one.
+            case ReportKind.CostCentreMonthlySummary: BuildCostCentreMonthlySummary(); break;
             case ReportKind.BudgetVariance: RunStatutoryForm(BuildBudgetVarianceReport); break;
             case ReportKind.GratuityProvisionRegister: RunStatutoryForm(BuildGratuityProvisionRegister); break;
             case ReportKind.BonusRegister: RunStatutoryForm(BuildBonusRegister); break;
@@ -2119,6 +2178,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.CostCategorySummary] = "CostCategorySummary",
         [ReportKind.CostCentreBreakup] = "CostCentreBreakup",
         [ReportKind.CostCentreLedgerBreakup] = "CostCentreLedgerBreakup",
+        [ReportKind.CostCentreMonthlySummary] = "CostCentreMonthlySummary",
         [ReportKind.BudgetVariance] = "BudgetVariance",
         [ReportKind.GratuityProvisionRegister] = "GratuityProvisionRegister",
         [ReportKind.BonusRegister] = "BonusRegister",
@@ -2376,6 +2436,30 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.LedgerMonthlySummary:
                 if (row.DrillPeriod is { } ledgerMonth && _scopeMasterId != Guid.Empty)
                     DrillToLedgerRequested?.Invoke(_scopeMasterId, ledgerMonth.From, ledgerMonth.To, false);
+                break;
+
+            // ---- Census 11.13 (cluster C2) — THE TWO PROVISIONAL-VOUCHER EXCEPTION REGISTERS.
+            //
+            // 🔴 Enter was a SILENT NO-OP on both, and on the Memorandum Register it was a no-op even though the
+            // builder already sets the row's drill id. `Drill` has no `default` arm (see the Job Work note above),
+            // so a kind with no case here falls straight out of the switch and the keystroke does nothing —
+            // carrying the id lights up Ctrl+Enter / Alt+2 / Alt+X / Alt+D, which resolve it through the shell
+            // rather than through this switch, but NOT Enter. That is the same split the census records against
+            // the four Job Work registers, repeated one family over.
+            //
+            // The vendor attests the gesture generically for every report rather than per report:
+            // "You can drill down on any line by simply pressing Enter" and, in the same page's right-button list,
+            // "Enter – To drill-down on a selected line in a report."
+            // (help.tallysolutions.com/working-with-reports/, opened by content 2026-10-13.)
+            //
+            // 🔴 BOTH ARE PROVISIONAL VOUCHERS (LedgerBalances.IsProvisionalBaseType) — a memo and a reversing
+            // journal never touch the real books. The drill therefore opens the voucher DETAIL, exactly as the
+            // Day Book arm does, and changes no balance: the register stays a read-only window onto an entry that
+            // is outside the books, which is the whole point of listing it on an exception report. ----
+            case ReportKind.MemorandumRegister:
+            case ReportKind.ReversingJournalRegister:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 break;
         }
     }
@@ -4766,6 +4850,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Particulars = $"{FormatDate(r.Date)}  Rev. Jrnl No. {r.FormattedNumber}",
                 Secondary = particulars,
                 Amount = IndianFormat.Amount(r.Amount),
+                // 🔴 CENSUS 11.13 (cluster C2) — the projection dropped the id the engine row has always carried.
+                // `ReversingJournalRegisterRow.VoucherId` is the record's FIRST component, exactly as on
+                // `MemorandumRegisterRow`, yet this loop never copied it — so every reversing journal on this
+                // report resolved to `Guid.Empty` and NOTHING that goes through `SelectedRow.DrillVoucherId`
+                // (Enter, Ctrl+Enter, Alt+2, Alt+X, Alt+D) could name the voucher the operator was looking at.
+                // The memorandum projection had this same hole and census 4.17 closed it there only; this is the
+                // other half of the one defect, and the Drill arm above is useless without it.
+                DrillVoucherId = r.VoucherId,
             });
         }
 
@@ -4842,6 +4934,30 @@ public sealed partial class ReportsViewModel : ViewModelBase
     partial void OnSelectedChequeBankChanged(ChequeBankOption? value)
     {
         if (ShowChequeBankPicker) Show(Kind);
+    }
+
+    /// <summary>
+    /// True on the one report scoped to a single cost centre — census 11.10's <b>Cost Centre Monthly Summary</b>.
+    /// The vendor's own route is <i>"Press Alt+G (Go To) &gt; type Cost Centre Monthly Summary"</i>, i.e. the
+    /// report opens without a centre already chosen, so it needs a scope control of its own
+    /// (help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/, by content
+    /// 2026-10-13). The other three 11.10 reports are company-wide and show no picker.
+    ///
+    /// <para>It shares its Grid row with the scenario, bank and payroll pickers and stays mutually exclusive with
+    /// all three: this kind is not in <c>SupportsScenario</c> (TB / BS / P&amp;L), not in
+    /// <see cref="ShowChequeBankPicker"/>'s five, and not <c>IsPayrollReport</c>.</para>
+    /// </summary>
+    public bool ShowCostCentrePicker => Kind is ReportKind.CostCentreMonthlySummary;
+
+    /// <summary>Every cost centre of the company, by name. Built once in the ctor.</summary>
+    public ObservableCollection<CostCentreOption> CostCentreOptions { get; } = new();
+
+    /// <summary>The cost centre the monthly summary is scoped to; changing it re-projects the report.</summary>
+    [ObservableProperty] private CostCentreOption? _selectedCostCentre;
+
+    partial void OnSelectedCostCentreChanged(CostCentreOption? value)
+    {
+        if (ShowCostCentrePicker) Show(Kind);
     }
 
     /// <summary>
@@ -7215,6 +7331,94 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Census 11.10 — <b>Cost Centre Monthly Summary</b>: for the picked centre, a row per month with that
+    /// month's expense (Dr) and income (Cr) allocation in the two amount columns and the cumulative closing in
+    /// the secondary cell. The census recorded this level as absent "because that primitive does not exist
+    /// (T1-32)"; <see cref="CostCentreMonthlySummary"/> is that primitive and this is its door.
+    ///
+    /// <para><b>Vendor-attested</b> at
+    /// <c>help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/</c>
+    /// (by content, 2026-10-13): <i>"You can view the monthly breakup of income and expense details along with
+    /// the closing balance for the selected Cost Centre."</i></para>
+    ///
+    /// <para>🔴 <b>THE MONTH ROWS CARRY NO DRILL TARGET, DELIBERATELY.</b> The vendor's next level is
+    /// <i>"Select the required month and press Enter , to view the Cost Centre Vouchers report"</i> — and this
+    /// product has no Cost Centre Vouchers report. Pointing Enter at the Day Book or at a ledger book instead
+    /// would send the operator somewhere the vendor does not, and would be inventing. Row 11.10 stays PARTIAL on
+    /// that clause; see the engine's own note.</para>
+    ///
+    /// <para>🔴 <b>The <see cref="CostCentresOff"/> refusal above is a MATRIX refusal and is NOT reusable here.</b>
+    /// It calls <c>MarkStatutoryFormEmpty</c>, which drives the wide matrix's empty state — on the Dr/Cr grid it
+    /// would set a flag nothing renders and the report would come out blank with no explanation. So the F11
+    /// refusal is spelled out on this grid's own rows, carrying the same sentence the matrix reports show.</para>
+    /// </summary>
+    private void BuildCostCentreMonthlySummary()
+    {
+        var period = StatementPeriod;
+        IsTwoColumn = true;
+
+        var centreId = SelectedCostCentre?.CentreId ?? Guid.Empty;
+
+        if (!_company.EnableCostCentres)
+        {
+            Title = "Cost Centre Monthly Summary";
+            Subtitle = CompanyName;
+            Rows.Add(new ReportRow
+            {
+                Particulars = "Cost Centres are not enabled for this company (F11 → Accounting → Enable Cost Centres).",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        if (_company.FindCostCentre(centreId) is null)
+        {
+            Title = "Cost Centre Monthly Summary";
+            Subtitle = CompanyName;
+            Rows.Add(new ReportRow
+            {
+                Particulars = _company.CostCentres.Count == 0
+                    ? "No cost centres defined. Create one first (Create → Cost Centre)."
+                    : "Choose a cost centre.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        var ms = CostCentreMonthlySummary.Build(_company, centreId, period.From, period.To);
+        // 🔴 RULING 18: the heading carries a COST CENTRE MASTER NAME the user typed — a branch, department,
+        // project or employee name. Flag it so the PDF and all four tabular formats print it verbatim instead of
+        // scrubbing a vendor token out of a real centre's name. Same seam as the Ledger / Group summaries.
+        Title = $"Cost Centre Monthly Summary — {ms.CentreName}";
+        TitleCarriesMasterName = true;
+        Subtitle = $"{CompanyName}  —  for the period {FormatDate(period.From)} to {FormatDate(period.To)}";
+
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Opening Balance",
+            Secondary = $"{IndianFormat.Amount(ms.OpeningAmount)} {SideLabel(ms.OpeningSide)}",
+            IsHeader = true,
+        });
+
+        foreach (var r in ms.Rows)
+            Rows.Add(new ReportRow
+            {
+                Particulars = r.Month.Label,
+                Secondary = $"closing {IndianFormat.Amount(r.ClosingAmount)} {SideLabel(r.ClosingSide)}",
+                Debit = IndianFormat.Amount(r.Debit),
+                Credit = IndianFormat.Amount(r.Credit),
+                IsTwoColumn = true,
+            });
+
+        Rows.Add(new ReportRow
+        {
+            Particulars = "Closing Balance",
+            Secondary = $"{IndianFormat.AmountAlways(ms.ClosingAmount)} {SideLabel(ms.ClosingSide)}",
+            IsTotal = true,
+        });
+    }
+
+    /// <summary>
     /// The footing row the three cost reports share (spec §4.2 rule C-27). The relabel and the note are driven
     /// by whether the rows above ACTUALLY overlap, never by whether a line happens to name two categories —
     /// a legacy partition book carries ₹3,000.19 Branch + ₹2,000.18 Department on a ₹5,000.37 line, its rows
@@ -8146,6 +8350,22 @@ public sealed class ChequeBankOption
     /// <summary>The unfiltered head of the list. A NEW instance per call would break <c>SelectedItem</c>
     /// identity in the ComboBox, so it is a single shared instance.</summary>
     public static readonly ChequeBankOption AllBanks = new() { Display = "All Banks" };
+}
+
+/// <summary>
+/// One entry of the census-11.10 cost-centre scope picker — the centre's id and its display name, qualified by
+/// its cost category because two categories may legitimately hold a centre of the same name and an unqualified
+/// list would offer the operator two identical rows.
+///
+/// <para>There is no "All Centres" head entry, unlike <see cref="ChequeBankOption.AllBanks"/>: the vendor's
+/// sentence is "the monthly breakup … for the <b>selected</b> Cost Centre", and a company-wide roll-up would
+/// double-count any line classified under more than one cost category. See <c>InitCostCentrePicker</c>.</para>
+/// </summary>
+public sealed class CostCentreOption
+{
+    public Guid CentreId { get; init; }
+    public string Display { get; init; } = string.Empty;
+    public override string ToString() => Display;
 }
 
 /// <summary>One column of the shared payroll matrix (Pay Sheet / Payroll Register / Attendance / Payment Advice):

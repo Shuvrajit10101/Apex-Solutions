@@ -38,6 +38,20 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// </summary>
     public bool SupportsDocumentKnobs => _preview.SupportsPrintConfig;
 
+    /// <summary>
+    /// Census 12.3 — true when the <b>report header</b> knobs apply: the title and sub-title override of a
+    /// report (or multi-document job) print. The vendor's own sub-form is <b>F7 (Title)</b> → Header Information,
+    /// taking a Title and a Subtitle; the quotations are on
+    /// <see cref="Apex.Ledger.Io.PrintConfig.TitleOverride"/>.
+    ///
+    /// <para>🔴 This is a REAL gate, in the sense this file's other comments demand: it is false on a voucher, an
+    /// invoice, a receipt, a payslip, a cheque and a payment-advice letter, none of whose renderers reads
+    /// <c>SubtitleOverride</c>. The title override on a voucher/invoice stays behind
+    /// <see cref="SupportsDocumentKnobs"/>, where its renderer already honours it — so no knob is offered twice
+    /// and none is offered where it would do nothing.</para>
+    /// </summary>
+    public bool SupportsReportHeaderKnobs => _preview.SupportsReportHeaderOverride;
+
     // 🔴 THERE IS DELIBERATELY NO `SupportsPageRange` PREDICATE.
     //
     // W2-31's finishing pass taught InvoicePdf, VoucherPdf, PayslipPdf and PosReceiptPdf the F10 range and the
@@ -91,8 +105,15 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     /// </summary>
     public bool SupportsCopies => true;
 
-    /// <summary>F12: an optional document-title override (blank ⇒ the template default). Applied on <see cref="Apply"/>.</summary>
+    /// <summary>F12: an optional document-title override (blank ⇒ the template default, or a report's own
+    /// heading). Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private string _titleOverride = string.Empty;
+
+    /// <summary>F12: an optional <b>sub-title</b> override for a REPORT print (census 12.3; blank ⇒ the report's
+    /// own sub-title, which carries the company, the period and any narrowing clause). Applied on
+    /// <see cref="Apply"/>. Offered behind <see cref="SupportsReportHeaderKnobs"/>, because no document renderer
+    /// draws a sub-title band to override.</summary>
+    [ObservableProperty] private string _subtitleOverride = string.Empty;
 
     /// <summary>F12: whether the narration line prints (default on). Applied on <see cref="Apply"/>.</summary>
     [ObservableProperty] private bool _showNarration = true;
@@ -142,6 +163,7 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
         _preview = preview ?? throw new ArgumentNullException(nameof(preview));
         // Seed from the preview's current knobs so re-opening reflects prior edits.
         TitleOverride = preview.TitleOverride;
+        SubtitleOverride = preview.SubtitleOverride;
         ShowNarration = preview.ShowNarration;
         CopyMarking = preview.CopyMarking;
         PrintFormat = preview.PrintFormat;
@@ -177,6 +199,9 @@ public sealed partial class PrintConfigViewModel : ViewModelBase
     public void Apply()
     {
         _preview.TitleOverride = TitleOverride ?? string.Empty;
+        // Census 12.3 — the report sub-title override travels with the title it belongs to. The vendor's
+        // sub-form takes the two together, so applying one without the other would be half a control.
+        _preview.SubtitleOverride = SubtitleOverride ?? string.Empty;
         _preview.ShowNarration = ShowNarration;
         _preview.CopyMarking = CopyMarking;
         // W2-31: the page knobs. Guarded so a nonsense entry cannot make a document unprintable — a copy count

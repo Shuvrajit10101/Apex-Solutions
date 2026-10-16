@@ -21,6 +21,37 @@ public static class ReportPdf
     }
 
     /// <summary>
+    /// Census 12.3 — renders the report honouring the F12 <b>print</b> configuration as well as the page
+    /// configuration: the operator's title and sub-title override reach the heading band.
+    ///
+    /// <para>A <see langword="null"/> <paramref name="print"/>, or one with neither override set, produces
+    /// <b>byte-identical</b> output to the two-argument overload — <see cref="PrintReport.WithHeaderOverride"/>
+    /// returns the same instance — so every existing caller is unaffected (ER-13).</para>
+    ///
+    /// <para>🔴 The override is applied to the DOCUMENT, not inside the drawing code, so the on-screen preview
+    /// bands and the PDF read the same heading from one definition. A second application point is how a preview
+    /// comes to show a title the paper does not carry.</para>
+    /// </summary>
+    public static byte[] Render(PrintReport report, PageConfig config, PrintConfig? print)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        return Render(new[] { report.WithHeaderOverride(print) }, config);
+    }
+
+    /// <summary>
+    /// Census 12.3 over a multi-document job (census 12.6): the override applies to EVERY document's heading,
+    /// which is the same scope rule the W2-31 knobs take — they configure the job, not one member of it. A job
+    /// whose sheets carried two different operator titles would not be one document an operator can collate.
+    /// </summary>
+    public static byte[] Render(IReadOnlyList<PrintReport> documents, PageConfig config, PrintConfig? print)
+    {
+        ArgumentNullException.ThrowIfNull(documents);
+        var overridden = new PrintReport[documents.Count];
+        for (var i = 0; i < documents.Count; i++) overridden[i] = documents[i].WithHeaderOverride(print);
+        return Render(overridden, config);
+    }
+
+    /// <summary>
     /// Renders a SET of already-formatted documents into ONE PDF (W2-32 / census 12.6 — multi-account /
     /// multi-voucher range printing). Each document starts on a fresh sheet and the page numbering runs across
     /// the whole job, so a stack of printed ledger accounts reads as one document an operator can collate.
