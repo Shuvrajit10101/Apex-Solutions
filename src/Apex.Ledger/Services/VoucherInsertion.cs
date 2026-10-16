@@ -59,13 +59,30 @@ public sealed record VoucherInsertionPlan(
 /// re-fetched and re-verified 2026-09-08). The insertion/deletion choice is offered under <b>Automatic</b> —
 /// <i>"you can select the <b>Numbering behaviour on the insertion/deletion</b> to <b>Renumber Vouchers</b> or
 /// <b>Retain Original Voucher No.</b>"</i> — and the page offers the same choice again in its <b>Multi-user
-/// Auto</b> section. It is withheld from the other two: <i>"Note: This option will not be available if you have
-/// selected 'Manual' or 'None' as the method of voucher numbering."</i></para>
+/// Auto</b> section. ~~It is withheld from the other two: <i>"Note: This option will not be available if you have
+/// selected 'Manual' or 'None' as the method of voucher numbering."</i>~~</para>
+///
+/// <para>🔴 <b>THAT SECOND QUOTE IS MIS-ATTRIBUTED AND IS STRUCK, 2026-10-13 — THE SENTENCE IS ON THE PAGE, BUT
+/// IT IS ABOUT A DIFFERENT FIELD.</b> Re-opened BY CONTENT while taking schema v66, with the page asked
+/// directly whether any such Note scopes the insertion/deletion behaviour. It does not: the <i>"will not be
+/// available if you have selected 'Manual' or 'None'"</i> Note belongs to <b><i>"Set/Alter additional numbering
+/// details"</i></b>, a separate option, and <b>no sentence anywhere on the page states that prohibition for the
+/// numbering behaviour at all.</b> This is the <i>right-substance-wrong-attribution</i> class, and it is the
+/// <b>SECOND</b> quote in this one paragraph to be withdrawn on a re-fetch — the first is recorded immediately
+/// below, which is why this one is struck in place beside it rather than quietly deleted.</para>
+///
+/// <para><b>THE SUBSTANCE SURVIVES THE CORRECTION, and is now stated as what it actually is — STRUCTURAL
+/// ABSENCE, not a stated prohibition.</b> <i>"Numbering behaviour on the insertion/deletion"</i> appears inside
+/// the page's <b>Automatic</b> section and again in its <b>Multi-user Auto</b> section, and is <b>absent from
+/// the Manual and None descriptions altogether</b>. So the per-method behaviour below is unchanged and no figure
+/// moves; only the claim to be quoting a prohibition is withdrawn. An unverifiable or mis-attached verbatim
+/// quote in shipped code is a defect class this project has already had to strip out, and it is not left
+/// standing merely because the conclusion it supported happens to be right.</para>
 ///
 /// <para>🔴 <b>ONE CITATION WAS WEAKENED ON 2026-09-08 RATHER THAN LEFT STANDING.</b> An earlier draft of this
 /// paragraph quoted the scoping as the verbatim string <i>"applicable, only if you have selected Automatic or
 /// Multi-user Auto numbering method"</i>. Re-fetching the page did NOT reproduce that sentence. The SUBSTANCE
-/// survived the re-check — both methods are offered the setting, Manual and None are refused it, and the two
+/// survived the re-check — both methods are offered the setting, Manual and None are not shown it, and the two
 /// quotes retained above are the ones that came back word for word — so no behaviour changes here; only the
 /// claim to be quoting is withdrawn. An unverifiable verbatim quote in shipped code is a defect class this
 /// project has already had to strip out once, and it is not re-introduced by leaving a comfortable sentence in
@@ -109,14 +126,34 @@ public sealed record VoucherInsertionPlan(
 /// "declared gap" is worse than no note at all — it invites a later agent to build a guard that is already
 /// there.</para>
 ///
-/// <para><b>DECLARED GAP, labelled as ours and NOT claimed as built.</b> The vendor's per-voucher-type
+/// <para>~~<b>DECLARED GAP, labelled as ours and NOT claimed as built.</b> The vendor's per-voucher-type
 /// <i>"Numbering behaviour on the insertion/deletion"</i> switch — <i>"Renumber Vouchers"</i> versus <i>"Retain
 /// Original Voucher No."</i> — is NOT shipped, because it is a persisted per-type setting and this slice carries
 /// no schema budget (a <c>voucher_types</c> column is a migration, and the next migration owns v59). This build
-/// implements the vendor's stated DEFAULT only — <i>"Renumber Vouchers … is set as default when you migrate your
-/// data to TallyPrime 3.0 or later from any of the earlier versions, or you create a new company or a voucher
-/// type in the latest release"</i> — so no operator choice is silently misread; the alternative simply cannot be
-/// selected yet. Adding it is a schema change and a census follow-up, not a hidden default here.</para>
+/// implements the vendor's stated DEFAULT only … the alternative simply cannot be selected yet.~~</para>
+///
+/// <para>🔴 <b>THE GAP ABOVE IS CLOSED AT SCHEMA v66 AND THE PARAGRAPH IS STRUCK RATHER THAN DELETED</b>, so a
+/// reader can see what the limitation was. The switch is now
+/// <see cref="VoucherType.RetainOriginalVoucherNo"/> — a persisted <c>voucher_types</c> column
+/// (<c>retain_original_voucher_no</c>), defaulting to <c>false</c> = the vendor's own <i>Renumber Vouchers</i>
+/// default, so <b>every pre-v66 book plans exactly the plan it planned before</b> (ER-13). When a type carries
+/// <c>true</c>, <see cref="Plan"/> renumbers NOTHING and the newcomer is appended at <c>max + 1</c> — which is
+/// the vendor's own description of the option: <i>"Set this option, if you do not want to change the existing
+/// voucher numbers on insertion of new vouchers or deletion of existing vouchers."</i></para>
+///
+/// <para>⚠️ <b>WHAT IS STILL OURS AND IS NOT CLAIMED CLONED: THE DELETION HALF.</b> The vendor's sentence names
+/// <i>insertion</i> AND <i>deletion</i> — <i>"when you <b>insert or delete</b> a voucher, the existing voucher
+/// numbers are adjusted automatically"</i> — and 🔴 <b>the page's worked example for EACH option is a DELETION,
+/// not an insertion</b> (<i>Renumber</i>: <i>"If the sequence is 1, 2, 3 and voucher 2 is deleted, the remaining
+/// vouchers are renumbered as 1, 2."</i>; <i>Retain</i>: <i>"Deleting voucher 2 from the sequence 1, 2, 3 will
+/// result in a sequence of 1, 3."</i> — both opened by content 2026-10-13). So deletion is not an aside in the
+/// vendor's description of this setting; it is what the vendor chose to illustrate it with.
+/// This build's <c>LedgerService.Delete</c> renumbers nothing on delete —
+/// it never did — so under <i>Renumber Vouchers</i> a deletion leaves a GAP where the vendor would close it, and
+/// under <i>Retain Original Voucher No.</i> our behaviour coincides with the vendor's by accident rather than by
+/// implementation. <b>The flag is therefore honoured on the INSERT path only</b>, and the deletion half is a
+/// documented divergence labelled as ours rather than a silently-half-wired setting. See
+/// <c>docs/invented-vs-cloned.md</c>.</para>
 /// </summary>
 public static class VoucherInsertion
 {
@@ -186,6 +223,15 @@ public static class VoucherInsertion
         }
 
         // ── Automatic and Multi-user Auto — the two methods that renumber ─────────────────────────────────
+        // 🔴 v66 / census 5.5: unless this type elects the vendor's OTHER insertion behaviour. "Retain Original
+        // Voucher No." is, in the vendor's words, for an operator who does "not want to change the existing
+        // voucher numbers on insertion of new vouchers" — so the newcomer is appended at max + 1 and NOTHING
+        // already posted moves. Placed here, after the three out-of-scope methods have already returned, because
+        // the vendor withholds the setting from Manual and None and reading it there would honour a knob the
+        // vendor does not offer. Default false = Renumber Vouchers = the behaviour every pre-v66 book had.
+        if (type.RetainOriginalVoucherNo)
+            return new VoucherInsertionPlan(null, NextNumber(company, type.Id), none, type.Numbering);
+
         var order = DayBookOrder(company);
         var anchorRank = order.IndexOf(anchor.Id);
         if (anchorRank < 0)

@@ -122,9 +122,21 @@ public sealed class GstReversalService
     /// and so the reversal belongs to that registration — whatever the screen had selected. The second post then
     /// resolves to the SAME scope, the idempotency key matches, and the existing row is returned instead of a second
     /// one being written.</para>
-    /// <para>Returns <c>null</c> when the line belongs to no imported snapshot, or to one whose recipient GSTIN names
-    /// no registration this company holds — then the caller's scope still decides, so a single-registration book and
-    /// every existing fixture resolve exactly as before (ER-13).</para>
+    /// <para>Returns <c>null</c> <b>only</b> when the line belongs to no imported snapshot at all — then the
+    /// caller's scope still decides, because there is no document to read.</para>
+    ///
+    /// <para>🔴 <b>IT NO LONGER RETURNS <c>null</c> FOR A STATEMENT WHOSE RECIPIENT GSTIN NAMES NO REGISTRATION
+    /// THIS COMPANY HOLDS, AND THAT IS THE CLOSURE OF <c>T2-121(iii)</c>.</b> ~~Returns null … or to one whose
+    /// recipient GSTIN names no registration this company holds — then the caller's scope still decides.~~ That
+    /// was the residual hole, and the register measured it: with no owner resolvable, <b>both</b> this layer and
+    /// <c>ItcGateView</c>'s fell through to the caller's pick and <b>the full ₹12,000.00-against-a-₹6,000.00-note
+    /// defect reproduced unchanged</b>. It is now total — see <c>ItcGateView.RegistrationOfStatement</c>, which
+    /// resolves by the SAME three rungs (the v66 anchor, then the GSTIN match, then the primary) so the advisory
+    /// layer and the posting layer cannot disagree about whose note it is.</para>
+    ///
+    /// <para><b>ER-13 — a single-registration book is unchanged.</b> Its only registration IS the primary, so
+    /// every rung returns the primary, which is also what the caller's scope would have been. Every existing
+    /// fixture that imports a 2B under the company's own GSTIN resolves on rung 2 exactly as before.</para>
     /// </summary>
     private Guid? RegistrationOfPortalLine(Guid sourceLineId)
     {
@@ -135,14 +147,19 @@ public sealed class GstReversalService
                 if (line.Id == sourceLineId) { carries = true; break; }
             if (!carries) continue;
 
-            if (_company.Gst is not { } gst) return null;
+            // v66: the recorded fact first. An id cannot fall through when a GSTIN is later edited.
+            if (snapshot.GstRegistrationId is { } anchored) return anchored;
+            if (_company.Gst is not { } gst) return GstRegistration.PrimaryId;
             foreach (var registration in gst.AllRegistrations)
                 if (!string.IsNullOrWhiteSpace(registration.Gstin)
                     && string.Equals(registration.Gstin, snapshot.RecipientGstin, StringComparison.OrdinalIgnoreCase))
                     return registration.Id;
-            return null;
+            // The statement is ours (it is in our own snapshot collection) but names a GSTIN we do not hold, so
+            // the only rule left attributes it to the registration the book has always had. ONE registration,
+            // once — never once per registration, which is the whole of the defect.
+            return GstRegistration.PrimaryId;
         }
-        return null;
+        return null;   // no such line in any imported statement — nothing to read, caller's scope decides
     }
 
     /// <summary>Stamps <paramref name="scope"/> onto a reversal/reclaim voucher before it is posted — but

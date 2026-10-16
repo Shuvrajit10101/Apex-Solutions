@@ -1956,8 +1956,61 @@ entries is not being audited, and that is why these are filed together.**
 
 ---
 
+## 2F. ADDED 2026-10-13 — SCHEMA v66: VOUCHER-LEVEL GST REGISTRATION ATTRIBUTION AND THE PER-TYPE INSERTION BEHAVIOUR
+
+**Scope note.** These three came out of **building** two capabilities (user ruling 30(3) and 30(4)) rather than
+out of a read-only pass, so each one names a line this wave shipped. Every vendor sentence quoted below was
+opened **BY CONTENT** on 2026-10-13 and read off the page. 🔴 **No Tally.ERP 9 page is quoted here** — R7
+(ruling 14) makes only TallyPrime ground truth.
+
+🔴 **READ WHAT THESE ARE NOT.** None of them is a wrong figure, and none of them is the capability itself: the
+F3 registration selector and the Renumber-vs-Retain switch are both **CLONED and ATTESTED**, with the vendor
+quotes on `VoucherEntryViewModel.SelectedGstRegistrationId` and `VoucherType.RetainOriginalVoucherNo`. These
+three are the **edges those two capabilities stop at**, filed here so a later slice does not read our boundary
+as the vendor's.
+
+### IV-82 · The vendor's insertion/deletion switch names **deletion** too — we honour it on INSERT only
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM.** No figure is wrong today, but half an attested setting is unwired, and under the vendor's own default (*Renumber Vouchers*) our deletion behaviour **does not match**: a deletion leaves a gap in a statutory number series where the vendor closes it. |
+| **What TallyPrime does** | Names BOTH verbs in one sentence. Verbatim, `help.tallysolutions.com/use-voucher-numbering-methods/` (opened BY CONTENT 2026-10-13, and the two examples below re-verified by a second targeted read of the same page): *"This setting ensures that when you **insert or delete** a voucher, the existing voucher numbers are adjusted automatically."* And for the other option: *"Set this option, if you do not want to change the existing voucher numbers on insertion of new vouchers **or deletion of existing vouchers**."* 🔴 **AND THE PAGE'S WORKED EXAMPLE FOR *EACH* OPTION IS A DELETION, NOT AN INSERTION** — *Renumber Vouchers*: *"If the sequence is 1, 2, 3 and voucher 2 is deleted, the remaining vouchers are renumbered as 1, 2."*; *Retain Original Voucher No.*: *"Deleting voucher 2 from the sequence 1, 2, 3 will result in a sequence of 1, 3."* So deletion is not an aside in the vendor's description of this setting — **it is the behaviour the vendor chose to illustrate it with.** |
+| **What we ship** | `VoucherType.RetainOriginalVoucherNo` (schema v66, column `retain_original_voucher_no`) is read by **`VoucherInsertion.Plan` and by nothing else.** `LedgerService.Delete` renumbers nothing and never did — `NextNumber` is `max + 1` computed by scanning, with no stored counter, so deleting the highest-numbered voucher of a type even hands the same number out again (that method says so in its own remarks, and `MasterDeletionRules` bounds it). |
+| **The consequence, stated both ways** | Under **Retain Original Voucher No.** our behaviour coincides with the vendor's **by accident**, not by implementation. Under **Renumber Vouchers** — the vendor's documented default and the only behaviour this build had before v66 — a deletion diverges: the vendor closes the gap, we leave it. |
+| **Why it was not built with the insert half** | Renumbering on delete rewrites the document number of vouchers that have **already been issued**, and this build's insert path already refuses that outright when any voucher in the shift range carries a live IRN or e-Way bill (`VoucherInsertion.FiledDocumentRefusal`). Wiring the deletion half needs the same freeze applied at `LedgerService.Delete`, which is an engine change on the destructive verb and is **not** a corollary of adding a column. |
+| **Fix** | **Its own slice.** Honour the flag in `LedgerService.Delete` behind the identical `MasterDeletionRules.IsFiledStatutoryDocument` freeze the insert path uses, so insert and delete cannot disagree about which documents are frozen. Until then the flag is honestly **half-scoped and labelled**, in `VoucherInsertion`'s own remarks, rather than advertised as the vendor's whole setting. |
+
+### IV-83 · An ALTERATION cannot move a posted voucher between GST registrations — our refusal, not the vendor's
+
+| | |
+|---|---|
+| **Severity** | **LOW-MEDIUM.** A capability the vendor neither grants nor withholds in print is refused, by name, on screen. The risk filed here is the **label**, not the behaviour: a later slice must not read this refusal as fidelity. |
+| **What TallyPrime says** | Only this, and only about **creation**. Verbatim, `help.tallysolutions.com/tally-prime/gst-regular-sales/gst-sales-tally/` (read 2026-10-13): *"For TallyPrime 3.0 & later, if you have multiple registrations, press F3 (Company/Tax Registration) and select the registration under which you want to **create** the voucher."* 🔴 **Nothing sourceable was found about a POSTED voucher**, and this is recorded as vendor **SILENCE**, not as a vendor prohibition — the difference decides whether a future slice is cloning or inventing. |
+| **What we ship** | `VoucherEntryViewModel.SelectGstRegistration` returns `RegistrationLockedOnAlterationRefusal` whenever `IsAltering`, `MainWindowViewModel.OpenVoucherRegistrationPicker` raises that same sentence on the notice bar rather than opening a picker whose every row would then be refused, and `RehydrateFrom` seeds the screen from the posted voucher so the alteration still **shows** which registration's return the document belongs to. |
+| **The engineering ground** | Moving a posted voucher between registrations is not a field edit: it moves a document **out of one filed return and into another, under a different GSTIN**. That is the wrong-filed-document class this build refuses by construction elsewhere — `GstReportSupport.EnsureRegistrationScoped` throws rather than fold two GSTINs into one return. It is also the exact shape of `LedgerService.Replace` §7.4/§12.8, which refuses a replacement that moves the provisional-state vector for the same reason. |
+| **Fix** | **A USER DECISION (R12)** if it is ever wanted. Route **(1)**, recommended and what we ship: keep the refusal, labelled as ours, with the named sentence that tells the operator what to do instead (*"Cancel or delete it and record it again under the other registration"*). Route **(2)**: permit the move — which needs a rule for what happens to a period already filed under the old GSTIN, and that is a returns-amendment question, not an entry-screen one. |
+
+### IV-84 · F3 (Company/Tax Registration) is offered on the ACCOUNTING voucher screen only — the stock, order, payroll and POS screens stamp nothing
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM**, and it is a **narrowing of scope** rather than a wrong answer — but it is the kind that reads as complete from the outside. |
+| **What TallyPrime does** | Does not scope its F3 sentence to a voucher family at all (citation as IV-83). |
+| **What we ship** | `MainWindowViewModel.IsVoucherRegistrationSelectable` requires `CurrentScreen == Screen.VoucherEntry`, so the F3 → *Tax Regn* row appears on the **accounting** voucher-entry screen and nowhere else. The stock/order screens (`InventoryVoucherEntryViewModel`), the Manufacturing Journal, Material In/Out, the payroll screens and `PosBillingViewModel` are untouched: they post through other services into other collections, and none of them stamps a registration. |
+| **Why it is the half that shipped first** | 🔴 **A caption over a key that stamps nothing is the dead-knob shape this project files as a defect** (an inert Alt+P, three reports that printed blank cells, a verb button that ran `Create()`), so the affordance is withheld where the stamp does not exist rather than painted everywhere. The accounting book is where every GST return is folded from — `GstReportSupport.PostedDirectionalVouchers` walks `Company.Vouchers` — which is why it is the half that closes the four findings behind `T2-121(i)`. |
+| **The residual, measured** | On a multi-registration book a **POS bill** and a pure-**inventory** document still attribute to the primary registration with no way to say otherwise. For POS this is a real hole on a Sales document (`PosBillingViewModel` builds its own `Voucher`); for the pure-inventory collection it matters less, because those documents carry no GST legs and no return folds over them — but *less* is not *none*, and it is written here rather than left to be discovered. |
+| **Fix** | **Its own slice**, and POS first: `PosBillingViewModel`'s two `new Voucher(...)` sites need the same stamp and the shell needs the F3 row enabled on `Screen.PosBilling`. ⚠️ Note the collision to resolve before building it: on `Screen.PosBilling` the vendor's **Alt+I** is already spent on the tender-mode toggle in this build (census row 5.5's own U-6 chord note), so the POS screen's chord budget is already contested and should be ruled, not assumed. |
+
+---
+
 ## 3. Grouped by area
 
+> 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
+> they would sit: **ENT** gains `IV-82` (the unwired deletion half of the insertion/deletion switch) and `IV-83`
+> (the alteration registration lock); **ENT** also gains `IV-84` (F3 scoped to the accounting voucher screen).
+> So the per-area counts below understate by **eleven** entries now, not eight. Stated rather than quietly
+> patched, for the reason the note immediately below gives.
+>
 > 🔴 **▶ 2026-10-13 — THE EIGHT PHASE-0 ENTRIES (`IV-74` … `IV-81`, §2E) ARE **NOT** IN THE GROUPINGS BELOW,
 > AND THE PER-AREA COUNTS IN THE HEADINGS ARE THEREFORE UNDERSTATED. STATED RATHER THAN QUIETLY PATCHED,
 > because §7 of this document is *"Coverage, counted rather than claimed"* and an uncounted claim here is the
