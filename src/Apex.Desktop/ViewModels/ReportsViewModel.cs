@@ -7537,7 +7537,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 totalBudget += line.Budget.Amount;
                 totalActual += line.Actual.Amount;
                 PayrollRows.Add(WideRow(false,
-                    $"    {line.TargetName} ({(line.IsGroup ? "Group" : "Ledger")})",
+                    $"    {line.TargetName} ({line.TargetKindLabel})",   // v67 (census 2.9)
                     BudgetMasterViewModel.TypeLabel(line.Type),
                     IndianFormat.AmountAlways(line.Budget),
                     IndianFormat.AmountAlways(line.Actual),

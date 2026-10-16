@@ -327,7 +327,8 @@ public sealed class InventoryService
     /// clean domain one.</para></summary>
     public Godown CreateGodown(
         string name, Guid? parentId = null, string? alias = null, bool thirdParty = false,
-        Guid? jobCostCentreId = null)
+        Guid? jobCostCentreId = null,
+        bool allowStorageOfMaterials = true, string? address = null)
     {
         var trimmed = RequireName(name, "godown");
         if (_company.FindGodownByName(trimmed) is not null)
@@ -338,6 +339,11 @@ public sealed class InventoryService
         var godown = new Godown(Guid.NewGuid(), trimmed, parentId, alias, thirdParty)
         {
             JobCostCentreId = jobCostCentreId,
+            // v67 (census 3.7): BOTH are F12-gated in the vendor, so BOTH default to the vendor's own default
+            // here - true ("By default, each godown can store materials") and no address. A caller whose F12
+            // switch is off passes neither, and the godown is byte-identical to a pre-v67 one.
+            AllowStorageOfMaterials = allowStorageOfMaterials,
+            Address = string.IsNullOrWhiteSpace(address) ? null : address.Trim(),
         };
         EnsureGodownParentValid(godown);
         _company.AddGodown(godown);
@@ -385,7 +391,8 @@ public sealed class InventoryService
     /// </summary>
     public Godown AlterGodown(
         Guid godownId, string name, Guid? parentId, string? alias = null, bool thirdParty = false,
-        Guid? jobCostCentreId = null)
+        Guid? jobCostCentreId = null,
+        bool allowStorageOfMaterials = true, string? address = null)
     {
         var godown = _company.FindGodown(godownId)
             ?? throw new InvalidOperationException($"Godown {godownId} not found.");
@@ -405,6 +412,9 @@ public sealed class InventoryService
         godown.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
         godown.ThirdParty = thirdParty;
         godown.JobCostCentreId = jobCostCentreId;
+        // v67 (census 3.7). Blank address clears it, matching Alias one line above.
+        godown.AllowStorageOfMaterials = allowStorageOfMaterials;
+        godown.Address = string.IsNullOrWhiteSpace(address) ? null : address.Trim();
         return godown;
     }
 
