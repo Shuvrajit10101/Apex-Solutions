@@ -30,6 +30,13 @@ public sealed class SavedViewRoundTripTests
         FilterMinRupees = 1000.50m,
         FilterMaxRupees = 250000.75m,
         FilterNameContains = "cash",
+        // 🔴 T2-125(iv): the two parameters Save View used to drop. Put in the SHARED fixture so every test in
+        // this file proves they survive the DATABASE round trip too — and note what that proves about the
+        // register's premise: no column was added for them. `saved_views` still has exactly four columns
+        // (id, company_id, name, config_json) and the whole view is one opaque JSON blob in the last of them,
+        // so extending the record was NOT a migration, contrary to T2-125(iv).
+        VoucherTypeFilterId = new Guid("8f14e45f-ceea-467a-9575-0a0b2c3d4e5f"),
+        ShowNarration = true,
         ComparativeColumns = new List<SavedComparativeColumn>
         {
             new() { Label = "Apr", PeriodFrom = new DateOnly(2024, 4, 1), PeriodTo = new DateOnly(2024, 4, 30) },
@@ -49,6 +56,19 @@ public sealed class SavedViewRoundTripTests
             Assert.True(Schema.CurrentVersion >= 14);
             Assert.Equal((long)Schema.CurrentVersion, ReadSchemaVersion(dbPath));
             Assert.True(TableExists(dbPath, "saved_views"));
+
+            // 🔴 THE SHAPE THAT DISPROVES T2-125(iv), PINNED SO IT CANNOT BE RE-ASSERTED BY ACCIDENT. The gap
+            // register states that extending SavedReportView "IS a migration" because it "is persisted through
+            // Schema.cs / SqliteCompanyStore / Repositories.cs". It is not: the whole view is ONE opaque JSON
+            // blob in `config_json`, so a new field round-trips with no schema change — which is why
+            // VoucherTypeFilterId and ShowNarration were added at v66 WITHOUT a column. If this list ever grows
+            // a per-parameter column, that premise becomes true and the comment above must change with it.
+            using var conn = Open(dbPath);
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "PRAGMA table_info(saved_views);";
+            var columns = new List<string>();
+            using (var r = cmd.ExecuteReader()) while (r.Read()) columns.Add(r.GetString(1));
+            Assert.Equal(new[] { "id", "company_id", "name", "config_json" }, columns);
         }
         finally { Delete(dbPath); }
     }

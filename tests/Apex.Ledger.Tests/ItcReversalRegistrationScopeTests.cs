@@ -633,13 +633,31 @@ public class ItcReversalRegistrationScopeTests
     }
 
     /// <summary>
-    /// <b>ER-13 — a statement whose recipient GSTIN names no registration this company holds is left to the caller,
-    /// not silently emptied.</b> Every pre-existing fixture imports a 2B under whatever GSTIN it likes, and an import
-    /// for an unheld GSTIN is a different defect; withholding its candidates here would have hidden one bug behind
-    /// another. The supplier's GSTIN is used as a recipient that the company provably does not hold.
+    /// 🔴 <b><c>T2-121(iii)</c> — THE RESIDUAL HOLE, AND THIS TEST USED TO ENSHRINE IT. INVERTED AT SCHEMA v66,
+    /// AND THE REASON IS WRITTEN OUT RATHER THAN RE-BASELINED.</b>
+    ///
+    /// <para>~~<b>ER-13 — a statement whose recipient GSTIN names no registration this company holds is left to
+    /// the caller, not silently emptied.</b> … an import for an unheld GSTIN is a different defect; withholding
+    /// its candidates here would have hidden one bug behind another.~~ The register named this test by name as
+    /// what <i>"enshrined"</i> the hole, and it measured the consequence: with no owner resolvable,
+    /// <b>both</b> <c>ItcGateView</c> and <c>GstReversalService</c> fell through to the caller's pick and
+    /// <b>the full defect reproduced unchanged — ₹12,000.00 across two filed returns against a ₹6,000.00
+    /// note.</b></para>
+    ///
+    /// <para>🔴 <b>THE PREMISE THE OLD ASSERTION RESTED ON IS NOW FALSE, which is why this is an inversion and
+    /// not a re-baseline.</b> It rested on "an import for an unheld GSTIN is a different defect" — one we could
+    /// not fix from here. <b>v66 fixes the import path</b>: <c>ImportGstr2bViewModel</c> now requires the file to
+    /// be addressed to the <b>selected registration's</b> GSTIN, so an operator cannot create this shape at all;
+    /// the only remaining route is a canonical-XML restore. The old rationale is therefore spent.</para>
+    ///
+    /// <para><b>What is asserted now, and why "the primary" rather than "nowhere".</b> The candidate is raised
+    /// <b>ONCE</b>, under the primary — never once per registration, which is the whole of the defect — and it is
+    /// NOT silently dropped, because this gate is advisory (ER-14) and dropping a reversal the operator may owe
+    /// says nothing at all where raising one says something, once. Both halves are asserted: the branch no longer
+    /// offers it, and the primary does.</para>
     /// </summary>
     [Fact]
-    public void A_statement_for_an_unheld_gstin_still_raises_its_candidate_under_the_callers_own_scope()
+    public void A_statement_for_an_unheld_gstin_raises_its_candidate_ONCE_under_the_primary_and_not_per_registration()
     {
         var f = Build(blockedService: false);
         Assert.DoesNotContain(f.Company.Gst!.AllRegistrations, r => r.Gstin == GstinSupplier);
@@ -653,8 +671,78 @@ public class ItcReversalRegistrationScopeTests
             "HASH-FOREIGN", DateTimeOffset.UnixEpoch, 0, 300_000L, 300_000L, 0, new[] { cn });
         f.Company.AddGstr2bSnapshot(snapshot);
 
+        // 🔴 ONCE, under the primary — the registration the book has always had.
+        Assert.Single(
+            ItcGateView.Build(f.Company, snapshot, From, To, GstRegistration.PrimaryId).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+
+        // …and NOT under the others. These two assertions are what the ₹12,000 defect needed and did not have:
+        // the candidate used to be raised under whichever registration the caller happened to name.
+        Assert.DoesNotContain(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Branch.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+        Assert.DoesNotContain(
+            ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE v66 ANCHOR OVERRIDES THE GSTIN, AND THAT IS THE POINT OF STORING AN ID.</b>
+    /// <c>T2-121(iii)</c>'s reachable route was <i>"editing the primary GSTIN after a 2B import"</i>: every
+    /// GSTIN-matching lookup then returns nothing and the attribution is lost. A statement anchored at import
+    /// time keeps saying which registration it belongs to <b>after</b> its GSTIN stops matching anything.
+    /// </summary>
+    [Fact]
+    public void An_anchored_statement_keeps_its_registration_even_when_its_recipient_gstin_matches_nothing()
+    {
+        var f = Build(blockedService: false);
+        Assert.DoesNotContain(f.Company.Gst!.AllRegistrations, r => r.Gstin == GstinSupplier);
+
+        var cn = new Gstr2bLine(
+            Guid.NewGuid(), GstinSupplier, "Service Supplier", Gstr2bDocType.CreditNote, "CN-ANCHORED-1",
+            Gstr2bReconciler.NormaliseDocNo("CN-ANCHORED-1"), ReturnDate, Karnataka,
+            3_333_333L, 0L, 300_000L, 300_000L, 0L, true, null, false);
+        // The recipient GSTIN deliberately matches NO registration — the post-edit shape — while the ANCHOR names
+        // the branch. Before v66 there was no anchor and this statement resolved nowhere.
+        var snapshot = new Gstr2bSnapshot(
+            Guid.NewGuid(), GstStatementType.Gstr2b, Period, GstinSupplier, new DateOnly(2025, 6, 14),
+            "HASH-ANCHORED", DateTimeOffset.UnixEpoch, 0, 300_000L, 300_000L, 0, new[] { cn },
+            gstRegistrationId: f.Branch.Id);
+        f.Company.AddGstr2bSnapshot(snapshot);
+
         Assert.Single(
             ItcGateView.Build(f.Company, snapshot, From, To, f.Branch.Id).ReversalCandidates,
             x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+        // The GSTIN would have sent it to the primary; the anchor is what keeps it on the branch.
+        Assert.DoesNotContain(
+            ItcGateView.Build(f.Company, snapshot, From, To, GstRegistration.PrimaryId).ReversalCandidates,
+            x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
+    }
+
+    /// <summary>
+    /// 🔴 <b><c>T2-121(iv)</c> — THE MIXED SCOPE, CLOSED AT THE ENGINE AND NOT ONLY AT THE SCREEN.</b> The
+    /// register measured it: <i>"Portal2b still sums snapshot.Lines UNSCOPED while the credit-note candidates
+    /// built from those same lines are withheld"</i>, so the gate read <i>"ITC in 2B 14,400.00"</i> beside
+    /// <i>"books eligible 0.00 / claimable 0.00"</i> and zero candidates — <b>a part with no whole, rendered on
+    /// a screen about credit</b>. Both loops now read ONE resolution of whose statement it is, so the two halves
+    /// cannot disagree.
+    /// </summary>
+    [Fact]
+    public void The_portal_2b_total_is_scoped_to_the_registration_the_statement_belongs_to()
+    {
+        var f = Build(blockedService: false);
+        IsdSnapshotWithCreditNote(f.Company, out _);
+        var snapshot = f.Company.Gstr2bSnapshots.Single(s => s.SourceFileHash == "HASH-CN");
+
+        // Read for the registration the statement WAS issued to: the portal total is real.
+        var own = ItcGateView.Build(f.Company, snapshot, From, To, f.Isd.Id);
+        Assert.True(own.Portal2b.Total.Amount > 0m,
+            "the statement's own registration reads a zero portal total — the scope is now too narrow");
+
+        // Read for ANOTHER registration: 0.00, and so are the candidates. Before this, the total stayed at its
+        // full value while the candidates were withheld.
+        var other = ItcGateView.Build(f.Company, snapshot, From, To, f.Branch.Id);
+        Assert.Equal(0m, other.Portal2b.Total.Amount);
+        Assert.DoesNotContain(other.ReversalCandidates, x => x.Reason == ItcReversalReason.ImsAcceptedCreditNote);
     }
 }

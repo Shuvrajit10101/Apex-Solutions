@@ -351,7 +351,10 @@ public class BankStatementVoucherCreationTests
 
         var entry = Assert.Single(c.VoucherEditLog);
         Assert.Equal(created[0].VoucherId, entry.VoucherId);
-        Assert.Equal(VoucherEditVerb.Alter, entry.Verb);
+        // v66: the banking "Mark as Regular & Reconcile" route goes through MarkOptionalAsRegular → SetOptional,
+        // so its line now carries the dedicated SetOptional ordinal rather than Alter. Entries written before v66
+        // still read Alter; nothing back-fills them.
+        Assert.Equal(VoucherEditVerb.SetOptional, entry.Verb);
         // The snapshot is the serialised pre-change voucher, so the flag it left is legible in it.
         Assert.Contains("\"Optional\":true", entry.BeforeSnapshot);
         Assert.False(c.FindVoucher(created[0].VoucherId)!.Optional);

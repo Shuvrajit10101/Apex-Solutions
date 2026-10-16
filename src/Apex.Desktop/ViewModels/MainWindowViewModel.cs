@@ -61,6 +61,16 @@ public enum Screen
     // narrowed to, and an active type with no voucher in the window IS offered and opens an empty book.
     VoucherTypeFilterPicker,
 
+    // 🔴 census 6.23 / T2-121(i) — the voucher-entry "Company/Tax Registration" (F3) picker: a menu column of
+    // every registration the company holds, appended to the RIGHT of the LIVE voucher-entry screen exactly like
+    // the three pickers above sit over a live report (the entry column stays bound beneath, so Esc pops back to
+    // the half-keyed voucher with every line intact). Vendor, verbatim: "For TallyPrime 3.0 & later, if you have
+    // multiple registrations, press F3 (Company/Tax Registration) and select the registration under which you
+    // want to create the voucher." (help.tallysolutions.com/tally-prime/gst-regular-sales/gst-sales-tally/).
+    // Its own screen id rather than reusing AddVoucherPicker because that one is excluded by name from the
+    // Day-Book destructive-verb guards (see IsDayBookRowHidden) and this column never sits over the Day Book.
+    GstRegistrationPicker,
+
     ReportConfig,
 
     // W2-13a (census 14.5) — the Ctrl+B "Basis of Values" panel: the report Scale Factor, pushed as a cascade
@@ -6428,8 +6438,129 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    // =============================================================== F3 — Company/Tax Registration (census 6.23)
+
+    /// <summary>The voucher screen's own <see cref="ScreenTitle"/>, held while the F3 registration picker sits
+    /// over it so taking a row restores the title the voucher had rather than a reconstruction of it.</summary>
+    private string? _voucherTitleBeforeRegistrationPicker;
+
     /// <summary>
-    /// Whether a voucher type can be INSERTED from the Day Book — i.e. whether it posts into the accounting book
+    /// 🔴 <b>Whether the voucher screen's F3 means <i>Tax Registration</i> rather than <i>Change Company</i></b>
+    /// — true only on a LIVE voucher-entry screen belonging to a company that actually holds more than one GST
+    /// registration (census row 6.23; gap register <b>T2-121(i)</b>).
+    ///
+    /// <para><b>R7, opened BY CONTENT 2026-10-13.</b> The vendor scopes the instruction itself:
+    /// <i>"if you have multiple registrations, press F3 (Company/Tax Registration) and select the registration
+    /// under which you want to create the voucher"</i>
+    /// (<c>help.tallysolutions.com/tally-prime/gst-regular-sales/gst-sales-tally/</c>). So a
+    /// single-registration book keeps F3 = Change Company exactly as it has always been, sees no new
+    /// affordance, and is byte-identical (ER-13) — which is also why there is no "All registrations" row here:
+    /// a voucher is recorded under ONE registration, and offering "all" would be a number nobody can file.</para>
+    ///
+    /// <para>⚠️ <b>Scoped to <see cref="Screen.VoucherEntry"/> and NOT to the stock / order / payroll / POS
+    /// entry screens, deliberately and as a declared narrowing.</b> Those screens post through
+    /// <c>InventoryPostingService</c> / <c>PosBillingViewModel</c> into collections whose own entry paths this
+    /// change does not touch, so advertising F3 there would paint a caption over a key that stamps nothing —
+    /// the dead-knob shape this project files as a defect. The accounting book is where the GST returns are
+    /// folded from, which is why it is the half that ships first.</para>
+    /// </summary>
+    /// <para>🔴 <b>IT STAYS TRUE WHILE THE PICKER ITSELF IS UP, AND THAT CLAUSE IS A WORK-LOSS GUARD RATHER
+    /// THAN A COSMETIC ONE (adversarial review, 2026-10-16).</b> Without
+    /// <c>Screen.GstRegistrationPicker</c> here, the button bar rebuilt by
+    /// <see cref="OpenVoucherRegistrationPicker"/> fell to the <c>else</c> arm and re-advertised F3 as
+    /// <i>Company</i> — so a SECOND press of the very key that opened the picker reached
+    /// <see cref="ShowCompanySelect"/>, which runs <c>ClearSubScreens</c> + <c>LeaveCascade</c> and
+    /// <b>DESTROYED the half-keyed voucher with no confirmation</b> (measured: <c>VoucherEntry</c> null,
+    /// <c>Columns</c> 0). Every other menu column in this shell is INERT on re-press — <c>OpenChangeViewMenu</c>
+    /// returns early for exactly that reason — and this one now is too.</para>
+    public bool IsVoucherRegistrationSelectable =>
+        CurrentScreen is Screen.VoucherEntry or Screen.GstRegistrationPicker
+        && VoucherEntry is { CanSelectGstRegistration: true };
+
+    /// <summary>
+    /// F3 on a live voucher-entry screen — pushes the <i>Company/Tax Registration</i> picker over the voucher
+    /// (census 6.23). The entry column stays in <see cref="Columns"/> beneath it, so Escape lands back on the
+    /// half-keyed voucher with every line intact, exactly as the Alt+I picker leaves its Day Book.
+    ///
+    /// <para>The row set is <c>GstConfig.AllRegistrations</c> — the primary plus the additional ones — and the
+    /// currently-selected one is marked, so the operator can see which GSTIN the voucher is about to be issued
+    /// under before they commit it.</para>
+    /// </summary>
+    public void OpenVoucherRegistrationPicker()
+    {
+        // Re-press is INERT, never a second column and never a route out of the voucher — the same rule
+        // OpenChangeViewMenu states. Tested first, because IsVoucherRegistrationSelectable is deliberately true
+        // on this screen so the button bar keeps saying "Tax Regn" while the picker is up.
+        if (CurrentScreen == Screen.GstRegistrationPicker) return;
+        if (Company is null || !IsVoucherRegistrationSelectable || VoucherEntry is not { } entry) return;
+
+        // An ALTERATION cannot move between registrations (the attribution belongs to a filed return). Say so
+        // instead of opening a picker whose every row would then be refused one keystroke later.
+        if (entry.IsAltering)
+        {
+            RaiseLifecycleNotice(VoucherEntryViewModel.RegistrationLockedOnAlterationRefusal);
+            return;
+        }
+
+        // The voucher's OWN title, remembered rather than reconstructed. PickVoucherRegistration used to rebuild
+        // it as $"Accounting Voucher Creation — {type.Name}", which is exactly what OpenVoucher sets and so was
+        // right for every surface reachable today — but it would silently rewrite the title of any FUTURE door
+        // that opens Screen.VoucherEntry under a different one. Remembering it cannot drift.
+        _voucherTitleBeforeRegistrationPicker = ScreenTitle;
+
+        var picker = new GatewayColumn("Company/Tax Registration") { Kind = GatewayColumnKind.DataDriven };
+        picker.Add(MenuItemViewModel.Header("Select Registration"));
+        foreach (var registration in entry.AvailableGstRegistrations)
+        {
+            var chosen = registration;
+            var selected = chosen.Id == entry.SelectedGstRegistrationId;
+            picker.Add(new MenuItemViewModel(
+                (selected ? "▸ " : "  ") + chosen.Name,
+                () => PickVoucherRegistration(chosen),
+                chosen.Gstin ?? string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        // Appended WITHOUT ClearSubScreens/OpenPageColumn so the voucher survives beneath — identical to
+        // OpenMoreDetails and OpenInsertVoucherPicker.
+        Columns.Add(picker);
+        picker.SelectFirstSelectable();
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.GstRegistrationPicker;
+        ScreenTitle = "Company/Tax Registration";
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// A registration row was taken in the F3 picker: apply it to the live voucher, drop the column, and land
+    /// back on the voucher with the chosen GSTIN named on the notice bar — so the operator is told which
+    /// registration the document they are keying will be issued under rather than having to infer it.
+    /// </summary>
+    private void PickVoucherRegistration(GstRegistration registration)
+    {
+        if (VoucherEntry is not { } entry) return;
+
+        var refusal = entry.SelectGstRegistration(registration.Id);
+
+        // Drop the picker either way, so a refusal is read against the live voucher rather than over a menu
+        // column the operator would then have to dismiss themselves (the Alt+I arm's own rule).
+        if (CurrentScreen == Screen.GstRegistrationPicker && Columns.Count > 0)
+            Columns.RemoveAt(Columns.Count - 1);
+        CurrentScreen = Screen.VoucherEntry;
+        ScreenTitle = _voucherTitleBeforeRegistrationPicker ?? ScreenTitle;
+        _voucherTitleBeforeRegistrationPicker = null;
+        ActiveColumnIndex = Columns.Count - 1;
+        SyncActiveColumn();
+
+        // RaiseLifecycleNotice, not Message: the notice bar is what survives the screen change above.
+        RaiseLifecycleNotice(refusal ?? $"Recording under {entry.GstRegistrationCaption}.");
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Whether a voucher type can be INSERTED from the Day Book — i.e. whether it posts through the accounting book
     /// that <see cref="VoucherInsertion"/> plans over AND opens through <see cref="OpenVoucher"/>, which is the
     /// only entry door carrying the post-save hook the renumbering needs. See
     /// <see cref="OpenInsertVoucherPicker"/> for why each exclusion is a correctness guard.
@@ -13844,7 +13975,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // F2 — Date. On an entry screen this now SETS the working date (caret into the date field, keyboard-only);
         // elsewhere it reports the current date. It used to unconditionally print the never-updated FY-start.
         ButtonBar.Add(new ButtonBarItem("F2", "Date", SetWorkingDate));
-        ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
+        // F3 is CONTEXT-SENSITIVE and exactly ONE row is emitted, for the mechanical reason the F4 and F6
+        // branches below state: the shell's Fire()/hint lookup takes the FIRST key match, so a second F3 row
+        // would shadow this one and the badge would fire the wrong handler.
+        //
+        // 🔴 On a LIVE VOUCHER-ENTRY SCREEN of a MULTI-REGISTRATION company the vendor's F3 is COMPANY/TAX
+        // REGISTRATION (census 6.23 / T2-121(i)): "if you have multiple registrations, press F3 (Company/Tax
+        // Registration) and select the registration under which you want to create the voucher"
+        // (help.tallysolutions.com/tally-prime/gst-regular-sales/gst-sales-tally/). Everywhere else — and on
+        // EVERY single-registration book, which is the vendor's own scoping of the sentence — F3 stays Change
+        // Company and nothing about it moves (ER-13). The two contexts are disjoint, so neither is rebound.
+        if (IsVoucherRegistrationSelectable)
+            ButtonBar.Add(new ButtonBarItem("F3", "Tax Regn", OpenVoucherRegistrationPicker));
+        else
+            ButtonBar.Add(new ButtonBarItem("F3", "Company", ShowCompanySelect));
 
         var hasCompany = Company is not null;
         // F4–F9 now open the real accounting voucher-entry screens. They go through OpenVoucherFromTypeKey, NOT

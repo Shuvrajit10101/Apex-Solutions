@@ -286,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 65;
+    public const int CurrentVersion = 66;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -846,7 +846,14 @@ public static class Schema
             summary_igst_paisa     INTEGER NOT NULL DEFAULT 0,
             summary_cgst_paisa     INTEGER NOT NULL DEFAULT 0,
             summary_sgst_paisa     INTEGER NOT NULL DEFAULT 0,
-            summary_cess_paisa     INTEGER NOT NULL DEFAULT 0
+            summary_cess_paisa     INTEGER NOT NULL DEFAULT 0,
+            -- v66 (census 6.23; gap register T2-121(ii) / T2-125): WHICH company registration this statement was
+            -- imported FOR. NULL means exactly "the company's own first registration", so every pre-v66 snapshot
+            -- already attributes to the registration the import path hard-coded, and MigrateV65ToV66 contains no
+            -- UPDATE gstr2b_snapshots at all (ER-13). Deliberately an id and NOT a second GSTIN column: matching
+            -- by recipient_gstin is the T2-121(iii) fall-through, and an id keeps saying which return this
+            -- statement belongs to after the GSTIN is edited. Declarations byte-identical to MigrateV65ToV66.
+            gst_registration_id    TEXT        NULL REFERENCES gst_registrations(id)
         );
         CREATE INDEX ix_gstr2b_snapshots_company ON gstr2b_snapshots(company_id);
 
@@ -1270,7 +1277,14 @@ public static class Schema
             -- narration, which is what every pre-v53 type was). Both default 0 so an existing type is
             -- byte-identical (ER-13) and the migration back-fills nothing.
             print_after_saving                INTEGER NOT NULL DEFAULT 0,   -- 0/1
-            provide_narration_for_each_ledger INTEGER NOT NULL DEFAULT 0    -- 0/1
+            provide_narration_for_each_ledger INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- v66 (census 5.5): the vendor's per-type "Numbering behaviour on the insertion/deletion" switch, read
+            -- from the Retain end. 0 = Renumber Vouchers (the VENDOR'S OWN DEFAULT, and the only behaviour this
+            -- build had before v66), 1 = Retain Original Voucher No. Default 0 so an existing type plans exactly
+            -- the insertion it planned before and the migration back-fills nothing (ER-13). Offered by the vendor
+            -- under Automatic / Multi-user Auto only; inert under Manual and None (VoucherType.RetainOriginalVoucherNo).
+            -- Declarations byte-identical to MigrateV65ToV66.
+            retain_original_voucher_no        INTEGER NOT NULL DEFAULT 0    -- 0/1
         );
 
         -- v58 (census 9.9): the named VOUCHER CLASSES on a voucher type. This slice ships exactly ONE class
@@ -5358,6 +5372,104 @@ public static class Schema
         -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
         -- for an added column carrying a REFERENCES clause.
         ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v66 — VOUCHER-LEVEL GST REGISTRATION ATTRIBUTION'S STATEMENT HALF, AND THE PER-VOUCHER-TYPE INSERTION
+    // BEHAVIOUR (USER RULING 30(3)+(4); census rows 5.5 and 6.23; gap register T2-121(ii), T2-125). Object names
+    // are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set
+    // and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The one <c>voucher_types</c> column v66 adds — the exact set <see cref="MigrateV65ToV66"/> adds
+    /// and <c>SchemaDowngrade.V66ToV65</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V66VoucherTypeColumns =
+        new[] { "retain_original_voucher_no" };
+
+    /// <summary>The one <c>gstr2b_snapshots</c> column v66 adds — the exact set <see cref="MigrateV65ToV66"/>
+    /// adds and <c>SchemaDowngrade.V66ToV65</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V66Gstr2bSnapshotColumns =
+        new[] { "gst_registration_id" };
+
+    /// <summary>
+    /// v65 → v66 (<b>USER RULING 30(3) and 30(4)</b>): the <b>two</b> columns that carry ruling 30's queued
+    /// schema items, in ONE migration rather than two bumps.
+    ///
+    /// <para>🔴 <b>WHAT RULING 30 QUEUED, AND WHICH OF IT IS AND IS NOT HERE — stated in full, because the
+    /// ruling named five things and this constant carries two of them.</b>
+    /// <list type="number">
+    ///   <item><b>(i) IN — census row 5.5, the per-voucher-type <i>"Numbering behaviour on the
+    ///   insertion/deletion"</i> switch.</b> <c>voucher_types.retain_original_voucher_no</c>; see
+    ///   <c>VoucherType.RetainOriginalVoucherNo</c> for the vendor quotes and
+    ///   <c>Services.VoucherInsertion.Plan</c> for where it is honoured.</item>
+    ///   <item><b>(ii) NOT IN — census row 5.10, alphanumeric voucher numbers.</b>
+    ///   <c>Voucher.Number</c> is <c>int</c> and the vendor's Manual method permits arbitrary alphanumeric, so
+    ///   closing it <b>changes a KEY TYPE</b> across ~90 source files and ~269 call sites. <b>It needs its own
+    ///   wave.</b> Half-converting a key type is the one shape that cannot be made safe inside a migration that
+    ///   is also doing four other things, so it is declined loudly rather than attempted. Row 5.10 stays
+    ///   <c>PARTIAL</c> and stays blocked.</item>
+    ///   <item><b>(iii) IN, and it needed NO DDL — the <c>SetOptional</c> edit-log ordinal.</b>
+    ///   <c>voucher_edit_log.verb</c> is already an INTEGER ordinal column, so
+    ///   <c>VoucherEditVerb.SetOptional = 4</c> adds a VALUE, not a column. It is nevertheless part of THIS
+    ///   version rather than a free-floating change, because a v65 build reading a <c>4</c> would not know the
+    ///   verb, and the version marker is what tells it so.</item>
+    ///   <item>🔴 <b>(iv) NOT A MIGRATION AT ALL — the two dropped saved-view report parameters, and the premise
+    ///   in the gap register is FALSE.</b> <c>T2-125(iv)</c> states that <i>"<c>SavedReportView</c> is persisted
+    ///   through <c>Schema.cs</c> / <c>SqliteCompanyStore</c> / <c>Repositories.cs</c>, so extending it IS a
+    ///   migration"</i>. It is not. <c>saved_views</c> has FOUR columns —
+    ///   <c>id, company_id, name, config_json</c> — and the whole view is one opaque JSON blob in the last of
+    ///   them (see the <c>saved_views</c> declaration in <see cref="CreateV1"/> and
+    ///   <c>SqliteCompanyStore.Save(Guid, string, SavedReportView)</c>, whose SQL writes
+    ///   <c>config_json = $json</c> and nothing else). Adding a field to the record therefore round-trips with
+    ///   no schema change: a pre-v66 blob simply omits the key and the record's own default applies. <b>No
+    ///   column is added here for it.</b></item>
+    ///   <item><b>(v) IN — attribution storage, the STATEMENT half.</b>
+    ///   <c>gstr2b_snapshots.gst_registration_id</c>. 🔴 <b>The VOUCHER half already exists and is NOT added
+    ///   again:</b> <c>vouchers.gst_registration_id</c> has been on the book since v61 (see
+    ///   <see cref="MigrateV60ToV61"/>), which is why the four findings behind T2-121(i) are about a missing
+    ///   voucher-entry SURFACE and a missing import path rather than missing storage. What had no anchor at all
+    ///   was the imported statement, and that is this column.</item>
+    /// </list></para>
+    ///
+    /// <para>🔴 <b>BOTH COLUMNS BACK-FILL NOTHING, AND THAT IS EXACT BY CONSTRUCTION RATHER THAN BY A STATEMENT
+    /// THAT RAN CORRECTLY ONCE — there is no <c>UPDATE</c> in this migration at all.</b>
+    /// <c>retain_original_voucher_no</c> DEFAULT <b>0</b> is the vendor's own documented default
+    /// (<i>Renumber Vouchers</i>) and is the only behaviour this build had before v66, so every existing type
+    /// plans the identical insertion. <c>gst_registration_id</c> NULL means <i>the company's own first
+    /// registration</i> — the same contract <c>vouchers.gst_registration_id</c> carries — and every pre-v66
+    /// snapshot was imported against the primary's GSTIN, because the import path hard-coded it and the parser
+    /// refused any other. ER-13 holds on both.</para>
+    ///
+    /// <para>🔴 <b>NO <c>DEFAULT</c> CLAUSE DRIFT.</b> <c>ALTER TABLE … ADD COLUMN</c> and the
+    /// <see cref="CreateV1"/> declarations must agree on name/type/notnull/default/pk —
+    /// <c>SchemaMigrationEquivalenceTests</c> compares <c>PRAGMA table_info</c> across a full v1 → current
+    /// replay, so the two copies of each line must not drift. The NULL default on
+    /// <c>gst_registration_id</c> is also <b>required</b> by SQLite for an added column carrying a
+    /// <c>REFERENCES</c> clause, exactly as <see cref="MigrateV60ToV61"/> records for the voucher column.</para>
+    ///
+    /// <para>⚠️ <b>BOTH TABLES ARE FK PARENTS</b> — <c>inventory_vouchers.type_id</c> and
+    /// <c>vouchers.type_id</c> reference <c>voucher_types(id)</c>, and <c>gstr2b_lines.snapshot_id</c>
+    /// references <c>gstr2b_snapshots(id)</c> — so the inverse <c>SchemaDowngrade.V66ToV65</c> MUST use
+    /// <c>RebuildPreservingShape</c> and not <c>DropColumns</c>: a <c>CREATE … AS SELECT</c> rebuild of a parent
+    /// silently loses the PRIMARY KEY, the <c>foreign key mismatch</c> failure <c>SchemaDowngrade.V56ToV55</c>
+    /// records.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 66.</para>
+    /// </summary>
+    public const string MigrateV65ToV66 = """
+        -- v66 (USER RULING 30(3)+(4); census 5.5 and 6.23; T2-121(ii), T2-125). See this constant's doc comment
+        -- for which of ruling 30's five queued items are here, which needed no DDL, and which is declined.
+        -- Declarations byte-identical to their counterparts in CreateV1. There is deliberately no UPDATE.
+
+        -- census 5.5: the per-type "Numbering behaviour on the insertion/deletion" switch. 0 = Renumber Vouchers
+        -- = the vendor's own default and the only behaviour this build had before v66, so every existing type
+        -- plans the identical insertion and nothing is back-filled (ER-13).
+        ALTER TABLE voucher_types ADD COLUMN retain_original_voucher_no        INTEGER NOT NULL DEFAULT 0;
+
+        -- census 6.23 / T2-121(ii): WHICH registration an imported GSTR-2B/2A was imported FOR. NULL — every
+        -- pre-v66 snapshot — is the company's own first registration, so this column needs (and gets) NO
+        -- back-fill. NULL default is also REQUIRED by SQLite for an added column carrying a REFERENCES clause.
+        ALTER TABLE gstr2b_snapshots ADD COLUMN gst_registration_id    TEXT        NULL REFERENCES gst_registrations(id);
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

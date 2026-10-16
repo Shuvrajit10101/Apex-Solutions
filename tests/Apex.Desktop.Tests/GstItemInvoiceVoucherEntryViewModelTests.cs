@@ -224,6 +224,73 @@ public sealed class GstItemInvoiceVoucherEntryViewModelTests : IDisposable
         Assert.Equal(90m, Signed(reloaded, TaxLedgerId(reloaded, GstTaxHead.Central, GstTaxDirection.Input), AsOf(reloaded)));
     }
 
+    /// <summary>
+    /// 🔴 <b>THE ITEM-INVOICE PATH CARRIES THE F3 (Company/Tax Registration) ATTRIBUTION TOO — census 6.23,
+    /// schema v66, gap register <c>T2-121(i)</c>.</b>
+    ///
+    /// <para><b>THIS TEST EXISTS BECAUSE A MUTATION DID NOT REDDEN, which is the only honest reason to add
+    /// one.</b> <c>VoucherGstRegistrationAttributionTests</c> covers the plain Dr/Cr grid and the
+    /// accounting-(service)-invoice path, and deleting <c>StampGstRegistration</c> from either reddens it. But
+    /// deleting it from <c>AcceptItemInvoice</c> left all six of those tests <b>green</b> — so the item-invoice
+    /// stamp was present and unpinned. It is the route every goods Sales and Purchase takes, and an unpinned
+    /// stamp on it is one careless edit away from putting a branch's whole goods turnover into the primary's
+    /// GSTR-1. It lives in THIS file rather than with its siblings because the stock masters, godown and party
+    /// ledgers it needs are this file's <c>Kit</c>.</para>
+    ///
+    /// <para>The artefact asserted is the <b>posted voucher read back off the book</b> and then the
+    /// <b>registration-scoped GSTR-1</b>: the branch's return carries the ₹1,000 supply and the primary's
+    /// carries nothing — not merely that a property was set.</para>
+    /// </summary>
+    [Fact]
+    public void Gst_item_invoice_records_the_voucher_under_the_registration_F3_selected()
+    {
+        var k = NewGstKit("GST Item Regn Co");
+        var c = k.Vm.Company!;
+
+        // A second registration is all it takes to make the book multi-registration and offer F3.
+        var branchId = Guid.NewGuid();
+        c.Gst!.AddRegistration(new GstRegistration(
+            branchId, "Gujarat Registration", "24", GstinGujarat, GstRegistrationType.Regular, FyStart));
+        c.Gst!.EnsureValid();
+
+        k.Vm.OpenVoucher(VoucherBaseType.Sales);
+        var entry = k.Vm.VoucherEntry!;
+        k.Vm.ToggleItemInvoice();
+        Assert.True(entry.IsItemInvoice);
+
+        SelectParty(entry, k.LocalCustomerId);
+        FillItemLine(entry, k.WidgetId, k.MainGodownId, 10m, "100.00");
+
+        // 🔴 F3 → the branch. The row is offered on the shell because the voucher screen is live and the book
+        // now holds two registrations.
+        Assert.True(entry.CanSelectGstRegistration);
+        Assert.True(k.Vm.IsVoucherRegistrationSelectable);
+        Assert.Contains(k.Vm.ButtonBar, b => b.Key == "F3" && b.Caption == "Tax Regn" && b.Enabled);
+        Assert.Null(entry.SelectGstRegistration(branchId));
+
+        Assert.True(entry.Accept());
+
+        // The POSTED voucher, off the book.
+        var type = c.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive);
+        var posted = c.Vouchers.Single(v => v.TypeId == type.Id);
+        Assert.Equal(branchId, posted.GstRegistrationId);
+        Assert.Equal(1000m, posted.InventoryLinesValue.Amount);
+
+        // 🔴 AND THE RETURN FOLLOWS IT: the branch declares the supply, the primary declares nothing. Before v66
+        // no entry path could stamp a non-primary registration, so the branch's GSTR-1 was structurally zero.
+        var asOf = AsOf(c);
+        var branchReturn = Gstr1.Build(c, FyStart, asOf, branchId);
+        var primaryReturn = Gstr1.Build(c, FyStart, asOf, GstRegistration.PrimaryId);
+        Assert.Equal(1000m, branchReturn.RateSummary.Sum(r => r.TaxableValue.Amount));
+        Assert.Equal(0m, primaryReturn.RateSummary.Sum(r => r.TaxableValue.Amount));
+        Assert.Equal(0m, primaryReturn.TotalTax.Amount);
+
+        // Persisted end-to-end — the attribution is on disk, not only on the aggregate.
+        var reloaded = Reload(k.CompanyName);
+        var rType = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive);
+        Assert.Equal(branchId, reloaded.Vouchers.Single(v => v.TypeId == rType.Id).GstRegistrationId);
+    }
+
     // ================================================================ (2) intra-state B2B sale (Output CGST+SGST) → GSTR-1
 
     [Fact]

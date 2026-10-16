@@ -980,13 +980,12 @@ public sealed class LedgerService
     /// money on the books through a door labelled "edit the narration". Regularising is a deliberate, separately
     /// invoked act, so it gets a deliberate, separately invoked method.</para>
     ///
-    /// <para><b>It is logged as <see cref="VoucherEditVerb.Alter"/>, and that is a considered choice rather than a
-    /// gap.</b> The verb column is a persisted ordinal (<c>0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum</c>) and
-    /// this track carries no schema budget, so a fifth ordinal is not available to it. <c>Alter</c> is not a
-    /// misdescription — the voucher IS overwritten in place and stays under its own id, which is precisely what that
-    /// verb means — and the <see cref="VoucherEditLogEntry.BeforeSnapshot"/> records the Optional state it left, so
-    /// an auditor reading the chain sees the flag change. A dedicated <c>Regularise</c> ordinal would read better
-    /// and is an additive schema bump for whoever next opens that file.</para>
+    /// <para>~~<b>It is logged as <see cref="VoucherEditVerb.Alter"/>, and that is a considered choice rather than
+    /// a gap.</b> The verb column is a persisted ordinal (<c>0 Cancel, 1 Delete, 2 Alter, 3 ConvertMemorandum</c>)
+    /// and this track carries no schema budget, so a fifth ordinal is not available to it.~~ 🔴 <b>SUPERSEDED AT
+    /// SCHEMA v66 — IT IS NOW LOGGED AS <see cref="VoucherEditVerb.SetOptional"/> (ordinal 4)</b>, which the
+    /// paragraph above correctly predicted would be an additive bump. The old text is struck rather than deleted
+    /// because it records why the entry read <c>Alter</c> on every book written before v66.</para>
     /// </summary>
     /// <exception cref="InvalidOperationException">The voucher is unknown, or is cancelled (a cancelled voucher
     /// affects nothing; "regularising" one would claim a state change that does not happen).</exception>
@@ -1015,13 +1014,13 @@ public sealed class LedgerService
     /// this flag moves the books by the WHOLE voucher with no figure on it changing. That is a deliberate act and
     /// it gets a deliberately invoked method.</para>
     ///
-    /// <para><b>Logged as <see cref="VoucherEditVerb.Alter"/>, for the reason
-    /// <see cref="MarkOptionalAsRegular"/> already records:</b> the verb column is a persisted ordinal and this
-    /// track holds no schema budget, so a fifth ordinal is not available to it. <c>Alter</c> is not a
-    /// misdescription — the voucher is overwritten in place under its own id — and the
-    /// <see cref="VoucherEditLogEntry.BeforeSnapshot"/> carries the Optional state it left, so an auditor reading
-    /// the chain sees the flag move. 🔴 <b>A dedicated <c>SetOptional</c> ordinal is an ADDITIVE schema bump
-    /// (v66) and is NOT taken here</b> — v66 is unowned and this track does not claim it.</para>
+    /// <para>🔴 <b>LOGGED AS <see cref="VoucherEditVerb.SetOptional"/> (ordinal 4) SINCE SCHEMA v66 — the
+    /// additive bump the earlier text said was owed.</b> ~~Logged as <see cref="VoucherEditVerb.Alter"/> … a
+    /// dedicated <c>SetOptional</c> ordinal is an ADDITIVE schema bump (v66) and is NOT taken here.~~ It is taken
+    /// now. The consequence is not cosmetic: <see cref="DiscardUncommittedOptionalChange"/>'s guard demands this
+    /// verb, so it can no longer be handed a legitimate <see cref="Replace"/> entry and persuaded to drop that
+    /// audit line while flipping the flag. Entries written before v66 still read <c>Alter</c>; nothing back-fills
+    /// them, and nothing in the product rewrites a log line.</para>
     ///
     /// <para>A no-op, appending NO log line, when the flag already holds <paramref name="optional"/> — an edit log
     /// that records non-events is as misleading as one that misses real ones.</para>
@@ -1041,7 +1040,9 @@ public sealed class LedgerService
 
         if (voucher.Optional == optional) return voucher;
 
-        RecordEdit(voucher, VoucherEditVerb.Alter);
+        // v66: its OWN ordinal. See VoucherEditVerb.SetOptional for the hazard this closes — while this logged as
+        // Alter, DiscardUncommittedOptionalChange's guard could not tell a flag move from a content replacement.
+        RecordEdit(voucher, VoucherEditVerb.SetOptional);
         voucher.Optional = optional;
         return voucher;
     }
@@ -1068,7 +1069,10 @@ public sealed class LedgerService
     {
         ArgumentNullException.ThrowIfNull(entry);
 
-        if (entry.Verb != VoucherEditVerb.Alter || entry.VoucherId != voucherId)
+        // 🔴 v66: the verb demanded is SetOptional, NOT Alter. While SetOptional logged as Alter this guard
+        // accepted any Alter entry on the voucher — including a legitimate Replace — and would then have dropped
+        // that audit line and flipped the flag. The dedicated ordinal is what makes that shape unreachable.
+        if (entry.Verb != VoucherEditVerb.SetOptional || entry.VoucherId != voucherId)
             throw new InvalidOperationException(
                 $"Edit-log entry {entry.Id} is a {entry.Verb} on voucher {entry.VoucherId}; it cannot roll back "
                 + $"an Optional change on voucher {voucherId}.");

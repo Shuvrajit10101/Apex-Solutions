@@ -678,29 +678,100 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
     }
 
     /// <summary>
-    /// The picker is load-bearing, not decoration: selecting the second registration re-projects the gate, and the
-    /// Gujarat registration bought nothing, so its whole gate is <b>0.00</b> — proving the figures above really were
-    /// one registration's and not the book's.
+    /// The picker is load-bearing, not decoration: selecting the second registration re-scopes the gate.
+    ///
+    /// <para>🔴 <b>THIS TEST'S ASSERTIONS CHANGED AT SCHEMA v66, AND THE CHANGE IS THE FIX FOR A RECORDED
+    /// DEFECT — stated here rather than quietly re-baselined.</b> It used to assert that selecting Gujarat left
+    /// <c>Message</c> null and gave a <c>View</c> whose figures were all <c>0.00</c>, i.e. that <b>the
+    /// PRIMARY's 2B statement stayed selected and was projected against GUJARAT's books</b>. That is precisely
+    /// the <b>MIXED SCOPE</b> the gap register files as <c>T2-121(iv)</c> and <c>T2-121(v)</c>: <i>"Portal2b
+    /// still sums snapshot.Lines UNSCOPED while the credit-note candidates built from those same lines are
+    /// withheld … the screen reads ITC in 2B 14,400.00 beside books eligible 0.00 / claimable 0.00 and zero
+    /// candidates"</i>, and <i>"populates Snapshots once in the CONSTRUCTOR and never refilters when
+    /// SelectedRegistration changes, so another registration's statements stay in the picker"</i>.</para>
+    ///
+    /// <para><b>v66 resolves it at the stronger end.</b> A 2B snapshot now carries the registration it was
+    /// imported FOR (<c>Gstr2bSnapshot.GstRegistrationId</c>), so the picker cannot offer another
+    /// registration's statement at all — rather than offering it and then zeroing one side of the comparison.
+    /// The register's own second option ("or say on the gate that the chosen statement belongs to another
+    /// registration") is no longer needed, because the situation is unreachable.</para>
+    ///
+    /// <para><b>The test's ORIGINAL INTENT is preserved and strengthened:</b> it still proves the ₹900 above
+    /// was ONE registration's figure and not the book's — by proving Gujarat reaches no such figure at all —
+    /// and it now also pins the honest empty state, which is the part an operator reads.</para>
     /// </summary>
     [Fact]
-    public void Itc_gate_screen_reprojects_when_the_registration_is_changed()
+    public void Itc_gate_screen_rescopes_when_the_registration_is_changed_and_will_not_read_another_registrations_2b()
     {
         var vm = NewRegularGstCompany("Gate Reg Switch Co");
         var c = vm.Company!;
         var gujarat = AddGujaratRegistration(c);
-        ImportMatching2b(c);
+        ImportMatching2b(c);                    // anchored to the PRIMARY (GstRegistrationId null)
 
         vm.OpenItcGateReport();
         var page = vm.ItcGateReport!;
         Assert.Equal(900m, page.View!.BooksEligibleTotal.Amount);
+        Assert.Single(page.Snapshots);          // the primary's own statement is offered to the primary
 
         page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
 
-        Assert.Null(page.Message);
-        Assert.Equal(0m, page.View!.BooksEligibleTotal.Amount);
-        Assert.Equal(0m, page.View.ClaimableTotal.Amount);
-        Assert.Equal(0m, page.View.Claimed3b.Total.Amount);
+        // 🔴 THE PRIMARY'S STATEMENT IS NO LONGER EVEN OFFERED — the mixed scope is gone by construction.
+        Assert.Empty(page.Snapshots);
+        Assert.Null(page.SelectedSnapshot);
+        Assert.False(page.HasSnapshot);
+        Assert.Null(page.View);
+
+        // …and the operator is told WHICH registration has no statement, not merely that none exists. A bare
+        // "No GSTR-2B imported" here would read as "the import failed" to someone who had just imported one.
+        Assert.Contains("Gujarat Registration", page.Message!, StringComparison.Ordinal);
+        Assert.Contains("No GSTR-2B imported for", page.Message!, StringComparison.Ordinal);
+        Assert.Contains("cannot gate another registration's credit", page.StatusText, StringComparison.Ordinal);
         Assert.Contains("Gujarat", page.Subtitle, StringComparison.Ordinal);
+
+        // And switching BACK restores the primary's own statement and its figure — the narrowing is a filter,
+        // not a destruction.
+        page.SelectedRegistration = page.Registrations.Single(r => r.IsPrimary);
+        Assert.Single(page.Snapshots);
+        Assert.Equal(900m, page.View!.BooksEligibleTotal.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE OTHER HALF OF <c>T2-121(ii)</c>: a BRANCH's own 2B reaches the BRANCH's gate and not the
+    /// primary's.</b> The vendor's <i>Import GST Returns</i> screen permits importing for a non-primary
+    /// registration (<c>help.tallysolutions.com/india-gst-status-gstr-2b-reconciliation-tally-2/</c>: <i>"GST
+    /// Registration: It will be selected by default. In case of multiple GST registrations, select the required
+    /// one."</i>), so the gate must route such a statement to the registration that owns it. This is the test
+    /// that the v66 anchor is READ by a projection, rather than merely written and stored.
+    /// </summary>
+    [Fact]
+    public void A_branch_anchored_2b_appears_on_the_branchs_gate_and_never_on_the_primarys()
+    {
+        var vm = NewRegularGstCompany("Gate Branch 2b Co");
+        var c = vm.Company!;
+        var gujarat = AddGujaratRegistration(c);
+
+        // One statement for the PRIMARY and one for GUJARAT, in the same period.
+        ImportMatching2b(c);
+        c.AddGstr2bSnapshot(new Gstr2bSnapshot(
+            Guid.NewGuid(), GstStatementType.Gstr2b, "2024-04", gujarat.Gstin!, new DateOnly(2024, 5, 14),
+            sourceFileHash: "hash-apr-2024-gj", importedAt: new DateTimeOffset(2024, 5, 15, 0, 0, 0, TimeSpan.Zero),
+            summaryIgstPaisa: 0, summaryCgstPaisa: 0, summarySgstPaisa: 0, summaryCessPaisa: 0,
+            lines: Array.Empty<Gstr2bLine>(),
+            gstRegistrationId: gujarat.Id));
+
+        vm.OpenItcGateReport();
+        var page = vm.ItcGateReport!;
+
+        // The primary's gate sees exactly ONE statement — its own.
+        Assert.Single(page.Snapshots);
+        Assert.Equal("hash-apr-2024", page.SelectedSnapshot!.Snapshot!.SourceFileHash);
+
+        // Gujarat's gate sees exactly ONE statement — its own, and a different one.
+        page.SelectedRegistration = page.Registrations.Single(r => r.Id == gujarat.Id);
+        Assert.Single(page.Snapshots);
+        Assert.Equal("hash-apr-2024-gj", page.SelectedSnapshot!.Snapshot!.SourceFileHash);
+        Assert.True(page.HasSnapshot);
+        Assert.NotNull(page.View);
     }
 
     /// <summary>Adds a second GST registration — one is all it takes to make the book <c>IsMultiRegistration</c> and

@@ -18,6 +18,15 @@ namespace Apex.Ledger.Reports;
 /// <para><b>Money never appears.</b> The only monetary fields a view can carry are the sort/filter magnitude
 /// bounds (<see cref="FilterMinRupees"/> / <see cref="FilterMaxRupees"/>) — user-chosen thresholds, not report
 /// figures — serialized as exact invariant decimal strings. There is no place to store a computed amount.</para>
+/// <para>⚠️ <b>WHAT IS STILL NOT ROUND-TRIPPED, AND WHY IT IS NOT JUST "ONE MORE FIELD".</b> Gap register
+/// <c>T2-125(iv)</c> names three dropped report parameters. <see cref="VoucherTypeFilterId"/> and
+/// <see cref="ShowNarration"/> are carried here; <b><c>Scale</c> — the Ctrl+B <i>Basis of Values</i> scale
+/// factor — is deliberately NOT, and the reason is the boundary this very remarks block states above</b>:
+/// <c>ReportScale</c> is a <b>Desktop</b> enum (<c>src/Apex.Desktop/ViewModels/ReportScale.cs</c>), and the
+/// Desktop's enums must not leak into the engine. Carrying it needs a stable STRING token plus a Desktop-side
+/// token table, exactly as <see cref="ReportKind"/> has — a small design decision rather than a field, so it is
+/// NAMED here instead of guessed at. <b>With these two, 1 of 12 report parameters is not round-tripped, down
+/// from 3.</b></para>
 /// </remarks>
 public sealed record SavedReportView
 {
@@ -68,6 +77,38 @@ public sealed record SavedReportView
     /// <summary>Case-insensitive name-contains filter, or <c>null</c>/empty for none.</summary>
     public string? FilterNameContains { get; init; }
 
+    // ---- the two parameters Save View used to DROP (gap register T2-125(iv)) ---------------------
+
+    /// <summary>
+    /// 🔴 <b>The Day-Book family's <b>F4 (Voucher Type)</b> narrowing — the voucher type the view was saved
+    /// under, or <c>null</c> for the vendor's unfiltered book</b> (gap register <b>T2-125(iv)</b>).
+    ///
+    /// <para><b>The defect it closes:</b> this parameter and <see cref="ShowNarration"/> were absent from the
+    /// round trip, so <c>Ctrl+H</c> → Saved Views <b>silently lost them</b> — a view saved as "Purchases only,
+    /// with narration" re-opened as the whole book without narration, and nothing said so.</para>
+    ///
+    /// <para>🔴 <b>AND IT NEEDED NO MIGRATION, which the gap register got wrong.</b> <c>T2-125(iv)</c> states
+    /// that <i>"SavedReportView is persisted through Schema.cs / SqliteCompanyStore / Repositories.cs, so
+    /// extending it IS a migration"</i>. It is not: <c>saved_views</c> has four columns —
+    /// <c>id, company_id, name, config_json</c> — and the whole view is one opaque JSON blob in the last of
+    /// them. A pre-existing blob simply omits this key and the default below applies, so every saved view
+    /// written before this change loads exactly as it did (ER-9 / ER-13).</para>
+    ///
+    /// <para><b>An ID, re-bound on apply — the same ER-9 rule <see cref="ScenarioName"/> follows.</b> A type
+    /// that no longer exists on the live company falls back to the unfiltered book rather than to a filter that
+    /// matches nothing; the applier owns that, and a stored-but-inert narrowing is the dead-field shape this
+    /// project files as a defect.</para>
+    /// </summary>
+    public Guid? VoucherTypeFilterId { get; init; }
+
+    /// <summary>
+    /// F12 <b>Show narration</b> on the Day-Book family — the second parameter <c>T2-125(iv)</c> records as
+    /// silently dropped. Defaults to <c>false</c>, which is what every view saved before this change implies,
+    /// so none of them changes (ER-13).
+    /// </summary>
+    public bool ShowNarration { get; init; }
+
+
     // ---- Comparative columns (RQ-4) --------------------------------------------------------------
 
     /// <summary>The comparative column specs, or <c>null</c>/empty for a plain single-column report.</summary>
@@ -94,6 +135,12 @@ public sealed record SavedReportView
             && FilterMinRupees == other.FilterMinRupees
             && FilterMaxRupees == other.FilterMaxRupees
             && FilterNameContains == other.FilterNameContains
+            // 🔴 T2-125(iv): these two MUST be here. This record overrides Equals by hand, so a new property
+            // that is left out of it is invisible to every round-trip test that compares two views — the test
+            // would go green while the field was being dropped, which is exactly the shape that let these two
+            // go missing in the first place.
+            && VoucherTypeFilterId == other.VoucherTypeFilterId
+            && ShowNarration == other.ShowNarration
             && ColumnsEqual(ComparativeColumns, other.ComparativeColumns);
     }
 
@@ -114,6 +161,8 @@ public sealed record SavedReportView
         hash.Add(FilterMinRupees);
         hash.Add(FilterMaxRupees);
         hash.Add(FilterNameContains);
+        hash.Add(VoucherTypeFilterId);   // T2-125(iv) — kept in lock-step with Equals above
+        hash.Add(ShowNarration);
         if (ComparativeColumns is not null)
             foreach (var c in ComparativeColumns) hash.Add(c);
         return hash.ToHashCode();

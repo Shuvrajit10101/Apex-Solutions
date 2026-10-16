@@ -24,6 +24,25 @@ public enum VoucherEditVerb
     /// a <see cref="Delete"/> because the entry it left is not a deletion: the content lives on.
     /// </summary>
     ConvertMemorandum = 3,
+
+    /// <summary>
+    /// <b>Ctrl+L</b> — <c>LedgerService.SetOptional</c>. The voucher's <see cref="Voucher.Optional"/> flag moved,
+    /// in either direction, and <b>nothing else about it changed</b> (schema <b>v66</b>).
+    ///
+    /// <para>🔴 <b>WHY THIS ORDINAL HAD TO EXIST, stated as the defect it closes rather than as a nicety.</b>
+    /// <c>SetOptional</c> previously logged as <see cref="Alter"/>, so <b>a flag move was indistinguishable from
+    /// a content Alter by verb alone</b>. That is not only an audit-legibility problem: it is why
+    /// <c>LedgerService.DiscardUncommittedOptionalChange</c>'s guard could not confirm it was undoing <i>its
+    /// own</i> entry. Handed a legitimate <see cref="Alter"/> entry — a real content replacement — that guard
+    /// accepted it, dropped that audit line AND flipped the flag. No production caller could reach the shape,
+    /// which is why it was a latent hazard rather than a live defect; it is now unreachable by construction,
+    /// because the guard demands <b>this</b> verb and <see cref="Replace"/>-shaped entries no longer match.</para>
+    ///
+    /// <para><b>Additive, and inert for every existing book.</b> No pre-v66 <c>voucher_edit_log</c> row can carry
+    /// this ordinal, so no stored entry's meaning changes and the migration back-fills nothing (ER-13). The flag
+    /// move is still a real edit and still appends a line; only the label is now the truth.</para>
+    /// </summary>
+    SetOptional = 4,
 }
 
 /// <summary>
