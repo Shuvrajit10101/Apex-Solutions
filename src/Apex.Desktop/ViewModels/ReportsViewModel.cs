@@ -2490,6 +2490,34 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 break;
+
+            // ---- Census 15.6 — THE TWO CST DECLARATION-FORMS REPORTS, the last two kinds in the tree with the
+            // MEMORANDUM-REGISTER SHAPE: the builder already sets the row's drill id and Enter still did nothing.
+            //
+            // 🔴 MEASURED, not inferred. `AddCstFormsSection` stamps `DrillVoucherId = r.VoucherId` on every form
+            // row and says in its own comment that the id is "the drill key Alt+S acts on" — so Alt+S (Set/Alter
+            // Form No.) resolved the row to its voucher through the shell while Enter, which resolves through
+            // THIS switch, fell out of it and did nothing. That is the identical split the census records against
+            // the four Job Work registers and against the Memorandum Register, one family over; a sweep of every
+            // dispatched `ReportKind` against every builder that assigns a drill id found exactly these two left.
+            //
+            // The vendor attests the gesture generically for every report rather than per report:
+            // "Select a line > press Enter." — and the same page separates it from Shift+Enter, which
+            // "expands or collapses details within the same report view"
+            // (help.tallysolutions.com/working-with-reports/, opened by content 2026-10-16).
+            //
+            // 🔴 THE TARGET IS THE VOUCHER DETAIL, not the Set/Alter editor. A declaration-form row stands for an
+            // inter-State sale or purchase, and the figure the operator is chasing (the concessional-rate
+            // exposure behind a pending form) is on the VOUCHER. Routing Enter to the form editor instead would
+            // make the drill key a second spelling of Alt+S and leave the voucher unreachable from here — and it
+            // would mutate a master from a navigation keystroke, which no other arm in this switch does.
+            //
+            // The heading, "(none)" and Total rows carry Guid.Empty, so Enter stays a safe no-op on them.
+            case ReportKind.CstFormsReceivable:
+            case ReportKind.CstFormsIssuable:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
         }
     }
 
