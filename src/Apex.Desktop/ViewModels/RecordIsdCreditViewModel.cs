@@ -235,7 +235,12 @@ public sealed partial class RecordIsdCreditViewModel : ViewModelBase, IMasterLis
         Recorded.Clear();
 
         var scope = ScopedRegistrationId;
-        long totalPaisa = 0;
+        // 🔴 Accumulated in RUPEES, not paisa. An earlier revision summed `(long)Math.Round(total * 100m, …)`
+        // here and drift-lock D3 (OneRuleDriftLockTests.RupeesToPaisaHasOneHome) correctly failed it: that is a
+        // second copy of the rupees→paisa rule whose one home is PaisaConversion. This total is a DISPLAY sum of
+        // figures that are already exact to the paisa — each row's heads came straight off posted line amounts —
+        // so there is nothing to convert and no rounding decision to re-make.
+        decimal totalCredit = 0m;
 
         foreach (var v in _company.Vouchers
                      .Where(v => !v.Cancelled)
@@ -270,7 +275,7 @@ public sealed partial class RecordIsdCreditViewModel : ViewModelBase, IMasterLis
             }
 
             var total = c + s + i + cess;
-            totalPaisa += (long)Math.Round(total * 100m, MidpointRounding.AwayFromZero);
+            totalCredit += total;
 
             Recorded.Add(new IsdCreditRowVm
             {
@@ -290,7 +295,7 @@ public sealed partial class RecordIsdCreditViewModel : ViewModelBase, IMasterLis
         Subtitle = $"{_company.Name}{suffix}  —  ITC received from an Input Service Distributor";
         StatusText = Recorded.Count == 0
             ? "No ISD credit recorded. Enter the ISD invoice / debit note and the credit distributed to this registration."
-            : $"{Recorded.Count} receipt(s)  ·  total credit {Money(totalPaisa / 100m)}  ·  files in GSTR-3B Table 4(A)(4).";
+            : $"{Recorded.Count} receipt(s)  ·  total credit {Money(totalCredit)}  ·  files in GSTR-3B Table 4(A)(4).";
     }
 
     /// <summary>The document number back out of the narration <c>GstIsdCreditService</c> wrote.</summary>

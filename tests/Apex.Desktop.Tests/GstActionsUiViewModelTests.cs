@@ -182,9 +182,15 @@ public sealed class GstActionsUiViewModelTests : IDisposable
     /// "Post ITC Reversal", the screen it is modelled on. This assertion is exhaustive on purpose: a row
     /// appearing here that nothing opens, or an opener with no row, is the exact defect shape this group has
     /// already had once.
+    ///
+    /// <para>🔴 <b>IT GAINED AN EIGHTH ROW — "Record ISD Credit" — for census row 6.24, and this test was
+    /// updated rather than loosened.</b> The row sits after "Post ITC Reversal" and before "DRC-03 Voluntary
+    /// Payment" because it is the third of the credit-side posting actions. The list stayed exhaustive: the
+    /// point of the assertion is that it must be edited deliberately whenever the group changes, which is what
+    /// caught this addition in the first place.</para>
     /// </summary>
     [Fact]
-    public void Gst_actions_group_lists_the_seven_action_screens()
+    public void Gst_actions_group_lists_the_eight_action_screens()
     {
         var vm = NewRegularGstCompany("Actions Nav Co");
 
@@ -195,6 +201,7 @@ public sealed class GstActionsUiViewModelTests : IDisposable
             new[]
             {
                 "IMS (Accept / Reject / Pending)", "Run Set-Off & Pay", "Post ITC Reversal",
+                "Record ISD Credit",
                 "DRC-03 Voluntary Payment",
                 "Import GSTR-2B", "Generate e-Invoice", "Generate e-Way Bill",
             },
