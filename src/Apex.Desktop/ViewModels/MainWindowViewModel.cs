@@ -262,6 +262,7 @@ public enum Screen
     ImsActions,
     RunSetOff,
     PostItcReversal,
+    RecordIsdCredit,
     Drc03Payment,
     ImportGstr2b,
     GenerateEInvoice,
@@ -648,6 +649,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Post-ITC-Reversal action screen (Phase 9 UI-2), non-null only while that page is open.</summary>
     [ObservableProperty] private PostItcReversalViewModel? _postItcReversal;
 
+    /// <summary>The Record-ISD-Credit action screen (census row 6.24), non-null only while that page is open.</summary>
+    [ObservableProperty] private RecordIsdCreditViewModel? _recordIsdCredit;
+
     /// <summary>The DRC-03 voluntary-payment action screen (census row 6.20), non-null only while that page is open.</summary>
     [ObservableProperty] private Drc03PaymentViewModel? _drc03Payment;
 
@@ -949,6 +953,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
         && EInvoiceEWayStatusReport is null
         && ImsActions is null && RunSetOff is null && PostItcReversal is null && Drc03Payment is null
+        && RecordIsdCredit is null
         && ImportGstr2b is null
         && GenerateEInvoice is null && GenerateEWayBill is null
         && NatureOfPaymentMaster is null && NatureOfGoodsMaster is null
@@ -1020,6 +1025,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnImsActionsChanged(ImsActionsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnRunSetOffChanged(RunSetOffViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPostItcReversalChanged(PostItcReversalViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnRecordIsdCreditChanged(RecordIsdCreditViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnDrc03PaymentChanged(Drc03PaymentViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportGstr2bChanged(ImportGstr2bViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGenerateEInvoiceChanged(GenerateEInvoiceViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2974,6 +2980,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("IMS (Accept / Reject / Pending)", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Run Set-Off & Pay", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Post ITC Reversal", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Record ISD Credit", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("DRC-03 Voluntary Payment", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Import GSTR-2B", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Generate e-Invoice", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
@@ -7492,6 +7499,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsPostItcReversalScreen =>
         CurrentScreen == Screen.PostItcReversal && PostItcReversal is not null;
 
+    /// <summary>Opens the <b>Record ISD Credit</b> action screen (Reports → Statutory Reports → GST Actions →
+    /// Record ISD Credit; census row 6.24). A branch recording Input Tax Credit distributed to it by the head
+    /// office against an ISD invoice / debit note, which files in GSTR-3B Table 4(A)(4). Opening it only projects
+    /// the receipts already recorded — nothing is posted until the explicit Record action (Ctrl+A). A no-op
+    /// unless the company is a Regular GST dealer (ER-13).</summary>
+    public void OpenRecordIsdCredit()
+    {
+        if (Company is null || !IsRegularGstDealer) return;
+        var page = new RecordIsdCreditViewModel(Company, _storage, onChanged: BuildButtonBar);
+        OpenPageColumn(new GatewayColumn("Record ISD Credit", page), Screen.RecordIsdCredit,
+            "Record ISD Credit", () => RecordIsdCredit = page);
+    }
+
+    /// <summary>True while the Record-ISD-Credit screen is the active screen (drives its arrow-key row nav).</summary>
+    public bool IsRecordIsdCreditScreen =>
+        CurrentScreen == Screen.RecordIsdCredit && RecordIsdCredit is not null;
+
     /// <summary>Opens the <b>DRC-03 — Voluntary / Self-Ascertained Payment</b> action screen (Reports → Statutory
     /// Reports → GST Actions → DRC-03 Voluntary Payment; census row 6.20). Rule 142(2) / 142(3). Opening it only
     /// projects the per-cell cash availability and the DRC-03s already filed — nothing is posted until the explicit
@@ -8780,6 +8804,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ImsActions = null;
         RunSetOff = null;
         PostItcReversal = null;
+        RecordIsdCredit = null;
         Drc03Payment = null;
         ImportGstr2b = null;
         GenerateEInvoice = null;
@@ -12156,6 +12181,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // On the Record-ISD-Credit screen the arrows move the recorded-receipt highlight.
+        if (IsRecordIsdCreditScreen)
+        {
+            RecordIsdCredit!.MoveHighlight(direction);
+            return;
+        }
+
         // On the DRC-03 screen the arrows move the filed-DRC-03 highlight.
         if (IsDrc03PaymentScreen)
         {
@@ -12575,6 +12607,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return;
             case Screen.PostItcReversal:
                 PostItcReversal?.Post();   // Ctrl+A = post the form's reversal
+                return;
+            case Screen.RecordIsdCredit:
+                RecordIsdCredit?.Record(); // Ctrl+A = record the form's ISD credit receipt
                 return;
             case Screen.Drc03Payment:
                 Drc03Payment?.Post();      // Ctrl+A = file the form's DRC-03 (Rule 142(2)/142(3))
@@ -13135,6 +13170,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "IMS (Accept / Reject / Pending)": OpenImsActions(); break;
             case "Run Set-Off & Pay": OpenRunSetOff(); break;
             case "Post ITC Reversal": OpenPostItcReversal(); break;
+            case "Record ISD Credit": OpenRecordIsdCredit(); break;
             case "DRC-03 Voluntary Payment": OpenDrc03Payment(); break;
             case "Import GSTR-2B": OpenImportGstr2b(); break;
             case "Generate e-Invoice": OpenGenerateEInvoice(); break;

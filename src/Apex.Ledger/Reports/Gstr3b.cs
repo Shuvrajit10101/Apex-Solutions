@@ -89,6 +89,25 @@ public sealed record Gstr3b(
     /// <summary>Table 4(D)(1) — reclaim of an earlier reversal, Compensation Cess (ring-fenced, ER-2).</summary>
     public Money ItcReclaimed4D1Cess { get; init; }
 
+    // ---- Table 4(A)(4) "Inward supplies from ISD" (census 6.24). Additive init-only fields defaulting to
+    // Money.Zero, computed by Build ONLY from posted stat-adjustment lines tagged
+    // GstAdjustmentKind.IsdCreditReceived. An ISD receipt is a Journal-base stat adjustment ⇒ excluded from
+    // PostedGstVouchers, so it cannot also land in 4(A)(5) via ReadSide — the same no-double-count property the
+    // reversal block above relies on. A book that never receives ISD credit is byte-identical (ER-13). ----
+
+    /// <summary>Table 4(A)(4) — inward supplies from an Input Service Distributor, CGST.</summary>
+    public Money Itc4A4IsdCgst { get; init; }
+    /// <summary>Table 4(A)(4) — inward supplies from an ISD, SGST/UTGST.</summary>
+    public Money Itc4A4IsdSgst { get; init; }
+    /// <summary>Table 4(A)(4) — inward supplies from an ISD, IGST.</summary>
+    public Money Itc4A4IsdIgst { get; init; }
+    /// <summary>Table 4(A)(4) — inward supplies from an ISD, Compensation Cess (ring-fenced, ER-2).</summary>
+    public Money Itc4A4IsdCess { get; init; }
+
+    /// <summary>Σ Table 4(A)(4) across the three GST heads (excludes cess, ER-2 — matching
+    /// <see cref="TotalItc"/> and <see cref="TotalItcReversed"/>).</summary>
+    public Money TotalItc4A4Isd => new(Itc4A4IsdCgst.Amount + Itc4A4IsdSgst.Amount + Itc4A4IsdIgst.Amount);
+
     /// <summary>Σ Table 4(B) ITC reversed across the GST heads (4(B)(1) + 4(B)(2); excludes cess, ER-2).</summary>
     public Money TotalItcReversed => new(
         ItcReversed4B1Cgst.Amount + ItcReversed4B1Sgst.Amount + ItcReversed4B1Igst.Amount +
@@ -179,17 +198,21 @@ public sealed record Gstr3b(
     /// <i>"(C) Net ITC Available (A)-(B)"</i>, carries the formula <c>C=A1+A2+A3+A4+A5-B1-B2</c>; para 4.3(D)
     /// states it as <i>"(4A - [4B (1) + 4B (2)])"</i>. <b>Table 4(D) does not enter it</b> — para 4.3(E)/(F) make
     /// 4(D) an information row, which is why the reclaim is added through 4(A)(5) above and NOT a second time here.</para>
-    /// <para><b>A1 (import of goods) and A4 (inward supplies from ISD) are structurally zero in this book:</b> there
-    /// is no import-of-goods bill-of-entry capture and no ISD (census 6.24 is ABSENT). They are omitted rather than
-    /// rendered as a fabricated zero; the screen says so in words.</para>
+    /// <para>~~<b>A1 (import of goods) and A4 (inward supplies from ISD) are structurally zero in this book:</b>
+    /// there is no import-of-goods bill-of-entry capture and no ISD (census 6.24 is ABSENT).~~ 🔴 <b>THE A4 HALF
+    /// IS NOW FALSE AND IS STRUCK RATHER THAN DELETED.</b> <b>A4 is real</b>: an ISD receipt posted through
+    /// <c>GstIsdCreditService</c> carries <see cref="GstAdjustmentKind.IsdCreditReceived"/> and is summed into
+    /// <see cref="Itc4A4IsdCgst"/> and its siblings, which now enter this formula as the Annexure's
+    /// <c>A4</c> term. <b>A1 (import of goods) remains structurally zero</b> — there is still no bill-of-entry
+    /// capture — and is still omitted rather than rendered as a fabricated zero.</para>
     /// </summary>
     public Money NetItcAvailableCgst => new(
-        RcmItcOtherCgst.Amount + ItcReportedAllOtherCgst.Amount
+        RcmItcOtherCgst.Amount + Itc4A4IsdCgst.Amount + ItcReportedAllOtherCgst.Amount
         - ItcReversed4B1Cgst.Amount - ItcReversed4B2Cgst.Amount);
 
     /// <summary>Table 4(C) Net ITC Available, SGST/UTGST — see <see cref="NetItcAvailableCgst"/>.</summary>
     public Money NetItcAvailableSgst => new(
-        RcmItcOtherSgst.Amount + ItcReportedAllOtherSgst.Amount
+        RcmItcOtherSgst.Amount + Itc4A4IsdSgst.Amount + ItcReportedAllOtherSgst.Amount
         - ItcReversed4B1Sgst.Amount - ItcReversed4B2Sgst.Amount);
 
     /// <summary>
@@ -197,7 +220,7 @@ public sealed record Gstr3b(
     /// carries <b>A2</b> (<see cref="RcmItcImportIgst"/>): import of services is always IGST.
     /// </summary>
     public Money NetItcAvailableIgst => new(
-        RcmItcImportIgst.Amount + RcmItcOtherIgst.Amount + ItcReportedAllOtherIgst.Amount
+        RcmItcImportIgst.Amount + RcmItcOtherIgst.Amount + Itc4A4IsdIgst.Amount + ItcReportedAllOtherIgst.Amount
         - ItcReversed4B1Igst.Amount - ItcReversed4B2Igst.Amount);
 
     /// <summary>
@@ -254,6 +277,11 @@ public sealed record Gstr3b(
         // branch's §17(5) reversal was filed twice — once on its own return and once on every sister return.
         var rev = ReadReversals(company, from, to, registrationId);
 
+        // census 6.24: Table 4(A)(4) "Inward supplies from ISD" — Σ the posted stat-adjustment lines tagged
+        // IsdCreditReceived. Scoped like every other leg of Build: ITC lands in the electronic credit ledger of
+        // exactly ONE GSTIN, so a branch's ISD receipt belongs on that branch's 3B and on no sister return.
+        var isd = ReadIsd(company, from, to, registrationId);
+
         return new Gstr3b(from, to,
             new Money(taxable), new Money(exempt),
             new Money(outCgst), new Money(outSgst), new Money(outIgst),
@@ -270,7 +298,56 @@ public sealed record Gstr3b(
             ItcReversed4B2Igst = new Money(rev.B2Igst), ItcReversed4B2Cess = new Money(rev.B2Cess),
             ItcReclaimed4D1Cgst = new Money(rev.D1Cgst), ItcReclaimed4D1Sgst = new Money(rev.D1Sgst),
             ItcReclaimed4D1Igst = new Money(rev.D1Igst), ItcReclaimed4D1Cess = new Money(rev.D1Cess),
+            Itc4A4IsdCgst = new Money(isd.Cgst), Itc4A4IsdSgst = new Money(isd.Sgst),
+            Itc4A4IsdIgst = new Money(isd.Igst), Itc4A4IsdCess = new Money(isd.Cess),
         };
+    }
+
+    /// <summary>
+    /// Reads the Table <b>4(A)(4) "Inward supplies from ISD"</b> bucket (census 6.24): Σ the posted
+    /// stat-adjustment lines tagged <see cref="GstAdjustmentKind.IsdCreditReceived"/>, by head. A pure projection
+    /// over the posted ISD-receipt vouchers, never recomputed (ER-9). No ISD credit received ⇒ all zero, so a
+    /// book that never receives any is byte-identical (ER-13).
+    ///
+    /// <para><b>Why this is its own leg and not part of 4(A)(5).</b> The form separates them, and the vendor
+    /// states the destination explicitly — <c>help.tallysolutions.com/tally-prime/india-gst/isd-credit/</c>:
+    /// <i>"The voucher will be included in GSTR-3B and appear under 4A: Input Tax Credit Available (either in
+    /// part or in full) &gt; Inward supplies from ISD."</i> Folding it into "All other ITC" would file the right
+    /// total under the wrong row.</para>
+    ///
+    /// <para><b>Sign.</b> The tagged leg is posted as a <b>debit</b> of the <c>Input {head}</c> pool (an increase
+    /// in credit), and this sweep reads <c>line.Amount.Amount</c>, a positive magnitude — so it accumulates
+    /// positively, which is correct for an addition row. It is deliberately <b>not</b> run through
+    /// <c>GstReportSupport.SignOf</c>: that helper signs a supply voucher by its return-note character, and a
+    /// stat-adjustment Journal is neither a supply nor a return.</para>
+    /// </summary>
+    private static (decimal Cgst, decimal Sgst, decimal Igst, decimal Cess) ReadIsd(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
+    {
+        decimal c = 0m, s = 0m, i = 0m, cess = 0m;
+
+        foreach (var v in company.Vouchers)
+        {
+            if (v.Date < from) continue;
+            if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+
+            foreach (var line in v.Lines)
+            {
+                if (line.Gst is not { Adjustment: GstAdjustmentKind.IsdCreditReceived } g) continue;
+                var amt = line.Amount.Amount;
+                switch (g.TaxHead)
+                {
+                    case GstTaxHead.Central: c += amt; break;
+                    case GstTaxHead.State: s += amt; break;
+                    case GstTaxHead.Integrated: i += amt; break;
+                    case GstTaxHead.Cess: cess += amt; break;
+                }
+            }
+        }
+
+        return (c, s, i, cess);
     }
 
     /// <summary>
