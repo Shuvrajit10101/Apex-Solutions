@@ -286,8 +286,20 @@ public sealed partial class MultiMasterRowViewModel : ViewModelBase
 ///     anything is written, and one bad row refuses the whole batch naming the offending row. A partial write
 ///     leaves the operator guessing which of twenty names landed; worse, the engine's own uniqueness guard
 ///     cannot see a name entered twice in the SAME batch (neither exists yet), so without a batch-level pass
-///     row 12 would silently create a duplicate of row 3. The operator's typing survives a refusal so the bad
-///     row can simply be corrected.
+///     row 12 would silently create a duplicate of row 3.
+///     <para>⚠️ <b>WHETHER THE OPERATOR'S TYPING SURVIVES A REFUSAL DEPENDS ON WHICH REFUSAL IT WAS, and the
+///     blanket claim that it always does was MEASURED FALSE by the wave-2 adversarial review.</b> A
+///     SCREEN-LEVEL refusal (empty name, in-batch duplicate, no parent, unparseable opening balance) returns
+///     before anything is written and leaves the grid exactly as typed, on both verbs — the bad row is
+///     corrected in place. An ENGINE refusal on the ALTER arm does NOT: the catch block calls
+///     <see cref="LoadExistingRows"/> through <c>LoadExistingRowsPreservingMessage</c>, which clears the grid
+///     and re-reads it from the restored book, so <b>every edit in the batch is discarded</b> and a
+///     three-hundred-row correction must be retyped. That is deliberate as far as it goes — the grid must
+///     agree with the book, and it is pinned by
+///     <c>MultiMasterAlterRollbackTests.After_a_refusal_the_grid_redisplays_the_ORIGINAL_values</c> — but it
+///     is a real cost and it is written down here rather than contradicted. Preserving the typing over an
+///     engine refusal would mean re-seeding the grid from the pending rows instead of from the company, and
+///     is an open decision, not an oversight.</para>
 ///     <para>🔴 <b>The screen-level pass is NOT what makes this true, and saying it was is how this went
 ///     wrong once already.</b> The ENGINE guards run inside each service call, row by row, and no amount of
 ///     pre-validation can soundly predict them for groups, godowns and cost centres — their cycle and
