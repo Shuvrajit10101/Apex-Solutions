@@ -98,4 +98,41 @@ public sealed class PrintReport
     public bool TitleCarriesMasterName { get; init; }
     public IReadOnlyList<PrintColumn> Columns { get; init; } = System.Array.Empty<PrintColumn>();
     public IReadOnlyList<PrintRow> Rows { get; init; } = System.Array.Empty<PrintRow>();
+
+    /// <summary>
+    /// This document with the F12 <see cref="PrintConfig.TitleOverride"/> / <see cref="PrintConfig.SubtitleOverride"/>
+    /// applied to its heading band (census 12.3). Returns <see langword="this"/> — the same instance, so the
+    /// bytes are provably unmoved — when neither override is set, which is the ER-13 default path every existing
+    /// caller takes.
+    ///
+    /// <para><b>Vendor grounding</b> is quoted on <see cref="PrintConfig.TitleOverride"/>: the vendor's
+    /// <i>Titles/Subtitles</i> sub-form (<b>F7</b>) takes a Title and a Subtitle for the document, and its
+    /// configuration page names <i>financial reports</i> among the documents it configures.</para>
+    ///
+    /// <para>🔴 <b><see cref="TitleCarriesMasterName"/> IS CLEARED when a title override is applied, and that is
+    /// load-bearing rather than tidy.</b> The flag means "part of this heading is a master name the USER typed
+    /// into a master, print it verbatim". An override is a different thing: text the operator typed into the
+    /// print sub-form for OUR document, which the shipped voucher and invoice paths both de-brand
+    /// (<c>Debrand.Text(config.TitleOverride!.Trim())</c>). Carrying the flag through would exempt an
+    /// operator-typed heading from the ER-11 guard on every report, which is the opposite of what ruling 18
+    /// asks for — ruling 18 protects a counterparty's real name, not an arbitrary typed string. The sub-title
+    /// band is scrubbed unconditionally by the renderer, so overriding it needs no equivalent decision.</para>
+    /// </summary>
+    public PrintReport WithHeaderOverride(PrintConfig? config)
+    {
+        var title = config?.TitleOverride;
+        var subtitle = config?.SubtitleOverride;
+        var hasTitle = !string.IsNullOrWhiteSpace(title);
+        var hasSubtitle = !string.IsNullOrWhiteSpace(subtitle);
+        if (!hasTitle && !hasSubtitle) return this;
+
+        return new PrintReport
+        {
+            Title = hasTitle ? title!.Trim() : Title,
+            Subtitle = hasSubtitle ? subtitle!.Trim() : Subtitle,
+            TitleCarriesMasterName = !hasTitle && TitleCarriesMasterName,
+            Columns = Columns,
+            Rows = Rows,
+        };
+    }
 }
