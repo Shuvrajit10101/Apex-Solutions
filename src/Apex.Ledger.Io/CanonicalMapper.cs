@@ -584,7 +584,9 @@ public static class CanonicalMapper
 
     private static BudgetLineDto MapBudgetLine(BudgetLine l) => new()
     {
-        GroupId = l.GroupId, LedgerId = l.LedgerId, BudgetType = l.Type.ToString(),
+        GroupId = l.GroupId, LedgerId = l.LedgerId,
+        CostCentreId = l.CostCentreId,   // v67 (census 2.9) — the third target
+        BudgetType = l.Type.ToString(),
         AmountPaisa = MoneyCodec.ToPaisa(l.Amount),
     };
 

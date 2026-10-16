@@ -1393,8 +1393,21 @@ public sealed record BudgetDto
 
 public sealed record BudgetLineDto
 {
-    public Guid? GroupId { get; init; }                     // exactly one of GroupId / LedgerId
+    public Guid? GroupId { get; init; }                     // exactly one of GroupId / LedgerId / CostCentreId
     public Guid? LedgerId { get; init; }
+
+    /// <summary>
+    /// v67 (census 2.9): the budgeted <b>cost centre</b>, the THIRD target <see cref="Domain.BudgetLine"/>
+    /// gained in v67.
+    /// <para>🔴 <b>ADDED BY THE W2 REVIEW, AND ITS ABSENCE WAS A BLOCKING DEFECT RATHER THAN A GAP.</b>
+    /// Without it a cost-centre budget line exported with <b>no target at all</b> (both ids null), and
+    /// re-importing that document aborted the WHOLE import — every master and every voucher — with
+    /// <c>"Import aborted and rolled back (nothing applied): Nullable object must have a value."</c>, because
+    /// <c>ImportPlan</c> fell through to <c>bl.LedgerId!.Value</c>. Omitted in an older document ⇒
+    /// <c>null</c> ⇒ a group or ledger line, so every pre-v67 file still imports exactly as it did.</para>
+    /// </summary>
+    public Guid? CostCentreId { get; init; }
+
     public required string BudgetType { get; init; }       // BudgetType name
     public long AmountPaisa { get; init; }
 }

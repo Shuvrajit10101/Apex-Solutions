@@ -442,6 +442,9 @@ public static class CanonicalXml
         var lines = new XElement("lines");
         foreach (var l in x.Lines)
             lines.Add(new XElement("line", OptId("groupId", l.GroupId), OptId("ledgerId", l.LedgerId),
+                // v67 (census 2.9). Opt, like the other two: a group or ledger line emits no attribute at
+                // all, so a document from a book that budgets no cost centre is byte-identical to a pre-v67 one.
+                OptId("costCentreId", l.CostCentreId),
                 Attr("budgetType", l.BudgetType), Attr("amountPaisa", l.AmountPaisa)));
         el.Add(lines);
         return el;
@@ -1426,6 +1429,7 @@ public static class CanonicalXml
             .Select(l => new BudgetLineDto
             {
                 GroupId = OptGuid(l, "groupId"), LedgerId = OptGuid(l, "ledgerId"),
+                CostCentreId = OptGuid(l, "costCentreId"),   // v67 (census 2.9); absent pre-v67 ⇒ null
                 BudgetType = Str(l, "budgetType")!, AmountPaisa = Long(l, "amountPaisa"),
             }).ToList(),
     };
