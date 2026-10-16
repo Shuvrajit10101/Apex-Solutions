@@ -1191,6 +1191,46 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     public bool IsVoucherNumberEditable => _type.AllowsManualNumberEntry;
 
+    /// <summary>
+    /// 🔴 <b>THE NUMBER THIS SCREEN ACTUALLY POSTS — census 5.10 / T2-131.</b> Every <c>new Voucher(…)</c> on this
+    /// screen's three CREATE paths (plain grid, accounting invoice, item invoice) read <c>number: 0</c> with the
+    /// comment <i>"let the engine assign the automatic number"</i>. But <c>LedgerService.Post</c> numbers only a
+    /// type whose method <see cref="VoucherType.AssignsNumberAutomatically"/> — so on a <b>Manual</b>-numbering
+    /// type nothing numbered the voucher at all: the operator's keyed Voucher No. was <b>discarded</b> and the
+    /// voucher posted as <c>0</c>, invisible in every report because <c>VoucherNumberFormatter.Render</c> returns
+    /// <c>""</c> for <c>&lt;= 0</c>, and therefore invisible to Prevent Duplicates too.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14) — <i>help.tallysolutions.com/use-voucher-numbering-methods/</i>, verbatim:
+    /// Manual is <i>"Select this to manually enter the voucher number in each voucher"</i>, and Automatic (Manual
+    /// Override) is <i>"Select this if you want to automate the number for vouchers, and manually override the
+    /// automated number, if required"</i> — the same page works the override through: a voucher auto-numbered 10
+    /// typed over as 21 leaves <i>"the next prefilled number will be 22"</i>, which our max+1
+    /// <c>NextNumber</c> gives for free ONCE the 21 actually reaches the book.</b></para>
+    ///
+    /// <para>The question asked is the TYPE's own, never a comparison to one member:
+    /// <list type="bullet">
+    ///   <item><b>Manual</b> ⇒ the operator must key it; the engine never numbers it. Pass it.</item>
+    ///   <item><b>Automatic (Manual Override)</b> ⇒ the box is a suggestion they may type over. Pass what is in
+    ///         it; <c>Post</c> leaves a positive number alone.</item>
+    ///   <item><b>Automatic / Multi-user Auto</b> ⇒ the box is read-only. Pass 0 so the engine assigns at POST
+    ///         time rather than this screen's opening preview, which another entry screen in the same session may
+    ///         have overtaken.</item>
+    ///   <item><b>None</b> ⇒ read-only and unnumbered. 0 is the answer.</item>
+    /// </list></para>
+    ///
+    /// <para>🔴 <b>THE <c>&gt; 0</c> IS NOT BELT-AND-BRACES.</b> The typeable control is a plain two-way <c>int</c>
+    /// binding (<c>Views/MainWindow.axaml</c>, the Voucher No. TextBox shown under
+    /// <see cref="IsVoucherNumberEditable"/>), so <c>"-5"</c> is keyable. Passing it through would store a NEGATIVE
+    /// <c>Voucher.Number</c> on the book — a state nothing else in this product can produce and one that renders
+    /// as <c>""</c> everywhere. Clamping sends 0, which under Manual means "unnumbered" (what this screen did
+    /// before the fix) and under Automatic (Manual Override) hands the decision back to the engine.</para>
+    ///
+    /// <para><b>Residual, recorded rather than fixed here</b> (same as the inventory screen): a Manual type whose
+    /// box is cleared still posts unnumbered rather than being refused, and <c>Voucher.Number</c> is an
+    /// <c>int</c>, so the vendor's <i>"anything that you wish"</i> alphanumeric Manual number is still
+    /// unkeepable. Both are named on census 5.10; neither is invented away here.</para>
+    /// </summary>
+    private int NumberToPost => IsVoucherNumberEditable && VoucherNumber > 0 ? VoucherNumber : 0;
 
     /// <summary>
     /// Ctrl+T — marks this voucher <b>post-dated</b> (catalog §8, post-dated cheques): the posted voucher
@@ -5070,7 +5110,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             _type.Id,
             Date,
             entryLines,
-            number: 0, // let the engine assign the automatic number
+            number: NumberToPost, // census 5.10 — the KEYED number on a Manual type; 0 lets the engine assign
             narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
             // Provisional types (Memorandum / Reversing Journal) are off-books by nature; the Optional
             // toggle only applies to real voucher types.
@@ -6403,7 +6443,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             _type.Id,
             Date,
             entryLines,
-            number: 0,
+            number: NumberToPost, // census 5.10 — the KEYED number on a Manual type; 0 lets the engine assign
             narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
             partyId: party.Id,
             optional: IsOptional,
@@ -7232,7 +7272,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             _type.Id,
             Date,
             built.EntryLines,
-            number: 0,
+            number: NumberToPost, // census 5.10 — the KEYED number on a Manual type; 0 lets the engine assign
             narration: string.IsNullOrWhiteSpace(Narration) ? null : Narration.Trim(),
             partyId: built.PartyId,
             optional: IsOptional,
