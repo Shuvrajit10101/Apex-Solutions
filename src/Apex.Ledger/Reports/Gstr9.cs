@@ -144,7 +144,7 @@ public sealed record Gstr9(
 
         // A Composition dealer files 9A (not 9); a GST-off company has nothing to report ⇒ not-applicable (ER-13 auto).
         if (!company.GstEnabled || company.Gst?.RegistrationType == GstRegistrationType.Composition)
-            return NotApplicable(company, fyFrom, fyTo);
+            return NotApplicable(company, fyFrom, fyTo, registrationId);
 
         decimal outC = 0m, outS = 0m, outI = 0m;
         decimal rcmC = 0m, rcmS = 0m, rcmI = 0m, rcmCess = 0m;
@@ -220,7 +220,7 @@ public sealed record Gstr9(
                 h.MixedUnits ? h.BaseUnitId : h.DeclaredUnitId, h.BaseUnitId, h.MixedBases))
             .ToList();
 
-        return new Gstr9(fyFrom, fyTo, true, company.Gst?.Gstin, company.Name)
+        return new Gstr9(fyFrom, fyTo, true, GstinOf(company, registrationId), company.Name)
         {
             Table4Cgst = new Money(outC), Table4Sgst = new Money(outS), Table4Igst = new Money(outI), Table4Cess = Money.Zero,
             Table4RcmCgst = new Money(rcmC), Table4RcmSgst = new Money(rcmS),
@@ -237,8 +237,24 @@ public sealed record Gstr9(
         };
     }
 
-    private static Gstr9 NotApplicable(Company company, DateOnly fyFrom, DateOnly fyTo) =>
-        new(fyFrom, fyTo, false, company.Gst?.Gstin, company.Name);
+    private static Gstr9 NotApplicable(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId) =>
+        new(fyFrom, fyTo, false, GstinOf(company, registrationId), company.Name);
+
+    /// <summary>
+    /// 🔴 <b>The GSTIN this return is FILED UNDER — the registration it was built for, not the company's
+    /// primary.</b> Both constructors above used <c>company.Gst?.Gstin</c>, so every FIGURE was scoped by
+    /// <c>registrationId</c> and the identity above them was the head office's: a branch's annual return
+    /// carried the wrong taxpayer's GSTIN. CGST §25(4) makes each registration a distinct person and §44 puts
+    /// the annual-return obligation on "every registered person", so the figures and the GSTIN have to name the
+    /// same one.
+    /// <para>Resolved through <see cref="GstConfig.FindRegistration"/>, which already normalises <c>null</c> and
+    /// <see cref="GstRegistration.PrimaryId"/> to the primary — so a single-registration book resolves to the
+    /// primary, whose <c>Gstin</c> IS <c>company.Gst.Gstin</c>, and is byte-identical (ER-13). Falls back to the
+    /// company GSTIN when the id names no registration this company holds, which is the previous behaviour and
+    /// the only answer available.</para>
+    /// </summary>
+    internal static string? GstinOf(Company company, Guid? registrationId) =>
+        company.Gst?.FindRegistration(registrationId)?.Gstin ?? company.Gst?.Gstin;
 
     /// <summary>The FY's period sub-windows — 12 calendar months (or 4 quarters for a QRMP <c>Quarterly</c> filer) — over
     /// which GSTR-3B / GSTR-1 are built and their already-rounded figures summed (fact 1). The windows tile the FY exactly.</summary>
