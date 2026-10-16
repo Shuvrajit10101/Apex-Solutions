@@ -402,10 +402,21 @@ public sealed class CostCentreViewModelTests : IDisposable
         // ZERO production callers, and is cited by name in seven source comments as this repository's canonical
         // example of unreachable delivered code. Adding it here is the fix; this exact ORDERED list is what
         // stops it quietly disappearing again.
+        //
+        // 🔴 WAVE 46 (census 11.10 again): FOUR rows now. "Cost Centre Monthly Summary" is the level the census
+        // recorded as absent "because that primitive does not exist (T1-32)", and it is vendor-attested on the
+        // same page as the three above it — "You can view the monthly breakup of income and expense details
+        // along with the closing balance for the selected Cost Centre"
+        // (help.tallysolutions.com/tally-prime/financial-controlling/cost-centre-or-profit-centre-tally/,
+        // opened by content 2026-10-13). The expected list is EXTENDED rather than loosened: this assertion's
+        // whole value is that it is an exact ordered list, so a row cannot appear or vanish unnoticed, and
+        // relaxing it to a Contains() to accommodate a new row would throw that away.
         vm.ShowCostCentresMenu();
         Assert.Equal(GatewayMenu.CostCentres, vm.CurrentGatewayMenu);
         var costLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        Assert.Equal(new[] { "Category Summary", "Cost Centre Break-up", "Ledger Break-up" }, costLabels);
+        Assert.Equal(
+            new[] { "Category Summary", "Cost Centre Break-up", "Ledger Break-up", "Cost Centre Monthly Summary" },
+            costLabels);
         Assert.All(vm.Menu.Where(m => m.IsSelectable), m => Assert.True(m.IsSubItem));
 
         // Drilling into "Category Summary" (the highlighted first item) adds exactly ONE page column.
