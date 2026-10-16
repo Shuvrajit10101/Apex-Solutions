@@ -4028,7 +4028,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
     below was being made against. `Company.State` (`src/Apex.Ledger/Domain/Company.cs:85`) **and `Company.Pin`
     are read and written by the canonical XML/JSON export–import round-trip** — `CanonicalMapper.cs:66-67`,
-    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1026-1027` (read), `ImportPlan.cs:1213-1214` (assign) — and
+    `CanonicalXml.cs:55` (write), `CanonicalXml.cs:1026-1027` (read), `ImportPlan.cs:1216-1217` *(re-pointed 2026-10-16 from ~~`:1213-1214`~~, v67 census 2.7 added the cost-category alias to the import construction above it; the cited code is unchanged, only its line number moved)* (assign) — and
     `CanonicalRoundTripTests.cs:259` has asserted it all along. The accurate claim is narrow and entirely about
     printing: **no PRINT path reads `Company.State`.** Every book imported from canonical XML carries real
     values in that column.

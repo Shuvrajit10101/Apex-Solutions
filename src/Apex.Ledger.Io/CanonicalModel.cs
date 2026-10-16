@@ -1125,6 +1125,16 @@ public sealed record CostCategoryDto
     public bool AllocateRevenueItems { get; init; }
     public bool AllocateNonRevenueItems { get; init; }
     public bool IsPredefined { get; init; }
+
+    /// <summary>
+    /// v67 (census 2.7): the vendor-attested category alias. 🔴 <b>ADDED BECAUSE THE DTO WAS THE SAME
+    /// ASYMMETRY ONE LAYER UP.</b> <see cref="CostCentreDto.Alias"/> has always carried one and this did
+    /// not, so an export → import round-trip would have SILENTLY DROPPED a category alias the master screen
+    /// had just accepted — the storage gap closed and the transport gap left open, which is the shape of an
+    /// overstated closure. Omitted in an older document ⇒ <c>null</c> ⇒ no alias, so every pre-v67 file
+    /// still imports exactly as it did.
+    /// </summary>
+    public string? Alias { get; init; }
 }
 
 public sealed record CostCentreDto

@@ -293,7 +293,10 @@ internal sealed class ImportPlan
                 continue;
             }
             var domain = new CostCategory(Guid.NewGuid(), cc.Name, cc.AllocateRevenueItems,
-                cc.AllocateNonRevenueItems, isPredefined: false);
+                cc.AllocateNonRevenueItems, isPredefined: false)
+            {
+                Alias = cc.Alias,   // v67 (census 2.7); null in a pre-v67 document
+            };
             t.AddCostCategory(domain);
             journal.RecordCostCategory(domain);
             costCategoryId[cc.Id] = domain.Id;

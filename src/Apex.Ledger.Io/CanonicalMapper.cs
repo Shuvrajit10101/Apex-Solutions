@@ -457,6 +457,7 @@ public static class CanonicalMapper
     {
         Id = x.Id, Name = x.Name, AllocateRevenueItems = x.AllocateRevenueItems,
         AllocateNonRevenueItems = x.AllocateNonRevenueItems, IsPredefined = x.IsPredefined,
+        Alias = x.Alias,   // v67 (census 2.7)
     };
 
     private static CostCentreDto MapCostCentre(CostCentre x) => new()
