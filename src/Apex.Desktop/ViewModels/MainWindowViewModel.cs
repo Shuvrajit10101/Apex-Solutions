@@ -194,8 +194,18 @@ public enum Screen
     LedgerMaster,
     AccountGroupMaster,
 
-    /// <summary>W2-20 (census 2.12) — the Multi Ledger / Multi Group grid-entry creation screen.</summary>
+    /// <summary>
+    /// W2-20 / WBB-1 (census 2.12, and the multi-stock-item clause of 3.3) — the Multi Masters grid, for all five
+    /// built families and BOTH verbs. The id is still named <c>…Create</c> for history; the open grid's
+    /// <see cref="MultiMasterCreateViewModel.Mode"/> is what says which verb it is running.
+    /// </summary>
     MultiMasterCreate,
+
+    /// <summary>
+    /// WBB-1 (census 2.12) — the <b>Alt+H (Multi-Masters)</b> column opened from the Chart of Accounts, offering
+    /// the vendor's two verbs (<i>Multi Create</i> / <i>Multi Alter</i>) over each built family.
+    /// </summary>
+    MultiMastersMenu,
 
     ChartOfAccounts,
     Outstandings,
@@ -1931,12 +1941,34 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // switch one back on.
         col.Add(new MenuItemViewModel("Voucher Type", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
-        // W2-20 (census 2.12) — Multi Masters. The vendor reaches these with Alt+H from the Chart of Accounts;
-        // here they are nested under their own section of the Create column so they are reachable by the same
-        // arrows-and-Enter cascade as every other master, never as a hidden chord (UI contract).
+        // W2-20 / WBB-1 (census 2.12) — Multi Masters. The vendor reaches these with Alt+H from the Chart of
+        // Accounts — a chord NOW BOUND, see OpenMultiMasters — and they are ALSO nested under their own section of
+        // the Create column so they stay reachable by the same arrows-and-Enter cascade as every other master,
+        // never ONLY as a chord (UI contract). The Alter side of the family lives on the Alt+H column, because a
+        // column headed "Create" must not offer an alteration.
+        //
+        // 🔴 These are the CREATE grids for five of the families the vendor documents. The count "two of the
+        // vendor's six" in census row 2.12 is an uncited internal number — the vendor page closes its list with
+        // "and so on" — and MultiMasterKind carries the per-family citations. Employees and Employee Groups are
+        // attested and deliberately absent: Area 7 is out of scope by user rulings 29+30.
+        //
+        // 🔴 NO SHORTCUT HINT ON THESE ROWS, and the omission is deliberate. "Multi Ledger" used to advertise
+        // "Alt+H". The chord is real but it is SCOPED to the Chart of Accounts — OpenMultiMasters early-returns
+        // unless IsChartOfAccountsScreen, and the Key.H arm in MainWindow.axaml.cs tests the same flag — so it
+        // is inert on every screen that shows this column, which is the only place the hint was ever displayed.
+        // And even where it does fire it opens the Multi Masters MENU, not Multi Ledger Creation. A hint for a
+        // chord that does nothing here, to a destination that is not this row, is worse than no hint: contrast
+        // the "Ledger / Alt+C" row above, whose arm is global and whose destination is that very master.
         col.Add(MenuItemViewModel.Header("Multi Masters"));
         col.Add(new MenuItemViewModel("Multi Ledger", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Multi Group", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Multi Stock Item", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Multi Godown", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // The cost family goes with the F11 flag, exactly as the single-master Cost section below does — a row
+        // that opens a grid of cost centres is meaningless in a company that has no cost centres.
+        if (CostCentresFeatureOn)
+            col.Add(new MenuItemViewModel("Multi Cost Centre", () => { }, "", isSubItem: true,
+                kind: MenuItemKind.Page));
 
         // F11 → Accounting → "Enable Cost Centres" (census row 1.7). The whole Cost Masters SECTION goes with
         // the flag — the header too, because a section heading standing over nothing is the kind of empty
@@ -6696,18 +6728,122 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// one screen per ledger. See <see cref="MultiMasterCreateViewModel"/> for the vendor grounding and for the
     /// two divergences labelled as ours.
     /// </summary>
-    public void ShowMultiLedgerCreate() => ShowMultiMasterCreate(MultiMasterKind.Ledger);
+    public void ShowMultiLedgerCreate() => ShowMultiMaster(MultiMasterKind.Ledger, MultiMasterMode.Create);
 
     /// <summary>W2-20 — opens the <b>Multi Group Creation</b> grid (Masters → Create → Multi Masters → Multi Group).</summary>
-    public void ShowMultiGroupCreate() => ShowMultiMasterCreate(MultiMasterKind.AccountGroup);
+    public void ShowMultiGroupCreate() => ShowMultiMaster(MultiMasterKind.AccountGroup, MultiMasterMode.Create);
 
-    private void ShowMultiMasterCreate(MultiMasterKind kind)
+    /// <summary>
+    /// WBB-1 (the multi-stock-item clause of census row 3.3) — opens the <b>Multi Stock Item Creation</b> grid.
+    /// The vendor's own screen name, quoted on <see cref="MultiMasterKind"/>.
+    /// </summary>
+    public void ShowMultiStockItemCreate() => ShowMultiMaster(MultiMasterKind.StockItem, MultiMasterMode.Create);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Godown Creation</b> grid.</summary>
+    public void ShowMultiGodownCreate() => ShowMultiMaster(MultiMasterKind.Godown, MultiMasterMode.Create);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Cost Centre Creation</b> grid.</summary>
+    public void ShowMultiCostCentreCreate() => ShowMultiMaster(MultiMasterKind.CostCentre, MultiMasterMode.Create);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Ledger Alteration</b> grid.</summary>
+    public void ShowMultiLedgerAlter() => ShowMultiMaster(MultiMasterKind.Ledger, MultiMasterMode.Alter);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Group Alteration</b> grid.</summary>
+    public void ShowMultiGroupAlter() => ShowMultiMaster(MultiMasterKind.AccountGroup, MultiMasterMode.Alter);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Stock Item Alteration</b> grid.</summary>
+    public void ShowMultiStockItemAlter() => ShowMultiMaster(MultiMasterKind.StockItem, MultiMasterMode.Alter);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Godown Alteration</b> grid.</summary>
+    public void ShowMultiGodownAlter() => ShowMultiMaster(MultiMasterKind.Godown, MultiMasterMode.Alter);
+
+    /// <summary>WBB-1 (census 2.12) — opens the <b>Multi Cost Centre Alteration</b> grid.</summary>
+    public void ShowMultiCostCentreAlter() => ShowMultiMaster(MultiMasterKind.CostCentre, MultiMasterMode.Alter);
+
+    /// <summary>
+    /// Opens one Multi Masters grid in a new cascade column.
+    ///
+    /// <para>The tree INSTANCE is captured and refreshed, the same shape <see cref="ShowLedgerAlter"/> and
+    /// <see cref="ShowAccountGroupAlter"/> use. <c>ChartOfAccounts</c> is read into a local BEFORE
+    /// <c>OpenPageColumn</c>, which runs <c>ClearSubScreens</c> and nulls the property; a
+    /// <c>() =&gt; ChartOfAccounts?.Refresh()</c> closure would silently never fire. It is null when the grid was
+    /// opened from the Create cascade instead, and the null-conditional makes that the no-op it should be.</para>
+    ///
+    /// <para>🔴 <b>AND THE REPORTED SYMPTOM THIS REPLACED <c>onChanged: () =&gt; { }</c> FOR DOES NOT ACTUALLY
+    /// REPRODUCE — measured, and recorded here rather than claimed as a fix.</b> A wave-1 review read this as a
+    /// live defect: escape back from the grid to a Chart of Accounts still showing the OLD names, "which reads
+    /// as a failed save". It cannot happen on the current column model. <c>OpenPageColumn</c> keeps <b>at most
+    /// one page column, always the rightmost</b>, and the Chart of Accounts IS a page column — so opening this
+    /// grid trims it away entirely rather than leaving it beneath. Escape therefore returns to the root menu,
+    /// not to a stale tree, and the next Chart of Accounts is a fresh view model read off the live company.
+    /// Proved by mutation: reverting this argument to <c>() =&gt; { }</c> leaves
+    /// <c>MultiMasterAlterRollbackTests</c> wholly green. The wiring is kept because it matches the two sibling
+    /// routes exactly and is the right behaviour the moment a page column is ever allowed to survive beneath
+    /// another — but it is <b>consistency, not a repaired defect</b>, and saying otherwise would be the kind of
+    /// overstated closure this project has had to strike before.</para>
+    /// </summary>
+    private void ShowMultiMaster(MultiMasterKind kind, MultiMasterMode mode)
     {
         if (Company is null) return;
 
-        var grid = new MultiMasterCreateViewModel(kind, Company, _storage, onChanged: () => { });
+        var tree = ChartOfAccounts;
+        var grid = new MultiMasterCreateViewModel(
+            kind, mode, Company, _storage, onChanged: () => tree?.Refresh());
         OpenPageColumn(new GatewayColumn(grid.Title, grid), Screen.MultiMasterCreate,
             grid.Title, () => MultiMasterCreate = grid);
+    }
+
+    /// <summary>
+    /// 🔴 <b>Alt+H — Multi-Masters</b>, the vendor's own door, which this application left unbound.
+    ///
+    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/tally-prime/charts-of-accounts-tally/</c>: "<i>press
+    /// <b>Alt+H</b> (Multi-Masters) &gt; <b>Multi Create</b> and press <b>Enter</b></i>", and "<i>press <b>Alt+H</b>
+    /// (Multi-Masters) &gt; <b>Multi Alter</b> &gt; press <b>Enter</b></i>". The godowns page uses the identical
+    /// wording from the same screen. Census row 2.12 recorded the chord as unbound and it was: the only
+    /// <c>Key.H</c> arms in the shell were Ctrl+H change-mode.</para>
+    ///
+    /// <para><b>Scoped to the Chart of Accounts</b> — the one screen the vendor documents it on — and a quiet
+    /// no-op everywhere else, exactly like <see cref="OpenExceptionReports"/>. Opening the grids stays possible
+    /// through the Create cascade too, so the chord ADDS the vendor's route rather than replacing ours.</para>
+    ///
+    /// <para><b>Our divergence, labelled:</b> the vendor's menu offers two rows and takes the master FAMILY from
+    /// whichever Chart of Accounts the operator is standing in. Our Chart of Accounts is one accounting tree
+    /// holding groups and ledgers together, so there is no single family to infer — the column therefore names the
+    /// family on every row, under a header per verb. Payroll families (Employees, Employee Groups) are attested on
+    /// the vendor's page and deliberately absent: Area 7 is out of scope by user rulings 29+30.</para>
+    /// </summary>
+    public void OpenMultiMasters()
+    {
+        if (!IsChartOfAccountsScreen) return;
+        if (CurrentScreen == Screen.MultiMastersMenu) return;   // a re-press must not stack a second column
+
+        var column = new GatewayColumn("Multi Masters");
+
+        column.Add(MenuItemViewModel.Header("Multi Create"));
+        column.Add(Row("Multi Ledger Creation", ShowMultiLedgerCreate));
+        column.Add(Row("Multi Group Creation", ShowMultiGroupCreate));
+        column.Add(Row("Multi Stock Item Creation", ShowMultiStockItemCreate));
+        column.Add(Row("Multi Godown Creation", ShowMultiGodownCreate));
+        if (CostCentresFeatureOn) column.Add(Row("Multi Cost Centre Creation", ShowMultiCostCentreCreate));
+
+        column.Add(MenuItemViewModel.Header("Multi Alter"));
+        column.Add(Row("Multi Ledger Alteration", ShowMultiLedgerAlter));
+        column.Add(Row("Multi Group Alteration", ShowMultiGroupAlter));
+        column.Add(Row("Multi Stock Item Alteration", ShowMultiStockItemAlter));
+        column.Add(Row("Multi Godown Alteration", ShowMultiGodownAlter));
+        if (CostCentresFeatureOn) column.Add(Row("Multi Cost Centre Alteration", ShowMultiCostCentreAlter));
+
+        PushMenuColumn(column, Screen.MultiMastersMenu);
+
+        // Each row POPS this menu before opening its grid, for the reason PopMenuColumn documents: the grid is
+        // opened by OpenPageColumn, which binds the page to the TOP column, and leaving the menu on top would
+        // bind it under a spent column the operator can never get back to.
+        MenuItemViewModel Row(string label, Action open) => new(
+            label,
+            () => { PopMenuColumn(Screen.MultiMastersMenu); open(); },
+            string.Empty,
+            isSubItem: true,
+            kind: MenuItemKind.Action);
     }
 
     // =============================================================== screen: chart of accounts
@@ -10850,9 +10986,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.CreateCompany or Screen.AlterCompany => "Company",
         Screen.LedgerMaster => "Ledger",
         Screen.AccountGroupMaster => "Group",
-        Screen.MultiMasterCreate => MultiMasterCreate?.Kind == MultiMasterKind.AccountGroup
-            ? "these Groups"
-            : "these Ledgers",
+        // WBB-1: the noun follows the open grid's FAMILY, so the accept prompt cannot name ledgers over a grid of
+        // godowns. It deliberately does not name the verb — the prompt is "Accept?", and the button beside it
+        // carries MultiMasterCreateViewModel.CommitLabel, which does.
+        Screen.MultiMasterCreate => MultiMasterCreate?.Kind switch
+        {
+            MultiMasterKind.AccountGroup => "these Groups",
+            MultiMasterKind.StockItem => "these Stock Items",
+            MultiMasterKind.Godown => "these Godowns",
+            MultiMasterKind.CostCentre => "these Cost Centres",
+            _ => "these Ledgers",
+        },
         Screen.CostCategoryMaster => "Cost Category",
         Screen.CostCentreMaster => "Cost Centre",
         Screen.BudgetMaster => "Budget",
@@ -13122,6 +13266,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // W2-20 (census 2.12) — the two multi-master grids.
             case "Multi Ledger": ShowMultiLedgerCreate(); break;
             case "Multi Group": ShowMultiGroupCreate(); break;
+            case "Multi Stock Item": ShowMultiStockItemCreate(); break;
+            case "Multi Godown": ShowMultiGodownCreate(); break;
+            case "Multi Cost Centre": ShowMultiCostCentreCreate(); break;
             case "Cost Category": ShowCostCategoryMaster(); break;
             case "Cost Centre": ShowCostCentreMaster(); break;
             case "Stock Group": ShowStockGroupMaster(); break;

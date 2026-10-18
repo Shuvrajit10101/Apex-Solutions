@@ -149,14 +149,14 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         var m = vm.MultiMasterCreate!;
 
         Assert.Equal("All Items", m.SelectedUnderGroup!.Display);
-        Assert.Null(m.SelectedUnderGroup.Group);
+        Assert.Null(m.SelectedUnderGroup.Parent);
         Assert.True(m.IsAllItems);
         Assert.Single(m.Rows);
         Assert.Equal(string.Empty, m.Rows[0].Name);
 
         // "All Items" is the FIRST option and every company group follows it.
         Assert.Equal("All Items", m.UnderGroupOptions[0].Display);
-        Assert.Contains(m.UnderGroupOptions, o => o.Group?.Name == "Sundry Debtors");
+        Assert.Contains(m.UnderGroupOptions, o => o.Parent?.Name == "Sundry Debtors");
     }
 
     /// <summary>Typing into the last row appends a fresh blank one — the grid grows as the operator types.</summary>
@@ -189,7 +189,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         vm.ShowMultiLedgerCreate();
         var m = vm.MultiMasterCreate!;
 
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
         Assert.False(m.IsAllItems);
 
         TypeRow(m, 0, "Acme Traders", opening: "41237.53");
@@ -279,7 +279,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
 
         vm.ShowMultiLedgerCreate();
         var m = vm.MultiMasterCreate!;
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
 
         TypeRow(m, 0, "Hotel Ledger");
         TypeRow(m, 1, "Cash");                                    // already exists
@@ -312,7 +312,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         var vm = NewSeededCompany("Multi Dup Co");
         vm.ShowMultiLedgerCreate();
         var m = vm.MultiMasterCreate!;
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
 
         TypeRow(m, 0, "Juliet Ltd");
         TypeRow(m, 1, "juliet ltd");                              // same name, different case
@@ -334,7 +334,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         var vm = NewSeededCompany("Multi Severity Co");
         vm.ShowMultiLedgerCreate();
         var m = vm.MultiMasterCreate!;
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
 
         // --- a refusal is an error and shows on the error line only.
         TypeRow(m, 0, "Sierra Ltd", opening: "1.005");
@@ -374,7 +374,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         var vm = NewSeededCompany("Multi Paisa Co");
         vm.ShowMultiLedgerCreate();
         var m = vm.MultiMasterCreate!;
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
 
         TypeRow(m, 0, "Kilo Ltd", opening: "1234.567");
 
@@ -392,7 +392,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         var vm = NewSeededCompany("Multi Side Co");
         vm.ShowMultiLedgerCreate();
         var m = vm.MultiMasterCreate!;
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
 
         TypeRow(m, 0, "Lima Ltd", opening: "500", credit: true);
         Assert.True(m.Accept(), m.Message);
@@ -417,7 +417,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         var m = vm.MultiMasterCreate!;
 
         Assert.False(m.ShowsOpeningBalance);
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Current Liabilities");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Current Liabilities");
 
         TypeRow(m, 0, "Salary Payable");
         TypeRow(m, 1, "Bonus Payable");
@@ -457,7 +457,7 @@ public sealed class MultiMasterCreateViewModelTests : IDisposable
         Assert.Equal(Screen.MultiMasterCreate, vm.CurrentScreen);
 
         var m = vm.MultiMasterCreate!;
-        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+        m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
         TypeRow(m, 0, "Mike Ltd");
         TypeRow(m, 1, "November Ltd");
 
