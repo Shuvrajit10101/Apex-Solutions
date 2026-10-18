@@ -2166,6 +2166,43 @@ vendor's **SIX** families"* — has **no source behind the number six**. A regis
 
 ---
 
+### IV-92 · 🔴 ADDED 2026-10-18 — a **MIS-CITED** divergence: the Sales-ledger hiding rule is TWO INDEPENDENT conditions, and on condition (1) **we MATCH**
+
+| | |
+|---|---|
+| **Severity** | The mis-citation is **MEDIUM** — it sat in shipped source and in the view, and it described our behaviour as wrong in the **opposite direction** to the truth. The residual divergence is **LOW** and open. Census row **2.6**. |
+| **What was claimed in our own source** | `VoucherEntryViewModel.VoucherClass.cs` stated the vendor's rule was *"CONDITIONAL on two things, not one: … a voucher class … **AND** if F12 > 'Select common ledger account for Item allocation' is set to **No**"*, and concluded that `ShowStockLedgerPicker` is *"a NARROWER rule than the vendor's"* — i.e. that we **over-hide** the field. `MainWindow.axaml` repeated it. |
+| **What the vendor actually publishes** | **[web]** `help.tallysolutions.com/accounting-faq/`, re-fetched by content 2026-10-18. A lead-in, *"The field to select the Sales ledger is not available, if:"*, followed by a **numbered list of two items** — (1) *"You have selected a voucher class to automate the sales details."* (2) *"F12 (Configure) > Select common ledger account for Item allocation is set to No."* **There is no "and" and no "or" on the page.** Two numbered items under "not available if" are two independent sufficient conditions. |
+| **What that makes true** | On condition (1) **we match exactly** — we are not narrower there and we do not over-hide. `ClassSuppliesValueLedgers` tests `LedgerAllocations.Count > 0`, which is the right reading of *"to automate the sales details"*: the vendor's own round-off class (`round-off-invoice-and-ledger-values/`) carries an Additional Accounting Entry and **no** Default Accounting Allocation, automates no sales detail, and must keep the field. Pinned by `A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_field_survives`. |
+| **What remains ours** | Condition (2) is unmodelled: we never hide the field for the F12 flag alone. **Recorded as OURS, labelled, and deliberately NOT closed this wave** — see IV-93. |
+| **Fix** | Mis-citation corrected in place in both files 2026-10-18, with the struck text kept visible. The residual gap is IV-93's. |
+
+---
+
+### IV-93 · 🔴 ADDED 2026-10-18 — **"Select common ledger account for Item allocation" is not a flag we may ship alone**: it needs per-item accounting allocation, which does not exist here
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM**, open, and deliberately left open. Census row **2.6**, third clause. |
+| **What TallyPrime documents** | **[web]** `help.tallysolutions.com/accounting-faq/` names `F12 (Configure) > Select common ledger account for Item allocation` and states that setting it to **No** makes the common Sales-ledger field unavailable. The vendor's alternative is per-item ledger selection — the Accounting Details the item line then carries. |
+| **What we ship** | Nothing for it. Every item invoice in this product resolves **exactly one** value ledger (`SelectedStockLedger`, or the class's `LedgerAllocations`). A grep for a per-item accounting allocation over `src/` returns nothing. |
+| 🔴 **Why the flag was NOT added** | Adding the switch alone would hide a **required** field and offer no substitute: the invoice would have no value leg and no field left to name one with. That is the unreachable-capability defect this project has shipped before, dressed as a closure. The honest state is an open divergence. |
+| **Fix** | Build per-item accounting allocation first (its own row of work), then the F12 switch becomes a two-line gate on top of it. Until then the field is always offered, which is the vendor's behaviour whenever condition (2) does not hold and is never wrong money. |
+
+---
+
+### IV-94 · 🔴 ADDED 2026-10-18 — a voucher class on an **accounting (service) invoice**: no TallyPrime source speaks, so the item-invoice gate is **ours**
+
+| | |
+|---|---|
+| **Severity** | **LOW–MEDIUM**, open. Census row **2.6**, second clause. |
+| **What we ship** | `ActiveVoucherClass => IsItemInvoice ? SelectedVoucherClass?.Class : null`. A class is therefore unreachable on an accounting invoice; `AcceptAccountingInvoice` is a separate path that never consults one. |
+| **What TallyPrime documents** | **Nothing, either way — searched by content and stated as a finding.** `voucher-types-tally/` (the product's own Voucher Class page), `accounting-faq/`, `accounting-entry-tally/` and `round-off-invoice-and-ledger-values/` were each opened; none mentions a voucher class on an accounting / service invoice, and none restricts a class to item invoices. The round-off page says only to *"enter the sales details"*. |
+| 🔴 **What must NOT be cited for it** | The pages that **do** document a class in accounting-invoice mode are **Tally.ERP 9** — `docs/te9rel60|63|64/Tax_India/Service_tax/Voucher_Class_for_Sales_Accounting_Invoice.htm` and `article/Tally.ERP9/…`. Under ruling 14 ERP-9 is not ground truth for this clone, and those pages must not be used to justify building the path. |
+| **Fix** | None taken. Lifting the gate would let a class post money on a screen no TallyPrime page says it governs. Settle the vendor's behaviour by observation first; the gate is then either confirmed or a two-line change. |
+
+---
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

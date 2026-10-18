@@ -596,6 +596,110 @@ public sealed class VoucherClassPostedLegsTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>THE WHOLE CLASS — SPLIT, PER-UNIT FREIGHT AND A <i>SIDE-FLIPPED</i> ROUND-OFF — OFF THE RELOADED
+    /// BOOK.</b> <see cref="The_classes_legs_survive_a_reload"/> reloads only the two-ledger allocation split.
+    /// That leaves the one leg whose storage is genuinely lossy unproven across SQLite: the negative round-off.
+    /// <see cref="VoucherClassLeg.ToEntryLine"/> cannot store a negative magnitude, so it carries the sign <b>in
+    /// the side</b> — a credit-natured sale's (-)0.50 is written as a DEBIT of 0.50. A side is one column; a
+    /// round-trip that dropped or inverted it would still reload a voucher with the right ledgers and the right
+    /// absolute figures, and every existing reload assertion would stay green while the customer's balance moved
+    /// by twice the rounding. So this asserts the amount <i>and</i> the side of all four class legs, plus the
+    /// party leg, on a company <b>loaded back from its <c>.db</c></b> rather than on the live graph.
+    ///
+    /// <para><b>The arithmetic, so a later reader can check it rather than trust it.</b> 7 Nos × ₹100.00 =
+    /// ₹700.00 of item value, split 75/25 → ₹525.00 Domestic + ₹175.00 Export (the last share is the remainder).
+    /// Freight at ₹12.50 per base unit × 7 = ₹87.50. Running total ₹787.50; downward rounding at a limit of ₹1
+    /// snaps it to ₹787.00, so the round-off is (-)₹0.50 and posts as a ₹0.50 <b>debit</b>. The customer is
+    /// billed the rounded ₹787.00. Dr 787.00 + 0.50 = Cr 525.00 + 175.00 + 87.50 = ₹787.50.</para>
+    /// </summary>
+    [Fact]
+    public void Every_class_leg_including_the_side_flipped_round_off_reads_back_off_the_reloaded_book()
+    {
+        var k = NewKit("Class Full Reload Co");
+        var cls = DefineClass(k, "Retail");
+        Allocate(k, cls, k.SalesLedgerId, 7_500);
+        Allocate(k, cls, k.ExportSalesId, 2_500);
+        AddEntry(k, cls, k.FreightId,
+            VoucherClassCalculationType.BasedOnQuantity, Money.FromRupees(12.50m),
+            VoucherClassRoundingMethod.NotApplicable, Money.Zero);
+        AddEntry(k, cls, k.RoundOffId,
+            VoucherClassCalculationType.AsTotalAmountRounding, Money.Zero,
+            VoucherClassRoundingMethod.Downward, Money.FromRupees(1m));
+
+        var entry = OpenInvoice(k, qty: 7m, rate: "100.00", className: "Retail");
+        Assert.True(entry.Accept(), entry.Message);
+
+        // 🔴 RELOADED FROM THE .db — not the in-memory book Accept() just wrote to.
+        var reloaded = _storage.Load(_storage.ListCompanies().Single(e => e.Name == k.CompanyName));
+        var type = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive);
+        var v = reloaded.Vouchers.Single(x => x.TypeId == type.Id);
+
+        Assert.Equal(525.00m, Leg(v, k.SalesLedgerId, DrCr.Credit));
+        Assert.Equal(175.00m, Leg(v, k.ExportSalesId, DrCr.Credit));
+        Assert.Equal(87.50m, Leg(v, k.FreightId, DrCr.Credit));
+
+        // The side-flip itself: the round-off is a DEBIT of 0.50 and there is no credit half of it.
+        Assert.Equal(0.50m, Leg(v, k.RoundOffId, DrCr.Debit));
+        Assert.Equal(0m, Leg(v, k.RoundOffId, DrCr.Credit));
+
+        // The figure the customer is asked to pay is the ROUNDED one.
+        Assert.Equal(787.00m, Leg(v, k.CustomerId, DrCr.Debit));
+        Assert.Equal(0m, Leg(v, k.CustomerId, DrCr.Credit));
+
+        // 🔴 A class may never post a voucher that does not balance — asserted on the RELOADED voucher, and
+        // against an explicit figure as well as against itself, so a round-trip that lost the same amount from
+        // both sides could not pass by symmetry.
+        Assert.Equal(787.50m, v.TotalDebit.Amount);
+        Assert.Equal(787.50m, v.TotalCredit.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE VENDOR'S OWN ROUND-OFF CLASS MUST KEEP THE SALES-LEDGER FIELD, AND THIS IS THE TEST THAT SAYS
+    /// SO.</b> <c>help.tallysolutions.com/accounting-faq/</c> lists, under <i>"The field to select the Sales
+    /// ledger is not available, if:"</i>, two NUMBERED conditions, the first being <i>"You have selected a
+    /// voucher class to automate the sales details."</i> — <b>not</b> "a voucher class is selected".
+    /// <c>help.tallysolutions.com/round-off-invoice-and-ledger-values/</c> builds a class that carries one
+    /// <i>Additional Accounting Entry</i> (the round-off) and <b>no</b> Default Accounting Allocation. Such a
+    /// class automates nothing about the sales details, so the operator still names the value ledger themselves.
+    ///
+    /// <para><b>Why this is worth a test rather than a comment.</b> <see cref="VoucherEntryViewModel"/> gates the
+    /// field on <c>ClassSuppliesValueLedgers</c>, which tests <c>LedgerAllocations.Count &gt; 0</c>. That reads
+    /// like a fussy detail and invites "simplification" to <c>ActiveVoucherClass is not null</c>. Make that
+    /// change and the vendor's documented round-off class takes the value-ledger field off the screen while
+    /// supplying no ledger of its own — the invoice loses its value leg entirely and the operator has no field
+    /// left to fix it with. Asserting the posted legs here, not just the gate, is what catches that.</para>
+    /// </summary>
+    [Fact]
+    public void A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_field_survives()
+    {
+        var k = NewKit("Class Round Off Only Co");
+        var cls = DefineClass(k, "Round Off Only");
+        AddEntry(k, cls, k.RoundOffId,
+            VoucherClassCalculationType.AsTotalAmountRounding, Money.Zero,
+            VoucherClassRoundingMethod.Downward, Money.FromRupees(1m));
+
+        var entry = OpenInvoice(k, qty: 1m, rate: "1000.60", className: "Round Off Only");
+
+        // The class is in force, yet it supplies no value ledger — so the field stays, and stays usable.
+        Assert.NotNull(entry.ActiveVoucherClass);
+        Assert.False(entry.ClassSuppliesValueLedgers);
+        Assert.True(entry.ShowStockLedgerPicker);
+
+        entry.SelectedStockLedger = entry.StockLedgers.Single(l => l.Id == k.SalesLedgerId);
+        Assert.True(entry.Accept(), entry.Message);
+
+        var reloaded = _storage.Load(_storage.ListCompanies().Single(e => e.Name == k.CompanyName));
+        var type = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Sales && t.IsActive);
+        var v = reloaded.Vouchers.Single(x => x.TypeId == type.Id);
+
+        // The value leg came from the field the operator kept — proof the field was not merely visible but live.
+        Assert.Equal(1_000.60m, Leg(v, k.SalesLedgerId, DrCr.Credit));
+        Assert.Equal(0.60m, Leg(v, k.RoundOffId, DrCr.Debit));
+        Assert.Equal(1_000.00m, Leg(v, k.CustomerId, DrCr.Debit));
+        Assert.Equal(v.TotalDebit.Amount, v.TotalCredit.Amount);
+    }
+
+    /// <summary>
     /// 🔴 <b>LEAVING ITEM-INVOICE MODE MUST PUT THE VALUE-LEDGER FIELD BACK.</b> The class hides that field; a
     /// Ctrl+H out of the mode leaves a plain Dr/Cr grid that no class governs, and a field still hidden there
     /// would be unreachable with no way to name the value leg.
