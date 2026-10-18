@@ -2099,7 +2099,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 
 ---
 
-### IV-92 · The **Default bank** picker is scoped to **bank ledgers**, by OUR predicate — the vendor says "a bank" and nothing more
+### IV-96 · The **Default bank** picker is scoped to **bank ledgers**, by OUR predicate — the vendor says "a bank" and nothing more
 
 | | |
 |---|---|
@@ -2111,7 +2111,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 
 ---
 
-### IV-93 · 🔴 **NOT A DIVERGENCE — A DEFECT, FOUND AND FIXED HERE: v67's Default bank made a book PERMANENTLY UNSAVABLE on the second save**
+### IV-97 · 🔴 **NOT A DIVERGENCE — A DEFECT, FOUND AND FIXED HERE: v67's Default bank made a book PERMANENTLY UNSAVABLE on the second save**
 
 | | |
 |---|---|
@@ -2123,13 +2123,13 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 
 ---
 
-### IV-94 · **18 of the 22 v67 fields never reach the canonical transport** — Export → Import silently drops them
+### IV-98 · **20 of the 22 v67 fields never reach the canonical transport** — Export → Import silently drops them
 
 | | |
 |---|---|
 | **Severity** | **LOW-MEDIUM. Silent data loss on a user-reachable Export/Import pair.** It cannot crash and it is not a regression, but a book exported and re-imported comes back missing elections the operator made. **Filed here because it was NOT filed anywhere — that omission is the defect this register exists to catch.** |
 | **What TallyPrime does** | Not the question. This is our own transport completeness, not a fidelity claim. |
-| **What we ship** | Of v67's five rows, only the **cost-category alias** and the **cost-centre budget target** reach `CanonicalModel` / `CanonicalXml` / `ImportPlan` — the alias because row 2.7 is the row proposed for promotion, the budget target because leaving it out took the WHOLE import down (BF-1). **Dropped on export → import:** the eleven Voucher Type fields (`VoucherTypeDto`), the two godown fields (`GodownDto`), and the five currency formatting options (`CurrencyDto`). |
+| **What we ship** | Of v67's five rows, only the **cost-category alias** and the **cost-centre budget target** reach `CanonicalModel` / `CanonicalXml` / `ImportPlan` — the alias because row 2.7 is the row proposed for promotion, the budget target because leaving it out took the WHOLE import down (BF-1). **Dropped on export → import:** the eleven Voucher Type fields (`VoucherTypeDto`), the two godown fields (`GodownDto`), the five currency formatting options (`CurrencyDto`), **and the two company configuration flags `config_allow_storage_of_materials` and `config_use_address_for_locations`** — 11 + 2 + 5 + 2 = **20**. 🔴 **THE HEADLINE READ "18 of the 22" UNTIL A12 RE-COUNTED IT AT MERGE (2026-10-18), AND THE TWO COMPANY FLAGS WERE THE ONES MISSED** — in a register whose §7 is titled *"Coverage, counted rather than claimed"*, so the count is corrected rather than softened. ⚠️ **THE TRAP THAT PRODUCED THE WRONG FIGURE, RECORDED BECAUSE IT WILL BITE THE NEXT COUNTER: an unfiltered `grep -r <FieldName> src/Apex.Ledger.Io/` returns a hit for EVERY one of these names, because it matches the compiled `bin/Debug/net10.0/Apex.Ledger.dll`. Restrict to `--include=*.cs` — source-only, the answer is ZERO hits for all twenty.** The shape IV-98 describes is unchanged and is if anything stronger: **no company feature flag reaches the transport at all** (`EnableJobCosting`, `SetComponentsBom`, `MaintainBatchwiseDetails`, `EnableCostCentres` are all zero hits too), and `CanonicalXml.BuildGodown` carries only id/name/parentId/alias/thirdParty/isMainLocation — no address, no storage flag. |
 | **Why** | This is the **established practice** on this codebase rather than a v67 slip: v66's own `RetainOriginalVoucherNo` is likewise absent from the canonical model (0 hits), and `GodownDto` already drops v58's `JobCostCentreId`. The wave that takes a migration has not been carrying its fields into Io. |
 | **Fix** | **NOT DONE — recorded, owed, and deliberately not attempted in the same pass as BF-2/BF-4/BF-8.** ⚠️ Note the asymmetry that makes this safe-but-wrong rather than dangerous: a dropped NULLABLE field reads back as null, which is why none of these crash — unlike `BudgetLineDto`, whose missing target dereferenced a `Nullable` and aborted the entire import. **A later wave should sweep ALL of them together, including the pre-v67 arrears, rather than one field per migration.** |
 

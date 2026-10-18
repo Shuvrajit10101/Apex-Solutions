@@ -8,13 +8,22 @@ using Domain = Apex.Ledger.Domain;
 namespace Apex.Persistence.Sqlite.Tests;
 
 /// <summary>
-/// REVIEWER PROBE (wave-3 adversarial review of claude/apex-bf-masters-v67). My OWN fixture, and
-/// deliberately the leg the branch's own BF-2 tests do NOT have: the roll-up is measured off a book that
-/// has been SAVED to SQLite and RELOADED through a fresh store handle, at depth TWO, so that the
-/// budget_lines.cost_centre_id round trip and the parent-centre consolidation are proved together rather
-/// than separately. Delete before merge.
+/// <b>The cost-centre budget roll-up, measured off a RELOADED book.</b> Originated as a wave-3 reviewer
+/// probe for BF-2 and KEPT DELIBERATELY at merge (A12, 2026-10-18) rather than deleted with its two
+/// siblings, because it is the only cover in the tree for this leg.
+///
+/// <para><b>Why it survives where the other two probes did not.</b> BF-2's roll-up is already pinned
+/// in-memory by <c>CostCentreBudgetVarianceTests</c>, and BF-8's FK regression by
+/// <c>VoucherTypeDefaultBankResaveTests</c> — so those probes were redundant and were removed. This one is
+/// not: it measures the parent-centre consolidation at depth TWO off a book SAVED to SQLite and REOPENED
+/// through a fresh <c>SqliteCompanyStore</c> handle, so the <c>budget_lines.cost_centre_id</c> round trip
+/// and the consolidation are proved TOGETHER. <c>BudgetRoundTripTests</c> is the nearest neighbour and does
+/// reload and does call <c>BudgetVarianceReport.Build</c>, but all three of its lines are LEDGER and GROUP
+/// targets (<c>IsLedgerTarget</c>, <c>IsGroupTarget</c>) — it carries no cost-centre line and no parent
+/// roll-up at all. Its second test is likewise the only cover for a cost-centre budget line surviving
+/// REPEATED saves, which is BF-8's shape applied to the other v67 foreign key.</para>
 /// </summary>
-public sealed class ZzReviewerBf2ReloadProbeTests
+public sealed class CostCentreBudgetReloadTests
 {
     //  Primary Cost Category:  Zone-North (root) > Area-Delhi (child) > Branch-Karol (grandchild)
     //  Postings in the budget window: Zone 1,500 Dr · Area 2,500 Dr · Branch 5,000 Dr = 9,000
@@ -66,7 +75,7 @@ public sealed class ZzReviewerBf2ReloadProbeTests
     /// the variance must be zero. Before the BF-2 fix this read 1,500 / −7,500.
     /// </summary>
     [Fact]
-    public void Reviewer_the_rollup_holds_off_a_reloaded_book_at_depth_two()
+    public void The_rollup_holds_off_a_reloaded_book_at_depth_two()
     {
         var dbPath = TempDbFile.NewPath("apex-rev-bf2-reload");
         try
@@ -105,7 +114,7 @@ public sealed class ZzReviewerBf2ReloadProbeTests
     /// FK v67 added (budget_lines.cost_centre_id → cost_centres(id)). Save twice, reload, save twice more.
     /// </summary>
     [Fact]
-    public void Reviewer_a_cost_centre_budget_line_survives_repeated_saves()
+    public void A_cost_centre_budget_line_survives_repeated_saves()
     {
         var dbPath = TempDbFile.NewPath("apex-rev-bf2-resave");
         try
