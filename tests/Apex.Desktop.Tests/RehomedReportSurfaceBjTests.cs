@@ -517,6 +517,53 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         finally { window.Close(); }
     }
 
+    /// <summary>
+    /// 🔴 <b>Alt+M SHARE ARRIVES WITH THE RE-HOME, AND IT MUST SEND WHAT IT NAMES.</b> <c>IsShareablePage</c>
+    /// requires <c>IsReportContext</c>, so these two reports could not be shared at all from their page
+    /// Screens and can be now. This repository has already measured the other failure of that gesture: on a
+    /// drilled voucher, Alt+M then W handed a third party <b>the whole Day Book</b> in place of the one invoice
+    /// the operator had drilled into, because the bare-W arm fired with the menu column still on top.
+    ///
+    /// <para>So the panel is not merely asserted to OPEN. Its document title and the bytes it would save are
+    /// read back, and both must be the annual return the operator is standing on.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_share_panel_over_a_rehomed_annual_return_carries_that_return_and_not_another_document()
+    {
+        var vm = RegularGstFixture("Bj Share");
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        try
+        {
+            vm.OpenGstr9Report();
+            Pump(window);
+            Assert.True(vm.IsShareablePage,
+                "Alt+M was inert on the page Screen because IsShareablePage requires IsReportContext.");
+
+            vm.OpenWhatsAppShare();
+            Pump(window);
+
+            var panel = vm.WhatsAppShare!;
+            Assert.Equal("Form GSTR-9 — Annual Return", panel.DocumentTitle);
+
+            var path = Path.Combine(_tempDir, "share-gstr9.pdf");
+            Assert.True(panel.SaveDocument(path), "the share panel wrote nothing to disk.");
+
+            var bytes = File.ReadAllBytes(path);
+            var latin1 = string.Concat(bytes.Select(b => (char)b));
+            Assert.StartsWith("%PDF-", latin1);
+
+            // 🔴 THE BYTES ARE THE ANNUAL RETURN'S, NOT ANOTHER REPORT'S. "GSTR-9" is this document's own
+            // heading and appears in no other report's; "Day Book" is the document the measured breach sent.
+            Assert.Contains("GSTR-9", latin1);
+            Assert.DoesNotContain("Day Book", latin1);
+            Assert.DoesNotContain("tally", latin1, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { window.Close(); }
+    }
+
     // ================================================================= the saved-view door
 
     /// <summary>
