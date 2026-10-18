@@ -12366,6 +12366,27 @@
                                           IsChecked="{Binding DefineBomComponentType, Mode=TwoWay}"
                                           Margin="20,0,0,0" FontSize="12"
                                           IsVisible="{Binding SetComponentsBom}"/>
+                                <!-- v67 · census 3.7 · BF-4. The two Godown/Location F12 (Configure) switches,
+                                     surfaced here beside the BOM F12 switches above — the same placement this
+                                     product already uses for a master-screen F12 configuration (IV-80).
+                                     🔴 THEY EXISTED IN STORAGE AND IN THE GODOWN MASTER'S GATE WITH NO WRITER
+                                     ANYWHERE IN src/ (29 occurrences, ZERO assignments), so the two fields they
+                                     gate were permanently invisible and census 3.7 shipped UNREACHABLE. The
+                                     gate itself is right and stays: with a switch off the Godown master hides
+                                     its field AND writes the vendor default, so a hidden control never puts a
+                                     value in the book. Vendor, by content, help.tallysolutions.com/
+                                     inventory-storage-using-godowns-locations-tally/: "setting this option to
+                                     Yes to displays the Allow storage of materials option on the Godown
+                                     Creation screen"; "You can add the Locations address by enabling this
+                                     option."; "Press F12 (Configure) to change the options." -->
+                                <CheckBox Name="ConfigAllowStorageOfMaterialsCheck"
+                                          Content="Allow storage of materials (Godown F12)"
+                                          IsChecked="{Binding ConfigAllowStorageOfMaterials, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Name="ConfigUseAddressForLocationsCheck"
+                                          Content="Use address for Locations (Godown F12)"
+                                          IsChecked="{Binding ConfigUseAddressForLocations, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                 <!-- Price Levels F11 feature (Phase 6 slice 5; RQ-26/RQ-52): the master gate for the
                                      Price-Level / Price-List masters, the party default-level picker, the Sales
                                      Price-Level header + discount column and the Price List report. -->
