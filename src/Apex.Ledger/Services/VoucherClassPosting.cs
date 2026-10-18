@@ -134,10 +134,26 @@ public static class VoucherClassPosting
 
         if (rounding is not null)
         {
-            // The INVOICE total: what this class allocated, plus what it added, plus everything else already on the
+            // The INVOICE total: the item value, plus what this class added, plus everything else already on the
             // invoice (tax, cess, TCS, additional cost). See the parameter note — the difference has to be measured
             // against the figure the operator is asked to pay, or the invoice does not come out round.
-            var running = allocations.Sum(l => l.Amount.Amount)
+            //
+            // 🔴 THE ITEM VALUE IS `itemValue`, NOT `allocations.Sum(...)`, AND THE DIFFERENCE IS THE WHOLE VENDOR
+            // FEATURE. The two are equal whenever the class HAS allocations — Allocate gives the last share the
+            // remainder, so the shares sum to itemValue to the paisa by construction — so every class that pre-maps
+            // a ledger is byte-identical either way. They differ in exactly one case: a class with NO Default
+            // Accounting Allocations, where allocations is EMPTY and the item value is instead posted as the single
+            // value leg by the caller. Summing the allocations there rounds ₹0.00, which is already round, so no
+            // round-off leg is emitted and the invoice never rounds at all.
+            //
+            // That case is not a corner: it is the class the vendor's own round-off page builds
+            // (help.tallysolutions.com/round-off-invoice-and-ledger-values/ — pick an Indirect Expenses ledger under
+            // Additional Accounting Entries, set "As Total Amount Rounding", choose a Rounding Method and Limit; it
+            // never asks for an allocation). So the single capability the vendor documents most fully for a voucher
+            // class was completely inert, and every test missed it because each one paired the round-off with an
+            // allocation. Found 2026-10-18 by A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_
+            // field_survives, which posts the vendor's own shape and reads the legs back off the RELOADED book.
+            var running = itemValue.Amount
                           + additional.Sum(l => l.Amount.Amount)
                           + otherCharges.Amount;
             var rounded = VoucherClassRounding.Apply(running, rounding.RoundingMethod, rounding.RoundingLimit);
