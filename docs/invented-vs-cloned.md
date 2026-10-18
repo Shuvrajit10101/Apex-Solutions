@@ -2057,7 +2057,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 |---|---|
 | **Severity** | **LOW, but it is an arithmetic reading and therefore worth naming.** |
 | **What TallyPrime does** | Names a *Closing Balance* column on the Cost Centre Budget screen (`help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16) and does not define, on that page, what it is computed over. |
-| **What we ship** | `BudgetVarianceReport.CostCentreActualSigned`: `OnClosingBalance` sums every **counted** allocation dated on or before the period end; `OnNettTransactions` bounds it below by the period start. A cost allocation exists only on a posted voucher line — **there is no opening-allocation master anywhere in this schema** — so the two measures differ only by the lower bound. The voucher filter is the SHARED `LedgerBalances.CountsAsOf`, so the budget's "actual" agrees with the Cost Centre Summary for the same window rather than disagreeing with it. |
+| **What we ship** | `BudgetVarianceReport.CostCentreActualSigned`: `OnClosingBalance` sums every **counted** allocation dated on or before the period end; `OnNettTransactions` bounds it below by the period start. A cost allocation exists only on a posted voucher line — **there is no opening-allocation master anywhere in this schema** — so the two measures differ only by the lower bound. Both measures **consolidate the centre's whole subtree** (BF-2, 2026-10-18 — see `IV-91`). 🔴 **CORRECTED 2026-10-18 (BF-3):** this row used to end *"The voucher filter is the SHARED `LedgerBalances.CountsAsOf`, so the budget's 'actual' agrees with the Cost Centre Summary for the same window rather than disagreeing with it."* **The second half of that was false and is struck.** The filter IS shared; the **sign rule is not**, and the two reports disagree by 8,000 on a measured three-voucher fixture. See `IV-90`. |
 | **Why** | Any other reading would require an opening balance the model does not have. |
 | **Fix** | Recorded. If a later slice gives cost centres opening allocations, this reading must be revisited. |
 
@@ -2072,6 +2072,30 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | v67 captures, stores, round-trips and **surfaces on the master** the operator's election on all eleven (`VoucherTypeMasterFields`). It does **NOT**: add the voucher-entry effective-date field or prefer it for ageing; open a new voucher as Optional; change any accounting allocation; send a WhatsApp message (this product's WhatsApp surface is an **offline** document/link builder, census 14.10 — **nothing is transmitted**); generate a payment link or QR code (**none exists anywhere in this product**); or change what the print path emits. |
 | **Why** | Each is its own slice. Claiming otherwise is the "overstated closure" defect class. |
 | **Fix** | **Census row 2.4 must stay `PARTIAL`.** The *fields* are no longer missing and are no longer zero-hit; the *behaviours* are. Said here, in the service record and on each property, so three independent readers meet it. |
+
+---
+
+### IV-90 · A cost-centre budget's *actual* **nets Dr − Cr**, while the Cost Centre Break-up **sums magnitudes** — the two disagree and **no vendor sentence picks a winner**
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Two of our own reachable reports put DIFFERENT figures against the same cost centre for the same window — 8,000 apart on a three-voucher fixture — and until 2026-10-18 the source comment beside the money asserted that they AGREED.** |
+| **What TallyPrime does** | **Not known, and this is the honest answer.** `help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16 and re-opened 2026-10-18, shows a Cost Centre Budget screen carrying *"Cost Centre, Expenses, Income and Closing Balance"* — **three** figures, splitting debit and credit before any sign question arises. This product carries **one** measure per line (`IV-87`), so the vendor's shape does not map onto either convention and **neither rule can be attributed to the vendor**. The page does not define the Actuals column's arithmetic for a cost centre. |
+| **What we ship** | `BudgetVarianceReport.CostCentreActualSigned` signs each allocation by its parent entry line's Dr/Cr side, sums, and the caller reports the magnitude of the **net**. `CostReports.BuildCostCentreBreakup` sums allocation **magnitudes** and never reads the line's side. A centre carrying 4,000 Dr expense and 5,000 Cr revenue in one window is therefore **9,000** on the Break-up and **1,000** on the Budget Variance. Same centre, same window, same `LedgerBalances.CountsAsOf` voucher filter. |
+| **Why** | The netted reading falls out of sharing the group and ledger arms' "signed total, then magnitude" convention. It was never chosen against the magnitude reading, because nobody had noticed the two differed — the comment said they agreed. |
+| **Fix** | **Recorded, NOT silently resolved.** 🔴 A test pins the disagreement rather than blessing it: `Apex.Ledger.Tests.CostCentreBudgetVarianceTests.A_mixed_sign_centre_nets_while_the_Break_up_sums_magnitudes` asserts the measured 8,000 gap and says in its own doc comment that it is **a divergence tripwire, not a fidelity assertion**. A later wave that rules on the convention must change that test deliberately. ⚠️ **Do not "fix" this by making the two agree until a source says which one is right** — guessing is how row 3.5 lost its promotion. |
+
+---
+
+### IV-91 · A cost-centre budget **consolidates the centre's whole subtree** — vendor-grounded, and it CLOSES a wrong figure rather than opening a divergence
+
+| | |
+|---|---|
+| **Severity** | **This entry records a FIX, not a divergence. It is here because the behaviour it describes was wrong on the withheld v67 branch and a reader of `IV-87`/`IV-88` needs to know which way it now goes.** |
+| **What TallyPrime does** | `help.tallysolutions.com/cost-centre-or-profit-centre-tally/`, opened by content 2026-10-18: *"Such Cost Centres can be created in a hierarchical structure to get a **consolidated** view of the allocation"*; *"You can create multiple Cost Centres (also known as Profit Centres) in a hierarchy to get a consolidated view of the allocations made to each business unit, employee, project, department, and so on"*; and, of the Sales Department worked example, *"Once the hierarchy is created whenever you allocate an expense to any of the employees, **it would also become part of the relevant department**."* |
+| **What we ship** | **We now match.** `CostCentreActualSigned` walks `ClassificationRules.CostCentreIsUnder`, so a budget on a parent centre counts every allocation to it **or to any centre under it, at any depth** — the same rule the group arm of the same method uses for ledgers, and the same rule the product's own `CostCentreLine.RolledUpTotal` already used. |
+| **Why it is recorded** | 🔴 **Before 2026-10-18 the arm matched `a.CentreId == centreId` with no descendant walk.** On a Delhi(6,000 Dr) + Delhi-North(3,000 Dr) book with a 9,000 budget on Delhi, the Budget Variance report said *actual 6,000, variance −3,000* — **a 3,000 under-spend that did not exist**, on a report a user can open. Nothing caught it because no test anywhere posted an allocation against a cost-centre budget, and the one test that existed asserted `Actual = 0` under a doc comment claiming it took "a real actual from a posted allocation". |
+| **Fix** | **Done.** Seven tests in `Apex.Ledger.Tests.CostCentreBudgetVarianceTests` post real vouchers. Mutation **M-BF2** (restore `a.CentreId == centreId`) reddens three of them with the original wrong figure, *Expected 9000.00 / Actual 6000.00*; mutation **M-BF2b** (match any existing centre) reddens six, proving the walk is **directional** and not "every centre in the category". |
 
 ## 3. Grouped by area
 

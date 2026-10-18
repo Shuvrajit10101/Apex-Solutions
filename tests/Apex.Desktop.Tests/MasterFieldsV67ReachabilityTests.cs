@@ -483,8 +483,15 @@ public sealed class MasterFieldsV67ReachabilityTests : IDisposable
     /// <c>IsGroup ? "Group" : "Ledger"</c>, so even once it built, the row would have been labelled
     /// <b>"Ledger"</b> beside a real budgeted figure.
     ///
-    /// <para>This asserts the OBSERVABLE ARTEFACT: the report builds, the row names the centre, carries the
-    /// <c>CostCentre</c> kind, and reports a real actual taken from a posted allocation.</para>
+    /// <para>This asserts the OBSERVABLE ARTEFACT: the report builds, the row names the centre and carries
+    /// the <c>CostCentre</c> kind rather than "Ledger". 🔴 <b>IT ASSERTS NOTHING ABOUT THE MONEY</b> — this
+    /// comment used to claim the row "reports a real actual taken from a posted allocation" when the test
+    /// posts no allocation at all and asserts <c>Actual = 0</c>. That false claim was the cover under which
+    /// BF-2 shipped: the arithmetic had no test anywhere and a budget on a PARENT centre silently omitted
+    /// every rupee booked to its children. The money is covered by
+    /// <c>Apex.Ledger.Tests.CostCentreBudgetVarianceTests</c>, which posts real vouchers; what is asserted
+    /// HERE is only that the line, saved through the real master screen, reaches the report labelled
+    /// correctly.</para>
     /// </summary>
     [Fact]
     public void A_cost_centre_budget_line_renders_in_the_variance_report_as_a_cost_centre()
@@ -508,7 +515,8 @@ public sealed class MasterFieldsV67ReachabilityTests : IDisposable
         Assert.Equal("Cost Centre", row.TargetKindLabel);   // NOT "Ledger"
         Assert.False(row.IsGroup);
         Assert.Equal(45_000m, row.Budget.Amount);
-        // No allocation posted yet, so the actual is zero and the variance is the whole budget, under.
+        // No allocation is posted by THIS test, so the actual is zero and the variance is the whole budget,
+        // under. The real-money cases live in Apex.Ledger.Tests.CostCentreBudgetVarianceTests.
         Assert.Equal(0m, row.Actual.Amount);
         Assert.Equal(-45_000m, row.Variance.Amount);
     }

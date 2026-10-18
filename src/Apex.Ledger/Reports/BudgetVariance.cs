@@ -142,8 +142,19 @@ public sealed record BudgetVarianceReport(
 
     /// <summary>
     /// v67 (census 2.9): the signed actual for a single <b>cost centre</b> — Σ over every posted cost
-    /// allocation naming it, signed by the parent entry line's Dr/Cr side so the caller's
-    /// <c>Math.Abs</c> yields the same magnitude convention the group and ledger arms produce.
+    /// allocation naming it <b>or any centre under it, at any depth</b>, signed by the parent entry line's
+    /// Dr/Cr side so the caller's <c>Math.Abs</c> yields the same magnitude convention the group and ledger
+    /// arms produce.
+    ///
+    /// <para>🔴 <b>THE ROLL-UP IS THE POINT (BF-2).</b> This arm originally matched <c>a.CentreId == centreId</c>
+    /// alone, so a budget on a PARENT centre reported an actual that excluded every rupee booked to its
+    /// children: on a Delhi(6,000 Dr) + Delhi-North(3,000 Dr) book with a 9,000 budget on Delhi the report
+    /// said actual 6,000, variance −3,000 — a 3,000 under-spend that did not exist. The vendor settles it:
+    /// help.tallysolutions.com/cost-centre-or-profit-centre-tally/ — "Such Cost Centres can be created in a
+    /// hierarchical structure to get a <b>consolidated</b> view of the allocation", and of its Sales
+    /// Department worked example, "Once the hierarchy is created whenever you allocate an expense to any of
+    /// the employees, <b>it would also become part of the relevant department</b>." The walk is
+    /// <see cref="ClassificationRules.CostCentreIsUnder"/>, the twin of the one the group arm below uses.</para>
     ///
     /// <para>🔴 <b>A COST CENTRE HAS NO OPENING BALANCE IN THIS MODEL</b> — a cost allocation exists only on a
     /// posted voucher line, and there is no opening-allocation master anywhere in the schema. So
@@ -157,8 +168,26 @@ public sealed record BudgetVarianceReport(
     ///
     /// <para>The voucher filter is the SHARED one, <see cref="LedgerBalances.CountsAsOf"/> — cancelled,
     /// optional and not-yet-due post-dated vouchers are excluded, exactly as every cost report and every
-    /// ledger balance in this product excludes them. Using a different filter here would make the budget's
-    /// "actual" disagree with the Cost Centre Summary for the same window.</para>
+    /// ledger balance in this product excludes them, so the two reports see the SAME set of allocations.</para>
+    ///
+    /// <para>🔴 <b>BUT THEY DO NOT AGREE, AND THIS COMMENT USED TO CLAIM THEY DID (BF-3).</b> It read
+    /// "Using a different filter here would make the budget's actual disagree with the Cost Centre Summary
+    /// for the same window" — measurably false, and a false justification standing next to a money figure is
+    /// exactly how a wrong figure survives review. The filter is shared; <b>the SIGN RULE is not</b>. This
+    /// method nets Dr − Cr and the caller takes the magnitude of the net;
+    /// <see cref="CostReports.BuildCostCentreBreakup"/> sums allocation <b>magnitudes</b> and never looks at
+    /// the parent line's side. On one centre carrying 4,000 Dr expense and 5,000 Cr revenue in one window the
+    /// Break-up reports 9,000 and this reports 1,000 — 8,000 apart, same centre, same window, same filter.
+    /// <see cref="ClassificationRules.CostCentreIsUnder"/> roll-up applies to both figures equally and does
+    /// not narrow the gap.</para>
+    ///
+    /// <para><b>WHICH ONE THE VENDOR WANTS IS NOT KNOWN AND IS NOT GUESSED HERE.</b> The Cost Centre Budget
+    /// screen on help.tallysolutions.com/budgets-tally/ carries THREE figures — "Expenses, Income and Closing
+    /// Balance" — where this product carries one measure per line, so no vendor sentence maps onto either
+    /// convention. The netting is therefore OURS, recorded as a divergence (IV-90) rather than asserted as
+    /// fidelity, and pinned by
+    /// <c>CostCentreBudgetVarianceTests.A_mixed_sign_centre_nets_while_the_Break_up_sums_magnitudes</c> so that changing it
+    /// must go through the register instead of happening silently.</para>
     /// </summary>
     private static decimal CostCentreActualSigned(
         Company company, Guid centreId, BudgetType type, DateOnly from, DateOnly to)
@@ -173,7 +202,8 @@ public sealed record BudgetVarianceReport(
 
             foreach (var line in v.Lines)
                 foreach (var a in line.CostAllocations)
-                    if (a.CentreId == centreId)
+                    // BF-2: the centre ITSELF or any centre under it, at any depth — never `== centreId`.
+                    if (ClassificationRules.CostCentreIsUnder(a.CentreId, centreId, company))
                         total += line.Side == DrCr.Debit ? a.Amount.Amount : -a.Amount.Amount;
         }
         return total;
