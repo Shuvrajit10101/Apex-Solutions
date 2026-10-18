@@ -15060,6 +15060,127 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Record ISD Credit (census row 6.24). INTERACTIVE: opening it only projects the ISD
+                         receipts already recorded; the Record button (Ctrl+A) is the only mutator.
+                         🔴 The DECLARED DIVERGENCE (DivergenceText) is rendered, not hidden in a comment: the
+                         duplicate-document refusal and the narration-carried document number are OURS, and the
+                         vendor's own services-only bound is stated beside them. The screen clones the RECIPIENT
+                         side of ISD, which is the side the vendor's product has; it deliberately offers no
+                         distribution and no GSTR-6, because three of the vendor's own pages show it has neither. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).RecordIsdCredit, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).RecordIsdCredit}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:RecordIsdCreditViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <!-- The Stat Adjustment this posts under, in the vendor's own words, so an operator
+                                 coming from that page can see the two selections match. -->
+                            <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="10" Margin="0,0,0,6">
+                              <StackPanel Spacing="2">
+                                <TextBlock Text="Stat Adjustment" FontSize="10" Foreground="#777777"/>
+                                <TextBlock Text="{Binding AdjustmentText}" FontSize="12.5" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+                            <!-- Which registration receives the credit (census 6.23). ITC lands in exactly one
+                                 GSTIN's electronic credit ledger and files in exactly one 3B Table 4(A)(4), so
+                                 this must never be a hard-coded primary. Hidden on a single-GSTIN book. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,6"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#7A5B00" TextTrimming="CharacterEllipsis"
+                                         Text="The credit is received into this registration and appears in its GSTR-3B Table 4(A)(4) only."/>
+                            </Grid>
+                            <TextBlock Grid.Row="4" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="#555555" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                            <!-- The form: the vendor's own field order. -->
+                            <Border Grid.Row="5" Background="White" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="10" Margin="0,0,0,6">
+                              <StackPanel Spacing="6">
+                                <Grid ColumnDefinitions="Auto,200,Auto,140,Auto,140">
+                                  <TextBlock Grid.Column="0" Text="ISD Invoice / Debit Note" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DocumentNumberText, Mode=TwoWay}" FontSize="12"/>
+                                  <TextBlock Grid.Column="2" Text="Document Date" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="12,0,8,0"/>
+                                  <TextBox Grid.Column="3" Text="{Binding DocumentDateText, Mode=TwoWay}" FontSize="12"/>
+                                  <TextBlock Grid.Column="4" Text="Voucher Date" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="12,0,8,0"/>
+                                  <TextBox Grid.Column="5" Text="{Binding VoucherDateText, Mode=TwoWay}" FontSize="12"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Credit To (purchase / expense / branch)" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding CounterpartOptions}"
+                                            SelectedItem="{Binding SelectedCounterpart, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,120,Auto,120,Auto,120,Auto,120">
+                                  <TextBlock Grid.Column="0" Text="CGST ₹" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CgstText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="2" Text="SGST/UTGST ₹" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                  <TextBox Grid.Column="3" Text="{Binding SgstText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="4" Text="IGST ₹" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                  <TextBox Grid.Column="5" Text="{Binding IgstText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="6" Text="Cess ₹" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                  <TextBox Grid.Column="7" Text="{Binding CessText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                            <!-- The recorded receipts. -->
+                            <ListBox Grid.Row="6" Background="White" ItemsSource="{Binding Recorded}"
+                                     SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:IsdCreditRowVm">
+                                  <Grid ColumnDefinitions="2*,Auto,2*,*,*,*,*,*" Margin="2">
+                                    <TextBlock Grid.Column="0" Text="{Binding Document}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Date}" FontSize="11.5" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Counterpart}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding Cgst}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Sgst}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding Igst}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="6" Text="{Binding Cess}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="7" Text="{Binding Total}" FontSize="11.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+                            <!-- The declared divergence, on the face of the screen. -->
+                            <TextBlock Grid.Row="7" Text="{Binding DivergenceText}" FontSize="11" Foreground="#7A5B00"
+                                       TextWrapping="Wrap" Margin="0,6,0,0"/>
+                            <Border Grid.Row="8" Background="#FFF8E1" BorderBrush="#E0C068" BorderThickness="1"
+                                    Padding="8" Margin="0,6,0,0"
+                                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                              <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: DRC-03 — Voluntary / Self-Ascertained Payment (census row 6.20; Rule 142(2) / 142(3)).
                          INTERACTIVE: opening it only projects the per-cell cash availability and the DRC-03s already
                          filed; the Post button (Ctrl+A) is the only mutator. The engine's two refusals — credit may

@@ -424,6 +424,10 @@ public static class GstReturnJson
             Tbl4a3RcmOtherSamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherSgst),
             Tbl4a3RcmOtherIamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherIgst),
             Tbl4a3RcmOtherCsamtPaisa = MoneyCodec.ToPaisa(r.RcmItcOtherCess),
+            Tbl4a4IsdCamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdCgst),
+            Tbl4a4IsdSamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdSgst),
+            Tbl4a4IsdIamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdIgst),
+            Tbl4a4IsdCsamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdCess),
             Tbl4a5CamtPaisa = MoneyCodec.ToPaisa(r.ItcCgst),
             Tbl4a5SamtPaisa = MoneyCodec.ToPaisa(r.ItcSgst),
             Tbl4a5IamtPaisa = MoneyCodec.ToPaisa(r.ItcIgst),
@@ -691,6 +695,30 @@ public static class GstReturnJson
         [JsonPropertyName("tbl4a3_rcm_other_samt_paisa")] public long Tbl4a3RcmOtherSamtPaisa { get; init; }
         [JsonPropertyName("tbl4a3_rcm_other_iamt_paisa")] public long Tbl4a3RcmOtherIamtPaisa { get; init; }
         [JsonPropertyName("tbl4a3_rcm_other_csamt_paisa")] public long Tbl4a3RcmOtherCsamtPaisa { get; init; }
+
+        // ---- Table 4(A)(4) "Inward supplies from ISD" ------------------------------------------------------------
+        // 🔴 THESE FOUR KEYS WERE MISSING AND THE OMISSION WAS A FILING DEFECT, NOT A GAP. The ISD-receipt slice
+        // wired Itc4A4Isd* into Gstr3b.Build, into the Table 4(C) net and into the on-screen 3B, but NOT into this
+        // envelope — so the screen showed an ISD credit and the artefact actually FILED did not carry it. The GSTN
+        // offline tool derives 4(C) from the rows it is handed, so the filed ITC was understated by the whole of
+        // Table 4(A)(4). A return that disagrees with its own screen is worse than one that is merely incomplete.
+        //
+        // Vendor grounding (R7, ruling 14 tier 1), read BY CONTENT —
+        // help.tallysolutions.com/tally-prime/india-gst/isd-credit/: "The voucher will be included in GSTR-3B and
+        // appear under 4A: Input Tax Credit Available (either in part or in full) > Inward supplies from ISD."
+        // The 4(C) formula these feed is CBIC Circular No. 170/02/2022-GST, Annexure row "(C) Net ITC Available
+        // (A)-(B)": C = A1+A2+A3+A4+A5-B1-B2 — A4 is this row.
+        //
+        // KEY NAMES ARE OURS, exactly as the class-level note on the other tbl* keys says: the GSTN payload schema
+        // is published only behind the authenticated developer portal, so these follow the house convention
+        // (integer paisa, tbl<table>_<head>amt_paisa) and ride the same schemaStatus flag. Cess IS emitted here even
+        // though 4(A)(5) carries no csamt key: the engine HAS the ring-fenced 4(A)(4) cess figure (ER-2), and
+        // dropping a figure we hold would repeat the very omission this block fixes.
+        [JsonPropertyName("tbl4a4_isd_camt_paisa")] public long Tbl4a4IsdCamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a4_isd_samt_paisa")] public long Tbl4a4IsdSamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a4_isd_iamt_paisa")] public long Tbl4a4IsdIamtPaisa { get; init; }
+        [JsonPropertyName("tbl4a4_isd_csamt_paisa")] public long Tbl4a4IsdCsamtPaisa { get; init; }
+
         [JsonPropertyName("tbl4a5_camt_paisa")] public long Tbl4a5CamtPaisa { get; init; }
         [JsonPropertyName("tbl4a5_samt_paisa")] public long Tbl4a5SamtPaisa { get; init; }
         [JsonPropertyName("tbl4a5_iamt_paisa")] public long Tbl4a5IamtPaisa { get; init; }
