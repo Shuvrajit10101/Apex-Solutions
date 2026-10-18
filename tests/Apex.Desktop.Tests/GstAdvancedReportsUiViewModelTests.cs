@@ -349,52 +349,71 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
 
     // ================================================================ Screen 1: GSTR-9
 
+    /// <summary>
+    /// 🔴 <b>REWRITTEN BY W-BJ, AND THE FIGURES ARE CARRIED OVER UNCHANGED RATHER THAN RELAXED.</b> GSTR-9 was
+    /// re-homed off <c>Screen.Gstr9Report</c> onto <see cref="ReportKind.Gstr9AnnualReturn"/>, so the shell now
+    /// lands on <see cref="Screen.Report"/> and the page view model is no longer constructed by any production
+    /// path. The assertions that used to read <c>page.Return.*</c> now read the CELLS an operator sees, which
+    /// is a stronger test and not a weaker one: a re-home that lost a figure between the engine and the grid
+    /// would have passed the old shape.
+    /// </summary>
     [Fact]
-    public void Gstr9_opens_and_projects_the_annual_return_tables()
+    public void Gstr9_opens_on_the_shared_report_surface_and_projects_the_annual_return_tables()
     {
         var vm = NewRegularGstCompany("Gstr9 Co");
         vm.OpenGstr9Report();
 
-        Assert.Equal(Screen.Gstr9Report, vm.CurrentScreen);
-        var page = vm.Gstr9Report!;
-        Assert.True(page.Return.Applicable);
-        Assert.Equal(3, page.FinancialYears.Count);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Null(vm.Gstr9Report);                     // the dedicated page is no longer built
+        var reports = vm.Reports!;
+        Assert.Equal(ReportKind.Gstr9AnnualReturn, reports.Kind);
+        Assert.True(reports.IsWideMatrixReport);
+        Assert.False(reports.IsPayrollEmpty, "a Regular dealer's annual return must not render not-applicable");
 
         // Table 4 = the seeded intra sale's output tax (90 + 90); Table 6 = the purchase's ITC (450 + 450).
-        Assert.Equal(90m, page.Return.Table4Cgst.Amount);
-        Assert.Equal(90m, page.Return.Table4Sgst.Amount);
-        Assert.Equal(180m, page.Return.Table4TotalTax.Amount);
-        Assert.Equal(900m, page.Return.Table6ItcAvailed.Amount);
-        Assert.Equal(1000m, page.Return.Table5NTurnover.Amount);
+        Assert.Equal("90.00", MatrixAmount(reports, "4  Outward tax — CGST"));
+        Assert.Equal("90.00", MatrixAmount(reports, "4  Outward tax — SGST/UTGST"));
+        Assert.Equal("180.00", MatrixAmount(reports, "4  Total tax payable"));
+        Assert.Equal("900.00", MatrixAmount(reports, "6  Total ITC availed"));
+        Assert.Equal("1,000.00", MatrixAmount(reports, "5  Total turnover"));
 
-        // The flattened text mirrors the engine (Indian-format, always 2dp).
-        Assert.Equal("90.00", page.Table4CgstText);
-        Assert.Equal("900.00", page.Table6ItcAvailedText);
-        Assert.Contains("Tax payable", page.StatusText);
-        Assert.Contains(GstinMaharashtra, page.GstinText);
+        Assert.Contains(GstinMaharashtra, reports.Subtitle);
     }
 
     // ================================================================ Screen 2: GSTR-9C
 
+    /// <summary>
+    /// 🔴 <b>REWRITTEN BY W-BJ for the reason the GSTR-9 case above gives.</b> Every figure is the one the page
+    /// projected; only the surface they are read off has moved.
+    /// </summary>
     [Fact]
-    public void Gstr9c_opens_and_shows_the_unreconciled_difference_lines()
+    public void Gstr9c_opens_on_the_shared_report_surface_and_shows_the_unreconciled_difference_lines()
     {
         var vm = NewRegularGstCompany("Gstr9c Co");
         vm.OpenGstr9cReport();
 
-        Assert.Equal(Screen.Gstr9cReport, vm.CurrentScreen);
-        var page = vm.Gstr9cReport!;
-        Assert.True(page.Statement.Applicable);
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Null(vm.Gstr9cReport);
+        var reports = vm.Reports!;
+        Assert.Equal(ReportKind.Gstr9cReconciliation, reports.Kind);
+        Assert.True(reports.IsWideMatrixReport);
 
         // The books and the return agree on turnover (₹1,000 P&L revenue vs GSTR-9 5N) ⇒ 5R reconciles to zero,
         // and the tax/ITC anchors are the FY gross accrual legs (nothing discharged yet).
-        Assert.Equal(1000m, page.Statement.Table5ABooksTurnover.Amount);
-        Assert.Equal(1000m, page.Statement.Table5QReturnTurnover.Amount);
-        Assert.Equal(0m, page.Statement.Table5RUnreconciledTurnover.Amount);
-        Assert.Equal(180m, page.Statement.Table9TaxPerBooks.Amount);
-        Assert.Equal(900m, page.Statement.Table12ABooksItc.Amount);
-        Assert.Equal("0.00", page.UnreconciledTurnoverText);
-        Assert.Contains("Unreconciled", page.StatusText);
+        Assert.Equal("1,000.00", MatrixAmount(reports, "5  Turnover as per books"));
+        Assert.Equal("1,000.00", MatrixAmount(reports, "5  Turnover as per returns"));
+        Assert.Equal("0.00", MatrixAmount(reports, "5  Unreconciled turnover"));
+        Assert.Equal("180.00", MatrixAmount(reports, "9-11  Tax as per books"));
+        Assert.Equal("900.00", MatrixAmount(reports, "12  ITC as per books"));
+    }
+
+    /// <summary>The Amount cell of the matrix row whose Particulars cell is <paramref name="particulars"/>.
+    /// Fails by name when the row is absent, so a dropped statutory line cannot pass as a zero.</summary>
+    private static string MatrixAmount(ReportsViewModel reports, string particulars)
+    {
+        var row = reports.PayrollRows.FirstOrDefault(r => r.Cells.Count > 1 && r.Cells[0].Text == particulars);
+        Assert.True(row is not null, $"the matrix has no row captioned '{particulars}'.");
+        return row!.Cells[1].Text;
     }
 
     // ================================================================ Screen 3: Electronic Ledgers

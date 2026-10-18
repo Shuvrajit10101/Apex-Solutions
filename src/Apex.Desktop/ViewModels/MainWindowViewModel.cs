@@ -2930,9 +2930,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Composition };
 
     /// <summary>True iff the open company is a Regular GST dealer (drives the advanced-GST report surfacing; Phase 9
-    /// UI-1). A Composition / GST-off company never sees the Annual Returns / GST Returns (Advanced) groups (ER-13).</summary>
-    private bool IsRegularGstDealer =>
-        Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Regular };
+    /// UI-1). A Composition / GST-off company never sees the Annual Returns / GST Returns (Advanced) groups (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ: THIS IS NOW AN ALIAS, NOT A SECOND COPY OF THE CONDITION.</b> The two annual returns were
+    /// re-homed onto <see cref="ReportKind.Gstr9AnnualReturn"/> / <see cref="ReportKind.Gstr9cReconciliation"/>, so
+    /// the saved-view door (Ctrl+H) asks <see cref="ReportFeatureGate.RegularGstDealer"/> — which is defined AS
+    /// <see cref="RegularGstDealerFeatureOn"/>. Two copies of the same expression is exactly the drift
+    /// <c>MainWindowViewModel.ReportFeatureGates.cs</c> exists to make impossible, and the measured consequence of
+    /// that drift was a saved view opening the Pay Sheet on a company with payroll switched off.</para></summary>
+    private bool IsRegularGstDealer => RegularGstDealerFeatureOn;
 
     /// <summary>
     /// True iff the open company holds at least one <b>Input Service Distributor</b> registration (census row 6.24) —
@@ -7453,24 +7459,45 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // ---- Advanced-GST report screens (Phase 9 UI-1; RQ-17). Each opens a read-only page column projecting its pure
     // engine; all are gated on a Regular GST dealer (a Composition / GST-off company never reaches them, ER-13). ----
 
-    /// <summary>Opens the <b>GSTR-9</b> annual-return report (Reports → Statutory Reports → Annual Returns → GSTR-9;
-    /// Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>GSTR-9</b> annual return (Reports → Statutory Reports → Annual Returns → GSTR-9).
+    /// A no-op unless the company is a Regular GST dealer.
+    ///
+    /// <para>🔴 <b>W-BJ — RE-HOMED off <see cref="Screen.Gstr9Report"/> onto
+    /// <see cref="ReportKind.Gstr9AnnualReturn"/>, and this opener is the ONE door, so the menu row, any
+    /// button and the Ctrl+H saved view all land on the same surface.</b> A page <c>Screen</c> leaves
+    /// <see cref="Reports"/> null, and that switches off F2 as-of, Alt+F2 period, the F12 configuration panel,
+    /// Alt+F12 sort/filter, Ctrl+H saved views and the report's own Enter-drill simultaneously.
+    /// <b>Vendor-attested, opened by content 2026-10-18:</b>
+    /// <c>help.tallysolutions.com/tally-prime/gstr-9-9c/file-gstr-9-tally/</c> says
+    /// <i>"Press F2 (Period) and set it to the relevant financial year."</i> — so the period control is the
+    /// reference product's own gesture on this report, and the dedicated page had no F2 at all.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back, stated so the claim is not overstated: print and export.</b>
+    /// Those were never off here — <see cref="Gstr9ReportViewModel"/> implements
+    /// <c>IMasterListExportSource</c>, which <c>IsPrintablePage</c>'s third arm already reached. The page's own
+    /// financial-year ComboBox is what LEAVES, replaced by F2 / Alt+F2.</para>
+    /// </summary>
     public void OpenGstr9Report()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new Gstr9ReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("GSTR-9", page), Screen.Gstr9Report,
-            "Form GSTR-9 — Annual Return", () => Gstr9Report = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.Gstr9AnnualReturn);
     }
 
-    /// <summary>Opens the <b>GSTR-9C</b> reconciliation-statement report (Reports → Statutory Reports → Annual Returns
-    /// → GSTR-9C; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>GSTR-9C</b> reconciliation statement (Reports → Statutory Reports → Annual Returns →
+    /// GSTR-9C). A no-op unless the company is a Regular GST dealer.
+    ///
+    /// <para>🔴 <b>W-BJ — RE-HOMED off <see cref="Screen.Gstr9cReport"/> onto
+    /// <see cref="ReportKind.Gstr9cReconciliation"/>, for the reason <see cref="OpenGstr9Report"/> gives.
+    /// Vendor-attested on its own page, opened by content 2026-10-18:</b>
+    /// <c>help.tallysolutions.com/file-gstr-9c-tally/</c> carries the identical sentence
+    /// <i>"Press F2 (Period) and set it to the relevant financial year."</i></para>
+    /// </summary>
     public void OpenGstr9cReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new Gstr9cReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("GSTR-9C", page), Screen.Gstr9cReport,
-            "Form GSTR-9C — Reconciliation Statement", () => Gstr9cReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.Gstr9cReconciliation);
     }
 
     /// <summary>

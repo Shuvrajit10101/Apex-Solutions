@@ -422,6 +422,38 @@ public enum ReportKind
     /// <c>Apex.Ledger.Reports.TcsChallanReconciliation</c>.
     /// </summary>
     TcsChallanReconciliation,
+
+    // ---- W-BJ (census 11.16 / 12.1 / 6.12): the two ANNUAL GST returns, re-homed off their dedicated page
+    // Screens. Both are VENDOR-ATTESTED to carry the report period control, which is the gesture the page
+    // Screen switched off: help.tallysolutions.com/tally-prime/gstr-9-9c/file-gstr-9-tally/ (opened by content
+    // 2026-10-18) says "Press F2 (Period) and set it to the relevant financial year." and, for the export leg,
+    // "Press F2 (Period) to select the period for which you want to export GSTR-9 data."; the GSTR-9C page
+    // help.tallysolutions.com/file-gstr-9c-tally/ (same date) carries the identical sentence "Press F2 (Period)
+    // and set it to the relevant financial year." So this is a fidelity fix, not a convenience: on a dedicated
+    // page Screen the shell's report context is null and F2 does nothing at all.
+
+    /// <summary>
+    /// The <b>Form GSTR-9 annual return</b> (census 6.12): Parts II–VI — Table 4 (outward + inward-RCM tax
+    /// payable), Table 5 (exempt / nil / non-GST and total turnover), Table 6 (ITC availed), Table 7 (ITC
+    /// reversed by rule), Table 8 (ITC reconciliation 8A / 8B / 8D), Table 9 (tax paid through ITC vs cash) and,
+    /// in the matrix's SECOND band, Table 17 (the outward HSN summary). Projects
+    /// <c>Apex.Ledger.Reports.Gstr9</c> — the same engine the dedicated <see cref="Screen.Gstr9Report"/> page
+    /// projected, over the same financial-year window.
+    /// </summary>
+    Gstr9AnnualReturn,
+
+    /// <summary>
+    /// The <b>Form GSTR-9C reconciliation statement</b> (census 6.12): Part A Table 5 (books turnover → return
+    /// turnover → unreconciled), Part III Tables 9–11 (tax per return vs tax per books → unreconciled tax) and
+    /// Part B Table 12 (ITC per books → net ITC per GSTR-9 → unreconciled). Projects
+    /// <c>Apex.Ledger.Reports.Gstr9c</c> — the same engine the dedicated <see cref="Screen.Gstr9cReport"/> page
+    /// projected.
+    ///
+    /// <para>🔴 <b>Each reconciliation carries all THREE of its lines, never the difference alone</b>, for the
+    /// reason the page's own export comment gives: ₹0 unreconciled is a clean tie, and it is also what you get
+    /// when both sides failed to build, and a reviewer must be able to tell which.</para>
+    /// </summary>
+    Gstr9cReconciliation,
 }
 
 /// <summary>
@@ -619,7 +651,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // kind added here has a correct screen, a correct export header row and a correct printed header band from
         // one declaration. A bespoke grid would have given the first and left the other two blank.
         or ReportKind.InterestCalculation
-        or ReportKind.TdsChallanReconciliation or ReportKind.TcsChallanReconciliation;
+        or ReportKind.TdsChallanReconciliation or ReportKind.TcsChallanReconciliation
+        // W-BJ — the two annual GST returns. Same reasoning again: the matrix's live column band is the ONE
+        // list both egress projectors read, so screen, spreadsheet and printed page cannot disagree about a
+        // statutory table's caption.
+        or ReportKind.Gstr9AnnualReturn or ReportKind.Gstr9cReconciliation;
 
     /// <summary>True for either side of the re-homed Outstandings report (census 11.9).</summary>
     public bool IsOutstandingsReport =>
@@ -1812,6 +1848,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.Gstr1: BuildGstr1(); break;
             case ReportKind.Gstr3b: BuildGstr3b(); break;
 
+            // W-BJ — the two annual GST returns re-homed off dedicated page Screens (census 6.12 / 11.16 /
+            // 12.1). Through RunStatutoryForm for the reason the W-V2 and W-Y4 blocks give: both engines fold
+            // through GSTR-1 / GSTR-3B, which REFUSE an unscoped build on a multi-registration company by
+            // throwing InvalidOperationException, and Show() has no handler of its own — the dedicated pages
+            // each caught that exception and surfaced its message, and the re-home must not be the thing that
+            // turns it back into a shell crash.
+            case ReportKind.Gstr9AnnualReturn: RunStatutoryForm(BuildGstr9AnnualReturn); break;
+            case ReportKind.Gstr9cReconciliation: RunStatutoryForm(BuildGstr9cReconciliation); break;
+
             case ReportKind.CashFlow: BuildCashFlow(); break;
             case ReportKind.FundsFlow: BuildFundsFlow(); break;
             case ReportKind.RatioAnalysis: BuildRatioAnalysis(); break;
@@ -2190,6 +2235,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.InterestCalculation] = "InterestCalculation",
         [ReportKind.TdsChallanReconciliation] = "TdsChallanReconciliation",
         [ReportKind.TcsChallanReconciliation] = "TcsChallanReconciliation",
+        // W-BJ (census 6.12 / 11.16 / 12.1) — the two annual GST returns. Same rule, same reason: TokenFor
+        // indexes this dictionary DIRECTLY, so an omission turns Ctrl+H (Change View) > Save View into a
+        // KeyNotFoundException on the very gesture the re-home delivers. Frozen strings.
+        [ReportKind.Gstr9AnnualReturn] = "Gstr9AnnualReturn",
+        [ReportKind.Gstr9cReconciliation] = "Gstr9cReconciliation",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -7900,7 +7950,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// report that ignores its own as-of has a dead F2) and it is the only figure difference this re-home
     /// introduces on either kind.</para>
     /// </summary>
-    private (DateOnly From, DateOnly To) ChallanReconciliationWindow()
+    private (DateOnly From, DateOnly To) ChallanReconciliationWindow() => FinancialYearWindow();
+
+    /// <summary>
+    /// 🔴 <b>THE FINANCIAL-YEAR WINDOW THE YEAR-SCOPED RE-HOMES PROJECT OVER — ONE DEFINITION, FOUR KINDS.</b>
+    /// An EXPLICIT Alt+F2 period is honoured verbatim (the operator asked for that window and every one of
+    /// these engines takes an arbitrary one); otherwise the window is the financial year CONTAINING the as-of
+    /// date, snapped to the company's own financial-year start month. Both knobs therefore act: F2 moves the
+    /// as-of and the report follows it into that year, Alt+F2 sets the window outright.
+    ///
+    /// <para>This body was <see cref="ChallanReconciliationWindow"/>'s and is unchanged — it is hoisted rather
+    /// than copied because the two annual GST returns need the identical construction, and <c>_asOf.Year</c>
+    /// alone puts a February as-of into the wrong year for an April-start book. The whole of
+    /// <c>ChallanReconciliationWindow</c>'s own doc comment above still applies, to this method as well.</para>
+    /// </summary>
+    private (DateOnly From, DateOnly To) FinancialYearWindow()
     {
         if (_options.Period is { } explicitWindow) return (explicitWindow.From, explicitWindow.To);
 
@@ -8006,6 +8070,204 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Footnote(TcsChallanReconciliationViewModel.CashBasisNote);
 
         MarkStatutoryFormEmpty(recon.Codes.Count == 0, "No TCS collected or deposited yet.");
+    }
+
+    // ------------------------------------------------- W-BJ: the two annual GST returns (census 6.12)
+    //
+    // 🔴 NOT ONE FIGURE BELOW IS NEW, AND THAT IS THE POINT. Both projections already shipped, are already
+    // unit-tested in Apex.Ledger, and were already EXPORTABLE and PRINTABLE from their dedicated page Screens
+    // through IMasterListExportSource / TopMasterExportSource. What a page Screen leaves null is the shell's
+    // REPORT CONTEXT, and that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Alt+F12
+    // sort/filter, Ctrl+H (Change View) > Saved Views and the report's own Enter-drill — all at once.
+    //
+    // ⚠️ SO THE HONEST COUNT OF WHAT ARRIVES IS SMALLER THAN THE CENSUS'S SIX, AND IT IS STATED HERE RATHER
+    // THAN LEFT TO BE DISCOVERED: print and export did NOT arrive, because they were never off. What arrives
+    // is F2 / Alt+F2 in full, Ctrl+H saved views, the PERIOD half of F12, and Alt+F12 saying out loud that it
+    // cannot act. What LEAVES is each page's own financial-year ComboBox — replaced by F2/Alt+F2, which is the
+    // control the vendor documents for these two reports (see the ReportKind members' own citations).
+    //
+    // The label/amount column pair, every statutory table number and the three-lines-per-reconciliation rule
+    // are TRANSCRIBED from each page's own ToMasterListSnapshot, not reworded: an operator comparing a printed
+    // copy against the screen they remember, or against the portal they are keying, must read the same words.
+
+    /// <summary>
+    /// Census 6.12 — <b>Form GSTR-9</b>, the annual return, on the shared report surface. Band 1 carries Parts
+    /// II–VI as Particulars / Amount; band 2 carries Table 17, the outward HSN summary, with its own columns so
+    /// an HSN quantity never lands under a money heading.
+    ///
+    /// <para>🔴 <b>Why Table 17 is a SECOND BAND and not more rows in the first.</b> Its rows are identified by
+    /// HSN, description, UQC and quantity and carry two money figures; folding them into a two-column
+    /// label/amount grid is exactly the "wrong figure under a right heading" defect this file already records
+    /// having shipped once. The page's export folded them into the label because a
+    /// <see cref="MasterListSnapshot"/> has one numeric column to foot against; the matrix does not have that
+    /// constraint, so the identity gets real columns here.</para>
+    /// </summary>
+    private void BuildGstr9AnnualReturn()
+    {
+        var (from, to) = FinancialYearWindow();
+        Title = "Form GSTR-9 — Annual Return";
+        IsTwoColumn = false;
+
+        WideCol("Particulars", WideNameWidth, false);
+        WideCol("Amount", WideMoneyWidth, true);
+
+        var ret = Apex.Ledger.Reports.Gstr9.Build(_company, from, to);
+
+        Subtitle = $"{CompanyName}  —  FY {FormatDate(from)} to {FormatDate(to)}  ·  "
+                 + (string.IsNullOrWhiteSpace(ret.Gstin) ? "GSTIN —" : $"GSTIN {ret.Gstin}");
+
+        if (!ret.Applicable)
+        {
+            MarkStatutoryFormEmpty(true, "Not applicable — GSTR-9 is filed only by a Regular GST taxpayer.");
+            return;
+        }
+
+        void Line(string particulars, Money amount, bool total = false)
+            => PayrollRows.Add(WideRow(total, particulars, IndianFormat.AmountAlways(amount)));
+
+        // Part II Table 4 — outward + inward RCM on which tax IS payable.
+        Line("4  Taxable value (outward, tax payable)", ret.Table4TaxableValue);
+        Line("4  Outward tax — CGST", ret.Table4Cgst);
+        Line("4  Outward tax — SGST/UTGST", ret.Table4Sgst);
+        Line("4  Outward tax — IGST", ret.Table4Igst);
+        Line("4  Outward tax — Cess", ret.Table4Cess);
+        Line("4  Inward reverse charge — CGST", ret.Table4RcmCgst);
+        Line("4  Inward reverse charge — SGST/UTGST", ret.Table4RcmSgst);
+        Line("4  Inward reverse charge — IGST", ret.Table4RcmIgst);
+        Line("4  Inward reverse charge — Cess", ret.Table4RcmCess);
+        Line("4  Total tax payable", ret.Table4TotalTax, total: true);
+
+        // Part II Table 5 — outward on which tax is NOT payable.
+        Line("5  Exempt / nil-rated / non-GST outward", ret.Table5ExemptNilNonGst);
+        Line("5  Total turnover", ret.Table5NTurnover, total: true);
+
+        // Part III Table 6 — ITC availed.
+        Line("6  ITC availed — CGST", ret.Table6Cgst);
+        Line("6  ITC availed — SGST/UTGST", ret.Table6Sgst);
+        Line("6  ITC availed — IGST", ret.Table6Igst);
+        Line("6  ITC availed — Cess", ret.Table6Cess);
+        Line("6  ITC reclaimed", ret.Table6HReclaimed);
+        Line("6  Total ITC availed", ret.Table6ItcAvailed, total: true);
+
+        // Part III Table 7 — ITC reversed, by rule.
+        Line("7  ITC reversed — rule 37", ret.Table7Rule37);
+        Line("7  ITC reversed — rule 42", ret.Table7Rule42);
+        Line("7  ITC reversed — rule 43", ret.Table7Rule43);
+        Line("7  ITC reversed — section 17(5)", ret.Table7Section17_5);
+        Line("7  ITC reversed — other", ret.Table7Other);
+        Line("7  ITC reversed — Cess", ret.Table7Cess);
+        Line("7  Total ITC reversed", ret.Table7ItcReversed, total: true);
+
+        // Part III Table 8 — ITC reconciliation.
+        Line("8A  ITC as per GSTR-2A / 2B", ret.Table8A);
+        Line("8A  ITC as per GSTR-2A / 2B — Cess", ret.Table8ACess);
+        Line("8B  ITC availed per this return", ret.Table8B);
+        Line("8D  Difference", ret.Table8D);
+        Line("Net ITC", ret.NetItc, total: true);
+
+        // Part IV Table 9 — tax paid.
+        Line("9  Tax payable", ret.Table9Payable);
+        Line("9  Paid through ITC", ret.Table9PaidThroughItc);
+        Line("9  Paid in cash", ret.Table9PaidInCash);
+
+        // Part VI Table 17 — the outward HSN summary, in its own band with its own columns.
+        PayrollSection2Title = "Part VI Table 17 — Outward HSN Summary";
+        WideCol2("HSN / SAC", WideRefWidth, false);
+        WideCol2("Description", WideNameWidth, false);
+        WideCol2("UQC", WideDaysWidth, false);
+        WideCol2("Quantity", WideDaysWidth, true);
+        WideCol2("Taxable Value", WideMoneyWidth, true);
+        WideCol2("Total Tax", WideMoneyWidth, true);
+
+        foreach (var h in ret.Table17Hsn)
+            PayrollRows2.Add(new PayrollMatrixRowVm
+            {
+                Cells = new List<PayrollMatrixCellVm>
+                {
+                    WideCell2(0, h.HsnSac),
+                    WideCell2(1, h.Description),
+                    WideCell2(2, h.Uqc ?? string.Empty),
+                    WideCell2(3, h.Quantity.ToString("0.###", CultureInfo.InvariantCulture)),
+                    WideCell2(4, IndianFormat.AmountAlways(h.TaxableValue)),
+                    WideCell2(5, IndianFormat.AmountAlways(h.TotalTax)),
+                },
+            });
+
+        PayrollRows2.Add(new PayrollMatrixRowVm
+        {
+            IsTotal = true,
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                WideCell2(0, "17  Total"),
+                WideCell2(1, string.Empty),
+                WideCell2(2, string.Empty),
+                WideCell2(3, string.Empty),
+                WideCell2(4, IndianFormat.AmountAlways(ret.Table17TaxableValue)),
+                WideCell2(5, IndianFormat.AmountAlways(ret.Table17TotalTax)),
+            },
+        });
+        HasPayrollSection2 = PayrollRows2.Count > 0;
+
+        MarkStatutoryFormEmpty(PayrollRows.Count == 0,
+            "No annual-return figures for this financial year.");
+    }
+
+    /// <summary>
+    /// Census 6.12 — <b>Form GSTR-9C</b>, the reconciliation statement, on the shared report surface. One band:
+    /// each of the three reconciliations as its THREE lines — the books figure, the return figure and the
+    /// difference between them.
+    ///
+    /// <para>🔴 <b>The difference is never carried alone, and the page's own export comment says why:</b> ₹0
+    /// unreconciled is a clean tie, and it is also exactly what you get when both sides failed to build. A
+    /// reviewer must be able to see which, and that is only possible with the two figures the gap is between.
+    /// The same rule therefore governs the screen, the spreadsheet and the printed page, because all three read
+    /// this one column band.</para>
+    /// </summary>
+    private void BuildGstr9cReconciliation()
+    {
+        var (from, to) = FinancialYearWindow();
+        Title = "Form GSTR-9C — Reconciliation Statement";
+        IsTwoColumn = false;
+
+        WideCol("Particulars", WideNameWidth, false);
+        WideCol("Amount", WideMoneyWidth, true);
+
+        var stmt = Apex.Ledger.Reports.Gstr9c.Build(_company, from, to);
+
+        Subtitle = $"{CompanyName}  —  FY {FormatDate(from)} to {FormatDate(to)}  ·  "
+                 + (string.IsNullOrWhiteSpace(stmt.Gstin) ? "GSTIN —" : $"GSTIN {stmt.Gstin}");
+
+        if (!stmt.Applicable)
+        {
+            MarkStatutoryFormEmpty(true,
+                "Not applicable — GSTR-9C reconciles a Regular taxpayer's GSTR-9 to the audited books.");
+            return;
+        }
+
+        void Line(string particulars, Money amount, bool total = false)
+            => PayrollRows.Add(WideRow(total, particulars, IndianFormat.AmountAlways(amount)));
+
+        // Part A Table 5 — gross-turnover reconciliation.
+        Line("5  Turnover as per books", stmt.Table5ABooksTurnover);
+        Line("5  Turnover as per returns", stmt.Table5QReturnTurnover);
+        Line("5  Unreconciled turnover", stmt.Table5RUnreconciledTurnover, total: true);
+
+        // Part III Tables 9-11 — tax reconciliation.
+        Line("9-11  Tax as per returns", stmt.Table9TaxPerReturn);
+        Line("9-11  Tax as per books", stmt.Table9TaxPerBooks);
+        Line("9-11  Unreconciled tax", stmt.Table11UnreconciledTax, total: true);
+
+        // Part B Table 12 — net-ITC reconciliation.
+        Line("12  ITC as per books", stmt.Table12ABooksItc);
+        Line("12  ITC as per returns", stmt.Table12EReturnItc);
+        Line("12  Unreconciled ITC", stmt.Table12FUnreconciledItc, total: true);
+
+        Footnote("The unreconciled differences are COMPUTED and shown, never forced to zero. A zero difference "
+               + "is a clean tie; the two figures it is the gap between are carried beside it so a reviewer can "
+               + "tell a tie from a pair of failed builds.");
+
+        MarkStatutoryFormEmpty(PayrollRows.Count == 0,
+            "No reconciliation figures for this financial year.");
     }
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;
