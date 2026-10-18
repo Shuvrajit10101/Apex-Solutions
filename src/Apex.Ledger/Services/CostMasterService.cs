@@ -144,11 +144,22 @@ public sealed class CostMasterService
     /// </list>
     ///
     /// <para>All three run BEFORE anything is written, so a rejected alteration leaves the centre untouched.</para>
+    ///
+    /// <para>🔴 <b><paramref name="alias"/> IS REQUIRED, AND THE MISSING DEFAULT IS THE FIX FOR TICKET T2-77
+    /// (2026-10-13).</b> It used to read <c>string? alias = null</c> while <c>centre.Alias</c> is written
+    /// <b>unconditionally</b> below, so any caller that simply omitted the argument <b>nulled a stored alias with
+    /// no error and no refusal</b>. T2-77 named the exact caller that would have made it live rather than latent:
+    /// a <b>Multi Alter</b> screen re-parenting a batch of centres, which would have silently blanked every alias
+    /// in the batch — and a cost-centre alias is a LOOKUP KEY (<see cref="Company.FindCostCentreByName"/> resolves
+    /// through it), so the loss is not cosmetic. Removing the default makes "what happens to the alias" a
+    /// decision the compiler forces every caller to take. 🔴 <b>Do not restore the default to spare a caller a
+    /// line.</b> A caller that means to preserve the alias passes <c>centre.Alias</c>; one that means to clear it
+    /// passes <c>null</c>; and the two are now impossible to confuse.</para>
     /// </summary>
     /// <exception cref="InvalidOperationException">The centre or category does not exist, the name is empty or
     /// clashes, the parent is in another category, or the re-parent would form a cycle.</exception>
     public CostCentre AlterCostCentre(
-        Guid centreId, string name, Guid categoryId, Guid? parentId, string? alias = null)
+        Guid centreId, string name, Guid categoryId, Guid? parentId, string? alias)
     {
         var centre = _company.FindCostCentre(centreId)
             ?? throw new InvalidOperationException($"Cost centre {centreId} not found.");

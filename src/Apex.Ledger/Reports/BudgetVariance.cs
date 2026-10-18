@@ -184,7 +184,7 @@ public sealed record BudgetVarianceReport(
     /// <para><b>WHICH ONE THE VENDOR WANTS IS NOT KNOWN AND IS NOT GUESSED HERE.</b> The Cost Centre Budget
     /// screen on help.tallysolutions.com/budgets-tally/ carries THREE figures — "Expenses, Income and Closing
     /// Balance" — where this product carries one measure per line, so no vendor sentence maps onto either
-    /// convention. The netting is therefore OURS, recorded as a divergence (IV-90) rather than asserted as
+    /// convention. The netting is therefore OURS, recorded as a divergence (IV-101) rather than asserted as
     /// fidelity, and pinned by
     /// <c>CostCentreBudgetVarianceTests.A_mixed_sign_centre_nets_while_the_Break_up_sums_magnitudes</c> so that changing it
     /// must go through the register instead of happening silently.</para>

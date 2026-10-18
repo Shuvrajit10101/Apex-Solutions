@@ -115,9 +115,26 @@ public sealed class MultiMasterGridReachabilityTests
         return Descendants(containers[i]).OfType<Grid>().First();
     }
 
+    /// <summary>
+    /// Row <paramref name="i"/>'s own cells of type <typeparamref name="T"/> — the row grid's DIRECT children
+    /// only, which is every cell the grid has.
+    ///
+    /// <para>🔴 <b>Direct children, never a tree walk, and the reason is the same one <see cref="RowGrid"/>
+    /// records:</b> the Under picker's own control template contains a <c>TextBox</c> and several borders of its
+    /// own, so a tree-wide search re-counts the picker's internals as row cells and silently mis-attributes
+    /// every cell after the first. WBB-1 briefly nested the family-specific cells one level deeper inside a
+    /// per-family panel, which forced this helper to descend; the layout was then FLATTENED (see the heading
+    /// comment in <c>MainWindow.axaml</c>) because the nesting broke
+    /// <c>XamlLayoutInvariantTests.Header_and_row_template_column_definitions_must_match</c> — that invariant
+    /// cannot see a two-level pairing, so a nested layout is one nothing checks. The cells are direct children
+    /// again and this helper does not descend.</para>
+    /// </summary>
+    private static List<T> RowCells<T>(MainWindow window, int i) where T : Control
+        => RowGrid(window, i).GetVisualChildren().OfType<T>().ToList();
+
     /// <summary>Row <paramref name="i"/>'s own text cells (Name, Opening Balance) — not the picker's internals.</summary>
     private static List<TextBox> RowTextBoxes(MainWindow window, int i)
-        => RowGrid(window, i).GetVisualChildren().OfType<TextBox>().ToList();
+        => RowCells<TextBox>(window, i);
 
     // ------------------------------------------------------------------ the grid actually renders
 
@@ -125,6 +142,13 @@ public sealed class MultiMasterGridReachabilityTests
     /// The grid renders EDITABLE cells, not a read-only dump: the opening blank row carries a name box, an
     /// Under picker and an opening-balance box, and every one of them is focusable — which is the precondition
     /// for the whole screen being drivable without a pointer.
+    ///
+    /// <para>🔴 <b>Counted on VISIBLE cells, and the change from a bare count is load-bearing.</b> WBB-1 made the
+    /// nine grid columns shared by all five families, shown per family by <c>IsVisible</c> — so the ledger row's
+    /// template now also HOLDS the stock-item Units / Opening Qty / Rate / Amount cells, hidden. A bare count
+    /// would read 4 text boxes here and say nothing about which ones an operator can actually key. Filtering on
+    /// <c>IsVisible</c> asserts the stronger thing: the ledger grid offers exactly its OWN two keyable boxes and
+    /// the stock-item cells are not reachable on it.</para>
     /// </summary>
     [AvaloniaFact]
     public void The_opening_row_renders_focusable_cells()
@@ -134,15 +158,18 @@ public sealed class MultiMasterGridReachabilityTests
         {
             OpenMultiLedger(window, vm);
 
-            var boxes = RowTextBoxes(window, 0);
+            var boxes = RowTextBoxes(window, 0).Where(b => b.IsVisible).ToList();
             Assert.Equal(2, boxes.Count);                       // Name of Ledger, Opening Balance
             Assert.All(boxes, b => Assert.True(b.Focusable, "a grid cell a keyboard cannot focus is unreachable."));
 
-            var picker = RowGrid(window, 0).GetVisualChildren().OfType<ComboBox>().Single();
+            // One VISIBLE picker: the Under group. The Units picker belongs to the stock-item family and must
+            // not be offered here.
+            var picker = RowCells<ComboBox>(window, 0).Single(c => c.IsVisible);
             Assert.True(picker.Focusable);
 
             // Space toggles the Dr/Cr cell, so the side needs no pointer either.
-            var side = RowGrid(window, 0).GetVisualChildren().OfType<CheckBox>().Single();
+            var side = RowCells<CheckBox>(window, 0).Single();
+            Assert.True(side.IsVisible);
             Assert.True(side.Focusable);
         }
         finally { Close(window, tempDir); }
@@ -200,7 +227,7 @@ public sealed class MultiMasterGridReachabilityTests
         {
             OpenMultiLedger(window, vm);
             var m = vm.MultiMasterCreate!;
-            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
             Pump(window);
 
             // Typed into the RENDERED cells, so the two-way binding is part of what is under test.
@@ -242,7 +269,7 @@ public sealed class MultiMasterGridReachabilityTests
         {
             OpenMultiLedger(window, vm);
             var m = vm.MultiMasterCreate!;
-            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Group?.Name == "Sundry Debtors");
+            m.SelectedUnderGroup = m.UnderGroupOptions.Single(o => o.Parent?.Name == "Sundry Debtors");
             m.Rows[0].Name = "Romeo Ltd";
             Pump(window);
 

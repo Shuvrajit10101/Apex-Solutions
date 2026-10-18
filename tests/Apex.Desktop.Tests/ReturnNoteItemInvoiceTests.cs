@@ -467,20 +467,21 @@ public sealed class ReturnNoteItemInvoiceTests : IDisposable
     }
 
     /// <summary>
-    /// 🔴 <b>THE INVERSE IS REFUSED BY NAME, IN THE SAME SLICE THAT MADE IT REACHABLE.</b>
+    /// 🔴 <b>THE INVERSE SHIPPED — THIS TEST USED TO PIN THE REFUSAL AND NOW PINS THE ALTERATION.</b>
     ///
-    /// <para>Altering a posted return-note item invoice is a path nothing has exercised, and one hazard is visible
-    /// without running it: the §34 link that carries a note into GSTR-1 Table 9B is registered on ACCEPT and has no
-    /// alteration inverse, so re-accepting could leave it pointing at a superseded voucher. Before this slice the
-    /// case was unreachable — a note could not carry stock — so it fell through to "alterable" harmlessly. It
-    /// would not have fallen through harmlessly today.</para>
+    /// <para>It read <c>Altering_a_posted_return_note_item_invoice_is_refused_with_a_reason</c> and asserted the
+    /// sentence <i>"…altering a return note arrives with its own inverse in a later slice"</i>. That arm named
+    /// its own precondition — the §34 link's alteration inverse — and the precondition is now met
+    /// (<c>VoucherEntryViewModel.RehydrateSection34From</c> / <c>ReplaceSection34Link</c>, driven end-to-end in
+    /// <see cref="Section34NoteAlterationTests"/>). The test is rewritten rather than deleted so the row's
+    /// history stays readable here, where the refusal was first pinned.</para>
     ///
-    /// <para>The refusal is asserted as a MESSAGE the operator can act on ("cancel the note and enter a fresh
-    /// one"), not merely as a false flag: a dead end with no sentence is how an operator concludes the product is
-    /// broken.</para>
+    /// <para>This case is the <b>non-§34</b> note — no <c>GstCreditDebitNoteLink</c> at all — so the only arm it
+    /// ever met was the entry-mode one. It opens, it re-opens on the ITEM grid (the posted shape decides, not
+    /// the type's default), and it re-accepts with the stock and the legs intact on the RELOADED book.</para>
     /// </summary>
     [Fact]
-    public void Altering_a_posted_return_note_item_invoice_is_refused_with_a_reason()
+    public void A_posted_return_note_item_invoice_can_be_altered_and_the_amendment_reaches_the_book()
     {
         var k = NewKit("Return Note Alter Co");
 
@@ -493,11 +494,28 @@ public sealed class ReturnNoteItemInvoiceTests : IDisposable
         Assert.True(entry.Accept());
 
         var posted = PostedNote(k, VoucherBaseType.CreditNote);
-        var refusal = VoucherAlterationEligibility.RefusalFor(k.Vm.Company!, posted.Id);
+        Assert.Null(VoucherAlterationEligibility.RefusalFor(k.Vm.Company!, posted.Id));
 
-        Assert.NotNull(refusal);
-        Assert.Contains("CREDIT / DEBIT NOTE", refusal!);
-        Assert.Contains("later slice", refusal);
+        var open = VoucherEntryViewModel.ForAlter(k.Vm.Company!, posted.Id, _storage, () => { }, () => { });
+        Assert.Null(open.Refusal);
+        var alter = open.Entry!;
+        Assert.True(alter.IsAltering);
+        Assert.True(alter.IsItemInvoice);
+        Assert.False(alter.IsSection34Note);          // nothing was invented: this note carries no §34 link
+
+        alter.InventoryLines[0].QuantityText = "2";
+        Assert.True(alter.AcceptAlteration(), alter.Message);
+
+        var reloaded = _storage.Load(_storage.ListCompanies().Single(e => e.Name == k.CompanyName));
+        var amended = reloaded.FindVoucher(posted.Id)!;
+        Assert.Equal(2m, amended.InventoryLines.Single().Quantity);
+        Assert.Equal(300m, amended.InventoryLinesValue.Amount);
+        Assert.Equal(StockDirection.Inward, amended.InventoryLines.Single().Direction);
+        Assert.Equal(k.SalesReturnsId, amended.Lines.Single(l => l.Side == DrCr.Debit).LedgerId);
+        Assert.Equal(k.CustomerId, amended.Lines.Single(l => l.Side == DrCr.Credit).LedgerId);
+        // Replace SWAPS: the original is gone, not standing beside a second copy.
+        Assert.Equal(102m, new InventoryLedger(reloaded).OnHand(k.ItemId, k.MainGodownId, AsOf(reloaded)));
+        Assert.Empty(reloaded.CreditDebitNoteLinks);
     }
 
     /// <summary>

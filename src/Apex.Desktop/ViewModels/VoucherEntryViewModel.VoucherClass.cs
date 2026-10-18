@@ -41,16 +41,35 @@ public sealed class VoucherClassOption
 /// rounds an invoice of <b>125.60 down to 125 leaving (-)0.60</b> on the round-off ledger:
 /// <c>help.tallysolutions.com/tally-prime/accounting/round-off-invoice-and-ledger-values/</c>.</para>
 ///
-/// <para>🔴 <b>HIDING THE SALES-LEDGER FIELD — THE CITATION, AND THE DIVERGENCE IT EXPOSES.</b> The vendor's
-/// statement is on <c>help.tallysolutions.com/accounting-faq/</c>, NOT on the voucher-types page, and it is
-/// CONDITIONAL on two things, not one: the field to select the Sales ledger is not available <i>if you have
-/// selected a voucher class</i> to automate the sales details <b>AND</b> if <c>F12 &gt; "Select common ledger
-/// account for Item allocation"</c> is set to <b>No</b>. This application does not model that F12 configuration at
-/// all, so <see cref="ShowStockLedgerPicker"/> implements only the first condition and hides the field whenever the
-/// class pre-maps ledgers. That is the vendor's behaviour at the shipped default and never contradicts it, but it
-/// is a NARROWER rule than the vendor's — an operator who, in the reference application, had turned that F12 flag
-/// ON would there keep a common-ledger field this screen does not offer. <b>Recorded as OURS, not as attested.</b>
-/// Modelling the F12 flag is the work that would close it.</para>
+/// <para>🔴 <b>HIDING THE SALES-LEDGER FIELD — THE CITATION, CORRECTED 2026-10-18 (census row 2.6).</b> The
+/// vendor's statement is on <c>help.tallysolutions.com/accounting-faq/</c>, NOT on the voucher-types page. ~~It
+/// used to be read here as <i>"CONDITIONAL on two things, not one … a voucher class <b>AND</b> F12 &gt; Select
+/// common ledger account for Item allocation set to No"</i>, from which this file concluded that our rule was
+/// "NARROWER than the vendor's" and that we over-hide the field.~~ 🔴 <b>THAT READING WAS WRONG, AND THE
+/// CONCLUSION DRAWN FROM IT WAS WRONG IN THE OPPOSITE DIRECTION.</b> Re-fetched by content: the page carries a
+/// lead-in, <i>"The field to select the Sales ledger is not available, if:"</i>, followed by a <b>numbered list
+/// of two separate conditions</b> — (1) <i>"You have selected a voucher class to automate the sales details."</i>
+/// and (2) <i>"F12 (Configure) &gt; Select common ledger account for Item allocation is set to No."</i> There is
+/// <b>no "and" and no "or"</b> on the page; two numbered items under "not available if" are two INDEPENDENT
+/// sufficient conditions, so the vendor hides the field when EITHER holds.</para>
+///
+/// <para><b>What that changes.</b> Under the correct reading <see cref="ShowStockLedgerPicker"/> implements the
+/// vendor's condition (1) <b>exactly</b>, and is not narrower there: a class that pre-maps value ledgers IS a
+/// class that automates the sales details, and we hide the field for precisely that case. Note the refinement in
+/// <see cref="ClassSuppliesValueLedgers"/> and keep it — it tests <c>LedgerAllocations.Count &gt; 0</c>, not
+/// "a class is selected at all". The vendor's own round-off class (<c>round-off-invoice-and-ledger-values</c>)
+/// carries an Additional Accounting Entry and <b>no</b> Default Accounting Allocation; it does not automate the
+/// sales details, so the Sales-ledger field must survive it. Widening this to <c>ActiveVoucherClass is not null</c>
+/// would take the value-ledger field off a round-off invoice that still needs one and leave it unpostable.</para>
+///
+/// <para>🔴 <b>WHAT REMAINS OPEN IS CONDITION (2), AND IT IS NOT A ONE-LINE FLAG.</b> We do not model
+/// <c>F12 &gt; "Select common ledger account for Item allocation"</c>. Setting it to <i>No</i> does not merely
+/// hide a field in the reference application — it moves ledger selection onto each item line's own Accounting
+/// Details, and this application has no per-item accounting allocation anywhere (a <c>grep</c> for one returns
+/// nothing; every item invoice resolves exactly one value ledger). Shipping the flag alone would hide a required
+/// field and offer nothing in its place, which is the unreachable-capability defect rather than a closure. So the
+/// flag is deliberately NOT added here: <b>condition (2) stays an open, documented divergence of ours</b>, and the
+/// work that closes it is per-item accounting allocation, not this file. See <c>docs/invented-vs-cloned.md</c>.</para>
 ///
 /// <para>🔴 <b>THE GST ANCHOR, AND WHY IT IS NOT A GUESS.</b> Without a class the GST resolver falls back to the
 /// single Sales/Purchases ledger when the item itself carries no rate. A class replaces that one ledger with a

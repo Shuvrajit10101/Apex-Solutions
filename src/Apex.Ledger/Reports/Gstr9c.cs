@@ -71,7 +71,7 @@ public sealed record Gstr9c(
         // 9C reconciles a regular taxpayer's GSTR-9 to the audited books; a Composition dealer and a GST-off company
         // (e.g. accounts-only Robert) yield a not-applicable statement (ER-13 auto).
         if (!company.GstEnabled || company.Gst?.RegistrationType == GstRegistrationType.Composition)
-            return NotApplicable(company, fyFrom, fyTo);
+            return NotApplicable(company, fyFrom, fyTo, registrationId);
 
         // The two sides — computed INDEPENDENTLY (fact 2): the return (GSTR-9) and the books (P&L income + the Input /
         // Output tax-ledger closings). The unreconciled differences are the record's computed properties (never forced).
@@ -128,7 +128,7 @@ public sealed record Gstr9c(
         var booksItc = InputAccrual(GstTaxHead.Central) + InputAccrual(GstTaxHead.State) + InputAccrual(GstTaxHead.Integrated);
         var booksTax = OutputAccrual(GstTaxHead.Central) + OutputAccrual(GstTaxHead.State) + OutputAccrual(GstTaxHead.Integrated);
 
-        return new Gstr9c(fyFrom, fyTo, true, company.Gst?.Gstin, company.Name)
+        return new Gstr9c(fyFrom, fyTo, true, Gstr9.GstinOf(company, registrationId), company.Name)
         {
             Table5ABooksTurnover = books.TotalIncome,      // 5A — audited P&L revenue (the books anchor)
             Table5QReturnTurnover = g9.Table5NTurnover,    // 5Q — GSTR-9 total turnover
@@ -139,6 +139,8 @@ public sealed record Gstr9c(
         };
     }
 
-    private static Gstr9c NotApplicable(Company company, DateOnly fyFrom, DateOnly fyTo) =>
-        new(fyFrom, fyTo, false, company.Gst?.Gstin, company.Name);
+    /// <summary>The not-applicable 9C, named for the registration it was asked for — see
+    /// <see cref="Gstr9.GstinOf"/> for why the primary's GSTIN was the wrong answer here.</summary>
+    private static Gstr9c NotApplicable(Company company, DateOnly fyFrom, DateOnly fyTo, Guid? registrationId) =>
+        new(fyFrom, fyTo, false, Gstr9.GstinOf(company, registrationId), company.Name);
 }

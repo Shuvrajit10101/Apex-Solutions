@@ -22,7 +22,7 @@ namespace Apex.Ledger.Io.Tests;
 ///
 /// <para><b>R7.</b> <c>help.tallysolutions.com/cost-centre-or-profit-centre-tally/</c>, opened BY CONTENT
 /// 2026-10-16, in the Cost <b>CATEGORY</b> section: <i>"Name &amp; alias: As in other masters, you can specify
-/// multiple aliases."</i> ⚠️ ONE alias, not the vendor's plural — divergence <c>IV-86</c>, shared with every
+/// multiple aliases."</i> ⚠️ ONE alias, not the vendor's plural — divergence <c>IV-97</c>, shared with every
 /// other master in this product.</para>
 /// </summary>
 public sealed class CanonicalCostCategoryAliasRoundTripTests

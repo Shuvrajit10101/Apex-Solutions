@@ -74,7 +74,11 @@ public sealed class CompositionTaxService
         // Inward RCM the dealer also pays in CASH (→ CMP-08 Table 3(ii)) — the posted RCM output-liability lines. Cess
         // ring-fenced (ER-2). Read, never recomputed.
         var rc = 0m; var rs = 0m; var ri = 0m; var rcess = 0m;
-        foreach (var l in GstReportSupport.RcmLines(_company, from, to))
+        // 🔴 SCOPED, like the outward sweep above. This call dropped `registrationId` while the outward
+        // PostedDirectionalVouchers call in the same method passed it — and RcmLines reaches the same
+        // EnsureRegistrationScoped THROW, so CMP-08 (and GSTR-4 / GSTR-9A through it) failed outright on a
+        // multi-registration composition book. A single-registration book never reached it (ER-13).
+        foreach (var l in GstReportSupport.RcmLines(_company, from, to, registrationId))
         {
             if (!l.IsOutputLiability) continue;
             switch (l.Gst.TaxHead)

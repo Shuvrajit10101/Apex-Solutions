@@ -208,7 +208,7 @@ public class CostCentreBudgetVarianceTests
     /// <para>Which convention the vendor wants is UNKNOWN: help.tallysolutions.com/budgets-tally/ shows a
     /// Cost Centre Budget screen with THREE figures ("Expenses, Income and Closing Balance") where this
     /// product carries one measure per line, so no vendor sentence maps onto either rule. Recorded as ours in
-    /// docs/invented-vs-cloned.md as IV-90. A later wave that rules on it must change this test deliberately.
+    /// docs/invented-vs-cloned.md as IV-101. A later wave that rules on it must change this test deliberately.
     /// </para>
     /// </summary>
     [Fact]
