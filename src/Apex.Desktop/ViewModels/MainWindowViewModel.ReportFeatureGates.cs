@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Apex.Ledger.Domain;
 
 namespace Apex.Desktop.ViewModels;
 

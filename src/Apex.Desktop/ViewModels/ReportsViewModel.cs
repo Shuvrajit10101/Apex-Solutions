@@ -7950,27 +7950,50 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// report that ignores its own as-of has a dead F2) and it is the only figure difference this re-home
     /// introduces on either kind.</para>
     /// </summary>
-    private (DateOnly From, DateOnly To) ChallanReconciliationWindow() => FinancialYearWindow();
-
-    /// <summary>
-    /// 🔴 <b>THE FINANCIAL-YEAR WINDOW THE YEAR-SCOPED RE-HOMES PROJECT OVER — ONE DEFINITION, FOUR KINDS.</b>
-    /// An EXPLICIT Alt+F2 period is honoured verbatim (the operator asked for that window and every one of
-    /// these engines takes an arbitrary one); otherwise the window is the financial year CONTAINING the as-of
-    /// date, snapped to the company's own financial-year start month. Both knobs therefore act: F2 moves the
-    /// as-of and the report follows it into that year, Alt+F2 sets the window outright.
-    ///
-    /// <para>This body was <see cref="ChallanReconciliationWindow"/>'s and is unchanged — it is hoisted rather
-    /// than copied because the two annual GST returns need the identical construction, and <c>_asOf.Year</c>
-    /// alone puts a February as-of into the wrong year for an April-start book. The whole of
-    /// <c>ChallanReconciliationWindow</c>'s own doc comment above still applies, to this method as well.</para>
-    /// </summary>
-    private (DateOnly From, DateOnly To) FinancialYearWindow()
+    private (DateOnly From, DateOnly To) ChallanReconciliationWindow()
     {
         if (_options.Period is { } explicitWindow) return (explicitWindow.From, explicitWindow.To);
 
         var asOf = _asOf;
         var fyMonth = _company.FinancialYearStart.Month;
         var startYear = asOf.Month >= fyMonth ? asOf.Year : asOf.Year - 1;
+        var fyStart = new DateOnly(startYear, fyMonth, 1);
+        return (fyStart, fyStart.AddYears(1).AddDays(-1));
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE ANNUAL-RETURN WINDOW, AND WHY IT IS NOT <see cref="ChallanReconciliationWindow"/> EVEN THOUGH
+    /// IT LOOKS LIKE IT. IT ALWAYS RETURNS A WHOLE FINANCIAL YEAR, AND AN EXPLICIT Alt+F2 WINDOW IS SNAPPED TO
+    /// ONE RATHER THAN HONOURED VERBATIM.</b>
+    ///
+    /// <para><b>This is a measurement, not a preference.</b> <c>Gstr9.Build(company, fyFrom, fyTo)</c> takes
+    /// <c>fyTo</c> and <b>does not use it for the body of the return</b>: it folds over
+    /// <c>PeriodWindows(company, fyFrom)</c>, which is unconditionally twelve months (or four quarters)
+    /// forward from <c>fyFrom</c>. So handing it a four-day window returns a <b>twelve-month</b> figure. On the
+    /// shared surface that would have printed a full year's taxable value and tax under a subtitle reading
+    /// <i>"1 Apr 2024 to 4 Apr 2024"</i> — a wrong figure under a right heading, on a filed statutory return,
+    /// which is the single worst shape this codebase tracks. <c>Gstr9c</c> is worse again: its BOOKS side
+    /// (<c>ProfitAndLoss</c> over <c>[fyFrom, fyTo]</c>) <i>does</i> honour the partial window while its RETURN
+    /// side is the full year, so a partial window manufactures a spurious unreconciled difference on a
+    /// reconciliation statement whose entire purpose is that the difference means something.</para>
+    ///
+    /// <para><b>So the knob is a YEAR picker, and the vendor's own instruction is exactly that:</b>
+    /// <i>"Press F2 (Period) and set it to the relevant financial year."</i>
+    /// (<c>help.tallysolutions.com/tally-prime/gstr-9-9c/file-gstr-9-tally/</c> and
+    /// <c>help.tallysolutions.com/file-gstr-9c-tally/</c>, both opened by content 2026-10-18.) F2 moves the
+    /// as-of and the return follows it into that year; Alt+F2 names the year through any window that STARTS in
+    /// it. The anchor is the window's <b>From</b>, not its To, because a window the operator opened on 1 April
+    /// names the year beginning there however far past the year end it runs.</para>
+    ///
+    /// <para>⚠️ <b>The subtitle therefore states the window actually projected, never the one requested</b>, so
+    /// an operator can always see which year they are reading. That is asserted by the re-home's own tests; it
+    /// is the clause that makes snapping honest rather than silent.</para>
+    /// </summary>
+    private (DateOnly From, DateOnly To) GstAnnualReturnWindow()
+    {
+        var anchor = _options.Period?.From ?? _asOf;
+        var fyMonth = _company.FinancialYearStart.Month;
+        var startYear = anchor.Month >= fyMonth ? anchor.Year : anchor.Year - 1;
         var fyStart = new DateOnly(startYear, fyMonth, 1);
         return (fyStart, fyStart.AddYears(1).AddDays(-1));
     }
@@ -8104,7 +8127,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// </summary>
     private void BuildGstr9AnnualReturn()
     {
-        var (from, to) = FinancialYearWindow();
+        var (from, to) = GstAnnualReturnWindow();
         Title = "Form GSTR-9 — Annual Return";
         IsTwoColumn = false;
 
@@ -8225,7 +8248,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// </summary>
     private void BuildGstr9cReconciliation()
     {
-        var (from, to) = FinancialYearWindow();
+        var (from, to) = GstAnnualReturnWindow();
         Title = "Form GSTR-9C — Reconciliation Statement";
         IsTwoColumn = false;
 

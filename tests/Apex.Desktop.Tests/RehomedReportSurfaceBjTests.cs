@@ -246,6 +246,14 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
     /// <para>The second window is the PRIOR financial year, which contains neither the seeded purchase nor the
     /// seeded sale, so every figure must fall to zero. Hand-reasoned from the fixture dates, not read back off
     /// the engine.</para>
+    ///
+    /// <para>🔴 <b>THE THIRD WINDOW IS THE ONE THAT ACTUALLY PROVES THE PERIOD IS READ, AND IT WAS ADDED
+    /// BECAUSE MUTATION TESTING SHOWED THE FIRST TWO DO NOT.</b> Deleting the <c>_options.Period</c> anchor
+    /// from <c>GstAnnualReturnWindow</c> leaves both windows above GREEN: a window that already IS a whole
+    /// financial year is indistinguishable from the year the as-of fallback derives from its end date. The
+    /// third window STRADDLES two financial years — 1 Apr 2024 to 30 Jun 2025 — so the two anchors disagree:
+    /// anchoring on <c>From</c> gives FY 2024-25 and the seeded figures; anchoring on the as-of (which is the
+    /// window's To) would give FY 2025-26 and zeros.</para>
     /// </summary>
     [Fact]
     public void Alt_F2_moves_the_annual_return_figures_rather_than_leaving_a_dead_knob()
@@ -263,6 +271,59 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         Assert.Equal("0.00", Amount(reports, "5  Total turnover"));
         Assert.Equal("0.00", Amount(reports, "4  Total tax payable"));
         Assert.Equal("0.00", Amount(reports, "6  Total ITC availed"));
+
+        // ---- A STRADDLING window whose START names FY 2024-25 and whose END falls in FY 2025-26.
+        reports.SetPeriod(FyStart, new DateOnly(2025, 6, 30));
+
+        Assert.Equal("1,000.00", Amount(reports, "5  Total turnover"));
+        Assert.Equal("900.00", Amount(reports, "6  Total ITC availed"));
+    }
+
+    /// <summary>
+    /// 🔴🔴 <b>THE CLAUSE THAT KEEPS THE SNAP HONEST, AND IT GUARDS AGAINST A WRONG FIGURE UNDER A RIGHT
+    /// HEADING ON A FILED STATUTORY RETURN.</b>
+    ///
+    /// <para><b>Measured while building this slice.</b> <c>Gstr9.Build(company, fyFrom, fyTo)</c> ignores
+    /// <c>fyTo</c> for the body of the return — it folds over <c>PeriodWindows(company, fyFrom)</c>, which is
+    /// unconditionally twelve months (or four quarters) forward from <c>fyFrom</c>. A first draft of this
+    /// re-home honoured an arbitrary Alt+F2 window verbatim, and a four-day window produced a <b>full year's</b>
+    /// taxable value and tax under a subtitle reading "1 Apr 2024 to 4 Apr 2024". <c>Gstr9c</c> is worse: its
+    /// books side DOES honour the partial window while its return side does not, so a partial window
+    /// manufactures a spurious unreconciled difference.</para>
+    ///
+    /// <para>So <c>GstAnnualReturnWindow</c> always returns a WHOLE financial year, and the subtitle states the
+    /// window actually projected rather than the one requested. Both halves are asserted: the dates in the
+    /// subtitle, and the invariant that the window is a whole year on every one of several requested windows.
+    /// If someone later makes the window honour an arbitrary period, this reddens before a return is filed on
+    /// it.</para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RehomedKinds))]
+    public void A_partial_period_is_snapped_to_a_whole_financial_year_and_the_subtitle_says_which(ReportKind kind)
+    {
+        var vm = RegularGstFixture($"Bj Snap {kind}");
+        var reports = new ReportsViewModel(vm.Company!, kind);
+
+        foreach (var requested in new[]
+                 {
+                     (From: FyStart, To: FyStart.AddDays(3)),                       // four days
+                     (From: FyStart.AddMonths(2), To: FyStart.AddMonths(3)),        // one month, mid-year
+                     (From: FyStart, To: new DateOnly(2025, 6, 30)),                // straddles two years
+                 })
+        {
+            reports.SetPeriod(requested.From, requested.To);
+
+            // The projected window is the whole financial year containing the REQUESTED START.
+            Assert.Contains("01-Apr-2024", reports.Subtitle);
+            Assert.Contains("31-Mar-2025", reports.Subtitle);
+
+            // …and the figures are the whole year's, matching the untouched default window — which is the
+            // point: a partial request must not silently return a year's figures under a partial heading.
+            if (kind == ReportKind.Gstr9AnnualReturn)
+                Assert.Equal("1,000.00", Amount(reports, "5  Total turnover"));
+            else
+                Assert.Equal("1,000.00", Amount(reports, "5  Turnover as per books"));
+        }
     }
 
     /// <summary>The same proof on GSTR-9C: the reconciliation follows the period, both sides of it.</summary>
@@ -279,6 +340,12 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
 
         Assert.Equal("0.00", Amount(reports, "5  Turnover as per books"));
         Assert.Equal("0.00", Amount(reports, "5  Turnover as per returns"));
+        Assert.Equal("0.00", Amount(reports, "5  Unreconciled turnover"));
+
+        // A straddling window: its START names FY 2024-25, so the reconciliation comes back to that year.
+        reports.SetPeriod(FyStart, new DateOnly(2025, 6, 30));
+        Assert.Equal("1,000.00", Amount(reports, "5  Turnover as per books"));
+        Assert.Equal("1,000.00", Amount(reports, "5  Turnover as per returns"));
         Assert.Equal("0.00", Amount(reports, "5  Unreconciled turnover"));
     }
 
