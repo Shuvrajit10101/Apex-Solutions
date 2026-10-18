@@ -597,7 +597,7 @@ public sealed class VoucherClassPostedLegsTests : IDisposable
 
     /// <summary>
     /// 🔴 <b>THE WHOLE CLASS — SPLIT, PER-UNIT FREIGHT AND A <i>SIDE-FLIPPED</i> ROUND-OFF — OFF THE RELOADED
-    /// BOOK.</b> <see cref="The_classes_legs_survive_a_reload"/> reloads only the two-ledger allocation split.
+    /// BOOK.</b> <see cref="The_classes_legs_survive_a_reload()"/> reloads only the two-ledger allocation split.
     /// That leaves the one leg whose storage is genuinely lossy unproven across SQLite: the negative round-off.
     /// <see cref="VoucherClassLeg.ToEntryLine"/> cannot store a negative magnitude, so it carries the sign <b>in
     /// the side</b> — a credit-natured sale's (-)0.50 is written as a DEBIT of 0.50. A side is one column; a

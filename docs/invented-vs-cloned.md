@@ -2203,6 +2203,19 @@ vendor's **SIX** families"* — has **no source behind the number six**. A regis
 
 ---
 
+### IV-95 · 🔴 ADDED 2026-10-18 — the voucher class's **"Remove if Zero"** is keyed, stored and displayed, and is **provably inert**: we always behave as if it were *Yes*
+
+| | |
+|---|---|
+| **Severity** | **LOW** on money (it can only add or withhold a **nil** line), but **MEDIUM as a capability claim** — the operator sets a switch, sees it read back "Yes"/"No" on the class row, and it changes nothing. Census row **2.6**. |
+| **What TallyPrime documents** | **[web]** `help.tallysolutions.com/round-off-invoice-and-ledger-values/` and `/tally-prime/excise-for-importer/ei-configure-vch-class-customs-duty-tally/` both carry *Remove if Zero* as a field of an Additional Accounting Entry; the round-off page's sense is that the option **hides the ledger when its value is zero**. So *Yes* ⇒ the nil line is suppressed, *No* ⇒ the nil line appears. |
+| **What we ship** | The field is captured (`VoucherTypeMasterViewModel:400`, `:573`), stored (`SqliteCompanyStore:6958`), displayed (`:437`, as "Yes"/"No") — and read in **exactly one place in `src/`**, `VoucherClassPosting.cs:125`. That read is immediately followed by the same unconditional test: `if (amount == Money.Zero && entry.RemoveIfZero) continue;` then `if (amount == Money.Zero) continue;`. **Both arms `continue`, so the flag changes no control flow whatever.** The rounding pass (pass 2) never consults it at all. |
+| **Why it is inert, and why that is not simply a bug to delete** | `EntryLine.Amount` is documented *"Magnitude, always > 0 (a zero line is invalid in Phase 1)"* — the ledger model **cannot represent a zero line**, so the *No* behaviour is unreachable by construction, not by oversight. We therefore always behave as *Yes*. |
+| 🔴 **No test was written for it** | Pinning the current behaviour would enshrine **our** divergence as fidelity — the failure this project has already made four times. The honest record is this row. |
+| **Fix** | Either (a) let `EntryLine` carry a zero-magnitude line so *No* can show the nil ledger, which is a change to the ledger core and far beyond this field, or (b) remove the switch from the master screen and say in the UI that a nil additional entry is never shown. **(b) is the smaller honest option and is a user decision, not ours.** Until one is taken, the switch should at minimum stop being offered as if it did something. |
+
+---
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
