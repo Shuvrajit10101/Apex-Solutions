@@ -662,12 +662,19 @@ public sealed class VoucherClassPostedLegsTests : IDisposable
     /// <i>Additional Accounting Entry</i> (the round-off) and <b>no</b> Default Accounting Allocation. Such a
     /// class automates nothing about the sales details, so the operator still names the value ledger themselves.
     ///
-    /// <para><b>Why this is worth a test rather than a comment.</b> <see cref="VoucherEntryViewModel"/> gates the
-    /// field on <c>ClassSuppliesValueLedgers</c>, which tests <c>LedgerAllocations.Count &gt; 0</c>. That reads
-    /// like a fussy detail and invites "simplification" to <c>ActiveVoucherClass is not null</c>. Make that
-    /// change and the vendor's documented round-off class takes the value-ledger field off the screen while
-    /// supplying no ledger of its own — the invoice loses its value leg entirely and the operator has no field
-    /// left to fix it with. Asserting the posted legs here, not just the gate, is what catches that.</para>
+    /// <para><b>Why this is worth a test rather than a comment, stated exactly.</b>
+    /// <see cref="VoucherEntryViewModel"/> gates the field on <c>ClassSuppliesValueLedgers</c>, which tests
+    /// <c>LedgerAllocations.Count &gt; 0</c>. That reads like a fussy detail and invites "simplification" to
+    /// <c>ActiveVoucherClass is not null</c>. <b>Traced rather than assumed, here is what that change does:</b>
+    /// <c>ShowStockLedgerPicker</c> goes false, so the value-ledger field leaves the screen — but the posting
+    /// branch keys off <c>AllocationLegs.Count &gt; 0</c>, which is still 0, so it goes on emitting the single
+    /// value leg from <c>SelectedStockLedger</c>. The operator is therefore left with an invoice posting to
+    /// whichever ledger happened to default (<c>StockLedgers.FirstOrDefault()</c>) and <b>no field with which to
+    /// correct it</b> — the unreachable-capability shape, silent, on every round-off invoice. And where nothing
+    /// defaults, the completeness gate at <c>ClassSuppliesValueLedgers || SelectedStockLedger is not null</c>
+    /// now passes on the first disjunct while the emitter still dereferences <c>valueLedger!</c>.
+    /// <b>The assertion that kills it is <c>ShowStockLedgerPicker</c>; the posted legs below prove the field was
+    /// not merely visible but the thing that actually chose the ledger.</b></para>
     /// </summary>
     [Fact]
     public void A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_field_survives()
