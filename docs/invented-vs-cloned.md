@@ -2166,6 +2166,56 @@ vendor's **SIX** families"* — has **no source behind the number six**. A regis
 
 ---
 
+### IV-92 · 🔴 ADDED 2026-10-18 — a **MIS-CITED** divergence: the Sales-ledger hiding rule is TWO INDEPENDENT conditions, and on condition (1) **we MATCH**
+
+| | |
+|---|---|
+| **Severity** | The mis-citation is **MEDIUM** — it sat in shipped source and in the view, and it described our behaviour as wrong in the **opposite direction** to the truth. The residual divergence is **LOW** and open. Census row **2.6**. |
+| **What was claimed in our own source** | `VoucherEntryViewModel.VoucherClass.cs` stated the vendor's rule was *"CONDITIONAL on two things, not one: … a voucher class … **AND** if F12 > 'Select common ledger account for Item allocation' is set to **No**"*, and concluded that `ShowStockLedgerPicker` is *"a NARROWER rule than the vendor's"* — i.e. that we **over-hide** the field. `MainWindow.axaml` repeated it. |
+| **What the vendor actually publishes** | **[web]** `help.tallysolutions.com/accounting-faq/`, re-fetched by content 2026-10-18. A lead-in, *"The field to select the Sales ledger is not available, if:"*, followed by a **numbered list of two items** — (1) *"You have selected a voucher class to automate the sales details."* (2) *"F12 (Configure) > Select common ledger account for Item allocation is set to No."* **There is no "and" and no "or" on the page.** Two numbered items under "not available if" are two independent sufficient conditions. |
+| **What that makes true** | On condition (1) **we match exactly** — we are not narrower there and we do not over-hide. `ClassSuppliesValueLedgers` tests `LedgerAllocations.Count > 0`, which is the right reading of *"to automate the sales details"*: the vendor's own round-off class (`round-off-invoice-and-ledger-values/`) carries an Additional Accounting Entry and **no** Default Accounting Allocation, automates no sales detail, and must keep the field. Pinned by `A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_field_survives`. |
+| **What remains ours** | Condition (2) is unmodelled: we never hide the field for the F12 flag alone. **Recorded as OURS, labelled, and deliberately NOT closed this wave** — see IV-93. |
+| **Fix** | Mis-citation corrected in place in both files 2026-10-18, with the struck text kept visible. The residual gap is IV-93's. |
+
+---
+
+### IV-93 · 🔴 ADDED 2026-10-18 — **"Select common ledger account for Item allocation" is not a flag we may ship alone**: it needs per-item accounting allocation, which does not exist here
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM**, open, and deliberately left open. Census row **2.6**, third clause. |
+| **What TallyPrime documents** | **[web]** `help.tallysolutions.com/accounting-faq/` names `F12 (Configure) > Select common ledger account for Item allocation` and states that setting it to **No** makes the common Sales-ledger field unavailable. The vendor's alternative is per-item ledger selection — the Accounting Details the item line then carries. |
+| **What we ship** | Nothing for it. Every item invoice in this product resolves **exactly one** value ledger (`SelectedStockLedger`, or the class's `LedgerAllocations`). 🔴 **And the absence is STRUCTURAL, not just a missing screen:** `Apex.Ledger.Domain.VoucherInventoryLine` has **no ledger field of any kind** — its whole surface is `StockItemId`, `GodownId`, `Quantity`, `BilledQuantity`, `Rate`, `Direction`, `BatchLabel`, `UnitId`, `TrackingNumber`, `CostTrackingNumber`. There is nowhere for a per-item ledger to be stored. |
+| 🔴 **Why the flag was NOT added** | Adding the switch alone would hide a **required** field and offer no substitute: the invoice would have no value leg and no field left to name one with. That is the unreachable-capability defect this project has shipped before, dressed as a closure. The honest state is an open divergence. |
+| **Fix** | Build per-item accounting allocation first (its own row of work, and — because `VoucherInventoryLine` would gain a stored field — **it needs a schema migration**, so it cannot be a side-effect of any track that is forbidden one). Only then does the F12 switch become a two-line gate on top of it. Until then the field is always offered, which is the vendor's behaviour whenever condition (2) does not hold and is never wrong money. |
+
+---
+
+### IV-94 · 🔴 ADDED 2026-10-18 — a voucher class on an **accounting (service) invoice**: no TallyPrime source speaks, so the item-invoice gate is **ours**
+
+| | |
+|---|---|
+| **Severity** | **LOW–MEDIUM**, open. Census row **2.6**, second clause. |
+| **What we ship** | `ActiveVoucherClass => IsItemInvoice ? SelectedVoucherClass?.Class : null`. A class is therefore unreachable on an accounting invoice; `AcceptAccountingInvoice` is a separate path that never consults one. |
+| **What TallyPrime documents** | **Nothing, either way — searched by content and stated as a finding.** `voucher-types-tally/` (the product's own Voucher Class page), `accounting-faq/`, `accounting-entry-tally/` and `round-off-invoice-and-ledger-values/` were each opened; none mentions a voucher class on an accounting / service invoice, and none restricts a class to item invoices. The round-off page says only to *"enter the sales details"*. |
+| 🔴 **What must NOT be cited for it** | The pages that **do** document a class in accounting-invoice mode are **Tally.ERP 9** — `docs/te9rel60|63|64/Tax_India/Service_tax/Voucher_Class_for_Sales_Accounting_Invoice.htm` and `article/Tally.ERP9/…`. Under ruling 14 ERP-9 is not ground truth for this clone, and those pages must not be used to justify building the path. |
+| **Fix** | None taken. Lifting the gate would let a class post money on a screen no TallyPrime page says it governs. Settle the vendor's behaviour by observation first; the gate is then either confirmed or a two-line change. |
+
+---
+
+### IV-95 · 🔴 ADDED 2026-10-18 — the voucher class's **"Remove if Zero"** is keyed, stored and displayed, and is **provably inert**: we always behave as if it were *Yes*
+
+| | |
+|---|---|
+| **Severity** | **LOW** on money (it can only add or withhold a **nil** line), but **MEDIUM as a capability claim** — the operator sets a switch, sees it read back "Yes"/"No" on the class row, and it changes nothing. Census row **2.6**. |
+| **What TallyPrime documents** | **[web]** `help.tallysolutions.com/round-off-invoice-and-ledger-values/`, **verbatim**: *"**Remove if Zero** – Set it to **Yes** to remove the ledger from the invoice if the ledger value is zero."* `/tally-prime/excise-for-importer/ei-configure-vch-class-customs-duty-tally/` carries the same field on an Additional Accounting Entry without explaining it. ⚠️ **Precision: only the *Yes* arm is quoted.** That *No* leaves the nil ledger on the invoice is the **implication** of a switch whose documented purpose is removal — it is not a sentence on the page, and it is marked as an implication here rather than dressed as a citation. |
+| **What we ship** | The field is captured (`VoucherTypeMasterViewModel:400`, `:573`), stored (`SqliteCompanyStore:6958`), displayed (`:437`, as "Yes"/"No") — and read in **exactly one place in `src/`**, `VoucherClassPosting.cs:125`. That read is immediately followed by the same unconditional test: `if (amount == Money.Zero && entry.RemoveIfZero) continue;` then `if (amount == Money.Zero) continue;`. **Both arms `continue`, so the flag changes no control flow whatever.** The rounding pass (pass 2) never consults it at all. |
+| **Why it is inert, and why that is not simply a bug to delete** | `EntryLine.Amount` is documented *"Magnitude, always > 0 (a zero line is invalid in Phase 1)"* — the ledger model **cannot represent a zero line**, so the *No* behaviour is unreachable by construction, not by oversight. We therefore always behave as *Yes*. |
+| 🔴 **No test was written for it** | Pinning the current behaviour would enshrine **our** divergence as fidelity — the failure this project has already made four times. The honest record is this row. |
+| **Fix** | Either (a) let `EntryLine` carry a zero-magnitude line so *No* can show the nil ledger, which is a change to the ledger core and far beyond this field, or (b) remove the switch from the master screen and say in the UI that a nil additional entry is never shown. **(b) is the smaller honest option and is a user decision, not ours.** Until one is taken, the switch should at minimum stop being offered as if it did something. |
+
+---
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
