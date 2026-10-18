@@ -531,9 +531,6 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
     /// <para>🔴 The selection is re-found BY ID with an explicit fallback to the "no default bank" row,
     /// never by position: falling back to <c>FirstOrDefault()</c> after an unrelated ledger was added would
     /// silently re-point a type's default bank at whatever now sorts first.</para>
-    /// </summary>
-    /// <summary>
-    /// v67 (census 2.4) — the vendor's <b>Default bank</b> picker.
     ///
     /// <para>🔴 <b>BANK LEDGERS ONLY (BF-5).</b> This list used to be <b>every ledger in the company</b>, so
     /// Sales, Capital or Purchase could be set as a voucher type's default bank. The vendor's own sentence is
