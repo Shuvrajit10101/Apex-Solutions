@@ -653,6 +653,20 @@ pass while verifying an unrelated citation.*
 
 ---
 
+### D25 · ~~A voucher class with no Default Accounting Allocation never rounded the invoice — the vendor's own round-off class was inert~~ — **FIXED IN CODE 2026-10-18**
+**HIGH / WRONG MONEY (silent)** · Area **ENT** · Census row **2.6** · *Filed and fixed 2026-10-18 (wave 46,
+track BK). Found by a test written for a different clause of the row.*
+
+| | |
+|---|---|
+| **What it was** | `help.tallysolutions.com/round-off-invoice-and-ledger-values/` builds a voucher class with **one** Additional Accounting Entry — *As Total Amount Rounding*, a *Rounding Method*, a *Rounding Limit* — and **no** Default Accounting Allocation; the page never asks for one. An operator who defined that class exactly as the page instructs and selected it on an invoice got **no round-off leg at all**. The invoice never rounded, silently, every time. This is the single capability the vendor documents most fully for a voucher class. |
+| **Cause** | `VoucherClassPosting.Compute` measured the rounding base as `allocations.Sum(...) + additional + otherCharges`. With no allocation that sum is **₹0.00** — already round, so the difference was nil and no leg was emitted. The item value was never in the base: without an allocation the **caller** posts it as the single value leg and the engine never sees it. |
+| **Fix** | The base is `itemValue.Amount`. The two expressions are **equal whenever the class has allocations** — `Allocate` gives the last share the remainder, so the shares sum to the item value to the paisa by construction — so every pre-mapping class is byte-identical. |
+| 🔴 **Why it survived, which is the part worth reading** | All 22 prior row-2.6 tests pair the round-off with an allocation, where the two expressions are equal. **3 092 Ledger and 4 887 Desktop tests were green over it.** The row was graded `PARTIAL` on three clauses, none of which was this. It was found only because a test written for the **F12 common-ledger** clause happened to post the vendor's own round-off-only shape. Another entry for *a green suite proves nothing here*. |
+| **Proof at HEAD** | `Apex.Ledger.Tests/VoucherClassPostingTests.A_class_with_no_allocation_still_rounds_the_invoice_which_is_the_vendors_own_round_off_class` (also asserts an already-round invoice still posts **no** leg, so the fix does not emit one unconditionally) and `…Changing_the_rounding_base_to_the_item_value_leaves_an_allocating_class_byte_identical`. End-to-end off a reloaded book: `Apex.Desktop.Tests/VoucherClassPostedLegsTests.A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_field_survives`. **Mutation:** reverting the one line reddens the first with *"Assert.Single() Failure: The collection was empty"* (3093/3094, exit 1) while the byte-identical companion stays green. |
+
+---
+
 ## 3. Honest scale — this register is a sample, not a census
 
 The request was a sweep of "such minute mistakes all over the app", and the number that matters for deciding
