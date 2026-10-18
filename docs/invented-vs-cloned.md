@@ -2097,6 +2097,30 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Why it is recorded** | 🔴 **Before 2026-10-18 the arm matched `a.CentreId == centreId` with no descendant walk.** On a Delhi(6,000 Dr) + Delhi-North(3,000 Dr) book with a 9,000 budget on Delhi, the Budget Variance report said *actual 6,000, variance −3,000* — **a 3,000 under-spend that did not exist**, on a report a user can open. Nothing caught it because no test anywhere posted an allocation against a cost-centre budget, and the one test that existed asserted `Actual = 0` under a doc comment claiming it took "a real actual from a posted allocation". |
 | **Fix** | **Done.** Seven tests in `Apex.Ledger.Tests.CostCentreBudgetVarianceTests` post real vouchers. Mutation **M-BF2** (restore `a.CentreId == centreId`) reddens three of them with the original wrong figure, *Expected 9000.00 / Actual 6000.00*; mutation **M-BF2b** (match any existing centre) reddens six, proving the walk is **directional** and not "every centre in the category". |
 
+---
+
+### IV-92 · The **Default bank** picker is scoped to **bank ledgers**, by OUR predicate — the vendor says "a bank" and nothing more
+
+| | |
+|---|---|
+| **Severity** | **LOW. It narrows an election (`IV-89`) rather than moving a figure — but the previous behaviour let Sales, Capital or Purchase be a voucher type's "default bank", which is not a thing.** |
+| **What TallyPrime does** | `help.tallysolutions.com/voucher-types-tally/`, opened by content 2026-10-18, under *Set up printing options*: *"Select a **bank** in Default bank to print its details on the vouchers."* and *"(Applicable to Sales voucher types)"*. 🔴 **The page says "a bank" and stops there** — it does not say which ledgers the list contains, nor name a group. |
+| **What we ship** | The picker lists ledgers under the **Bank Accounts / Bank OD / Bank OCC** chain via `ClassificationRules.IsBankGroup`, plus the "◦ No default bank" row. **The PREDICATE is ours**, not a vendor clause; it is the one Bank Reconciliation, the Cheque Register and the Deposit Slip already share, so one screen cannot drift from another on what counts as a bank. ⚠️ We do **not** scope the field to Sales voucher types as the vendor's parenthesis does, and we do not print the bank's details on anything — the field remains an election (`IV-89`). |
+| **Why** | Offering every ledger was the state v67 shipped (BF-5). Picking the existing shared predicate rather than inventing a new rule is the smallest honest narrowing. |
+| **Fix** | Recorded. A **saved** non-bank id from a pre-filter book is still offered, captioned *"(not a bank — saved earlier)"*, so an unrelated alteration cannot silently clear it. Mutation **M-BF5** (drop the `Where`) reddens `The_default_bank_picker_offers_bank_ledgers_only` and `A_saved_non_bank_default_survives_being_opened_for_alteration`. |
+
+---
+
+### IV-93 · 🔴 **NOT A DIVERGENCE — A DEFECT, FOUND AND FIXED HERE: v67's Default bank made a book PERMANENTLY UNSAVABLE on the second save**
+
+| | |
+|---|---|
+| **Severity** | 🔴 **BLOCKING, and it reached neither the builder's report nor the reviewer's finding list.** Set a Default bank on any voucher type; the first save succeeds; **every later save of that company fails and rolls back entirely** — every master, every voucher. The operator cannot save their book again by any route and is told only *"FOREIGN KEY constraint failed"*. |
+| **What TallyPrime does** | Not applicable. This is our own storage defect, not a fidelity question. |
+| **What went wrong** | `Save` is delete-all-then-reinsert. `DeleteCompanyRows` runs `DELETE FROM ledgers` roughly **25 lines BEFORE** `DELETE FROM voucher_types`, and v67 gave `voucher_types` a `default_bank_ledger_id REFERENCES ledgers(id)`. The first save is fine because the database holds no such row yet. The second finds the stored row pointing at the ledger being deleted. **This is EXACTLY the v62 voucher-class trap already documented twelve lines above the offending statement**, repeated by v67 for a new column. `budget_lines.cost_centre_id`, the other FK v67 added, is safe only by luck of ordering. |
+| **Why nothing caught it** | Every v67 test saved such a book **exactly once**. Both new FK columns were put through `MasterDeletionForeignKeyCoverageTests`, which guards *deleting the master* — a different question from the store's delete ORDER during an ordinary save. A green suite proved nothing. |
+| **Fix** | **DONE.** `UPDATE voucher_types SET default_bank_ledger_id = NULL WHERE company_id = $cid;` immediately before the ledgers delete — the same child-clear the POS and v47 numbering tables already use. The aggregate rewrites the column moments later, so nothing is lost. Three tests in `VoucherTypeDefaultBankResaveTests`; mutation **M-BF8** (drop the clear) reddens all three with the original `SQLite Error 19: 'FOREIGN KEY constraint failed'`. ⚠️ **Lesson for the next migration that adds an FK:** ask where BOTH tables sit in `DeleteCompanyRows`, and save the fixture TWICE. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

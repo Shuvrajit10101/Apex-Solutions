@@ -532,13 +532,43 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
     /// never by position: falling back to <c>FirstOrDefault()</c> after an unrelated ledger was added would
     /// silently re-point a type's default bank at whatever now sorts first.</para>
     /// </summary>
-    private void RefreshDefaultBankOptions()
+    /// <summary>
+    /// v67 (census 2.4) — the vendor's <b>Default bank</b> picker.
+    ///
+    /// <para>🔴 <b>BANK LEDGERS ONLY (BF-5).</b> This list used to be <b>every ledger in the company</b>, so
+    /// Sales, Capital or Purchase could be set as a voucher type's default bank. The vendor's own sentence is
+    /// <i>"Select a bank in Default bank to print its details on the vouchers"</i>
+    /// (help.tallysolutions.com/voucher-types-tally/, opened by content) — "a bank", not "a ledger". The page
+    /// does not spell out which ledgers it lists, so the PREDICATE is this product's existing one rather than
+    /// a vendor clause: <see cref="Apex.Ledger.Reports.ClassificationRules.IsBankGroup"/>, the same walk Bank
+    /// Reconciliation, the Cheque Register and the Deposit Slip already use, so one screen cannot drift from
+    /// another on what counts as a bank.</para>
+    ///
+    /// <para>⚠️ <paramref name="keepId"/> is the <b>already-saved</b> selection. A book written before this
+    /// filter existed may name a non-bank ledger; dropping it from the list would have made a plain Alter of
+    /// an unrelated caption silently CLEAR the stored default. So a saved id is always offered, marked, and
+    /// only the operator can change it.</para>
+    /// </summary>
+    private void RefreshDefaultBankOptions(Guid? keepId = null)
     {
         var previousId = SelectedDefaultBank?.Id;
         DefaultBankOptions.Clear();
         DefaultBankOptions.Add(new ClassLedgerOption { Id = Guid.Empty, Display = "◦ No default bank" });
-        foreach (var l in _company.Ledgers.OrderBy(l => l.Name, StringComparer.Ordinal))
+        foreach (var l in _company.Ledgers
+            .Where(l => Apex.Ledger.Reports.ClassificationRules.IsBankGroup(l.GroupId, _company))
+            .OrderBy(l => l.Name, StringComparer.Ordinal))
             DefaultBankOptions.Add(new ClassLedgerOption { Id = l.Id, Display = l.Name });
+
+        if (keepId is { } kept && kept != Guid.Empty
+            && DefaultBankOptions.All(o => o.Id != kept)
+            && _company.FindLedger(kept) is { } strayLedger)
+        {
+            DefaultBankOptions.Add(new ClassLedgerOption
+            {
+                Id = kept,
+                Display = strayLedger.Name + "  (not a bank — saved earlier)",
+            });
+        }
 
         SelectedDefaultBank = DefaultBankOptions.FirstOrDefault(o => o.Id == previousId)
                               ?? DefaultBankOptions[0];
@@ -799,6 +829,9 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
         vm.DefaultJurisdiction = type.DefaultJurisdiction ?? string.Empty;
         vm.PrintDeclaration = type.PrintDeclaration ?? string.Empty;
         vm.PrintTermsAndConditions = type.PrintTermsAndConditions ?? string.Empty;
+        // BF-5: rebuild the (bank-only) list first, carrying the SAVED id so a pre-filter book that named a
+        // non-bank ledger keeps it instead of having it silently cleared by an unrelated alteration.
+        vm.RefreshDefaultBankOptions(type.DefaultBankLedgerId);
         vm.SelectedDefaultBank =
             vm.DefaultBankOptions.FirstOrDefault(o => o.Id == type.DefaultBankLedgerId)
             ?? vm.DefaultBankOptions[0];

@@ -5759,6 +5759,19 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 JOIN voucher_types vt ON vt.id = vc.voucher_type_id
                 WHERE vt.company_id = $cid);
             """, ("$cid", cid));
+        // 🔴 v67 (census 2.4) — BF-8, AND IT IS EXACTLY THE v62 TRAP DOCUMENTED TWELVE LINES ABOVE, REPEATED.
+        // voucher_types.default_bank_ledger_id carries a REFERENCES ledgers(id), and voucher_types is deleted
+        // ~25 lines BELOW the ledgers delete on the next line — it cannot move up, because vouchers and the
+        // numbering affix tables reference it. So the reference is NULLED here instead; the aggregate rewrites
+        // the column from VoucherType.DefaultBankLedgerId moments later, which is why this loses nothing (the
+        // round trip is pinned by VoucherTypeDefaultBankResaveTests).
+        // 🔴 WITHOUT THIS, THE FIRST SAVE SUCCEEDS AND EVERY LATER SAVE OF THAT BOOK FAILS: the stored
+        // voucher_types row points at a ledger the DELETE below is removing, SQLite answers "FOREIGN KEY
+        // constraint failed", and the whole transaction — every master and every voucher — rolls back. The
+        // operator cannot save the company again by any route and is told nothing useful. Every v67 test saved
+        // such a book exactly once, so a green suite proved nothing here.
+        ExecTx(tx, "UPDATE voucher_types SET default_bank_ledger_id = NULL WHERE company_id = $cid;",
+            ("$cid", cid));
         ExecTx(tx, "DELETE FROM ledgers WHERE company_id = $cid;", ("$cid", cid));
         // price_levels is referenced by ledgers (default) + price_lists, both deleted above → safe to drop now.
         ExecTx(tx, "DELETE FROM price_levels WHERE company_id = $cid;", ("$cid", cid));

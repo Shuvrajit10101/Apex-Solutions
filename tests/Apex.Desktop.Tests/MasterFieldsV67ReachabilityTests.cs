@@ -305,7 +305,18 @@ public sealed class MasterFieldsV67ReachabilityTests : IDisposable
         vm.ShowVoucherTypeMaster();
         var master = vm.VoucherTypeMaster!;
 
-        var bank = vm.Company!.Ledgers.First();
+        // BF-5: the Default bank picker now lists BANK ledgers only (the vendor says "Select a bank"), so
+        // this test needs a real one. `Ledgers.First()` used to be whatever came back first — Cash — and it
+        // passing was itself the defect.
+        var bank = new DomainLedger(
+            Guid.NewGuid(), "HDFC Current A/c",
+            vm.Company!.FindGroupByName("Bank Accounts")!.Id,
+            Money.Zero, openingIsDebit: true);
+        vm.Company!.AddLedger(bank);
+        _storage.Save(vm.Company!);
+        vm.ShowVoucherTypeMaster();
+        master = vm.VoucherTypeMaster!;
+
         master.Name = "Export Invoice";
         master.SelectedBaseType = master.BaseTypes.First(b => b.Value == VoucherBaseType.Sales);
         master.UseEffectiveDates = true;
@@ -519,6 +530,80 @@ public sealed class MasterFieldsV67ReachabilityTests : IDisposable
         // under. The real-money cases live in Apex.Ledger.Tests.CostCentreBudgetVarianceTests.
         Assert.Equal(0m, row.Actual.Amount);
         Assert.Equal(-45_000m, row.Variance.Amount);
+    }
+
+    /// <summary>
+    /// 🔴 <b>BF-5.</b> The vendor's sentence is "Select <b>a bank</b> in Default bank to print its details on
+    /// the vouchers" (help.tallysolutions.com/voucher-types-tally/, by content). The picker used to offer
+    /// <b>every ledger in the company</b>, so Sales, Capital or Purchase could be a voucher type's default
+    /// bank. It now offers bank ledgers only, via the predicate Bank Reconciliation, the Cheque Register and
+    /// the Deposit Slip already share — <c>ClassificationRules.IsBankGroup</c>.
+    /// </summary>
+    [Fact]
+    public void The_default_bank_picker_offers_bank_ledgers_only()
+    {
+        var vm = NewSeededCompany("V67 Bank Filter Co");
+        var company = vm.Company!;
+
+        var bank = new DomainLedger(
+            Guid.NewGuid(), "ICICI Current A/c", company.FindGroupByName("Bank Accounts")!.Id,
+            Money.Zero, openingIsDebit: true);
+        var sales = new DomainLedger(
+            Guid.NewGuid(), "Sales Domestic", company.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        company.AddLedger(bank);
+        company.AddLedger(sales);
+        _storage.Save(company);
+
+        vm.ShowVoucherTypeMaster();
+        var master = vm.VoucherTypeMaster!;
+
+        Assert.Contains(master.DefaultBankOptions, o => o.Id == bank.Id);
+        Assert.DoesNotContain(master.DefaultBankOptions, o => o.Id == sales.Id);
+        // Cash is not a bank either, however convenient it would be.
+        Assert.DoesNotContain(master.DefaultBankOptions,
+            o => o.Id == company.FindLedgerByName("Cash")!.Id);
+        // The "no default" row survives — clearing the field must stay possible.
+        Assert.Contains(master.DefaultBankOptions, o => o.Id == Guid.Empty);
+    }
+
+    /// <summary>
+    /// BF-5, the half that would have been a silent data loss: a book written BEFORE the filter may name a
+    /// non-bank ledger. Opening that type for alteration must still show it — otherwise renaming the type
+    /// would quietly clear the stored default bank on save.
+    /// </summary>
+    [Fact]
+    public void A_saved_non_bank_default_survives_being_opened_for_alteration()
+    {
+        var vm = NewSeededCompany("V67 Stray Bank Co");
+        var company = vm.Company!;
+        var sales = new DomainLedger(
+            Guid.NewGuid(), "Sales Domestic", company.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        company.AddLedger(sales);
+        _storage.Save(company);   // the ledger must exist before anything can point an FK at it
+
+        vm.ShowVoucherTypeMaster();
+        var creator = vm.VoucherTypeMaster!;
+        creator.Name = "Legacy Sales";
+        creator.SelectedBaseType = creator.BaseTypes.First(b => b.Value == VoucherBaseType.Sales);
+        Assert.True(creator.Create(), creator.Message);
+
+        // Written the way a PRE-FILTER book would hold it: a non-bank id straight onto the stored master.
+        var type = company.VoucherTypes.Single(t => t.Name == "Legacy Sales");
+        type.DefaultBankLedgerId = sales.Id;
+        _storage.Save(company);
+
+        var master = VoucherTypeMasterViewModel.ForAlter(company, _storage, type.Id, onChanged: () => { })!;
+
+        Assert.Equal(sales.Id, master.SelectedDefaultBank!.Id);
+        Assert.Contains("not a bank", master.SelectedDefaultBank!.Display);
+
+        // A plain rename must NOT clear it.
+        master.Name = "Legacy Sales Renamed";
+        Assert.True(master.Create(), master.Message);
+        Assert.Equal(sales.Id,
+            Reload("V67 Stray Bank Co").VoucherTypes.Single(t => t.Name == "Legacy Sales Renamed").DefaultBankLedgerId);
     }
 
     public void Dispose()
