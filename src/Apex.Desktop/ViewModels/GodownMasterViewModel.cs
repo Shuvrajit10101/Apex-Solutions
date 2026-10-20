@@ -22,6 +22,12 @@ public sealed partial class GodownListRow : ObservableObject, IMasterListRow
     public string Under { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
 
+    /// <summary>v67 (census 3.7): "No storage" for a godown whose "Allow storage of materials" is off, else
+    /// empty. Shown so the Existing list proves the election is really STORED rather than merely accepted by
+    /// the form. Only the NON-default is called out: every godown that stores materials is on the vendor's own
+    /// default, and labelling all of them would be noise.</summary>
+    public string Storage { get; init; } = string.Empty;
+
     /// <inheritdoc/>
     public Guid MasterId { get; init; }
 
@@ -130,6 +136,10 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
         Name = godown.Name;
         Alias = godown.Alias ?? string.Empty;
         ThirdParty = godown.ThirdParty;
+        // v67 (census 3.7). Loaded whether or not the F12 switch is on, so an alter that leaves the field
+        // hidden still carries the value the book already holds rather than showing a reset one.
+        AllowStorageOfMaterials = godown.AllowStorageOfMaterials;
+        Address = godown.Address ?? string.Empty;
         SelectedParent = ParentOptions.FirstOrDefault(o => o.Godown?.Id == godown.ParentId)
             ?? ParentOptions.FirstOrDefault(o => o.IsPrimary);
         SelectedJobCostCentre =
@@ -157,11 +167,18 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
 
         var alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
         var jobCostCentreId = _company.EnableJobCosting ? SelectedJobCostCentre?.CostCentre?.Id : null;
+        // v67 (census 3.7): the two F12 gates decide whether the values are WRITTEN, exactly as the F11
+        // Job-Costing gate does above. With a switch off the field is hidden, so the VENDOR DEFAULT is written
+        // - true for storage ("By default, each godown can store materials") and no address - rather than
+        // whatever a stale form value happens to hold.
+        var allowStorage = !_company.ConfigAllowStorageOfMaterials || AllowStorageOfMaterials;
+        var address = _company.ConfigUseAddressForLocations ? Address : null;
 
         try
         {
             var altered = new InventoryService(_company).AlterGodown(
-                _editingId, Name, SelectedParent?.Godown?.Id, alias, ThirdParty, jobCostCentreId);
+                _editingId, Name, SelectedParent?.Godown?.Id, alias, ThirdParty, jobCostCentreId,
+                allowStorage, address);
             _storage.Save(_company);
             var underLabel = SelectedParent is { IsPrimary: false } p ? p.Godown!.Name : "Primary";
             Message = $"Godown '{altered.Name}' altered — under {underLabel}.";
@@ -258,6 +275,49 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     public bool ShowJobCostCentre => _company.EnableJobCosting;
 
+    /// <summary>
+    /// v67 (census 3.7): the vendor's <b>"Allow storage of materials"</b>.
+    /// <para><b>R7, verbatim:</b> <i>"Allow storage of materials - By default, each godown can store
+    /// materials. However, you can set a godown to not store any materials. To do so, setting this option to
+    /// Yes to displays the Allow storage of materials option on the Godown Creation screen. Set that option to
+    /// No."</i> (help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/, opened by content
+    /// 2026-10-16 - the canonical slug for this row per A14's 2026-10-13 decision.)</para>
+    /// <para>Defaults to <c>true</c> - the vendor's own default and this build's only pre-v67 behaviour.</para>
+    /// <para>⚠️ <b>STORAGE AND ELECTION in v67</b> - setting it off does not yet refuse a stock movement
+    /// into the godown. Said plainly rather than left to be discovered.</para>
+    /// </summary>
+    [ObservableProperty] private bool _allowStorageOfMaterials = true;
+
+    /// <summary>
+    /// v67 (census 3.7): the location's address - the vendor's F12 <i>"Use address for Locations"</i>.
+    /// <para>⚠️ ONE free-text box, not the vendor's multi-line address block, and the invoice-printing half
+    /// is NOT built. Both are divergences and both are ours.</para>
+    /// </summary>
+    [ObservableProperty] private string _address = string.Empty;
+
+    /// <summary>
+    /// v67 (census 3.7): true when <i>"Allow storage of materials"</i> is shown - the <b>F12 (Configure)</b>
+    /// gate <see cref="Company.ConfigAllowStorageOfMaterials"/>. With the switch off the vendor hides the
+    /// field, and so does this master, under the page's own rule <i>"What you see on the screen can vary based
+    /// on your choices. Press F12 (Configure) to change the options."</i>
+    /// <para>🔴 <b>THE GATE ALSO DECIDES WHETHER THE VALUE IS WRITTEN</b>, not merely whether it is drawn -
+    /// exactly as <see cref="ShowJobCostCentre"/> does, and for the same reason: a hidden control that still
+    /// contributes a value is the shape that puts data in a book the operator never agreed to. With the switch
+    /// off, Create and Alter write the vendor default (<c>true</c>) whatever this property holds.
+    /// 🔴 <b>And surfacing the field UNCONDITIONALLY would ITSELF be a divergence</b> - that is the finding
+    /// census row 3.7 wrote down, because the obvious build would have been the wrong one and no test would
+    /// have caught it.</para>
+    /// </summary>
+    public bool ShowAllowStorageOfMaterials => _company.ConfigAllowStorageOfMaterials;
+
+    /// <summary>
+    /// v67 (census 3.7): true when the Locations address is shown - the <b>F12</b> gate
+    /// <see cref="Company.ConfigUseAddressForLocations"/>. Same contract as
+    /// <see cref="ShowAllowStorageOfMaterials"/>, including that the gate decides whether the value is
+    /// WRITTEN.
+    /// </summary>
+    public bool ShowAddress => _company.ConfigUseAddressForLocations;
+
     /// <summary>True when Job Costing is on but the book has no cost centre to point at — the operator needs
     /// telling that the prerequisite the vendor names ("Enabling Job Costing and Cost Centres are
     /// prerequisites") is not met, rather than being shown an empty picker.</summary>
@@ -296,11 +356,15 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
         // Costing off the field is hidden, and a stale SelectedJobCostCentre from a session where it was on must
         // not silently designate this godown a job/project the operator never saw a control for.
         var jobCostCentreId = _company.EnableJobCosting ? SelectedJobCostCentre?.CostCentre?.Id : null;
+        // v67 (census 3.7): the two F12 gates decide whether the values are WRITTEN, not just whether the
+        // controls are drawn. With a switch off the vendor default goes in.
+        var allowStorage = !_company.ConfigAllowStorageOfMaterials || AllowStorageOfMaterials;
+        var address = _company.ConfigUseAddressForLocations ? Address : null;
 
         try
         {
             var service = new InventoryService(_company);
-            service.CreateGodown(name, parentId, alias, ThirdParty, jobCostCentreId);
+            service.CreateGodown(name, parentId, alias, ThirdParty, jobCostCentreId, allowStorage, address);
             _storage.Save(_company);
         }
         catch (InvalidOperationException ex)
@@ -317,6 +381,10 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
         Name = string.Empty;
         Alias = string.Empty;
         ThirdParty = false;
+        // v67 (census 3.7): back to the VENDOR DEFAULTS so the next godown does not inherit this one's
+        // no-storage election or its address - the same reason Name/Alias/ThirdParty are cleared.
+        AllowStorageOfMaterials = true;
+        Address = string.Empty;
         // Reset to "not a job/project" so the NEXT godown does not inherit this one's job by accident — the
         // same reason Name/Alias/ThirdParty are cleared.
         SelectedJobCostCentre = JobCostCentreOptions.FirstOrDefault();
@@ -371,6 +439,11 @@ public sealed partial class GodownMasterViewModel : ViewModelBase, IMasterListEx
             Existing.Add(new GodownListRow
             {
                 MasterId = g.Id, Name = g.Name, Under = under, Kind = kind, JobProject = job,
+                // v67 (census 3.7): only the NON-default is called out. Shown whether or not the F12 switch is
+                // on — the switch governs whether the FIELD is offered, not whether an election already made
+                // is visible, and hiding a godown's "No storage" the moment the switch went off would make a
+                // real property of the book invisible.
+                Storage = g.AllowStorageOfMaterials ? string.Empty : "No storage",
             });
         }
 

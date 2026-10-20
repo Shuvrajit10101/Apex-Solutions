@@ -307,5 +307,16 @@ public sealed class BomSchemaTests
         -- v1, stock_groups at v9); this fixture is a minimal hand-written subset, so they are declared here for
         -- the ALTERs to land on.
         CREATE TABLE groups (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, name TEXT NOT NULL);
+        -- v67 (census 2.4/2.7/2.9/2.11/3.7): cost_categories, budget_lines, currencies and godowns must exist,
+        -- because MigrateV66ToV67 ALTERs all four. A real database of this vintage always has them
+        -- (cost_categories at v3, budget_lines at v7, currencies at v8, godowns at v9 -- all BELOW this
+        -- fixture's version, so the chain that runs from here never creates them). This fixture is a minimal
+        -- hand-written subset, so they are declared here for the ALTERs to land on, exactly as godowns and
+        -- stock_groups already are in some fixtures. IF NOT EXISTS so a fixture that already declares one is
+        -- left untouched.
+        CREATE TABLE IF NOT EXISTS cost_categories (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS budget_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, budget_id TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS currencies (id TEXT NOT NULL PRIMARY KEY, symbol TEXT NOT NULL DEFAULT '');
+        CREATE TABLE IF NOT EXISTS godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         """;
 }

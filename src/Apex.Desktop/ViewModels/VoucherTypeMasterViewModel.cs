@@ -201,6 +201,55 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
     [ObservableProperty] private bool _provideNarrationForEachLedger;
     [ObservableProperty] private string? _message;
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────
+    // v67 (census 2.4) — THE ELEVEN REMAINING ATTESTED VOUCHER TYPE FIELDS. Captions VERBATIM from
+    // help.tallysolutions.com/voucher-types-tally/, opened BY CONTENT on 2026-10-16. Before v67 every one
+    // was a ZERO-HIT search over src/ — which is exactly the list row 2.4's cell names as missing.
+    // 🔴 THESE CAPTURE AN ELECTION. v67 stores and round-trips each one and shows it here; it does NOT add
+    // the voucher-entry effective-date field, does not open a voucher as Optional, sends no WhatsApp message
+    // and generates no payment link. Said plainly so no reader takes a persisted flag for a working feature.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>v67 (census 2.4): vendor <i>"Use effective dates for vouchers"</i>.</summary>
+    [ObservableProperty] private bool _useEffectiveDates;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Make this voucher type as 'Optional' by default"</i>.</summary>
+    [ObservableProperty] private bool _optionalByDefault;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Enable default accounting allocations"</i>.</summary>
+    [ObservableProperty] private bool _defaultAccountingAllocations;
+
+    /// <summary>v67 (census 2.4): vendor <i>"WhatsApp voucher after saving"</i>. 🔴 Nothing is sent — this
+    /// product's WhatsApp surface is an offline document/link builder (census 14.10).</summary>
+    [ObservableProperty] private bool _whatsAppAfterSaving;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Generate Payment link/QR code after saving voucher"</i>.
+    /// 🔴 No link and no QR code is generated anywhere in this product.</summary>
+    [ObservableProperty] private bool _generatePaymentLinkAfterSaving;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Default template to print"</i>. Blank = no per-type
+    /// default, so the print path falls back exactly where it fell back before.</summary>
+    [ObservableProperty] private string _defaultPrintTemplate = string.Empty;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Default title to print"</i>.</summary>
+    [ObservableProperty] private string _defaultPrintTitle = string.Empty;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Default jurisdiction"</i>.</summary>
+    [ObservableProperty] private string _defaultJurisdiction = string.Empty;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Set/alter declaration"</i>.</summary>
+    [ObservableProperty] private string _printDeclaration = string.Empty;
+
+    /// <summary>v67 (census 2.4): vendor <i>"Set/Alter Terms and Conditions"</i>.</summary>
+    [ObservableProperty] private string _printTermsAndConditions = string.Empty;
+
+    /// <summary>v67 (census 2.4): the vendor's <b>"Default bank"</b> picker. The first option is
+    /// "◦ No default bank", so clearing the link is reachable from the keyboard like every other field —
+    /// the same shape the job/project picker on the Godown master uses, and for the same reason.</summary>
+    public ObservableCollection<ClassLedgerOption> DefaultBankOptions { get; } = new();
+
+    [ObservableProperty] private ClassLedgerOption? _selectedDefaultBank;
+
     /// <summary>
     /// <b>Show Inactive</b> (census 5.11). When off — the default — the existing-types list shows only ACTIVE
     /// types, which is what every other master list in this application shows. Switching it on brings the
@@ -474,6 +523,54 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
             LedgerOptions.Add(new ClassLedgerOption { Id = l.Id, Display = l.Name });
     }
 
+    /// <summary>
+    /// v67 (census 2.4): fills the vendor's <b>"Default bank"</b> picker. Ordered with
+    /// <see cref="StringComparer.Ordinal"/>, NOT a culture-sensitive sort — the same order must come out on
+    /// the ubuntu, macos and windows legs of the gate, and a picker whose order depends on the machine
+    /// cannot be asserted on.
+    /// <para>🔴 The selection is re-found BY ID with an explicit fallback to the "no default bank" row,
+    /// never by position: falling back to <c>FirstOrDefault()</c> after an unrelated ledger was added would
+    /// silently re-point a type's default bank at whatever now sorts first.</para>
+    ///
+    /// <para>🔴 <b>BANK LEDGERS ONLY (BF-5).</b> This list used to be <b>every ledger in the company</b>, so
+    /// Sales, Capital or Purchase could be set as a voucher type's default bank. The vendor's own sentence is
+    /// <i>"Select a bank in Default bank to print its details on the vouchers"</i>
+    /// (help.tallysolutions.com/voucher-types-tally/, opened by content) — "a bank", not "a ledger". The page
+    /// does not spell out which ledgers it lists, so the PREDICATE is this product's existing one rather than
+    /// a vendor clause: <see cref="Apex.Ledger.Reports.ClassificationRules.IsBankGroup"/>, the same walk Bank
+    /// Reconciliation, the Cheque Register and the Deposit Slip already use, so one screen cannot drift from
+    /// another on what counts as a bank.</para>
+    ///
+    /// <para>⚠️ <paramref name="keepId"/> is the <b>already-saved</b> selection. A book written before this
+    /// filter existed may name a non-bank ledger; dropping it from the list would have made a plain Alter of
+    /// an unrelated caption silently CLEAR the stored default. So a saved id is always offered, marked, and
+    /// only the operator can change it.</para>
+    /// </summary>
+    private void RefreshDefaultBankOptions(Guid? keepId = null)
+    {
+        var previousId = SelectedDefaultBank?.Id;
+        DefaultBankOptions.Clear();
+        DefaultBankOptions.Add(new ClassLedgerOption { Id = Guid.Empty, Display = "◦ No default bank" });
+        foreach (var l in _company.Ledgers
+            .Where(l => Apex.Ledger.Reports.ClassificationRules.IsBankGroup(l.GroupId, _company))
+            .OrderBy(l => l.Name, StringComparer.Ordinal))
+            DefaultBankOptions.Add(new ClassLedgerOption { Id = l.Id, Display = l.Name });
+
+        if (keepId is { } kept && kept != Guid.Empty
+            && DefaultBankOptions.All(o => o.Id != kept)
+            && _company.FindLedger(kept) is { } strayLedger)
+        {
+            DefaultBankOptions.Add(new ClassLedgerOption
+            {
+                Id = kept,
+                Display = strayLedger.Name + "  (not a bank — saved earlier)",
+            });
+        }
+
+        SelectedDefaultBank = DefaultBankOptions.FirstOrDefault(o => o.Id == previousId)
+                              ?? DefaultBankOptions[0];
+    }
+
     private static string DescribeCalculation(VoucherClassCalculationType t) => t switch
     {
         VoucherClassCalculationType.BasedOnQuantity => "Based on Quantity",
@@ -682,6 +779,7 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
         NewEntryCalculationType = CalculationTypes[0];
         NewEntryRoundingMethod = RoundingMethods[0];
         RefreshLedgerOptions();
+        RefreshDefaultBankOptions();   // v67 (census 2.4)
         SelectedBaseType = BaseTypes.First();
 
         // The vendor's own order on the Voucher Type screen, with None (from the numbering-methods page) last.
@@ -713,6 +811,27 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
         vm.IsActive = type.IsActive;
         vm.PrintAfterSaving = type.PrintAfterSaving;
         vm.ProvideNarrationForEachLedger = type.ProvideNarrationForEachLedger;
+
+        // v67 (census 2.4): all eleven, pre-filled, so an alter that changes one thing writes the other ten
+        // back unchanged. The bank is re-found BY ID with an explicit fallback to "no default bank" — a
+        // positional fallback would land on the first ledger and silently GIVE a type a default bank the
+        // operator never chose.
+        vm.UseEffectiveDates = type.UseEffectiveDates;
+        vm.OptionalByDefault = type.OptionalByDefault;
+        vm.DefaultAccountingAllocations = type.DefaultAccountingAllocations;
+        vm.WhatsAppAfterSaving = type.WhatsAppAfterSaving;
+        vm.GeneratePaymentLinkAfterSaving = type.GeneratePaymentLinkAfterSaving;
+        vm.DefaultPrintTemplate = type.DefaultPrintTemplate ?? string.Empty;
+        vm.DefaultPrintTitle = type.DefaultPrintTitle ?? string.Empty;
+        vm.DefaultJurisdiction = type.DefaultJurisdiction ?? string.Empty;
+        vm.PrintDeclaration = type.PrintDeclaration ?? string.Empty;
+        vm.PrintTermsAndConditions = type.PrintTermsAndConditions ?? string.Empty;
+        // BF-5: rebuild the (bank-only) list first, carrying the SAVED id so a pre-filter book that named a
+        // non-bank ledger keeps it instead of having it silently cleared by an unrelated alteration.
+        vm.RefreshDefaultBankOptions(type.DefaultBankLedgerId);
+        vm.SelectedDefaultBank =
+            vm.DefaultBankOptions.FirstOrDefault(o => o.Id == type.DefaultBankLedgerId)
+            ?? vm.DefaultBankOptions[0];
 
         // An alteration must be able to SEE the type it is altering in the list beneath it, and a deactivated
         // type is exactly the one an operator opens the alteration for. Without this, opening an inactive type
@@ -757,15 +876,24 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
 
         var abbreviation = string.IsNullOrWhiteSpace(Abbreviation) ? null : Abbreviation.Trim();
         var altering = IsAltering;
+        // v67 (census 2.4): the eleven attested fields this screen now carries. Guid.Empty on the bank
+        // picker is the "◦ No default bank" row and must become NULL, not an id no ledger owns — writing
+        // Guid.Empty would be a foreign key into nothing and the next Save would fail.
+        var v67 = new VoucherTypeMasterFields(
+            UseEffectiveDates, OptionalByDefault, DefaultAccountingAllocations,
+            WhatsAppAfterSaving, GeneratePaymentLinkAfterSaving,
+            DefaultPrintTemplate, DefaultPrintTitle,
+            SelectedDefaultBank is { } b && b.Id != Guid.Empty ? b.Id : null,
+            DefaultJurisdiction, PrintDeclaration, PrintTermsAndConditions);
         try
         {
             var service = new VoucherTypeService(_company);
             if (altering)
                 service.Alter(_editingId, name, SelectedNumbering.Value, abbreviation,
-                    IsActive, PrintAfterSaving, ProvideNarrationForEachLedger);
+                    IsActive, PrintAfterSaving, ProvideNarrationForEachLedger, v67);
             else
                 service.Create(name, SelectedBaseType.Value, SelectedNumbering.Value, abbreviation,
-                    PrintAfterSaving, ProvideNarrationForEachLedger);
+                    PrintAfterSaving, ProvideNarrationForEachLedger, v67);
             _storage.Save(_company);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -788,6 +916,19 @@ public sealed partial class VoucherTypeMasterViewModel : ViewModelBase, IMasterL
         IsActive = true;
         PrintAfterSaving = false;
         ProvideNarrationForEachLedger = false;
+        // v67 (census 2.4): back to the pre-v67 defaults so the NEXT type does not inherit this one's
+        // printing block, sharing block or effective-date election.
+        UseEffectiveDates = false;
+        OptionalByDefault = false;
+        DefaultAccountingAllocations = false;
+        WhatsAppAfterSaving = false;
+        GeneratePaymentLinkAfterSaving = false;
+        DefaultPrintTemplate = string.Empty;
+        DefaultPrintTitle = string.Empty;
+        DefaultJurisdiction = string.Empty;
+        PrintDeclaration = string.Empty;
+        PrintTermsAndConditions = string.Empty;
+        SelectedDefaultBank = DefaultBankOptions.FirstOrDefault();
         _onChanged();
         return true;
     }

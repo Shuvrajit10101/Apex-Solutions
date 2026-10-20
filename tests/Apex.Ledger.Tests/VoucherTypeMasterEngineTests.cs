@@ -146,6 +146,59 @@ public class VoucherTypeMasterEngineTests
             .FirstOrDefault(p => p.ParameterType == typeof(VoucherBaseType)));
     }
 
+    /// <summary>
+    /// 🔴 v67 (census 2.4): <b>OMITTING the eleven fields on an Alter means "LEAVE THEM AS THEY ARE", NOT
+    /// "reset them to the defaults".</b> This is the contract every EXISTING caller of
+    /// <see cref="VoucherTypeService.Alter"/> relies on without knowing it: the parameter is optional, so a
+    /// caller written before v67 passes nothing, and if the null branch wrote
+    /// <c>VoucherTypeMasterFields.Default</c> it would silently CLEAR a type's whole printing and sharing
+    /// block on an unrelated rename. A data loss with no message, and no test outside this one would see it.
+    /// </summary>
+    [Fact]
+    public void Alter_without_the_v67_fields_leaves_all_eleven_exactly_as_they_were()
+    {
+        var c = Seed();
+        var journal = c.FindVoucherTypeByName("Journal")!;
+        new VoucherTypeService(c).Alter(journal.Id, "Journal", NumberingMethod.Automatic, null,
+            isActive: true, printAfterSaving: false, provideNarrationForEachLedger: false,
+            fields: new VoucherTypeMasterFields(
+                UseEffectiveDates: true,
+                WhatsAppAfterSaving: true,
+                DefaultPrintTitle: "JOURNAL VOUCHER",
+                PrintTermsAndConditions: "E. & O.E."));
+
+        // A SECOND alter that knows nothing about v67 — the shape of every pre-v67 caller.
+        new VoucherTypeService(c).Alter(journal.Id, "Journal Book", NumberingMethod.Manual, "JB",
+            isActive: true, printAfterSaving: false, provideNarrationForEachLedger: false);
+
+        Assert.Equal("Journal Book", journal.Name);      // the rename landed
+        Assert.Equal(NumberingMethod.Manual, journal.Numbering);
+        // …and not one of the eleven was cleared.
+        Assert.True(journal.UseEffectiveDates);
+        Assert.True(journal.WhatsAppAfterSaving);
+        Assert.Equal("JOURNAL VOUCHER", journal.DefaultPrintTitle);
+        Assert.Equal("E. & O.E.", journal.PrintTermsAndConditions);
+    }
+
+    /// <summary>v67 (census 2.4): a blank text field CLEARS the stored value rather than keeping the old one —
+    /// an empty box on the master must mean "no default", the way every other optional text field on this
+    /// product reads a cleared value.</summary>
+    [Fact]
+    public void A_blank_v67_text_field_clears_the_stored_value()
+    {
+        var c = Seed();
+        var journal = c.FindVoucherTypeByName("Journal")!;
+        var service = new VoucherTypeService(c);
+        service.Alter(journal.Id, "Journal", NumberingMethod.Automatic, null,
+            isActive: true, printAfterSaving: false, provideNarrationForEachLedger: false,
+            fields: new VoucherTypeMasterFields(DefaultJurisdiction: "Bengaluru"));
+        Assert.Equal("Bengaluru", journal.DefaultJurisdiction);
+
+        service.Alter(journal.Id, "Journal", NumberingMethod.Automatic, null,
+            isActive: true, printAfterSaving: false, provideNarrationForEachLedger: false,
+            fields: new VoucherTypeMasterFields(DefaultJurisdiction: "   "));
+        Assert.Null(journal.DefaultJurisdiction);
+    }
     [Fact]
     public void Alter_refuses_a_name_already_taken_by_another_type()
     {

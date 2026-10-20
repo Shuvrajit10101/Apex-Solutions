@@ -1125,6 +1125,16 @@ public sealed record CostCategoryDto
     public bool AllocateRevenueItems { get; init; }
     public bool AllocateNonRevenueItems { get; init; }
     public bool IsPredefined { get; init; }
+
+    /// <summary>
+    /// v67 (census 2.7): the vendor-attested category alias. 🔴 <b>ADDED BECAUSE THE DTO WAS THE SAME
+    /// ASYMMETRY ONE LAYER UP.</b> <see cref="CostCentreDto.Alias"/> has always carried one and this did
+    /// not, so an export → import round-trip would have SILENTLY DROPPED a category alias the master screen
+    /// had just accepted — the storage gap closed and the transport gap left open, which is the shape of an
+    /// overstated closure. Omitted in an older document ⇒ <c>null</c> ⇒ no alias, so every pre-v67 file
+    /// still imports exactly as it did.
+    /// </summary>
+    public string? Alias { get; init; }
 }
 
 public sealed record CostCentreDto
@@ -1383,8 +1393,21 @@ public sealed record BudgetDto
 
 public sealed record BudgetLineDto
 {
-    public Guid? GroupId { get; init; }                     // exactly one of GroupId / LedgerId
+    public Guid? GroupId { get; init; }                     // exactly one of GroupId / LedgerId / CostCentreId
     public Guid? LedgerId { get; init; }
+
+    /// <summary>
+    /// v67 (census 2.9): the budgeted <b>cost centre</b>, the THIRD target <see cref="Domain.BudgetLine"/>
+    /// gained in v67.
+    /// <para>🔴 <b>ADDED BY THE W2 REVIEW, AND ITS ABSENCE WAS A BLOCKING DEFECT RATHER THAN A GAP.</b>
+    /// Without it a cost-centre budget line exported with <b>no target at all</b> (both ids null), and
+    /// re-importing that document aborted the WHOLE import — every master and every voucher — with
+    /// <c>"Import aborted and rolled back (nothing applied): Nullable object must have a value."</c>, because
+    /// <c>ImportPlan</c> fell through to <c>bl.LedgerId!.Value</c>. Omitted in an older document ⇒
+    /// <c>null</c> ⇒ a group or ledger line, so every pre-v67 file still imports exactly as it did.</para>
+    /// </summary>
+    public Guid? CostCentreId { get; init; }
+
     public required string BudgetType { get; init; }       // BudgetType name
     public long AmountPaisa { get; init; }
 }

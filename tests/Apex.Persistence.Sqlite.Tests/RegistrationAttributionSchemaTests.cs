@@ -65,7 +65,7 @@ public sealed class RegistrationAttributionSchemaTests
                 store.Save(CompanyFactory.CreateSeeded("Legacy Attribution Co", FyStart));
 
             // ONE rung only — this test is about the v65 → v66 step in isolation.
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V66ToV65(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(65L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The downgraded book genuinely lacks them — otherwise the "migration" below proves nothing.
@@ -105,7 +105,7 @@ public sealed class RegistrationAttributionSchemaTests
             using (var store = new SqliteCompanyStore(path))
                 store.Save(CompanyFactory.CreateSeeded("FK Attribution Co", FyStart));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V66ToV65(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "voucher_types"));
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "gstr2b_snapshots"));
@@ -147,7 +147,7 @@ public sealed class RegistrationAttributionSchemaTests
             var typesBefore = ReadScalar(path, "SELECT COUNT(*) FROM voucher_types;");
             Assert.True(typesBefore > 0, "the seeded book has no voucher types, so this test proves nothing");
 
-            using (var conn = Open(path)) { SchemaDowngrade.V66ToV65(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SchemaDowngrade.V66ToV65(conn); SqliteConnection.ClearPool(conn); }
             using (new SqliteCompanyStore(path)) { }   // climbs v65 → v66
 
             Assert.Equal(typesBefore, ReadScalar(path, "SELECT COUNT(*) FROM voucher_types;"));
@@ -279,7 +279,16 @@ public sealed class RegistrationAttributionSchemaTests
         // asserted here, because "the migration moves nothing" is the claim ER-13 rests on for this version.
         Assert.DoesNotContain("UPDATE ", Schema.MigrateV65ToV66);
 
-        Assert.Equal(66, Schema.CurrentVersion);
+        // 🔴 NOT a pin on "v66 is current" — it asserts the v66 constants above describe a version the ladder
+        // has actually REACHED, i.e. that CurrentVersion has not been rolled back beneath them. Re-baselined
+        // 66 -> 67 when the Area-2/3 master-field track took v67 (census 2.4 / 2.7 / 2.9 / 2.11 / 3.7). v67
+        // adds eleven MORE voucher_types columns, which is why the first assertion in this method is an exact
+        // Equal on V66VoucherTypeColumns rather than a Contains: the two sets must stay disjoint and each
+        // version's constant must keep describing its OWN migration.
+        Assert.True(
+            Schema.CurrentVersion >= 66,
+            $"CurrentVersion is {Schema.CurrentVersion}, below the v66 this test's constants describe.");
+        Assert.Equal(67, Schema.CurrentVersion);
     }
 
     // ================================================================= fixtures & helpers

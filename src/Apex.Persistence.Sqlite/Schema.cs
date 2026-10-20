@@ -286,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 66;
+    public const int CurrentVersion = 67;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -491,7 +491,18 @@ public static class Schema
             -- v61 (census 6.23): the operator's override of the FIRST registration's vendor "Registration Name".
             -- NULL — every pre-v61 company — means the vendor's auto-generated "<State> Registration".
             -- Declaration byte-identical to MigrateV60ToV61.
-            gst_primary_registration_name  TEXT        NULL
+            gst_primary_registration_name  TEXT        NULL,
+            -- v67 (census 3.7): the TWO F12 (Configure) switches that GATE the two godown fields. 🔴 THESE ARE
+            -- THE POINT OF THE ROW, not an extra: help.tallysolutions.com/inventory-storage-using-godowns-
+            -- locations-tally/ (opened by content 2026-10-16) rules "What you see on the screen can vary based
+            -- on your choices. Press F12 (Configure) to change the options.", and says of the first in terms:
+            -- "setting this option to Yes to displays the Allow storage of materials option on the Godown
+            -- Creation screen." Adding either godown field UNCONDITIONALLY would itself be a divergence.
+            -- Both default 0 — a pre-v67 company had neither switch — so "column absent" and "switch off"
+            -- coincide and the godown screen looks exactly as it did (ER-13). Declarations byte-identical to
+            -- MigrateV66ToV67.
+            config_allow_storage_of_materials INTEGER NOT NULL DEFAULT 0,  -- 0/1 F12 "Allow storage of materials"
+            config_use_address_for_locations  INTEGER NOT NULL DEFAULT 0   -- 0/1 F12 "Use address for Locations"
         );
 
         -- ═══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1210,7 +1221,25 @@ public static class Schema
             symbol           TEXT    NOT NULL,   -- display symbol (₹, $, €)
             formal_name      TEXT    NOT NULL,   -- ISO-style code (INR, USD, EUR)
             decimal_places   INTEGER NOT NULL,   -- minor-unit places
-            is_base          INTEGER NOT NULL    -- 1 for the single base currency (₹/INR)
+            is_base          INTEGER NOT NULL,   -- 1 for the single base currency (₹/INR)
+            -- v67 (census 2.11): the five remaining ATTESTED currency FORMATTING options. Captions verbatim from
+            -- help.tallysolutions.com/create-alter-or-delete-currencies/ ("Create, Alter, or Delete Currencies"),
+            -- opened by content 2026-10-16. The page lists SIX formatting options; the sixth, "Number of decimal
+            -- places", is the decimal_places column above and is NOT added again. Declarations byte-identical to
+            -- MigrateV66ToV67.
+            --   "Set the option Show amounts in millions to Yes or No , as needed."
+            show_amounts_in_millions        INTEGER NOT NULL DEFAULT 0,  -- 0/1 (0 = lakh/crore grouping, as before)
+            --   "Suffix symbol to amount : Yes , to ensure that the symbol appears after the amount."
+            suffix_symbol_to_amount         INTEGER NOT NULL DEFAULT 0,  -- 0/1 (0 = prefix, as before)
+            --   "Add space between amount and symbol : Yes ."
+            space_between_amount_and_symbol INTEGER NOT NULL DEFAULT 0,  -- 0/1 (0 = no space, as before)
+            --   "Enter the Word representing amount after decimal . For example, Cent."
+            --   NULL = this build's existing hard-coded minor-unit word, so nothing is back-filled (ER-13).
+            decimal_word                    TEXT        NULL,
+            --   "Enter the No. of decimal places for amounts in words ." … "This number should be equal to or
+            --   lesser than the number specified in Number of decimal places field."
+            --   NULL = fall back to decimal_places, which is exactly what amount-in-words did before v67.
+            decimal_places_for_words        INTEGER     NULL
         );
 
         CREATE TABLE exchange_rates (
@@ -1284,7 +1313,39 @@ public static class Schema
             -- the insertion it planned before and the migration back-fills nothing (ER-13). Offered by the vendor
             -- under Automatic / Multi-user Auto only; inert under Manual and None (VoucherType.RetainOriginalVoucherNo).
             -- Declarations byte-identical to MigrateV65ToV66.
-            retain_original_voucher_no        INTEGER NOT NULL DEFAULT 0    -- 0/1
+            retain_original_voucher_no        INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- v67 (census 2.4): the eleven remaining ATTESTED Voucher Type fields. Captions verbatim from
+            -- help.tallysolutions.com/voucher-types-tally/ ("How to Create, Configure & Manage Voucher Types in
+            -- TallyPrime"), opened by content 2026-10-16. Every one of these was a ZERO-HIT search over src/
+            -- before v67. All five flags default 0 and all six text fields default NULL, which is exactly what
+            -- this build did before v67, so the migration back-fills nothing (ER-13).
+            --   "Use effective dates for vouchers"
+            use_effective_dates               INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            --   "Make this voucher type as 'Optional' by default"
+            optional_by_default               INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            --   "Enable default accounting allocations"
+            default_accounting_allocations    INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            -- The vendor's "Invoice Sharing" block. NOTHING IS SENT by either flag — this product's WhatsApp and
+            -- payment-link surfaces are offline document/link builders (see WhatsAppShareViewModel) — so these
+            -- record the per-type ELECTION only.
+            --   "WhatsApp voucher after saving"
+            whatsapp_after_saving             INTEGER NOT NULL DEFAULT 0,   -- 0/1
+            --   "Generate Payment link/QR code after saving voucher"
+            generate_payment_link_after_saving INTEGER NOT NULL DEFAULT 0,  -- 0/1
+            -- The vendor's "Printing Configuration" block. NULL = "no per-type default", which is what every
+            -- pre-v67 type had, so the print path falls back exactly where it fell back before.
+            --   "Default template to print"
+            default_print_template            TEXT        NULL,
+            --   "Default title to print"
+            default_print_title               TEXT        NULL,
+            --   "Default bank" — the bank ledger printed on this type's documents.
+            default_bank_ledger_id            TEXT        NULL REFERENCES ledgers(id),
+            --   "Default jurisdiction"
+            default_jurisdiction              TEXT        NULL,
+            --   "Set/alter declaration"
+            print_declaration                 TEXT        NULL,
+            --   "Set/Alter Terms and Conditions"
+            print_terms_and_conditions        TEXT        NULL
         );
 
         -- v58 (census 9.9): the named VOUCHER CLASSES on a voucher type. This slice ships exactly ONE class
@@ -1476,7 +1537,15 @@ public static class Schema
             name                    TEXT    NOT NULL,
             allocate_revenue        INTEGER NOT NULL,   -- 0/1
             allocate_non_revenue    INTEGER NOT NULL,   -- 0/1
-            is_predefined           INTEGER NOT NULL    -- 0/1 (the seeded Primary Cost Category)
+            is_predefined           INTEGER NOT NULL,   -- 0/1 (the seeded Primary Cost Category)
+            -- v67 (census 2.7): the vendor-attested Cost CATEGORY alias — "Name & alias: As in other masters,
+            -- you can specify multiple aliases", help.tallysolutions.com/cost-centre-or-profit-centre-tally/,
+            -- opened by content 2026-10-16, in the Cost Category section. cost_centres.alias above has existed
+            -- since v3; the asymmetry is what row 2.7 was DEMOTED for on 2026-10-04. NULL = no alias, which is
+            -- every pre-v67 category, so the migration back-fills nothing (ER-13). Declaration byte-identical
+            -- to MigrateV66ToV67. ⚠️ ONE alias column, not "multiple aliases" — that is a documented divergence
+            -- shared with cost_centres, ledgers and every other master in this product.
+            alias                   TEXT        NULL
         );
 
         CREATE TABLE cost_centres (
@@ -1510,10 +1579,18 @@ public static class Schema
             id            INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
             budget_id     TEXT    NOT NULL REFERENCES budgets(id),
             line_order    INTEGER NOT NULL,   -- preserves order within the budget
-            group_id      TEXT        NULL REFERENCES groups(id),   -- exactly one of group_id / ledger_id set
+            group_id      TEXT        NULL REFERENCES groups(id),   -- exactly one of group_id / ledger_id / cost_centre_id set
             ledger_id     TEXT        NULL REFERENCES ledgers(id),
             budget_type   INTEGER NOT NULL,   -- BudgetType enum ordinal (0 = OnClosingBalance, 1 = OnNettTransactions)
-            amount_paisa  INTEGER NOT NULL    -- magnitude ≥ 0, in paisa
+            amount_paisa  INTEGER NOT NULL,   -- magnitude ≥ 0, in paisa
+            -- v67 (census 2.9): the THIRD budget target the vendor documents and this build had no column for.
+            -- help.tallysolutions.com/budgets-tally/ ("Create, Alter, and Delete Budgets in TallyPrime"), opened
+            -- by content 2026-10-16: the budget screen offers "Set Groups to Yes", "Set Ledgers to Yes" and
+            -- "Set Cost Centres to Yes", and "In the Cost Centre Budget screen, select the required Cost Centre,
+            -- Expenses, Income and Closing Balance." NULL on every pre-v67 line — each of those is a group or a
+            -- ledger target — so the migration back-fills nothing (ER-13). Declaration byte-identical to
+            -- MigrateV66ToV67.
+            cost_centre_id TEXT       NULL REFERENCES cost_centres(id)
         );
 
         CREATE TABLE bank_allocations (
@@ -1598,7 +1675,20 @@ public static class Schema
             -- centre this location IS, as a job/project. NULL = an ordinary godown, which is every pre-v58 row.
             -- Declaration byte-identical to MigrateV57ToV58. Job Costing reuses the EXISTING cost-centre
             -- machinery rather than adding a parallel cost dimension; see MigrateV57ToV58.
-            job_cost_centre_id TEXT       NULL REFERENCES cost_centres(id)
+            job_cost_centre_id TEXT       NULL REFERENCES cost_centres(id),
+            -- v67 (census 3.7): the two remaining vendor fields on the Godown Creation screen. BOTH ARE
+            -- F12-GATED IN THE VENDOR and their company-level switches are companies.config_allow_storage_of_
+            -- materials / companies.config_use_address_for_locations — see MigrateV66ToV67 for why adding either
+            -- field UNCONDITIONALLY would itself be a divergence. Captions and gating verbatim from
+            -- help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/, opened by content
+            -- 2026-10-16. Declarations byte-identical to MigrateV66ToV67.
+            --   "Allow storage of materials" — "By default, each godown can store materials." DEFAULT 1 is
+            --   therefore the VENDOR'S OWN default and the only behaviour this build had, so every pre-v67
+            --   godown still stores materials and the migration back-fills nothing (ER-13).
+            allow_storage_of_materials INTEGER NOT NULL DEFAULT 1,  -- 0/1
+            --   "Use address for Locations" — the location's address. NULL = no address, which is every
+            --   pre-v67 godown.
+            address            TEXT       NULL
         );
 
         CREATE TABLE stock_items (
@@ -5372,6 +5462,157 @@ public static class Schema
         -- own registration, so this column needs (and gets) NO back-fill. NULL default is also REQUIRED by SQLite
         -- for an added column carrying a REFERENCES clause.
         ALTER TABLE vouchers ADD COLUMN gst_registration_id TEXT NULL REFERENCES gst_registrations(id);
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v67 — THE AREA-2/3 MASTER-FIELD STORAGE MIGRATION (census rows 2.4, 2.7, 2.9, 2.11 and 3.7; cluster C2).
+    // Object names are published here ONCE so the migration, CreateV1, the downgrade and the tests all speak
+    // about the SAME set and cannot drift.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The eleven <c>voucher_types</c> columns v67 adds (census 2.4) — the exact set
+    /// <see cref="MigrateV66ToV67"/> adds and <c>SchemaDowngrade.V67ToV66</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V67VoucherTypeColumns =
+        new[]
+        {
+            "use_effective_dates", "optional_by_default", "default_accounting_allocations",
+            "whatsapp_after_saving", "generate_payment_link_after_saving",
+            "default_print_template", "default_print_title", "default_bank_ledger_id",
+            "default_jurisdiction", "print_declaration", "print_terms_and_conditions",
+        };
+
+    /// <summary>The one <c>cost_categories</c> column v67 adds (census 2.7).</summary>
+    public static readonly IReadOnlyList<string> V67CostCategoryColumns = new[] { "alias" };
+
+    /// <summary>The one <c>budget_lines</c> column v67 adds (census 2.9).</summary>
+    public static readonly IReadOnlyList<string> V67BudgetLineColumns = new[] { "cost_centre_id" };
+
+    /// <summary>The five <c>currencies</c> columns v67 adds (census 2.11). The sixth vendor formatting option,
+    /// <i>Number of decimal places</i>, is the pre-existing <c>decimal_places</c> and is NOT re-added.</summary>
+    public static readonly IReadOnlyList<string> V67CurrencyColumns =
+        new[]
+        {
+            "show_amounts_in_millions", "suffix_symbol_to_amount", "space_between_amount_and_symbol",
+            "decimal_word", "decimal_places_for_words",
+        };
+
+    /// <summary>The two <c>godowns</c> columns v67 adds (census 3.7) — each one F12-gated by its
+    /// <see cref="V67CompanyColumns"/> switch.</summary>
+    public static readonly IReadOnlyList<string> V67GodownColumns =
+        new[] { "allow_storage_of_materials", "address" };
+
+    /// <summary>The two <c>companies</c> F12 switches v67 adds (census 3.7) that GATE
+    /// <see cref="V67GodownColumns"/>.</summary>
+    public static readonly IReadOnlyList<string> V67CompanyColumns =
+        new[] { "config_allow_storage_of_materials", "config_use_address_for_locations" };
+
+    /// <summary>
+    /// v66 → v67 (census rows <b>2.4</b> Voucher Type master, <b>2.7</b> Cost Category master, <b>2.9</b> Budget
+    /// master, <b>2.11</b> Currency master, <b>3.7</b> Godown master): <b>twenty-two</b> columns across six
+    /// tables, in ONE migration rather than five bumps, because no two of them interact and a single rung is
+    /// one downgrade chain instead of five.
+    ///
+    /// <para>🔴 <b>EVERY CAPTION BELOW WAS OPENED BY CONTENT ON help.tallysolutions.com ON 2026-10-16 AND IS
+    /// QUOTED VERBATIM IN <see cref="CreateV1"/> BESIDE ITS COLUMN.</b> The four pages are
+    /// <c>voucher-types-tally/</c>, <c>cost-centre-or-profit-centre-tally/</c>, <c>budgets-tally/</c>,
+    /// <c>create-alter-or-delete-currencies/</c> and
+    /// <c>inventory-storage-using-godowns-locations-tally/</c>. Nothing here is inferred from the internal
+    /// catalog, and nothing is taken from a Tally.ERP 9 page (R7, ruling 14).</para>
+    ///
+    /// <para>🔴 <b>WHAT IS DELIBERATELY NOT HERE — census row 2.10 (Scenario master), AND THE REASON IS THAT THE
+    /// VENDOR ANSWERED THE ROW'S OWN PRECONDITION AGAINST IT.</b> Row 2.10 names <i>"no period"</i> as a gap and
+    /// this migration was briefed to add a scenario period from/to. <b>It does not, because the vendor's
+    /// TallyPrime Scenario Creation screen HAS NO PERIOD FIELD.</b>
+    /// <c>help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/</c>, opened by content
+    /// 2026-10-16, lists the screen's fields as <i>Name</i>, <i>Include actuals</i> and the voucher types to
+    /// <i>Include</i> / <i>Exclude</i>; the period is chosen on the REPORT the scenario is applied to, not on
+    /// the master. Adding <c>scenarios.period_from</c> / <c>period_to</c> would have been an INVENTION shipped
+    /// under a fidelity row, and a round-trip test over it would have pinned the wrong answer. The census cell
+    /// is wrong on this clause and is left for A14/A12 to correct; no column is added for it.</para>
+    ///
+    /// <para>🔴 <b>THE GODOWN PAIR IS F12-GATED AND THAT IS WHY IT IS FOUR COLUMNS, NOT TWO.</b> The vendor
+    /// shows neither <i>Allow storage of materials</i> nor the Locations address on the Godown Creation screen
+    /// until its F12 (Configure) switch is set — <i>"setting this option to Yes to displays the Allow storage of
+    /// materials option on the Godown Creation screen"</i>, under the page's own rule <i>"What you see on the
+    /// screen can vary based on your choices. Press F12 (Configure) to change the options."</i> So each godown
+    /// column arrives with a company-level switch (<see cref="V67CompanyColumns"/>) that gates its display.
+    /// Adding the two godown fields unconditionally would ITSELF be a divergence, and no round-trip test would
+    /// have caught the wrong build.</para>
+    ///
+    /// <para>🔴 <b>NOTHING IS BACK-FILLED — there is no <c>UPDATE</c> in this migration at all, and that is
+    /// exact by construction rather than by a statement that ran correctly once.</b> Every added flag's DEFAULT
+    /// is the behaviour this build already had: 0 for the five voucher-type flags, the three currency
+    /// formatting flags and the two F12 switches; <b>1</b> for <c>godowns.allow_storage_of_materials</c>,
+    /// because the vendor says <i>"By default, each godown can store materials"</i> and that is precisely what
+    /// every pre-v67 godown did. Every added text/id column is NULL, meaning "not set", which is what every
+    /// pre-v67 row meant. <c>currencies.decimal_places_for_words</c> is <b>NULLable with no default</b> on
+    /// purpose: 0 places is not "fall back to <c>decimal_places</c>", and falling back is the pre-v67
+    /// behaviour. ER-13 holds on all twenty-two.</para>
+    ///
+    /// <para>🔴 <b>NO <c>DEFAULT</c> CLAUSE DRIFT.</b> <c>ALTER TABLE … ADD COLUMN</c> and the
+    /// <see cref="CreateV1"/> declarations must agree on name/type/notnull/default/pk —
+    /// <c>SchemaMigrationEquivalenceTests</c> compares <c>PRAGMA table_info</c> across a full v1 → current
+    /// replay, so the two copies of each line must not drift. The NULL defaults on
+    /// <c>voucher_types.default_bank_ledger_id</c> and <c>budget_lines.cost_centre_id</c> are also
+    /// <b>required</b> by SQLite for an added column carrying a <c>REFERENCES</c> clause.</para>
+    ///
+    /// <para>⚠️ <b>FIVE OF THE SIX TABLES ARE FK PARENTS</b> — <c>voucher_types</c>, <c>cost_categories</c>,
+    /// <c>currencies</c>, <c>godowns</c> and <c>companies</c> are all referenced — so
+    /// <c>SchemaDowngrade.V67ToV66</c> MUST use <c>RebuildPreservingShape</c> and not <c>DropColumns</c> on
+    /// every one of them: a <c>CREATE … AS SELECT</c> rebuild of a parent silently loses the PRIMARY KEY, the
+    /// <c>foreign key mismatch</c> failure <c>SchemaDowngrade.V56ToV55</c> records. <c>budget_lines</c> is the
+    /// one child, and it is rebuilt the same way for the same reason it is safer to: see
+    /// <c>SchemaDowngrade.V67ToV66</c> for the one residual that rebuild carries.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 67.</para>
+    /// </summary>
+    public const string MigrateV66ToV67 = """
+        -- v67 (census 2.4, 2.7, 2.9, 2.11, 3.7 — cluster C2). Twenty-two columns across six tables. Every
+        -- caption is vendor-verbatim; see this constant's doc comment for the five pages and for why census row
+        -- 2.10's "no period" clause is DECLINED rather than built. Declarations byte-identical to their
+        -- counterparts in CreateV1. There is deliberately no UPDATE.
+
+        -- census 2.4: the eleven remaining attested Voucher Type fields (help.tallysolutions.com/voucher-types-
+        -- tally/). All five flags 0 and all six text fields NULL = exactly what this build did before v67.
+        ALTER TABLE voucher_types ADD COLUMN use_effective_dates               INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN optional_by_default               INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN default_accounting_allocations    INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN whatsapp_after_saving             INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN generate_payment_link_after_saving INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE voucher_types ADD COLUMN default_print_template            TEXT        NULL;
+        ALTER TABLE voucher_types ADD COLUMN default_print_title               TEXT        NULL;
+        ALTER TABLE voucher_types ADD COLUMN default_bank_ledger_id            TEXT        NULL REFERENCES ledgers(id);
+        ALTER TABLE voucher_types ADD COLUMN default_jurisdiction              TEXT        NULL;
+        ALTER TABLE voucher_types ADD COLUMN print_declaration                 TEXT        NULL;
+        ALTER TABLE voucher_types ADD COLUMN print_terms_and_conditions        TEXT        NULL;
+
+        -- census 2.7: the Cost CATEGORY alias the vendor attests and cost_centres has carried since v3. NULL =
+        -- no alias = every pre-v67 category.
+        ALTER TABLE cost_categories ADD COLUMN alias                   TEXT        NULL;
+
+        -- census 2.9: the third budget target — a cost centre. NULL on every pre-v67 line, each of which is a
+        -- group or a ledger target. NULL default REQUIRED by SQLite for an added REFERENCES column.
+        ALTER TABLE budget_lines ADD COLUMN cost_centre_id TEXT       NULL REFERENCES cost_centres(id);
+
+        -- census 2.11: five of the vendor's SIX currency formatting options. The sixth, "Number of decimal
+        -- places", is the pre-existing currencies.decimal_places and is NOT added again. decimal_places_for_words
+        -- is NULLable with NO default because 0 places is not "fall back to decimal_places", and falling back is
+        -- the pre-v67 behaviour.
+        ALTER TABLE currencies ADD COLUMN show_amounts_in_millions        INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE currencies ADD COLUMN suffix_symbol_to_amount         INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE currencies ADD COLUMN space_between_amount_and_symbol INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE currencies ADD COLUMN decimal_word                    TEXT        NULL;
+        ALTER TABLE currencies ADD COLUMN decimal_places_for_words        INTEGER     NULL;
+
+        -- census 3.7: the two Godown Creation fields. DEFAULT 1 on allow_storage_of_materials is the VENDOR'S
+        -- OWN default ("By default, each godown can store materials") and the only behaviour this build had.
+        ALTER TABLE godowns ADD COLUMN allow_storage_of_materials INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE godowns ADD COLUMN address            TEXT       NULL;
+
+        -- census 3.7: the two F12 (Configure) switches that GATE the two godown columns above. Both 0 — a
+        -- pre-v67 company had neither switch — so the Godown Creation screen shows exactly what it showed.
+        ALTER TABLE companies ADD COLUMN config_allow_storage_of_materials INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE companies ADD COLUMN config_use_address_for_locations  INTEGER NOT NULL DEFAULT 0;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

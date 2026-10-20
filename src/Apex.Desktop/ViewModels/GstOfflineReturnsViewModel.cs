@@ -457,6 +457,15 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         // so it must NOT re-count the import-of-services IGST shown on the 4(A)(2) row above. TotalRcmItc spans BOTH
         // rows and is the wrong source here — TotalRcmItcOther is 4(A)(3) alone.
         Add("4(A)(3) ITC on other reverse-charge inward", r.TotalRcmItcOther);
+        // 4(A)(4) is the ISD term. It was absent from this preview while the emitter beside it (GstReturnJson.Gstr3b)
+        // was also dropping it, so the operator could neither see the credit here nor find it in the exported file.
+        // Vendor, read by content — help.tallysolutions.com/tally-prime/india-gst/isd-credit/: "The voucher will be
+        // included in GSTR-3B and appear under 4A: Input Tax Credit Available (either in part or in full) > Inward
+        // supplies from ISD." Shown per head, like 4(A)(5) below, because the four heads are filed separately.
+        Add("4(A)(4) ITC from ISD CGST", r.Itc4A4IsdCgst);
+        Add("4(A)(4) ITC from ISD SGST", r.Itc4A4IsdSgst);
+        Add("4(A)(4) ITC from ISD IGST", r.Itc4A4IsdIgst);
+        Add("4(A)(4) ITC from ISD Cess", r.Itc4A4IsdCess);
         Add("4(A)(5) ITC CGST", r.ItcCgst);
         Add("4(A)(5) ITC SGST", r.ItcSgst);
         Add("4(A)(5) ITC IGST", r.ItcIgst);

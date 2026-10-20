@@ -3495,12 +3495,17 @@
                                   </ComboBox>
                                   <!-- CENSUS 2.6 — Voucher Class. Sits BEFORE the value ledger because it governs
                                        it: a class that pre-maps ledgers takes that field off the screen. The
-                                       vendor states that on help.tallysolutions.com/accounting-faq/ and states it
-                                       CONDITIONALLY (a class selected AND F12 "Select common ledger account for
-                                       Item allocation" = No); we do not model that F12 flag, so our rule is the
-                                       narrower one — see ShowStockLedgerPicker for the divergence, recorded as
-                                       ours. Hidden entirely on a type that defines no class, so an ordinary
-                                       invoice header is unchanged. -->
+                                       vendor states that on help.tallysolutions.com/accounting-faq/, under "The
+                                       field to select the Sales ledger is not available, if:", as a NUMBERED LIST
+                                       of two INDEPENDENT conditions — (1) a voucher class is selected to automate
+                                       the sales details, (2) F12 "Select common ledger account for Item
+                                       allocation" = No. (This comment used to say the two were joined by AND and
+                                       that our rule was therefore the narrower one; corrected 2026-10-18 — the
+                                       page carries no conjunction, and we implement condition (1) exactly.)
+                                       Condition (2) is unmodelled and stays an open divergence of ours: it needs
+                                       per-item accounting allocation, which does not exist here. See
+                                       ShowStockLedgerPicker. Hidden entirely on a type that defines no class, so
+                                       an ordinary invoice header is unchanged. -->
                                   <TextBlock Grid.Column="2" Text="Voucher Class" FontWeight="SemiBold"
                                              IsVisible="{Binding ShowVoucherClassSelector}"
                                              Foreground="{StaticResource BrandNavy}" VerticalAlignment="Center"
@@ -6565,6 +6570,20 @@
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Departments"/>
                                 </Grid>
+                                <!-- v67, census 2.7 - the ALIAS. Vendor: "Name & alias: As in other masters,
+                                     you can specify multiple aliases."
+                                     (help.tallysolutions.com/cost-centre-or-profit-centre-tally/, opened by
+                                     content 2026-10-16, in the Cost CATEGORY section). This is the field the
+                                     row was DEMOTED for on 2026-10-04: cost_centres.alias has existed since v3
+                                     and the category had no counterpart at all. One alias, not the vendor's
+                                     plural - the divergence every master here shares. -->
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Alias" FontWeight="SemiBold" Margin="0,0,10,0" TextTrimming="CharacterEllipsis"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="CostCategoryAliasBox"
+                                           Text="{Binding Alias, Mode=TwoWay}"
+                                           PlaceholderText="optional, e.g. DEPT"/>
+                                </Grid>
                                 <CheckBox Content="Allocate Revenue Items"
                                           IsChecked="{Binding AllocateRevenueItems, Mode=TwoWay}" FontSize="13"/>
                                 <CheckBox Content="Allocate Non-Revenue Items"
@@ -6584,10 +6603,11 @@
 
                             <!-- Existing categories header -->
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
-                              <Grid ColumnDefinitions="*,220,120">
+                              <Grid ColumnDefinitions="*,140,200,110">
                                 <TextBlock Grid.Column="0" Text="Cost Category" Classes="colHdr"/>
-                                <TextBlock Grid.Column="1" Text="Allocates" Classes="colHdr"/>
-                                <TextBlock Grid.Column="2" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
+                                <TextBlock Grid.Column="1" Text="Alias" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Allocates" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
 
@@ -6596,14 +6616,20 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:CostCategoryListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,220,120" Height="24">
+                                      <Grid ColumnDefinitions="*,140,200,110" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Allocates}"
-                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
-                                        <TextBlock Grid.Column="2" Text="{Binding Kind}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Alias}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding Allocates}"
+                                                   VerticalAlignment="Center" FontSize="12" Foreground="#555555"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding Kind}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
-                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
@@ -6852,7 +6878,7 @@
                                       <ComboBox Grid.Column="0" HorizontalAlignment="Stretch"
                                                 ItemsSource="{Binding Targets}"
                                                 SelectedItem="{Binding SelectedTarget, Mode=TwoWay}"
-                                                PlaceholderText="Group or ledger…">
+                                                PlaceholderText="Group, ledger or cost centre…">   <!-- v67, census 2.9 -->
                                         <ComboBox.ItemTemplate>
                                           <DataTemplate x:DataType="vm:BudgetTargetOption">
                                             <TextBlock Text="{Binding Display}"/>
@@ -7136,6 +7162,52 @@
                                   <TextBox Grid.Column="5" Text="{Binding DecimalPlacesText, Mode=TwoWay}"
                                            TextAlignment="Right" PlaceholderText="2"/>
                                 </Grid>
+                                <!-- v67 - census 2.11. The vendor lists SIX formatting options; "Number of
+                                     decimal places" is the Decimals box above, and these are the other five.
+                                     Captions VERBATIM from
+                                     help.tallysolutions.com/create-alter-or-delete-currencies/, opened by
+                                     content 2026-10-16 - the slug that resolved the 404 which stalled two
+                                     earlier agents, and which also corrected the count from four to six.
+                                     The base-currency ALTER refusal is deliberately untouched by this slice:
+                                     the same page contradicts it, that is divergence IV-75, and it is a USER
+                                     DECISION rather than something to change quietly here. -->
+                                <TextBlock Text="FORMATTING" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5" Margin="0,2,0,0"/>
+                                <WrapPanel Orientation="Horizontal">
+                                  <CheckBox Name="CurrencyShowMillionsCheck" Margin="0,0,18,0" FontSize="13"
+                                            Content="Show amounts in millions"
+                                            IsChecked="{Binding ShowAmountsInMillions, Mode=TwoWay}"/>
+                                  <CheckBox Name="CurrencySuffixSymbolCheck" Margin="0,0,18,0" FontSize="13"
+                                            Content="Suffix symbol to amount"
+                                            IsChecked="{Binding SuffixSymbolToAmount, Mode=TwoWay}"/>
+                                  <CheckBox Name="CurrencySpaceBeforeSymbolCheck" FontSize="13"
+                                            Content="Add space between amount and symbol"
+                                            IsChecked="{Binding SpaceBetweenAmountAndSymbol, Mode=TwoWay}"/>
+                                </WrapPanel>
+                                <!-- TWO rows, not one four-column row. A single "260,*,260,110" starved the
+                                     * column to 8px at the narrowest tracked viewport and
+                                     XamlLayoutInvariantTests.Star_columns_must_stay_wide_enough_to_read
+                                     caught it: the captions here are long and fixed tracks eat the width. -->
+                                <Grid ColumnDefinitions="260,*">
+                                  <TextBlock Grid.Column="0" Text="Word representing amount after decimal"
+                                             FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="CurrencyDecimalWordBox"
+                                           Text="{Binding DecimalWord, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Cent"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="260,*">
+                                  <TextBlock Grid.Column="0" Text="No. of decimal places for amounts in words"
+                                             FontWeight="SemiBold" TextWrapping="Wrap"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- Blank is NOT zero: blank means "use the number of decimal places"
+                                       (the pre-v67 behaviour), 0 means "write no minor unit in words". The
+                                       vendor rule "equal to or lesser than the number specified in Number of
+                                       decimal places" is enforced on Ctrl+A. -->
+                                  <TextBox Grid.Column="1" Name="CurrencyDecimalPlacesForWordsBox"
+                                           Text="{Binding DecimalPlacesForWordsText, Mode=TwoWay}"
+                                           TextAlignment="Right" PlaceholderText="blank = use the decimal places"/>
+                                </Grid>
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding CurrencyMessage}"
                                              IsVisible="{Binding CurrencyMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
@@ -7213,11 +7285,14 @@
                             <Grid Grid.Row="3" ColumnDefinitions="*,*" Margin="0,0,0,0">
                               <Grid Grid.Column="0" RowDefinitions="Auto,*">
                                 <Border Grid.Row="0" Background="{StaticResource BrandNavyDark}">
-                                  <Grid ColumnDefinitions="120,*,90,90">
+                                  <Grid ColumnDefinitions="90,110,70,*,80">
                                     <TextBlock Grid.Column="0" Text="Symbol" Classes="colHdr"/>
                                     <TextBlock Grid.Column="1" Text="Formal Name" Classes="colHdr"/>
                                     <TextBlock Grid.Column="2" Text="Decimals" Classes="colHdr" TextAlignment="Center"/>
-                                    <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Center"/>
+                                    <!-- v67, census 2.11: only the NON-DEFAULT options are printed, so a book
+                                         that has set none reads exactly as it did. -->
+                                    <TextBlock Grid.Column="3" Text="Formatting" Classes="colHdr"/>
+                                    <TextBlock Grid.Column="4" Text="Kind" Classes="colHdr" TextAlignment="Center"/>
                                   </Grid>
                                 </Border>
                               <ScrollViewer Grid.Row="1" Background="White">
@@ -7225,24 +7300,32 @@
                                   <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:CurrencyListRow">
                                       <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="120,*,90,90" Height="24">
+                                        <Grid ColumnDefinitions="90,110,70,*,80" Height="24">
                                           <!-- W33 C3 keyboard highlight (census 2.11). This is the CURRENCIES
                                                grid; the Rates of Exchange grid below it is deliberately NOT on
                                                the shared arm and carries no highlight, because the arm exposes
-                                               one highlighted row per screen. See CurrencyMasterViewModel. -->
-                                          <Border Grid.Column="0" Grid.ColumnSpan="4" Background="#FFF3CD"
+                                               one highlighted row per screen. See CurrencyMasterViewModel.
+                                               v67 widened this grid from four columns to five, so the
+                                               highlight band's ColumnSpan moved with it - a span left at 4
+                                               would have stopped short of the Kind cell. -->
+                                          <Border Grid.Column="0" Grid.ColumnSpan="5" Background="#FFF3CD"
                                                   IsVisible="{Binding IsHighlighted}"/>
                                           <TextBlock Grid.Column="0" Text="{Binding Symbol}"
-                                                     Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                                     Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                     TextTrimming="CharacterEllipsis"/>
                                           <TextBlock Grid.Column="1" Text="{Binding FormalName}"
                                                      VerticalAlignment="Center" FontSize="12.5"
                                                      TextTrimming="CharacterEllipsis"/>
                                           <TextBlock Grid.Column="2" Text="{Binding Decimals}"
                                                      TextAlignment="Center"
                                                      VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
-                                          <TextBlock Grid.Column="3" Text="{Binding Kind}"
+                                          <TextBlock Grid.Column="3" Text="{Binding Formatting}"
+                                                     VerticalAlignment="Center" FontSize="11.5" Foreground="#555555"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="4" Text="{Binding Kind}"
                                                      TextAlignment="Center"
-                                                     VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                                     VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                     TextTrimming="CharacterEllipsis"/>
                                         </Grid>
                                       </Border>
                                     </DataTemplate>
@@ -7975,14 +8058,107 @@
                                            Text="The type of voucher cannot be changed on an existing voucher type — every voucher already posted under it was booked with that behaviour."
                                            FontSize="11" Foreground="#6A6A6A" TextWrapping="Wrap"/>
 
-                                <StackPanel Orientation="Horizontal" Spacing="18">
-                                  <CheckBox Content="Activate this Voucher Type"
+                                <WrapPanel Orientation="Horizontal">
+                                  <CheckBox Margin="0,0,18,0" Content="Activate this Voucher Type"
                                             IsChecked="{Binding IsActive, Mode=TwoWay}" FontSize="12.5"/>
-                                  <CheckBox Content="Print voucher after saving"
+                                  <CheckBox Margin="0,0,18,0" Content="Print voucher after saving"
                                             IsChecked="{Binding PrintAfterSaving, Mode=TwoWay}" FontSize="12.5"/>
                                   <CheckBox Content="Provide narration for each ledger in voucher"
                                             IsChecked="{Binding ProvideNarrationForEachLedger, Mode=TwoWay}" FontSize="12.5"/>
-                                </StackPanel>
+                                </WrapPanel>
+
+                                <!-- v67 - census 2.4. The eleven remaining ATTESTED Voucher Type fields, in
+                                     the vendor's own blocks. Captions VERBATIM from
+                                     help.tallysolutions.com/voucher-types-tally/ ("How to Create, Configure &amp;
+                                     Manage Voucher Types in TallyPrime"), opened BY CONTENT 2026-10-16.
+                                     Before v67 every one of these was a ZERO-HIT search over src/ - which is
+                                     exactly the list row 2.4's census cell names as missing.
+                                     These capture an ELECTION and store it. v67 does NOT add the
+                                     voucher-entry effective-date field, does not open a voucher as Optional,
+                                     sends no WhatsApp message and generates no payment link or QR code. -->
+                                <WrapPanel Orientation="Horizontal">
+                                  <CheckBox Name="VtUseEffectiveDatesCheck" Margin="0,0,18,0" FontSize="12.5"
+                                            Content="Use effective dates for vouchers"
+                                            IsChecked="{Binding UseEffectiveDates, Mode=TwoWay}"/>
+                                  <CheckBox Name="VtOptionalByDefaultCheck" Margin="0,0,18,0" FontSize="12.5"
+                                            Content="Make this voucher type as &apos;Optional&apos; by default"
+                                            IsChecked="{Binding OptionalByDefault, Mode=TwoWay}"/>
+                                  <CheckBox Name="VtDefaultAccountingAllocationsCheck" FontSize="12.5"
+                                            Content="Enable default accounting allocations"
+                                            IsChecked="{Binding DefaultAccountingAllocations, Mode=TwoWay}"/>
+                                </WrapPanel>
+
+                                <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                <TextBlock Text="INVOICE SHARING" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+                                <!-- NOTHING IS SENT by either election: this product's WhatsApp surface is an
+                                     offline document/link builder (census 14.10), and no payment link or QR
+                                     code is generated anywhere in it. The flags record the per-type choice. -->
+                                <WrapPanel Orientation="Horizontal">
+                                  <CheckBox Name="VtWhatsAppAfterSavingCheck" Margin="0,0,18,0" FontSize="12.5"
+                                            Content="WhatsApp voucher after saving"
+                                            IsChecked="{Binding WhatsAppAfterSaving, Mode=TwoWay}"/>
+                                  <CheckBox Name="VtPaymentLinkAfterSavingCheck" FontSize="12.5"
+                                            Content="Generate Payment link/QR code after saving voucher"
+                                            IsChecked="{Binding GeneratePaymentLinkAfterSaving, Mode=TwoWay}"/>
+                                </WrapPanel>
+
+                                <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
+                                <TextBlock Text="PRINTING" FontSize="11" FontWeight="Bold"
+                                           Foreground="#9098A8" LetterSpacing="1.5"/>
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Default template to print" FontWeight="SemiBold"
+                                             TextWrapping="Wrap" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="VtDefaultPrintTemplateBox"
+                                           Text="{Binding DefaultPrintTemplate, Mode=TwoWay}"
+                                           PlaceholderText="blank = the existing default"/>
+                                  <TextBlock Grid.Column="2" Text="Default title to print" FontWeight="SemiBold"
+                                             TextWrapping="Wrap" Margin="10,0,0,0" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Name="VtDefaultPrintTitleBox"
+                                           Text="{Binding DefaultPrintTitle, Mode=TwoWay}"
+                                           PlaceholderText="e.g. TAX INVOICE"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*,150,*">
+                                  <TextBlock Grid.Column="0" Text="Default bank" FontWeight="SemiBold"
+                                             TextWrapping="Wrap" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" Name="VtDefaultBankPicker" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding DefaultBankOptions}"
+                                            SelectedItem="{Binding SelectedDefaultBank, Mode=TwoWay}"
+                                            PlaceholderText="No default bank...">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ClassLedgerOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                  <TextBlock Grid.Column="2" Text="Default jurisdiction" FontWeight="SemiBold"
+                                             TextWrapping="Wrap" Margin="10,0,0,0" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Name="VtDefaultJurisdictionBox"
+                                           Text="{Binding DefaultJurisdiction, Mode=TwoWay}"
+                                           PlaceholderText="e.g. Bengaluru"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="Set/alter declaration" FontWeight="SemiBold"
+                                             TextWrapping="Wrap" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="VtPrintDeclarationBox"
+                                           Text="{Binding PrintDeclaration, Mode=TwoWay}"
+                                           AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"
+                                           PlaceholderText="printed on this type&apos;s documents"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="150,*">
+                                  <TextBlock Grid.Column="0" Text="Set/Alter Terms and Conditions" FontWeight="SemiBold"
+                                             TextWrapping="Wrap" VerticalAlignment="Center"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="VtPrintTermsBox"
+                                           Text="{Binding PrintTermsAndConditions, Mode=TwoWay}"
+                                           AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"
+                                           PlaceholderText="printed on this type&apos;s documents"/>
+                                </Grid>
 
                                 <!-- W-K1 · census 9.9 — VOUCHER CLASSES. Shown only while ALTERING a Stock
                                      Journal type: a class is a child of a type, so there is nothing to attach
@@ -8509,7 +8685,14 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:GodownMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Godown / Location Creation"
+                            <!-- v67 - BOUND, was the literal "Godown / Location Creation" in BOTH modes.
+                                 Ctrl+Enter on the list below opens this same page in ALTER mode, and the
+                                 hardcoded heading told the operator they were creating a second godown while
+                                 they were editing an existing one. The VM has carried `Caption` ("Godown
+                                 Creation" / "Godown Alteration") since the alter route shipped and NOTHING was
+                                 reading it - the same defect wave 46 fixed on the commit BUTTON of this very
+                                 screen, left behind on the heading above it. -->
+                            <TextBlock Grid.Row="0" Name="GodownMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -8545,6 +8728,34 @@
                                 </Grid>
                                 <CheckBox Content="Third-party (our stock with others)"
                                           IsChecked="{Binding ThirdParty, Mode=TwoWay}" FontSize="13"/>
+                                <!-- v67 - census 3.7. The vendor's "Allow storage of materials", verbatim:
+                                     "By default, each godown can store materials. However, you can set a
+                                     godown to not store any materials. To do so, setting this option to Yes to
+                                     displays the Allow storage of materials option on the Godown Creation
+                                     screen. Set that option to No."
+                                     (help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/,
+                                     opened by content 2026-10-16.)
+                                     F12-GATED, and that is the whole point of the row: the vendor shows this
+                                     field only once its F12 (Configure) switch is set, under "What you see on
+                                     the screen can vary based on your choices. Press F12 (Configure) to change
+                                     the options." Drawing it unconditionally would ITSELF be a divergence. -->
+                                <CheckBox Name="GodownAllowStorageCheck"
+                                          Content="Allow storage of materials"
+                                          IsVisible="{Binding ShowAllowStorageOfMaterials}"
+                                          IsChecked="{Binding AllowStorageOfMaterials, Mode=TwoWay}" FontSize="13"/>
+                                <!-- v67 - census 3.7. The vendor's F12 "Use address for Locations": "You can
+                                     add the Locations address by enabling this option. The Locations address
+                                     can be printed in your invoices by configuring invoice printing." Same
+                                     page, same F12 rule. One free-text box, not the vendor's multi-line
+                                     address block, and the invoice-printing half is NOT built - both ours. -->
+                                <Grid ColumnDefinitions="90,*" IsVisible="{Binding ShowAddress}">
+                                  <TextBlock Grid.Column="0" Text="Address" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="1" Name="GodownAddressBox"
+                                           Text="{Binding Address, Mode=TwoWay}"
+                                           AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="64"
+                                           PlaceholderText="optional, e.g. Gate 4, Peenya Industrial Area"/>
+                                </Grid>
                                 <!-- W-K1 · census 9.6 (help.tallysolutions.com/job-costing-tally/): the vendor's
                                      "Set job/project for job costing", which takes a COST CENTRE — a job/project
                                      IS a cost centre, which is why this feature adds no cost dimension of its
@@ -8588,11 +8799,14 @@
                             <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
                               <!-- W-K1 · census 9.6: the Job/Project column. It is a COLUMN, not a suffix on
                                    Kind — a godown can be third-party AND a job at once. -->
-                              <Grid ColumnDefinitions="*,150,140,100">
+                              <Grid ColumnDefinitions="*,140,130,100,95">
                                 <TextBlock Grid.Column="0" Text="Godown" Classes="colHdr"/>
                                 <TextBlock Grid.Column="1" Text="Under" Classes="colHdr"/>
                                 <TextBlock Grid.Column="2" Text="Job/Project" Classes="colHdr"/>
-                                <TextBlock Grid.Column="3" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
+                                <!-- v67, census 3.7: only the NON-default is printed, so a book on the
+                                     vendor default reads exactly as it did. -->
+                                <TextBlock Grid.Column="3" Text="Storage" Classes="colHdr"/>
+                                <TextBlock Grid.Column="4" Text="Kind" Classes="colHdr" TextAlignment="Right"/>
                               </Grid>
                             </Border>
 
@@ -8601,7 +8815,7 @@
                                 <ItemsControl.ItemTemplate>
                                   <DataTemplate x:DataType="vm:GodownListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                      <Grid ColumnDefinitions="*,150,140,100" Height="24">
+                                      <Grid ColumnDefinitions="*,140,130,100,95" Height="24">
                                         <TextBlock Grid.Column="0" Text="{Binding Name}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
                                                    TextTrimming="CharacterEllipsis"/>
@@ -8611,9 +8825,13 @@
                                         <TextBlock Grid.Column="2" Text="{Binding JobProject}"
                                                    VerticalAlignment="Center" FontSize="12" Foreground="#555555"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="3" Text="{Binding Kind}"
+                                        <TextBlock Grid.Column="3" Text="{Binding Storage}"
+                                                   VerticalAlignment="Center" FontSize="11.5" Foreground="#A0522D"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="4" Text="{Binding Kind}"
                                                    TextAlignment="Right" Margin="0,0,10,0"
-                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"/>
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"/>
                                       </Grid>
                                     </Border>
                                   </DataTemplate>
@@ -12235,6 +12453,27 @@
                                           IsChecked="{Binding DefineBomComponentType, Mode=TwoWay}"
                                           Margin="20,0,0,0" FontSize="12"
                                           IsVisible="{Binding SetComponentsBom}"/>
+                                <!-- v67 · census 3.7 · BF-4. The two Godown/Location F12 (Configure) switches,
+                                     surfaced here beside the BOM F12 switches above — the same placement this
+                                     product already uses for a master-screen F12 configuration (IV-80).
+                                     🔴 THEY EXISTED IN STORAGE AND IN THE GODOWN MASTER'S GATE WITH NO WRITER
+                                     ANYWHERE IN src/ (29 occurrences, ZERO assignments), so the two fields they
+                                     gate were permanently invisible and census 3.7 shipped UNREACHABLE. The
+                                     gate itself is right and stays: with a switch off the Godown master hides
+                                     its field AND writes the vendor default, so a hidden control never puts a
+                                     value in the book. Vendor, by content, help.tallysolutions.com/
+                                     inventory-storage-using-godowns-locations-tally/: "setting this option to
+                                     Yes to displays the Allow storage of materials option on the Godown
+                                     Creation screen"; "You can add the Locations address by enabling this
+                                     option."; "Press F12 (Configure) to change the options." -->
+                                <CheckBox Name="ConfigAllowStorageOfMaterialsCheck"
+                                          Content="Allow storage of materials (Godown F12)"
+                                          IsChecked="{Binding ConfigAllowStorageOfMaterials, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
+                                <CheckBox Name="ConfigUseAddressForLocationsCheck"
+                                          Content="Use address for Locations (Godown F12)"
+                                          IsChecked="{Binding ConfigUseAddressForLocations, Mode=TwoWay}"
+                                          FontWeight="SemiBold" Foreground="{StaticResource BrandNavy}"/>
                                 <!-- Price Levels F11 feature (Phase 6 slice 5; RQ-26/RQ-52): the master gate for the
                                      Price-Level / Price-List masters, the party default-level picker, the Sales
                                      Price-Level header + discount column and the Price List report. -->
@@ -15047,6 +15286,127 @@
                             </Border>
                             <Border Grid.Row="7" Background="#FFF7E6" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"
                                     Padding="10,6" Margin="0,6,0,0"
+                                    IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                              <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Record ISD Credit (census row 6.24). INTERACTIVE: opening it only projects the ISD
+                         receipts already recorded; the Record button (Ctrl+A) is the only mutator.
+                         🔴 The DECLARED DIVERGENCE (DivergenceText) is rendered, not hidden in a comment: the
+                         duplicate-document refusal and the narration-carried document number are OURS, and the
+                         vendor's own services-only bound is stated beside them. The screen clones the RECIPIENT
+                         side of ISD, which is the side the vendor's product has; it deliberately offers no
+                         distribution and no GSTR-6, because three of the vendor's own pages show it has neither. -->
+                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).RecordIsdCredit, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).RecordIsdCredit}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:RecordIsdCreditViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                            <!-- The Stat Adjustment this posts under, in the vendor's own words, so an operator
+                                 coming from that page can see the two selections match. -->
+                            <Border Grid.Row="2" Background="#F4F6FA" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="10" Margin="0,0,0,6">
+                              <StackPanel Spacing="2">
+                                <TextBlock Text="Stat Adjustment" FontSize="10" Foreground="#777777"/>
+                                <TextBlock Text="{Binding AdjustmentText}" FontSize="12.5" FontWeight="Bold"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
+                              </StackPanel>
+                            </Border>
+                            <!-- Which registration receives the credit (census 6.23). ITC lands in exactly one
+                                 GSTIN's electronic credit ledger and files in exactly one 3B Table 4(A)(4), so
+                                 this must never be a hard-coded primary. Hidden on a single-GSTIN book. -->
+                            <Grid Grid.Row="3" ColumnDefinitions="Auto,260,*" Margin="0,0,0,6"
+                                  IsVisible="{Binding ShowsRegistrationPicker}">
+                              <TextBlock Grid.Column="0" Text="Registration" FontWeight="SemiBold" FontSize="12"
+                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
+                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                        ItemsSource="{Binding Registrations}"
+                                        SelectedItem="{Binding SelectedRegistration, Mode=TwoWay}">
+                                <ComboBox.ItemTemplate>
+                                  <DataTemplate x:DataType="ledger:GstRegistration">
+                                    <TextBlock Text="{Binding Name}"/>
+                                  </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                              </ComboBox>
+                              <TextBlock Grid.Column="2" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,0,0"
+                                         Foreground="#7A5B00" TextTrimming="CharacterEllipsis"
+                                         Text="The credit is received into this registration and appears in its GSTR-3B Table 4(A)(4) only."/>
+                            </Grid>
+                            <TextBlock Grid.Row="4" Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold"
+                                       Foreground="#555555" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                            <!-- The form: the vendor's own field order. -->
+                            <Border Grid.Row="5" Background="White" BorderBrush="{StaticResource GridLine}"
+                                    BorderThickness="1" Padding="10" Margin="0,0,0,6">
+                              <StackPanel Spacing="6">
+                                <Grid ColumnDefinitions="Auto,200,Auto,140,Auto,140">
+                                  <TextBlock Grid.Column="0" Text="ISD Invoice / Debit Note" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding DocumentNumberText, Mode=TwoWay}" FontSize="12"/>
+                                  <TextBlock Grid.Column="2" Text="Document Date" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="12,0,8,0"/>
+                                  <TextBox Grid.Column="3" Text="{Binding DocumentDateText, Mode=TwoWay}" FontSize="12"/>
+                                  <TextBlock Grid.Column="4" Text="Voucher Date" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="12,0,8,0"/>
+                                  <TextBox Grid.Column="5" Text="{Binding VoucherDateText, Mode=TwoWay}" FontSize="12"/>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,*">
+                                  <TextBlock Grid.Column="0" Text="Credit To (purchase / expense / branch)" FontSize="11.5"
+                                             VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                  <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding CounterpartOptions}"
+                                            SelectedItem="{Binding SelectedCounterpart, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="ledger:Ledger">
+                                        <TextBlock Text="{Binding Name}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
+                                <Grid ColumnDefinitions="Auto,120,Auto,120,Auto,120,Auto,120">
+                                  <TextBlock Grid.Column="0" Text="CGST ₹" FontSize="11.5" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                  <TextBox Grid.Column="1" Text="{Binding CgstText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="2" Text="SGST/UTGST ₹" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                  <TextBox Grid.Column="3" Text="{Binding SgstText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="4" Text="IGST ₹" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                  <TextBox Grid.Column="5" Text="{Binding IgstText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                  <TextBlock Grid.Column="6" Text="Cess ₹" FontSize="11.5" VerticalAlignment="Center" Margin="12,0,6,0"/>
+                                  <TextBox Grid.Column="7" Text="{Binding CessText, Mode=TwoWay}" FontSize="12" TextAlignment="Right"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                            <!-- The recorded receipts. -->
+                            <ListBox Grid.Row="6" Background="White" ItemsSource="{Binding Recorded}"
+                                     SelectedIndex="{Binding HighlightedIndex, Mode=TwoWay}">
+                              <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:IsdCreditRowVm">
+                                  <Grid ColumnDefinitions="2*,Auto,2*,*,*,*,*,*" Margin="2">
+                                    <TextBlock Grid.Column="0" Text="{Binding Document}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Date}" FontSize="11.5" Margin="8,0" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Text="{Binding Counterpart}" FontSize="11.5" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="3" Text="{Binding Cgst}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="4" Text="{Binding Sgst}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="5" Text="{Binding Igst}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="6" Text="{Binding Cess}" FontSize="11.5" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="7" Text="{Binding Total}" FontSize="11.5" FontWeight="Bold" TextAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                                  </Grid>
+                                </DataTemplate>
+                              </ListBox.ItemTemplate>
+                            </ListBox>
+                            <!-- The declared divergence, on the face of the screen. -->
+                            <TextBlock Grid.Row="7" Text="{Binding DivergenceText}" FontSize="11" Foreground="#7A5B00"
+                                       TextWrapping="Wrap" Margin="0,6,0,0"/>
+                            <Border Grid.Row="8" Background="#FFF8E1" BorderBrush="#E0C068" BorderThickness="1"
+                                    Padding="8" Margin="0,6,0,0"
                                     IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                               <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontSize="11.5" Foreground="#7A5B00"/>
                             </Border>

@@ -6,8 +6,9 @@ namespace Apex.Ledger.Domain;
 /// enum ordinal.
 /// </summary>
 /// <remarks>
-/// <para>🔴 <b>THIS ENUM IS DELIBERATELY SHORT, AND THE SHORTNESS IS THE POINT.</b> The vendor's Type of
-/// Calculation list is longer than the three members below. Only these three are named by a vendor page that
+/// <para>🔴 <b>THIS ENUM IS DELIBERATELY SHORT, AND THE SHORTNESS IS THE POINT.</b> ~~The vendor's Type of
+/// Calculation list is longer than the three members below.~~ <b>That sentence was itself unsourced and is
+/// struck 2026-10-18 — see the MEASUREMENT block below.</b> Only these three are named by a vendor page that
 /// could actually be retrieved and read, so only these three ship. The rest are NOT approximated, NOT guessed
 /// from the older product's screen, and NOT inferred from what a tax engine "must" need — an additional-ledger
 /// rule posts money onto every voucher that uses the class without prompting the operator, so a member whose
@@ -30,6 +31,35 @@ namespace Apex.Ledger.Domain;
 /// for the ledger's auto-calculation field. Here it means the class names the ledger but derives no amount for
 /// it, which is the honest representation of an additional entry the operator keys by hand.</item>
 /// </list>
+///
+/// <para>🔴 <b>MEASUREMENT 2026-10-18 — "ON ITEM RATE" AND "ON VAT RATE" ARE NOT TALLYPRIME CLAIMS, AND THE
+/// CENSUS SAID THEY WERE.</b> Census row 2.6 justified its <c>PARTIAL</c> grade with <i>"the vendor also ships
+/// On Item Rate (its own help page) and On VAT Rate"</i>, and concluded from that that a DISCOUNT <i>"cannot be
+/// expressed at all"</i> here. Every page naming either value was re-fetched by content. The result does not
+/// support the claim:</para>
+/// <list type="number">
+/// <item><b>"On Item Rate" on a TallyPrime page is a DIFFERENT FIELD.</b> The one TallyPrime page that carries
+/// the phrase is <c>help.tallysolutions.com/tally-prime/india-vat/vat-faq/</c>, where it is an option of
+/// <i>Calculation type</i> in the <b>stock item master's</b> VAT details (<i>"Set the option Calculation type to
+/// On Item Rate"</i>). That page does not mention voucher classes at all. The page that does put "On Item Rate"
+/// in a voucher class is <c>help.tallysolutions.com/article/Tally.ERP9/…/On_Item_Rate_Calculation_Method.htm</c>
+/// — <b>Tally.ERP 9</b>, which is not ground truth for this clone.</item>
+/// <item><b>"On VAT Rate" surfaces only on <c>te9rel*</c> Tally.ERP 9 VAT pages.</b> No TallyPrime page names
+/// it. (The ERP-9-only <i>"As User Defined Value"</i> is in the same position.)</item>
+/// <item><b>No TallyPrime page enumerates "Type of Calculation" at all.</b> <c>voucher-types-tally/</c> — the
+/// product's own Voucher Class page — does not contain the phrase. So there is no retrievable TallyPrime list
+/// to be short of, which is why the struck sentence above could not be sourced either.</item>
+/// <item><b>TallyPrime does not express a discount through this field.</b> The vendor documents discount two
+/// ways, neither of them a class calculation type: a per-item <i>Discount</i> column behind
+/// <c>F12 &gt; Provide Cash/Trade Discount</c> against a ledger whose <i>Type of Ledger</i> is <i>Discount</i>,
+/// and a whole-invoice discount ledger keyed as a negative amount. The percentage itself is a <b>ledger</b>
+/// property, unlocked by the <b>group</b> flag <i>"Used for calculation (for example: taxes, discounts)"</i> —
+/// <c>help.tallysolutions.com/groups-in-tallyprime/</c>: <i>"To use percentage-based calculations for ledgers
+/// under this Group, enable"</i>. That is census row 2.2's field, not this enum's.</item>
+/// </list>
+/// <para><b>So the three members below are not a truncation of a known vendor list; they are every value a
+/// TallyPrime page names.</b> Adding <c>OnItemRate</c> or <c>OnVatRate</c> here would import ERP-9 semantics into
+/// a surface that posts money without prompting — exactly what the paragraph above forbids. They stay out.</para>
 /// </remarks>
 public enum VoucherClassCalculationType
 {

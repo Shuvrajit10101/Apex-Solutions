@@ -18,6 +18,12 @@ public sealed partial class CurrencyListRow : ObservableObject, IMasterListRow
     public string FormalName { get; init; } = string.Empty;
     public string Decimals { get; init; } = string.Empty;
 
+    /// <summary>v67 (census 2.11): the NON-DEFAULT formatting options this currency carries, comma-joined, or
+    /// an em dash. Only departures from the pre-v67 behaviour are printed — a currency on the defaults reads
+    /// exactly as it did. Shown so the Existing list proves the options are really STORED rather than merely
+    /// accepted by the form.</summary>
+    public string Formatting { get; init; } = string.Empty;
+
     /// <summary>"Base" for the company base currency, else blank.</summary>
     public string Kind { get; init; } = string.Empty;
 
@@ -141,6 +147,15 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
         vm.Symbol = currency.Symbol;
         vm.FormalName = currency.FormalName;
         vm.DecimalPlacesText = currency.DecimalPlaces.ToString(CultureInfo.InvariantCulture);
+        // v67 (census 2.11): the five formatting options, pre-filled so an alter that changes one thing
+        // writes the rest back unchanged. DecimalPlacesForWords is BLANK when null — "fall back", not 0.
+        vm.ShowAmountsInMillions = currency.ShowAmountsInMillions;
+        vm.SuffixSymbolToAmount = currency.SuffixSymbolToAmount;
+        vm.SpaceBetweenAmountAndSymbol = currency.SpaceBetweenAmountAndSymbol;
+        vm.DecimalWord = currency.DecimalWord ?? string.Empty;
+        vm.DecimalPlacesForWordsText = currency.DecimalPlacesForWords is { } w
+            ? w.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
         return vm;
@@ -198,9 +213,21 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
             return false;
         }
 
+        // v67 (census 2.11): parsed BEFORE any field is written, exactly like the three checks above — the
+        // rule this method's own doc comment states, so a rejected alteration leaves the master untouched
+        // rather than half-applied.
+        if (!TryReadDecimalPlacesForWords(decimals, out var placesForWords)) return false;
+
         currency.Symbol = symbol;
         currency.FormalName = formal;
         currency.DecimalPlaces = decimals;
+        // v67 (census 2.11): the five formatting options. Blank DecimalWord clears it; blank
+        // DecimalPlacesForWords returns null = "fall back to DecimalPlaces", which is NOT 0.
+        currency.ShowAmountsInMillions = ShowAmountsInMillions;
+        currency.SuffixSymbolToAmount = SuffixSymbolToAmount;
+        currency.SpaceBetweenAmountAndSymbol = SpaceBetweenAmountAndSymbol;
+        currency.DecimalWord = string.IsNullOrWhiteSpace(DecimalWord) ? null : DecimalWord.Trim();
+        currency.DecimalPlacesForWords = placesForWords;
         _storage.Save(_company);
 
         RefreshCurrencies();
@@ -273,6 +300,44 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
     [ObservableProperty] private string _symbol = string.Empty;
     [ObservableProperty] private string _formalName = string.Empty;
     [ObservableProperty] private string _decimalPlacesText = "2";
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────
+    // v67 (census 2.11) — THE FORMATTING OPTIONS. The vendor page lists SIX; the sixth is DecimalPlacesText
+    // above and is not duplicated. Captions verbatim from
+    // help.tallysolutions.com/create-alter-or-delete-currencies/, opened BY CONTENT on 2026-10-16.
+    // 🔴 The row's cell recorded FOUR options and a 404'd page. Both are corrected: there are SIX and the
+    // slug resolves. Each default is this build's pre-v67 behaviour, so an untouched form creates a currency
+    // byte-identical to a pre-v67 one.
+    // ⚠️ THE BASE-CURRENCY REFUSAL IS DELIBERATELY NOT TOUCHED HERE. The same page contradicts it
+    // ("You can also alter the base currency…"), which is logged as divergence IV-75 and is a USER DECISION;
+    // this slice builds the formatting options and leaves the refusal exactly where it was.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>v67 (census 2.11): <i>"Set the option <b>Show amounts in millions</b> to Yes or No , as
+    /// needed."</i> Off = the lakh/crore grouping this build has always used.</summary>
+    [ObservableProperty] private bool _showAmountsInMillions;
+
+    /// <summary>v67 (census 2.11): <i>"<b>Suffix symbol to amount</b> : Yes , to ensure that the symbol
+    /// appears after the amount."</i> Off = the symbol prefixes the amount, as before.</summary>
+    [ObservableProperty] private bool _suffixSymbolToAmount;
+
+    /// <summary>v67 (census 2.11): <i>"<b>Add space between amount and symbol</b> : Yes ."</i></summary>
+    [ObservableProperty] private bool _spaceBetweenAmountAndSymbol;
+
+    /// <summary>v67 (census 2.11): <i>"Enter the <b>Word representing amount after decimal</b> . For example,
+    /// Cent."</i> Blank = this build's existing minor-unit word.</summary>
+    [ObservableProperty] private string _decimalWord = string.Empty;
+
+    /// <summary>
+    /// v67 (census 2.11): <i>"Enter the <b>No. of decimal places for amounts in words</b> ."</i>
+    /// <para>🔴 <b>BLANK IS NOT ZERO.</b> Blank means "fall back to Number of decimal places", which is the
+    /// pre-v67 behaviour; <c>0</c> is the operator's deliberate "no minor unit in words". The two are
+    /// different answers and the box must be able to say either, which is why this is text rather than an
+    /// int and why <c>Currency.DecimalPlacesForWords</c> is nullable.</para>
+    /// <para>The vendor's rule <i>"This number should be equal to or lesser than the number specified in
+    /// Number of decimal places field"</i> IS enforced here, on the screen, where the vendor enforces it.</para>
+    /// </summary>
+    [ObservableProperty] private string _decimalPlacesForWordsText = string.Empty;
     [ObservableProperty] private string? _currencyMessage;
 
     // ---- Rate-of-exchange form ----
@@ -298,6 +363,42 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
 
     /// <summary>True once at least one foreign currency exists — the rate form needs one to attach a rate to.</summary>
     public bool HasForeignCurrencies => ForeignCurrencies.Count > 0;
+
+    /// <summary>
+    /// v67 (census 2.11): parses <see cref="DecimalPlacesForWordsText"/> and enforces the vendor's own rule,
+    /// verbatim: <i>"This number should be equal to or lesser than the number specified in Number of decimal
+    /// places field."</i> (help.tallysolutions.com/create-alter-or-delete-currencies/.)
+    ///
+    /// <para>🔴 <b>BLANK IS A VALID ANSWER AND IT IS NOT ZERO.</b> Blank returns <c>null</c>, meaning "fall
+    /// back to <paramref name="decimals"/>" — the pre-v67 behaviour of every existing book. <c>0</c> is the
+    /// operator's deliberate "write no minor unit in words". Collapsing blank to 0 would silently change what
+    /// every currency means.</para>
+    ///
+    /// <para>One parser, two callers (create and alter), so the two verbs cannot drift on the rule — the
+    /// shape the rest of this file already uses for the symbol/name/decimals checks.</para>
+    /// </summary>
+    private bool TryReadDecimalPlacesForWords(int decimals, out int? value)
+    {
+        value = null;
+        var text = (DecimalPlacesForWordsText ?? string.Empty).Trim();
+        if (text.Length == 0) return true;   // blank = fall back to `decimals`, NOT zero
+
+        if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            || parsed < 0)
+        {
+            CurrencyMessage = "No. of decimal places for amounts in words must be a whole number ≥ 0 "
+                + "(leave it blank to use the number of decimal places).";
+            return false;
+        }
+        if (parsed > decimals)
+        {
+            CurrencyMessage = "No. of decimal places for amounts in words must be equal to or lesser than "
+                + $"the number of decimal places ({decimals}).";
+            return false;
+        }
+        value = parsed;
+        return true;
+    }
 
     /// <summary>
     /// Ctrl+A on the Currency form: validates the symbol + formal name are non-empty, the formal name is
@@ -331,7 +432,18 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
             return false;
         }
 
-        var currency = new Currency(Guid.NewGuid(), symbol, formal, decimalPlaces: decimals);
+        // v67 (census 2.11): the vendor's "equal to or lesser than" rule, before anything is created.
+        if (!TryReadDecimalPlacesForWords(decimals, out var placesForWords)) return false;
+
+        var currency = new Currency(Guid.NewGuid(), symbol, formal, decimalPlaces: decimals)
+        {
+            // v67 (census 2.11): five of the vendor's six formatting options.
+            ShowAmountsInMillions = ShowAmountsInMillions,
+            SuffixSymbolToAmount = SuffixSymbolToAmount,
+            SpaceBetweenAmountAndSymbol = SpaceBetweenAmountAndSymbol,
+            DecimalWord = string.IsNullOrWhiteSpace(DecimalWord) ? null : DecimalWord.Trim(),
+            DecimalPlacesForWords = placesForWords,
+        };
         _company.AddCurrency(currency);
         _storage.Save(_company);
 
@@ -340,6 +452,13 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
         Symbol = string.Empty;
         FormalName = string.Empty;
         DecimalPlacesText = "2";
+        // v67 (census 2.11): back to the pre-v67 defaults so the NEXT currency does not inherit this one's
+        // formatting — the same reason Symbol/FormalName/DecimalPlacesText are cleared.
+        ShowAmountsInMillions = false;
+        SuffixSymbolToAmount = false;
+        SpaceBetweenAmountAndSymbol = false;
+        DecimalWord = string.Empty;
+        DecimalPlacesForWordsText = string.Empty;
         // Point the rate form at the just-created currency for the natural "create currency then its rate" flow.
         RateCurrency = ForeignCurrencies.FirstOrDefault(c => c.Id == currency.Id) ?? RateCurrency;
         _onChanged();
@@ -410,6 +529,25 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
             NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands,
             CultureInfo.InvariantCulture, out value);
 
+    /// <summary>
+    /// v67 (census 2.11): the currency's NON-DEFAULT formatting options, for the Existing list. Only
+    /// departures are named, so a book that has set nothing reads exactly as it did before v67.
+    /// <para>🔴 A blank <c>DecimalPlacesForWords</c> is NOT reported, because null means "fall back to the
+    /// number of decimal places" and that is the default. An explicit <c>0</c> IS reported, because it is a
+    /// deliberate and different answer — printing nothing for both would make the one setting whose null and
+    /// zero differ invisible in the one place an operator can check it.</para>
+    /// </summary>
+    private static string DescribeFormatting(Currency c)
+    {
+        var parts = new List<string>();
+        if (c.ShowAmountsInMillions) parts.Add("millions");
+        if (c.SuffixSymbolToAmount) parts.Add("suffix symbol");
+        if (c.SpaceBetweenAmountAndSymbol) parts.Add("space before symbol");
+        if (!string.IsNullOrWhiteSpace(c.DecimalWord)) parts.Add(c.DecimalWord!);
+        if (c.DecimalPlacesForWords is { } w) parts.Add($"{w} dp in words");
+        return parts.Count == 0 ? "—" : string.Join(", ", parts);
+    }
+
     private void RefreshCurrencies()
     {
         // By ID, not by index — see PayrollMasterHighlight.RestoreTo.
@@ -426,6 +564,7 @@ public sealed partial class CurrencyMasterViewModel : ViewModelBase, IMasterList
                 Symbol = c.Symbol,
                 FormalName = c.FormalName,
                 Decimals = c.DecimalPlaces.ToString(CultureInfo.InvariantCulture),
+                Formatting = DescribeFormatting(c),   // v67 (census 2.11)
                 Kind = c.IsBaseCurrency ? "Base" : "Foreign",
             });
         }

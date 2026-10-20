@@ -489,7 +489,7 @@ The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAdd
 > print path reads `Company.State`.** The column is not dormant — every book imported from canonical XML carries
 > real values in it. §8 depends on this distinction; see the migration consequence there.
 >
-> *(Tellingly, `CanonicalXml.cs:702-705` documents the **party** side deliberately having no `state` attribute —
+> *(Tellingly, `CanonicalXml.cs:708-711` (re-pointed 2026-10-16 from ~~`:702-705`~~, v67 census 2.7 added the cost-category alias attribute above it — the cited comment is unchanged, only its line number moved) documents the **party** side deliberately having no `state` attribute —
 > "No `state` attribute: the party State rides on `partyGst/@stateCode`, the single stored State that drives GST
 > place of supply." The asymmetry is a conscious design that was simply never mirrored on the company side.)*
 >

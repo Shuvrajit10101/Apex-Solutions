@@ -30,6 +30,25 @@ public sealed class CostCategory
     /// <summary>True for the seeded "Primary Cost Category" — it cannot be deleted (catalog §6).</summary>
     public bool IsPredefined { get; }
 
+    /// <summary>
+    /// v67 (census row <b>2.7</b>): the vendor-attested <b>alias</b> on the Cost Category screen —
+    /// <i>"Name &amp; alias: As in other masters, you can specify multiple aliases."</i>
+    /// (<c>help.tallysolutions.com/cost-centre-or-profit-centre-tally/</c>, opened by content 2026-10-16; the
+    /// clause appears in the Cost <b>Category</b> section as well as the Cost Centre section).
+    ///
+    /// <para>🔴 <b>THIS IS THE FIELD ROW 2.7 WAS DEMOTED FOR on 2026-10-04.</b> <see cref="CostCentre.Alias"/>
+    /// has existed since v3 and the category had no counterpart at all — not a property, not a column — and
+    /// that asymmetry is what made the gap visible. <c>null</c> = no alias, which is every pre-v67 category, so
+    /// the migration back-fills nothing (ER-13).</para>
+    ///
+    /// <para>⚠️ <b>ONE alias, not "multiple aliases" — a documented divergence, and it is OURS.</b> The vendor
+    /// sentence is plural. This product stores a single alias on every master (<see cref="CostCentre.Alias"/>,
+    /// <see cref="Godown.Alias"/>, <see cref="Ledger"/>), so the category matches its siblings here rather than
+    /// the vendor. Widening every master to an alias collection is a separate change and is not smuggled in
+    /// under this row.</para>
+    /// </summary>
+    public string? Alias { get; set; }
+
     public CostCategory(
         Guid id,
         string name,

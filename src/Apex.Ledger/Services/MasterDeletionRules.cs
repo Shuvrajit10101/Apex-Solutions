@@ -164,6 +164,10 @@ public static class MasterDeletionRules
         // FK: these rows post money automatically.
         "voucher_class_additional_entries.ledger_id",
         "voucher_class_ledger_allocations.ledger_id",
+        // v67 (census 2.4): the Voucher Type screen's "Default bank". A voucher type is written from
+        // Company.VoucherTypes, not from the ledger's own graph, so the row does NOT leave with the ledger —
+        // guarded, like cheque_books and unlike cheque_layouts.
+        "voucher_types.default_bank_ledger_id",
         "vouchers.party_id",
 
         // ---- pointing at a GROUP (EnsureGroupDeletable)
@@ -227,6 +231,10 @@ public static class MasterDeletionRules
         "cost_centres.category_id",
         "cost_centres.parent_id",
         "godowns.job_cost_centre_id",
+        // v67 (census 2.9): a budget line that targets this cost centre. Written from Company.Budgets, not from
+        // the centre's own graph, so it does not leave with the centre — guarded, exactly like
+        // budget_lines.ledger_id and budget_lines.group_id above.
+        "budget_lines.cost_centre_id",
     ];
 
     /// <summary>
@@ -677,6 +685,11 @@ public static class MasterDeletionRules
         // budget_lines.ledger_id
         AddPart(parts, company.Budgets.Sum(b => b.Lines.Count(l => l.LedgerId == ledger.Id)),
                 "budget line", "budget lines");
+        // voucher_types.default_bank_ledger_id (v67; census 2.4). The Voucher Type screen's "Default bank".
+        // A voucher type hangs off the COMPANY, not off this ledger, so the row does not leave when the ledger
+        // does — which is why it is guarded and not in ForeignKeyColumnsThatDieWithTheirParent.
+        AddPart(parts, company.VoucherTypes.Count(t => t.DefaultBankLedgerId == ledger.Id),
+                "voucher type default bank", "voucher types' default bank");
         // rcm_documents.supplier_ledger_id
         AddPart(parts, company.RcmDocuments.Count(d => d.SupplierLedgerId == ledger.Id),
                 "RCM document", "RCM documents");
@@ -1179,6 +1192,11 @@ public static class MasterDeletionRules
         // godowns.job_cost_centre_id — census 9.6.
         AddPart(referenceParts, company.Godowns.Count(g => g.JobCostCentreId == centre.Id),
                 "godown designated as this job/project", "godowns designated as this job/project");
+        // budget_lines.cost_centre_id — v67, census 2.9. A cost-centre budget line is written from
+        // Company.Budgets and knows nothing about whether its centre survived, so deleting the centre under it
+        // would leave a row whose parent is gone and the very next Save would fail the foreign key.
+        AddPart(referenceParts, company.Budgets.Sum(b => b.Lines.Count(l => l.CostCentreId == centre.Id)),
+                "budget line", "budget lines");
 
         ThrowIfNamed(referenceParts, $"cost centre '{centre.Name}'");
     }

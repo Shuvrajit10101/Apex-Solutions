@@ -192,6 +192,40 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     [ObservableProperty] private bool _defineBomComponentType;
 
     /// <summary>
+    /// v67 census 3.7 — the vendor's <b>F12 (Configure)</b> switch <i>"Allow storage of materials"</i> on the
+    /// Godown/Location master. While it is on, the Godown Creation and Alteration screens draw the
+    /// <i>Allow storage of materials</i> field; while it is off they hide it AND write the vendor default
+    /// (<c>true</c>), so a hidden control can never put a value in the book.
+    ///
+    /// <para>🔴 <b>WHY IT IS HERE AT ALL (BF-4).</b> v67 built the gate and the gated field and shipped them
+    /// with <b>no writer anywhere in <c>src/</c></b> — 29 occurrences, zero assignments — so
+    /// <c>GodownMasterViewModel.ShowAllowStorageOfMaterials</c> could only ever be <c>false</c> and the field
+    /// was permanently invisible to every user. The divergence register meanwhile read "Both fields ship, and
+    /// each is behind its own F12 switch", which a reader would take as reachable. The gate design was right;
+    /// the surface did not exist. <b>A capability nobody can reach is not built.</b></para>
+    ///
+    /// <para><b>Vendor:</b> help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/ —
+    /// "By default, each godown can store materials. However, you can set a godown to not store any materials.
+    /// To do so, setting this option to Yes to displays the Allow storage of materials option on the Godown
+    /// Creation screen", under that page's own rule "Press F12 (Configure) to change the options."
+    /// ⚠️ This product surfaces the switch on the company Configuration screen rather than behind an F12 key
+    /// on the Godown screen itself — the same placement the BOM F12 switches above already use (IV-80).</para>
+    /// </summary>
+    [ObservableProperty] private bool _configAllowStorageOfMaterials;
+
+    /// <summary>
+    /// v67 census 3.7 — the vendor's <b>F12 (Configure)</b> switch <i>"Use address for Locations"</i>. While it
+    /// is on, the Godown master draws the Address box; while it is off it hides the box and writes no address.
+    /// Same contract, same reason and same BF-4 history as <see cref="ConfigAllowStorageOfMaterials"/>.
+    ///
+    /// <para><b>Vendor:</b> same page — "You can add the Locations address by enabling this option. The
+    /// Locations address can be printed in your invoices by configuring invoice printing." ⚠️ We ship ONE
+    /// free-text box rather than the vendor's multi-line address block, and the invoice-printing half is not
+    /// built; both remain divergences of ours (IV-80).</para>
+    /// </summary>
+    [ObservableProperty] private bool _configUseAddressForLocations;
+
+    /// <summary>
     /// The company feature flag <b>"Enable multiple Price Levels"</b> (F11 Company Features → Inventory; Phase 6
     /// slice 5; RQ-26/RQ-52). The master gate for the whole Price-Levels/Price-Lists feature — the Price Level
     /// master, the Price List master, the party-default-level picker, the Sales Price-Level header + discount
@@ -726,6 +760,11 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         UseTrackingNumbers = _company.UseTrackingNumbers;
         EnableCostTracking = _company.EnableCostTracking;
         EnableJobCosting = _company.EnableJobCosting;
+        // v67 census 3.7 (BF-4). Same reason as the note immediately above, and it is the reason the two
+        // godown fields were UNREACHABLE when they first shipped: they were gated on these two switches and
+        // NOTHING in src/ ever assigned either one — 29 occurrences, zero writers.
+        ConfigAllowStorageOfMaterials = _company.ConfigAllowStorageOfMaterials;
+        ConfigUseAddressForLocations = _company.ConfigUseAddressForLocations;
         PayrollEnabled = _company.PayrollEnabled;
         PayrollStatutoryEnabled = _company.PayrollStatutoryEnabled;
         LoadPfFromCompany();
@@ -1995,6 +2034,59 @@ public sealed partial class GstConfigViewModel : ViewModelBase
             Message = ex.Message;
             if (DefineBomComponentType != _company.DefineBomComponentType)
                 DefineBomComponentType = _company.DefineBomComponentType;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// v67 census 3.7 (BF-4): applies the "Allow storage of materials" F12 switch to the live company and
+    /// persists, so the Godown master's gated field appears (or disappears) the next time that screen is
+    /// opened. 🔴 Without this handler the switch is decorative and the field it gates is unreachable, which
+    /// is exactly the state v67 shipped in.
+    /// </summary>
+    partial void OnConfigAllowStorageOfMaterialsChanged(bool value)
+    {
+        var previous = _company.ConfigAllowStorageOfMaterials;
+        _company.ConfigAllowStorageOfMaterials = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            // Restore FIRST — see the matching note in OnDefineBomComponentTypeChanged; without it the
+            // comparison below is a guaranteed no-op and the aggregate keeps a flag the .db does not have.
+            _company.ConfigAllowStorageOfMaterials = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (ConfigAllowStorageOfMaterials != _company.ConfigAllowStorageOfMaterials)
+                ConfigAllowStorageOfMaterials = _company.ConfigAllowStorageOfMaterials;
+            return;
+        }
+        _onChanged();
+    }
+
+    /// <summary>
+    /// v67 census 3.7 (BF-4): applies the "Use address for Locations" F12 switch to the live company and
+    /// persists, so the Godown master's Address box appears (or disappears) the next time that screen is
+    /// opened. Same contract as <see cref="OnConfigAllowStorageOfMaterialsChanged"/>.
+    /// </summary>
+    partial void OnConfigUseAddressForLocationsChanged(bool value)
+    {
+        var previous = _company.ConfigUseAddressForLocations;
+        _company.ConfigUseAddressForLocations = value;
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            _company.ConfigUseAddressForLocations = previous;
+            if (!IsReportableSaveFailure(ex)) throw;
+            Message = ex.Message;
+            if (ConfigUseAddressForLocations != _company.ConfigUseAddressForLocations)
+                ConfigUseAddressForLocations = _company.ConfigUseAddressForLocations;
             return;
         }
         _onChanged();

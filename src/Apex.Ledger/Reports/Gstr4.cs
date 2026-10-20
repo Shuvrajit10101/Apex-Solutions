@@ -63,7 +63,13 @@ public sealed record Gstr4(
         {
             var qFrom = fyFrom.AddMonths(3 * i);
             var qTo = fyFrom.AddMonths(3 * (i + 1)).AddDays(-1);
-            quarters.Add(Cmp08.Build(company, qFrom, qTo));
+            // 🔴 THE SCOPE MUST TRAVEL INTO THE QUARTERLY LEG TOO. This call omitted `registrationId` while the
+            // ComputeForPeriod line directly below it passed one — and the omission was not a wrong figure but a
+            // HARD FAILURE: Cmp08.Build with a null scope reaches EnsureRegistrationScoped, which THROWS for any
+            // company holding more than one registration, so GSTR-4 could not be produced AT ALL on a
+            // multi-registration composition book even when the caller correctly named a registration.
+            // A single-registration book never reached the throw, which is why nothing caught it (ER-13).
+            quarters.Add(Cmp08.Build(company, qFrom, qTo, registrationId));
         }
 
         var annual = new CompositionTaxService(company).ComputeForPeriod(fyFrom, fyTo, registrationId);
@@ -169,7 +175,9 @@ public sealed record Gstr9a(
         decimal cgst = 0m, sgst = 0m, rcm = 0m;
         for (var i = 0; i < 4; i++)
         {
-            var q = Cmp08.Build(company, fyFrom.AddMonths(3 * i), fyFrom.AddMonths(3 * (i + 1)).AddDays(-1));
+            // 🔴 Same omission as Gstr4.Build's quarterly loop, same consequence — see the note there.
+            var q = Cmp08.Build(company, fyFrom.AddMonths(3 * i), fyFrom.AddMonths(3 * (i + 1)).AddDays(-1),
+                registrationId);
             cgst += q.OutwardCgst.Amount;
             sgst += q.OutwardSgst.Amount;
             rcm += q.InwardRcmTax.Amount;

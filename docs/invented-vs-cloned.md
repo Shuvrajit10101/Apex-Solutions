@@ -1990,8 +1990,8 @@ entries is not being audited, and that is why these are filed together.**
 |---|---|
 | **Severity** | **LOW, and it is a trap rather than a defect** — the fields are genuinely missing (census row 3.7 stays `PARTIAL`), but the obvious build is the wrong one and **no test in the tree would have caught it**. |
 | **What TallyPrime does** | Hides both fields behind F12. Verbatim, `help.tallysolutions.com/inventory-storage-using-godowns-locations-tally/` (read 2026-10-13, **200** — the TallyPrime slug that replaces the **Tally.ERP 9** route census row 3.7's header still quotes, which R7 does not make ground truth): *"**Allow storage of materials** — By default, each godown can store materials. However, you can set a godown to not store any materials. To do so, setting this option to Yes to displays the Allow storage of materials option on the Godown Creation screen. Set that option to No."* · *"**Use address for Locations** — You can add the Locations address by enabling this option. The Locations address can be printed in your invoices by configuring invoice printing."* · and the page's own rule *"What you see on the screen can vary based on your choices. Press **F12** (Configure) to change the options."* |
-| **What we ship** | Neither field, on a Godown Creation screen with no F12 configuration layer for them. |
-| **Fix** | Build **two F12 switches plus two conditionally-shown fields** — not two fields. Recorded here because the row's gap sentence reads as "two missing fields" and a slice taking it at face value would ship a screen the vendor never shows. |
+| **What we ship** | 🟢 **CLOSED 2026-10-18 (census 3.7). 🔴 READ THE DATE: the 2026-10-16 claim on this row was FALSE and is corrected rather than deleted.** It read *"🟢 CLOSED 2026-10-16 BY SCHEMA v67 … Both fields ship, and each is behind its own F12 switch"*, which any reader would take as **reachable**. It was not: the two switches existed in the schema, in `Company`, in the store and in the godown master's gate — **29 occurrences across `src/`, and ZERO ASSIGNMENTS.** Nothing in the product could turn either on, so `ShowAllowStorageOfMaterials` / `ShowAddress` could only ever be `false` and **both fields were permanently invisible to every user** (BF-4). ~~Neither field, on a Godown Creation screen with no F12 configuration layer for them.~~ **As of 2026-10-18 both fields ship AND a user can reach them:** each is behind its own F12 switch — `companies.config_allow_storage_of_materials` / `config_use_address_for_locations`, surfaced as `GodownMasterViewModel.ShowAllowStorageOfMaterials` / `ShowAddress` — and **each switch is now a real CheckBox on the company Configuration screen** (`ConfigAllowStorageOfMaterialsCheck` / `ConfigUseAddressForLocationsCheck` in `MainWindow.axaml`, bound to `GstConfigViewModel`), beside the BOM F12 switches that already use that placement. **The gate decides whether the value is WRITTEN, not merely whether the control is drawn** (the `ShowJobCostCentre` contract): with a switch off, Create and Alter write the vendor default. `godowns.allow_storage_of_materials` is `DEFAULT 1`, which is the vendor's own *"By default, each godown can store materials"*. |
+| **Fix** | **DONE — and the trap was real.** The warning was that "build two fields" would have been the wrong build; what shipped is two F12 switches plus two conditionally-shown fields. Mutation **M3** (let the gate draw the fields but not decide what is written) reddens `With_the_f12_switches_off_neither_godown_field_is_shown_and_the_vendor_defaults_are_written` by name, and mutation **M5** (flip the `DEFAULT 1` to `0`) reddens three schema tests including the `CreateV1` equivalence. 🔴 **AND THE BIGGER TRAP WAS THE ONE THE ROW ITSELF FELL INTO:** two F12 switches with no writer are not a build. Six tests in `GodownF12SwitchReachabilityTests` now drive the **shipped** `MainWindow`: mutation **M-BF4a** (delete both CheckBoxes — literally the state v67 shipped in) reddens **5 of 6** by name, *"the 'Allow storage of materials' F12 switch is not in the visual tree — census 3.7's field is unreachable again"*; mutation **M-BF4b** (let the switch draw but not reach the company) reddens **4 of 6**; mutation **M-BF7** (swap the two store read ordinals, which the reviewer showed reddened NOTHING before) now reddens `Flipping_the_realised_switches_persists_to_the_reloaded_book`, because that test writes the two switches to DIFFERENT values in both directions. ⚠️ **STILL OURS, and not closed:** the switches sit on the company Configuration screen rather than behind an F12 key on the Godown screen itself; the address is ONE free-text box, not the vendor's multi-line address block; *"The Locations address can be printed in your invoices"* is **not** built — no invoice prints it; and `AllowStorageOfMaterials = false` is an ELECTION only: it does not yet refuse a stock movement into the godown. **Census row 3.7 therefore still has open clauses and is NOT proposed for promotion.** |
 
 ---
 
@@ -2165,6 +2165,188 @@ vendor's **SIX** families"* — has **no source behind the number six**. A regis
 | **Fix** | **Done 2026-10-16.** `Apex.Ledger.Services.MasterStateSnapshot` — a rollback point taken before the first write and restored on any refusal. It is built by **reflection over every writable property** of every master in the six covered collections, not from a hand-written field list, so a property added later is covered the day it is added; the completeness test writes a property no batch path touches and proves it comes back. It also undoes `RecomputeNatureFor`'s nature cascade over descendants that were never rows of the batch. A fuller pre-validation was rejected as **unsound**: the cycle and same-category guards judge the state the book will be in once the other rows are applied. Evidence is a re-read **from SQLite after a later unrelated save**, plus mutation — deleting the restore reddens five named tests. |
 
 ---
+
+### IV-92 · 🔴 ADDED 2026-10-18 — a **MIS-CITED** divergence: the Sales-ledger hiding rule is TWO INDEPENDENT conditions, and on condition (1) **we MATCH**
+
+| | |
+|---|---|
+| **Severity** | The mis-citation is **MEDIUM** — it sat in shipped source and in the view, and it described our behaviour as wrong in the **opposite direction** to the truth. The residual divergence is **LOW** and open. Census row **2.6**. |
+| **What was claimed in our own source** | `VoucherEntryViewModel.VoucherClass.cs` stated the vendor's rule was *"CONDITIONAL on two things, not one: … a voucher class … **AND** if F12 > 'Select common ledger account for Item allocation' is set to **No**"*, and concluded that `ShowStockLedgerPicker` is *"a NARROWER rule than the vendor's"* — i.e. that we **over-hide** the field. `MainWindow.axaml` repeated it. |
+| **What the vendor actually publishes** | **[web]** `help.tallysolutions.com/accounting-faq/`, re-fetched by content 2026-10-18. A lead-in, *"The field to select the Sales ledger is not available, if:"*, followed by a **numbered list of two items** — (1) *"You have selected a voucher class to automate the sales details."* (2) *"F12 (Configure) > Select common ledger account for Item allocation is set to No."* **There is no "and" and no "or" on the page.** Two numbered items under "not available if" are two independent sufficient conditions. |
+| **What that makes true** | On condition (1) **we match exactly** — we are not narrower there and we do not over-hide. `ClassSuppliesValueLedgers` tests `LedgerAllocations.Count > 0`, which is the right reading of *"to automate the sales details"*: the vendor's own round-off class (`round-off-invoice-and-ledger-values/`) carries an Additional Accounting Entry and **no** Default Accounting Allocation, automates no sales detail, and must keep the field. Pinned by `A_round_off_only_class_automates_no_sales_detail_so_the_value_ledger_field_survives`. |
+| **What remains ours** | Condition (2) is unmodelled: we never hide the field for the F12 flag alone. **Recorded as OURS, labelled, and deliberately NOT closed this wave** — see IV-93. |
+| **Fix** | Mis-citation corrected in place in both files 2026-10-18, with the struck text kept visible. The residual gap is IV-93's. |
+
+---
+
+### IV-93 · 🔴 ADDED 2026-10-18 — **"Select common ledger account for Item allocation" is not a flag we may ship alone**: it needs per-item accounting allocation, which does not exist here
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM**, open, and deliberately left open. Census row **2.6**, third clause. |
+| **What TallyPrime documents** | **[web]** `help.tallysolutions.com/accounting-faq/` names `F12 (Configure) > Select common ledger account for Item allocation` and states that setting it to **No** makes the common Sales-ledger field unavailable. The vendor's alternative is per-item ledger selection — the Accounting Details the item line then carries. |
+| **What we ship** | Nothing for it. Every item invoice in this product resolves **exactly one** value ledger (`SelectedStockLedger`, or the class's `LedgerAllocations`). 🔴 **And the absence is STRUCTURAL, not just a missing screen:** `Apex.Ledger.Domain.VoucherInventoryLine` has **no ledger field of any kind** — its whole surface is `StockItemId`, `GodownId`, `Quantity`, `BilledQuantity`, `Rate`, `Direction`, `BatchLabel`, `UnitId`, `TrackingNumber`, `CostTrackingNumber`. There is nowhere for a per-item ledger to be stored. |
+| 🔴 **Why the flag was NOT added** | Adding the switch alone would hide a **required** field and offer no substitute: the invoice would have no value leg and no field left to name one with. That is the unreachable-capability defect this project has shipped before, dressed as a closure. The honest state is an open divergence. |
+| **Fix** | Build per-item accounting allocation first (its own row of work, and — because `VoucherInventoryLine` would gain a stored field — **it needs a schema migration**, so it cannot be a side-effect of any track that is forbidden one). Only then does the F12 switch become a two-line gate on top of it. Until then the field is always offered, which is the vendor's behaviour whenever condition (2) does not hold and is never wrong money. |
+
+---
+
+### IV-94 · 🔴 ADDED 2026-10-18 — a voucher class on an **accounting (service) invoice**: no TallyPrime source speaks, so the item-invoice gate is **ours**
+
+| | |
+|---|---|
+| **Severity** | **LOW–MEDIUM**, open. Census row **2.6**, second clause. |
+| **What we ship** | `ActiveVoucherClass => IsItemInvoice ? SelectedVoucherClass?.Class : null`. A class is therefore unreachable on an accounting invoice; `AcceptAccountingInvoice` is a separate path that never consults one. |
+| **What TallyPrime documents** | **Nothing, either way — searched by content and stated as a finding.** `voucher-types-tally/` (the product's own Voucher Class page), `accounting-faq/`, `accounting-entry-tally/` and `round-off-invoice-and-ledger-values/` were each opened; none mentions a voucher class on an accounting / service invoice, and none restricts a class to item invoices. The round-off page says only to *"enter the sales details"*. |
+| 🔴 **What must NOT be cited for it** | The pages that **do** document a class in accounting-invoice mode are **Tally.ERP 9** — `docs/te9rel60|63|64/Tax_India/Service_tax/Voucher_Class_for_Sales_Accounting_Invoice.htm` and `article/Tally.ERP9/…`. Under ruling 14 ERP-9 is not ground truth for this clone, and those pages must not be used to justify building the path. |
+| **Fix** | None taken. Lifting the gate would let a class post money on a screen no TallyPrime page says it governs. Settle the vendor's behaviour by observation first; the gate is then either confirmed or a two-line change. |
+
+---
+
+### IV-95 · 🔴 ADDED 2026-10-18 — the voucher class's **"Remove if Zero"** is keyed, stored and displayed, and is **provably inert**: we always behave as if it were *Yes*
+
+| | |
+|---|---|
+| **Severity** | **LOW** on money (it can only add or withhold a **nil** line), but **MEDIUM as a capability claim** — the operator sets a switch, sees it read back "Yes"/"No" on the class row, and it changes nothing. Census row **2.6**. |
+| **What TallyPrime documents** | **[web]** `help.tallysolutions.com/round-off-invoice-and-ledger-values/`, **verbatim**: *"**Remove if Zero** – Set it to **Yes** to remove the ledger from the invoice if the ledger value is zero."* `/tally-prime/excise-for-importer/ei-configure-vch-class-customs-duty-tally/` carries the same field on an Additional Accounting Entry without explaining it. ⚠️ **Precision: only the *Yes* arm is quoted.** That *No* leaves the nil ledger on the invoice is the **implication** of a switch whose documented purpose is removal — it is not a sentence on the page, and it is marked as an implication here rather than dressed as a citation. |
+| **What we ship** | The field is captured (`VoucherTypeMasterViewModel:400`, `:573`), stored (`SqliteCompanyStore:6958`), displayed (`:437`, as "Yes"/"No") — and read in **exactly one place in `src/`**, `VoucherClassPosting.cs:125`. That read is immediately followed by the same unconditional test: `if (amount == Money.Zero && entry.RemoveIfZero) continue;` then `if (amount == Money.Zero) continue;`. **Both arms `continue`, so the flag changes no control flow whatever.** The rounding pass (pass 2) never consults it at all. |
+| **Why it is inert, and why that is not simply a bug to delete** | `EntryLine.Amount` is documented *"Magnitude, always > 0 (a zero line is invalid in Phase 1)"* — the ledger model **cannot represent a zero line**, so the *No* behaviour is unreachable by construction, not by oversight. We therefore always behave as *Yes*. |
+| 🔴 **No test was written for it** | Pinning the current behaviour would enshrine **our** divergence as fidelity — the failure this project has already made four times. The honest record is this row. |
+| **Fix** | Either (a) let `EntryLine` carry a zero-magnitude line so *No* can show the nil ledger, which is a change to the ledger core and far beyond this field, or (b) remove the switch from the master screen and say in the UI that a nil additional entry is never shown. **(b) is the smaller honest option and is a user decision, not ours.** Until one is taken, the switch should at minimum stop being offered as if it did something. |
+
+---
+
+## 2H. ADDED 2026-10-16 — SCHEMA v67: THE AREA-2/3 MASTER-FIELD STORAGE MIGRATION (census 2.4 / 2.7 / 2.9 / 2.11 / 3.7)
+
+> 🔴 **RENUMBERED AT MERGE, 2026-10-18 (wave 46 wave-3, by A12), AND THE SECTION LETTER WITH IT.** This section was authored as **§2G** carrying **`IV-85`…`IV-91`** and then **`IV-92`…`IV-94`**, on a branch cut before `claude/apex-bb-multimaster` (PR #165) and `claude/apex-bk-voucher-class` (PR #167) landed. **BOTH of those had already taken those numbers for entirely different divergences** — `bb` owns §2G and `IV-85`…`IV-91`, `bk` owns `IV-92`…`IV-95`. This section is therefore **§2H** and its ten entries are **`IV-96`…`IV-105`**. **Nothing was dropped from either side; the conflict was resolved hunk by hunk and every register entry on both sides is kept**, and the three cross-references in `BudgetVariance.cs`, `CanonicalCostCategoryAliasRoundTripTests.cs` and `CostCentreBudgetVarianceTests.cs` were moved with them. ⚠️ **THIS IS THE SECOND WAVE RUNNING IN WHICH THE IV REGISTER HIT THIS TRAP** — see the identical note on §2G and `T2-138`. It is the schema-version *"two live tracks both take the next number"* hazard, on a register instead of a migration, and a conflict-free merge would have published duplicate headings rather than flagging it. **Decide up front which track owns the next IV number, exactly as we now do for schema versions.**
+
+**Scope note.** These five came out of **building** the twenty-two master-field columns, so each one names a
+line this wave shipped rather than a line a read-only pass observed. Every vendor sentence quoted below was
+opened **BY CONTENT** on 2026-10-16 and read off the page. 🔴 **No Tally.ERP 9 page is quoted** — R7 (ruling
+14) makes only TallyPrime ground truth. 🔴 **`IV-75` (the base-currency alteration refusal) IS DELIBERATELY
+UNTOUCHED BY THIS WAVE.** The vendor contradicts our refusal, that is a **USER DECISION**, and this track's
+brief said in terms: build the formatting options and leave the refusal alone. It did.
+
+---
+
+### IV-96 · 🔴 **DECLINED, NOT BUILT: census row 2.10's "no period" is NOT a vendor gap — the Scenario Creation screen has no period field**
+
+| | |
+|---|---|
+| **Severity** | **NONE as a divergence — this is a CENSUS CORRECTION, and it is recorded here because the alternative was shipping an invention under a fidelity row.** |
+| **What TallyPrime does** | `help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/`, opened **BY CONTENT** 2026-10-16: the Scenario Creation screen's fields are **Name**, **Include actuals**, and the voucher types to **Include** / **Exclude**. **There is no period, no From and no To on the master.** The period is chosen on the REPORT the scenario is applied to. |
+| **What we ship** | The same three. `scenarios` has exactly `id, company_id, name, include_actuals`. |
+| **What was asked for** | The v67 brief named *"a scenario period from/to (2.10)"* as one of the six rows the migration carries, on the strength of census row 2.10's own cell (*"no period"*). |
+| **What was done** | **Nothing — and that is the result.** No `scenarios.period_from` / `period_to` column was added. Building it would have been an INVENTION shipped under a fidelity row, and a round-trip test over it would have **pinned the wrong answer** — the failure this project has now hit three times. |
+| **Fix** | **Census row 2.10's "no period" clause should be STRUCK by A14/A12**, not carried forward. The absence is pinned by `MasterFieldsV67SchemaTests.The_scenario_master_gains_no_period_because_the_vendor_screen_has_none`, which asserts the four columns exactly, so a later wave adding them has to come to this entry and argue against the page. ⚠️ The row's OTHER clauses (no Alter, no Delete, `Scenario.ExcludeType` with no Desktop caller) are untouched and still open. |
+
+---
+
+### IV-97 · One alias per master, where the vendor says **"multiple aliases"**
+
+| | |
+|---|---|
+| **Severity** | **LOW.** Nothing is mis-stated on a document; an operator who wants a second alias simply cannot record one. |
+| **What TallyPrime does** | `help.tallysolutions.com/cost-centre-or-profit-centre-tally/`, opened by content 2026-10-16, in the Cost **CATEGORY** section as well as the Cost Centre section: *"**Name &amp; alias**: As in other masters, you can specify multiple aliases."* |
+| **What we ship** | **ONE** alias. v67 added `cost_categories.alias` (census 2.7 — the field the row was DEMOTED for on 2026-10-04), matching `cost_centres.alias`, `godowns.alias`, `stock_items.alias` and every other master in this product, all of which are single. |
+| **Why** | Widening every master from a column to an alias collection is a change across the schema, the readers, the writers, the Io canonical formats and every master screen. It is **not smuggled in under row 2.7**, whose gap was the absence of ANY alias on the category. |
+| **Fix** | Its own slice. Recorded so the next reader does not take the single alias for fidelity. |
+
+---
+
+### IV-98 · A cost-centre budget is **one measure per line**, where the vendor's Cost Centre Budget screen carries **three figures per centre**
+
+| | |
+|---|---|
+| **Severity** | **LOW–MEDIUM. No posted figure moves, but the SHAPE of a cost-centre budget differs, so an operator coming from the reference product must enter it differently.** |
+| **What TallyPrime does** | `help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16: the budget screen offers *"Set **Groups** to **Yes**"*, *"Set **Ledgers** to **Yes**"* and *"Set **Cost Centres** to **Yes**"*, and *"In the **Cost Centre Budget** screen, select the required **Cost Centre**, **Expenses**, **Income** and **Closing Balance**."* — i.e. **three figures against one centre**. |
+| **What we ship** | v67 added `budget_lines.cost_centre_id` and `BudgetLine.ForCostCentre`, so the **target** is now faithful (the gap census row 2.9 names is closed). But a `BudgetLine` carries **one** `BudgetType` and **one** amount, so a three-figure cost-centre budget is expressed as up to **three LINES** against the same centre. |
+| **Why** | `BudgetLine`'s one-measure shape is shared with the group and ledger targets and with `BudgetVarianceReport`, which emits one row per line. Giving the cost-centre target three columns would have forked the line model. |
+| **Fix** | Recorded, not built. ⚠️ Note the related invariant that DID have to change: `BudgetMasterViewModel.SameTarget` now compares `CostCentreId`, because every cost-centre line has `GroupId` and `LedgerId` both null and the two-field test made all of them compare EQUAL — budgeting a second centre would have overwritten the first. Mutation **M2** reddens `Budgeting_a_second_cost_centre_adds_a_line_rather_than_overwriting_the_first`. |
+
+---
+
+### IV-99 · A cost centre has **no opening balance**, so *On Closing Balance* on a cost-centre budget means *cumulative allocations to date*
+
+| | |
+|---|---|
+| **Severity** | **LOW, but it is an arithmetic reading and therefore worth naming.** |
+| **What TallyPrime does** | Names a *Closing Balance* column on the Cost Centre Budget screen (`help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16) and does not define, on that page, what it is computed over. |
+| **What we ship** | `BudgetVarianceReport.CostCentreActualSigned`: `OnClosingBalance` sums every **counted** allocation dated on or before the period end; `OnNettTransactions` bounds it below by the period start. A cost allocation exists only on a posted voucher line — **there is no opening-allocation master anywhere in this schema** — so the two measures differ only by the lower bound. Both measures **consolidate the centre's whole subtree** (BF-2, 2026-10-18 — see `IV-102`). 🔴 **CORRECTED 2026-10-18 (BF-3):** this row used to end *"The voucher filter is the SHARED `LedgerBalances.CountsAsOf`, so the budget's 'actual' agrees with the Cost Centre Summary for the same window rather than disagreeing with it."* **The second half of that was false and is struck.** The filter IS shared; the **sign rule is not**, and the two reports disagree by 8,000 on a measured three-voucher fixture. See `IV-101`. |
+| **Why** | Any other reading would require an opening balance the model does not have. |
+| **Fix** | Recorded. If a later slice gives cost centres opening allocations, this reading must be revisited. |
+
+---
+
+### IV-100 · The eleven new Voucher Type fields are an **ELECTION ONLY** — v67 stores them and nothing acts on them
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM as a RISK OF OVERSTATED CLOSURE, which is the failure this register exists to catch — three slices have shipped green holding 34, 42 and 17 defects. Nothing a customer sees is WRONG; what would be wrong is reading census row 2.4 as closed.** |
+| **What TallyPrime does** | `help.tallysolutions.com/voucher-types-tally/`, opened by content 2026-10-16, carries all eleven on the Voucher Type screen and **acts on each**: effective dates add a voucher-entry field and drive ageing, *Optional by default* opens a new voucher unposted, the Printing block feeds the printed document, and the Invoice Sharing block really does share. |
+| **What we ship** | v67 captures, stores, round-trips and **surfaces on the master** the operator's election on all eleven (`VoucherTypeMasterFields`). It does **NOT**: add the voucher-entry effective-date field or prefer it for ageing; open a new voucher as Optional; change any accounting allocation; send a WhatsApp message (this product's WhatsApp surface is an **offline** document/link builder, census 14.10 — **nothing is transmitted**); generate a payment link or QR code (**none exists anywhere in this product**); or change what the print path emits. |
+| **Why** | Each is its own slice. Claiming otherwise is the "overstated closure" defect class. |
+| **Fix** | **Census row 2.4 must stay `PARTIAL`.** The *fields* are no longer missing and are no longer zero-hit; the *behaviours* are. Said here, in the service record and on each property, so three independent readers meet it. |
+
+---
+
+### IV-101 · A cost-centre budget's *actual* **nets Dr − Cr**, while the Cost Centre Break-up **sums magnitudes** — the two disagree and **no vendor sentence picks a winner**
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Two of our own reachable reports put DIFFERENT figures against the same cost centre for the same window — 8,000 apart on a three-voucher fixture — and until 2026-10-18 the source comment beside the money asserted that they AGREED.** |
+| **What TallyPrime does** | **Not known, and this is the honest answer.** `help.tallysolutions.com/budgets-tally/`, opened by content 2026-10-16 and re-opened 2026-10-18, shows a Cost Centre Budget screen carrying *"Cost Centre, Expenses, Income and Closing Balance"* — **three** figures, splitting debit and credit before any sign question arises. This product carries **one** measure per line (`IV-98`), so the vendor's shape does not map onto either convention and **neither rule can be attributed to the vendor**. The page does not define the Actuals column's arithmetic for a cost centre. |
+| **What we ship** | `BudgetVarianceReport.CostCentreActualSigned` signs each allocation by its parent entry line's Dr/Cr side, sums, and the caller reports the magnitude of the **net**. `CostReports.BuildCostCentreBreakup` sums allocation **magnitudes** and never reads the line's side. A centre carrying 4,000 Dr expense and 5,000 Cr revenue in one window is therefore **9,000** on the Break-up and **1,000** on the Budget Variance. Same centre, same window, same `LedgerBalances.CountsAsOf` voucher filter. |
+| **Why** | The netted reading falls out of sharing the group and ledger arms' "signed total, then magnitude" convention. It was never chosen against the magnitude reading, because nobody had noticed the two differed — the comment said they agreed. |
+| **Fix** | **Recorded, NOT silently resolved.** 🔴 A test pins the disagreement rather than blessing it: `Apex.Ledger.Tests.CostCentreBudgetVarianceTests.A_mixed_sign_centre_nets_while_the_Break_up_sums_magnitudes` asserts the measured 8,000 gap and says in its own doc comment that it is **a divergence tripwire, not a fidelity assertion**. A later wave that rules on the convention must change that test deliberately. ⚠️ **Do not "fix" this by making the two agree until a source says which one is right** — guessing is how row 3.5 lost its promotion. |
+
+---
+
+### IV-102 · A cost-centre budget **consolidates the centre's whole subtree** — vendor-grounded, and it CLOSES a wrong figure rather than opening a divergence
+
+| | |
+|---|---|
+| **Severity** | **This entry records a FIX, not a divergence. It is here because the behaviour it describes was wrong on the withheld v67 branch and a reader of `IV-98`/`IV-99` needs to know which way it now goes.** |
+| **What TallyPrime does** | `help.tallysolutions.com/cost-centre-or-profit-centre-tally/`, opened by content 2026-10-18: *"Such Cost Centres can be created in a hierarchical structure to get a **consolidated** view of the allocation"*; *"You can create multiple Cost Centres (also known as Profit Centres) in a hierarchy to get a consolidated view of the allocations made to each business unit, employee, project, department, and so on"*; and, of the Sales Department worked example, *"Once the hierarchy is created whenever you allocate an expense to any of the employees, **it would also become part of the relevant department**."* |
+| **What we ship** | **We now match.** `CostCentreActualSigned` walks `ClassificationRules.CostCentreIsUnder`, so a budget on a parent centre counts every allocation to it **or to any centre under it, at any depth** — the same rule the group arm of the same method uses for ledgers, and the same rule the product's own `CostCentreLine.RolledUpTotal` already used. |
+| **Why it is recorded** | 🔴 **Before 2026-10-18 the arm matched `a.CentreId == centreId` with no descendant walk.** On a Delhi(6,000 Dr) + Delhi-North(3,000 Dr) book with a 9,000 budget on Delhi, the Budget Variance report said *actual 6,000, variance −3,000* — **a 3,000 under-spend that did not exist**, on a report a user can open. Nothing caught it because no test anywhere posted an allocation against a cost-centre budget, and the one test that existed asserted `Actual = 0` under a doc comment claiming it took "a real actual from a posted allocation". |
+| **Fix** | **Done.** Seven tests in `Apex.Ledger.Tests.CostCentreBudgetVarianceTests` post real vouchers. Mutation **M-BF2** (restore `a.CentreId == centreId`) reddens three of them with the original wrong figure, *Expected 9000.00 / Actual 6000.00*; mutation **M-BF2b** (match any existing centre) reddens six, proving the walk is **directional** and not "every centre in the category". |
+
+---
+
+### IV-103 · The **Default bank** picker is scoped to **bank ledgers**, by OUR predicate — the vendor says "a bank" and nothing more
+
+| | |
+|---|---|
+| **Severity** | **LOW. It narrows an election (`IV-100`) rather than moving a figure — but the previous behaviour let Sales, Capital or Purchase be a voucher type's "default bank", which is not a thing.** |
+| **What TallyPrime does** | `help.tallysolutions.com/voucher-types-tally/`, opened by content 2026-10-18, under *Set up printing options*: *"Select a **bank** in Default bank to print its details on the vouchers."* and *"(Applicable to Sales voucher types)"*. 🔴 **The page says "a bank" and stops there** — it does not say which ledgers the list contains, nor name a group. |
+| **What we ship** | The picker lists ledgers under the **Bank Accounts / Bank OD / Bank OCC** chain via `ClassificationRules.IsBankGroup`, plus the "◦ No default bank" row. **The PREDICATE is ours**, not a vendor clause; it is the one Bank Reconciliation, the Cheque Register and the Deposit Slip already share, so one screen cannot drift from another on what counts as a bank. ⚠️ We do **not** scope the field to Sales voucher types as the vendor's parenthesis does, and we do not print the bank's details on anything — the field remains an election (`IV-100`). |
+| **Why** | Offering every ledger was the state v67 shipped (BF-5). Picking the existing shared predicate rather than inventing a new rule is the smallest honest narrowing. |
+| **Fix** | Recorded. A **saved** non-bank id from a pre-filter book is still offered, captioned *"(not a bank — saved earlier)"*, so an unrelated alteration cannot silently clear it. Mutation **M-BF5** (drop the `Where`) reddens `The_default_bank_picker_offers_bank_ledgers_only` and `A_saved_non_bank_default_survives_being_opened_for_alteration`. |
+
+---
+
+### IV-104 · 🔴 **NOT A DIVERGENCE — A DEFECT, FOUND AND FIXED HERE: v67's Default bank made a book PERMANENTLY UNSAVABLE on the second save**
+
+| | |
+|---|---|
+| **Severity** | 🔴 **BLOCKING, and it reached neither the builder's report nor the reviewer's finding list.** Set a Default bank on any voucher type; the first save succeeds; **every later save of that company fails and rolls back entirely** — every master, every voucher. The operator cannot save their book again by any route and is told only *"FOREIGN KEY constraint failed"*. |
+| **What TallyPrime does** | Not applicable. This is our own storage defect, not a fidelity question. |
+| **What went wrong** | `Save` is delete-all-then-reinsert. `DeleteCompanyRows` runs `DELETE FROM ledgers` roughly **25 lines BEFORE** `DELETE FROM voucher_types`, and v67 gave `voucher_types` a `default_bank_ledger_id REFERENCES ledgers(id)`. The first save is fine because the database holds no such row yet. The second finds the stored row pointing at the ledger being deleted. **This is EXACTLY the v62 voucher-class trap already documented twelve lines above the offending statement**, repeated by v67 for a new column. `budget_lines.cost_centre_id`, the other FK v67 added, is safe only by luck of ordering. |
+| **Why nothing caught it** | Every v67 test saved such a book **exactly once**. Both new FK columns were put through `MasterDeletionForeignKeyCoverageTests`, which guards *deleting the master* — a different question from the store's delete ORDER during an ordinary save. A green suite proved nothing. |
+| **Fix** | **DONE.** `UPDATE voucher_types SET default_bank_ledger_id = NULL WHERE company_id = $cid;` immediately before the ledgers delete — the same child-clear the POS and v47 numbering tables already use. The aggregate rewrites the column moments later, so nothing is lost. Three tests in `VoucherTypeDefaultBankResaveTests`; mutation **M-BF8** (drop the clear) reddens all three with the original `SQLite Error 19: 'FOREIGN KEY constraint failed'`. ⚠️ **Lesson for the next migration that adds an FK:** ask where BOTH tables sit in `DeleteCompanyRows`, and save the fixture TWICE. |
+
+---
+
+### IV-105 · **20 of the 22 v67 fields never reach the canonical transport** — Export → Import silently drops them
+
+| | |
+|---|---|
+| **Severity** | **LOW-MEDIUM. Silent data loss on a user-reachable Export/Import pair.** It cannot crash and it is not a regression, but a book exported and re-imported comes back missing elections the operator made. **Filed here because it was NOT filed anywhere — that omission is the defect this register exists to catch.** |
+| **What TallyPrime does** | Not the question. This is our own transport completeness, not a fidelity claim. |
+| **What we ship** | Of v67's five rows, only the **cost-category alias** and the **cost-centre budget target** reach `CanonicalModel` / `CanonicalXml` / `ImportPlan` — the alias because row 2.7 is the row proposed for promotion, the budget target because leaving it out took the WHOLE import down (BF-1). **Dropped on export → import:** the eleven Voucher Type fields (`VoucherTypeDto`), the two godown fields (`GodownDto`), the five currency formatting options (`CurrencyDto`), **and the two company configuration flags `config_allow_storage_of_materials` and `config_use_address_for_locations`** — 11 + 2 + 5 + 2 = **20**. 🔴 **THE HEADLINE READ "18 of the 22" UNTIL A12 RE-COUNTED IT AT MERGE (2026-10-18), AND THE TWO COMPANY FLAGS WERE THE ONES MISSED** — in a register whose §7 is titled *"Coverage, counted rather than claimed"*, so the count is corrected rather than softened. ⚠️ **THE TRAP THAT PRODUCED THE WRONG FIGURE, RECORDED BECAUSE IT WILL BITE THE NEXT COUNTER: an unfiltered `grep -r <FieldName> src/Apex.Ledger.Io/` returns a hit for EVERY one of these names, because it matches the compiled `bin/Debug/net10.0/Apex.Ledger.dll`. Restrict to `--include=*.cs` — source-only, the answer is ZERO hits for all twenty.** The shape IV-105 describes is unchanged and is if anything stronger: **no company feature flag reaches the transport at all** (`EnableJobCosting`, `SetComponentsBom`, `MaintainBatchwiseDetails`, `EnableCostCentres` are all zero hits too), and `CanonicalXml.BuildGodown` carries only id/name/parentId/alias/thirdParty/isMainLocation — no address, no storage flag. |
+| **Why** | This is the **established practice** on this codebase rather than a v67 slip: v66's own `RetainOriginalVoucherNo` is likewise absent from the canonical model (0 hits), and `GodownDto` already drops v58's `JobCostCentreId`. The wave that takes a migration has not been carrying its fields into Io. |
+| **Fix** | **NOT DONE — recorded, owed, and deliberately not attempted in the same pass as BF-2/BF-4/BF-8.** ⚠️ Note the asymmetry that makes this safe-but-wrong rather than dangerous: a dropped NULLABLE field reads back as null, which is why none of these crash — unlike `BudgetLineDto`, whose missing target dereferenced a `Nullable` and aborted the entire import. **A later wave should sweep ALL of them together, including the pre-v67 arrears, rather than one field per migration.** |
 
 ## 3. Grouped by area
 

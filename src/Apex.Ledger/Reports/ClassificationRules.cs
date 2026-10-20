@@ -77,6 +77,42 @@ public static class ClassificationRules
     }
 
     /// <summary>
+    /// True iff <paramref name="centreId"/> IS <paramref name="ancestorId"/>, or sits under it directly or
+    /// transitively (walks the centre's <see cref="CostCentre.ParentId"/> chain). The cost-centre twin of
+    /// <see cref="LedgerIsUnderGroup"/>.
+    ///
+    /// <para>🔴 <b>WHY IT EXISTS (BF-2).</b> The v67 cost-centre budget arm matched <c>a.CentreId == centreId</c>
+    /// with no descendant walk, so a budget on a PARENT centre reported an actual that excluded every rupee
+    /// booked to its children — a 3,000 under-spend that did not exist, on a reachable report. The vendor is
+    /// explicit that the hierarchy consolidates: help.tallysolutions.com/cost-centre-or-profit-centre-tally/
+    /// says "Such Cost Centres can be created in a hierarchical structure to get a consolidated view of the
+    /// allocation" and, of the Sales Department worked example, "Once the hierarchy is created whenever you
+    /// allocate an expense to any of the employees, it would also become part of the relevant department."
+    /// The product's own Cost Centre Break-up already rolls up (<c>CostCentreLine.RolledUpTotal</c>), and so
+    /// does the group arm of the very same budget method.</para>
+    ///
+    /// <para>Resolution is by <b>id</b>, never by name, so two centres sharing a display name under different
+    /// categories are told apart. The guard mirrors <see cref="LedgerIsUnderGroup"/>: a cycle throws rather
+    /// than hanging, even though <c>CostMasterService.EnsureNoCycle</c> already refuses to create one.</para>
+    /// </summary>
+    public static bool CostCentreIsUnder(Guid centreId, Guid ancestorId, Company company)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        var centre = company.FindCostCentre(centreId);
+        var guard = 0;
+        while (centre is not null)
+        {
+            if (centre.Id == ancestorId) return true;
+            centre = centre.ParentId is Guid pid ? company.FindCostCentre(pid) : null;
+            if (++guard > 1024)
+                throw new InvalidOperationException(
+                    $"Cycle detected walking parents of cost centre '{centreId}'.");
+        }
+        return false;
+    }
+
+    /// <summary>
     /// True iff the group identified by <paramref name="groupId"/> is, or sits under (transitively), a group
     /// named <paramref name="ancestorName"/>. Resolution starts from the <b>actual group id</b> (never a
     /// name lookup), so two distinct groups that share a display name are told apart correctly. A <c>null</c>

@@ -265,6 +265,66 @@ public sealed class VoucherClassPostingTests
         Assert.Equal(0.60m, line.Amount.Amount);
     }
 
+    /// <summary>
+    /// 🔴 <b>THE VENDOR'S OWN ROUND-OFF CLASS HAS NO ALLOCATION AT ALL, AND IT WAS COMPLETELY INERT.</b>
+    /// <c>help.tallysolutions.com/round-off-invoice-and-ledger-values/</c> builds exactly this class: under
+    /// <i>Additional Accounting Entries</i> pick an Indirect Expenses ledger, set <i>Use ledger for auto
+    /// calculation of</i> to <i>Not Applicable</i>, choose <i>"As Total Amount Rounding"</i>, a <i>Rounding
+    /// Method</i> and a <i>Rounding Limit</i>. <b>It never asks for a Default Accounting Allocation.</b>
+    ///
+    /// <para><b>The defect this pins.</b> The rounding base used to be
+    /// <c>allocations.Sum(...) + additional + otherCharges</c>. With no allocations that sum is <b>₹0.00</b>,
+    /// which is already round, so the difference was nil and <b>no round-off leg was emitted</b> — the operator
+    /// defined the class precisely as the vendor page instructs, selected it, and the invoice never rounded. The
+    /// base is now <c>itemValue</c>, which is IDENTICAL whenever the class does allocate (the shares sum to the
+    /// item value to the paisa by construction) and correct when it does not.</para>
+    ///
+    /// <para><b>Why every earlier test missed it:</b> all of them pair the round-off with an allocation, where
+    /// the two expressions are equal. A green suite proved nothing here.</para>
+    /// </summary>
+    [Fact]
+    public void A_class_with_no_allocation_still_rounds_the_invoice_which_is_the_vendors_own_round_off_class()
+    {
+        var cls = Class("Round Off Only");                       // NO AddLedgerAllocation — the vendor's shape
+        cls.AddAdditionalEntry(new VoucherClassAdditionalEntry(
+            Guid.NewGuid(), RoundOff, VoucherClassCalculationType.AsTotalAmountRounding,
+            roundingMethod: VoucherClassRoundingMethod.Downward, roundingLimit: Money.FromRupees(1m)));
+
+        var result = VoucherClassPosting.Compute(cls, Money.FromRupees(1_000.60m), 1m);
+
+        Assert.Empty(result.AllocationLegs);                     // the caller posts the value leg itself
+        var leg = Assert.Single(result.AdditionalLegs);
+        Assert.Equal(RoundOff, leg.LedgerId);
+        Assert.Equal(-0.60m, leg.Amount.Amount);                 // ₹1 000.60 → ₹1 000.00
+
+        // And the same class on an already-round invoice still posts nothing, so the fix did not simply start
+        // emitting a leg unconditionally.
+        Assert.Empty(VoucherClassPosting
+            .Compute(cls, Money.FromRupees(1_000m), 1m).AdditionalLegs);
+    }
+
+    /// <summary>
+    /// The companion to the test above: with an allocation present the base is unchanged, which is what makes the
+    /// fix byte-identical for every class that pre-maps a ledger. ₹1 000.60 allocated 60/40 still rounds to
+    /// ₹1 000.00 on exactly the same (-)0.60 leg.
+    /// </summary>
+    [Fact]
+    public void Changing_the_rounding_base_to_the_item_value_leaves_an_allocating_class_byte_identical()
+    {
+        var cls = WithAllocations((SalesA, 6_000), (SalesB, 4_000));
+        cls.AddAdditionalEntry(new VoucherClassAdditionalEntry(
+            Guid.NewGuid(), RoundOff, VoucherClassCalculationType.AsTotalAmountRounding,
+            roundingMethod: VoucherClassRoundingMethod.Downward, roundingLimit: Money.FromRupees(1m)));
+
+        var result = VoucherClassPosting.Compute(cls, Money.FromRupees(1_000.60m), 1m);
+
+        Assert.Equal(600.36m, result.AllocationLegs[0].Amount.Amount);
+        Assert.Equal(400.24m, result.AllocationLegs[1].Amount.Amount);   // the remainder
+        var leg = Assert.Single(result.AdditionalLegs);
+        Assert.Equal(-0.60m, leg.Amount.Amount);
+        Assert.Equal(1_000.00m, result.Total.Amount);
+    }
+
     /// <summary>An already-round total needs no round-off leg, and none is posted — an explicit ₹0.00 line is not
     /// a legal <c>EntryLine</c> and would print as a nil row on every rounded invoice.</summary>
     [Fact]

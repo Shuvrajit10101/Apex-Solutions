@@ -44,18 +44,16 @@ public sealed class CostMasterService
     ///
     /// <para>The vendor's Cost Category screen carries <i>Name &amp; alias</i>, <i>Allocate Revenue Items</i> and
     /// <i>Allocate Non-revenue items</i> (help.tallysolutions.com/cost-centre-or-profit-centre-tally/, fetched
-    /// 2026-09-14, re-read 2026-10-04). <b>Alias is not altered here because the domain type has no alias
-    /// field</b> — capturing it is its own gap, recorded against row 2.7 and deliberately not smuggled into
-    /// this verb.
+    /// 2026-09-14, re-read 2026-10-04, re-read again 2026-10-16).
     ///
-    /// <para>🔴 <b>AND UNLIKE THE COST CENTRE, THIS ONE REALLY DOES NEED A MIGRATION — the two are not the same
-    /// shape and were previously described as if they were.</b> <see cref="CostCentre"/> has carried
-    /// <c>Alias</c> and a <c>cost_centres.alias</c> column since v3, so its capture shipped with no schema
-    /// change. <see cref="CostCategory"/> has NEITHER: no <c>Alias</c> property (<c>CostCategory.cs:16-31</c> is
-    /// Id / Name / AllocateRevenueItems / AllocateNonRevenueItems / IsPredefined) and no <c>alias</c> column in
-    /// the <c>cost_categories</c> DDL (<c>Schema.cs:1459-1466</c>, and the v3 re-create at <c>:2395</c>).
-    /// Closing row 2.7's alias therefore costs <c>ALTER TABLE cost_categories ADD COLUMN alias TEXT NULL</c>
-    /// plus a domain property, a mapper leg and a reader. No wave has owned that migration.</para>
+    /// <para>🟢 <b>THE ALIAS IS NOW CAPTURED — v67 (census 2.7) closed the storage gap this paragraph used to
+    /// record as open.</b> ~~Alias is not altered here because the domain type has no alias field.~~
+    /// <see cref="CostCategory.Alias"/> and the <c>cost_categories.alias</c> column both exist from v67, and
+    /// <paramref name="alias"/> below writes it. The asymmetry with <see cref="CostCentre"/> — which has
+    /// carried <c>Alias</c> and <c>cost_centres.alias</c> since v3 — is what made the gap visible and is now
+    /// gone. ⚠️ <b>ONE alias, not the vendor's "multiple aliases"</b>: that is a divergence this product shares
+    /// across every master, and it is recorded on <see cref="CostCategory.Alias"/> rather than silently
+    /// here.</para>
     ///
     /// <para><b>The "at least one must be Yes" rule is re-checked on alter.</b> The constructor enforces it at
     /// create time, but an alter writes the two flags straight onto an existing object and would otherwise be the
@@ -70,7 +68,8 @@ public sealed class CostMasterService
     /// <exception cref="InvalidOperationException">The category does not exist, the name is empty or clashes with
     /// another category, or neither allocation flag is set.</exception>
     public CostCategory AlterCostCategory(
-        Guid categoryId, string name, bool allocateRevenueItems, bool allocateNonRevenueItems)
+        Guid categoryId, string name, bool allocateRevenueItems, bool allocateNonRevenueItems,
+        string? alias = null)
     {
         var category = _company.FindCostCategory(categoryId)
             ?? throw new InvalidOperationException($"Cost category {categoryId} not found.");
@@ -85,6 +84,10 @@ public sealed class CostMasterService
         category.Name = trimmed;
         category.AllocateRevenueItems = allocateRevenueItems;
         category.AllocateNonRevenueItems = allocateNonRevenueItems;
+        // v67 (census 2.7): the vendor-attested alias. Blank clears it — an empty box on the screen must mean
+        // "no alias", not "keep the old one", which is how every other master on this product reads a cleared
+        // optional text field.
+        category.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
         return category;
     }
 

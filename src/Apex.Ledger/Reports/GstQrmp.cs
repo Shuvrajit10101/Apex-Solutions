@@ -14,8 +14,9 @@ namespace Apex.Ledger.Reports;
 ///   <item><b>Fixed-sum 100% of the preceding quarter's last month's cash</b> — 100% of the cash tax of the <b>last
 ///     month</b> of the preceding quarter (the basis when the prior period was <b>monthly</b>). Both bases are shown; the
 ///     filer applies whichever matches its prior-period type — S8b never applies 35% unconditionally.</item>
-///   <item><b>Self-assessment</b> — the forward output tax on the month's supplies less the available ITC (forward + the
-///     matching RCM ITC), floored at zero, <b>plus</b> the reverse-charge output liability added on top as a cash-only
+///   <item><b>Self-assessment</b> — the forward output tax on the month's supplies less the available ITC (forward
+///     4(A)(5) + the matching RCM ITC 4(A)(1)/(2)/(3) + ISD credit received 4(A)(4)), floored at zero, <b>plus</b>
+///     the reverse-charge output liability added on top as a cash-only
 ///     floor (§49(4): RCM output is never discharged by ITC). Cess is excluded consistently across all three methods
 ///     (GSTR-3B carries no forward output-cess field), so no method silently counts cess while another drops it.</item>
 /// </list>
@@ -146,7 +147,7 @@ public sealed record GstQrmp(
         var priorQuarterCash = TaxCashDeposited(company, priorQuarterFrom, priorQuarterTo);
         var lastMonthCash = TaxCashDeposited(company, priorQuarterLastMonthFrom, priorQuarterTo);
 
-        // Self-assessment = the month's suggested cash deposit. ITC (forward + the matching RCM ITC) may reduce ONLY the
+        // Self-assessment = the month's suggested cash deposit. ITC (forward + the matching RCM ITC + ISD) may reduce ONLY the
         // FORWARD output tax, floored at zero (a credit surplus carries forward, it is not a negative payment). The
         // reverse-charge output liability is CASH-ONLY (§49(4)/§2(82); ER-3): it can NEVER be discharged by ITC — not even
         // the matching RCM ITC (which itself only carries forward / offsets OTHER forward output) — so it is added on TOP
@@ -155,7 +156,26 @@ public sealed record GstQrmp(
         // (the accepted S1/3B gap — not fixed by a schema change here), so this light advisory drops cess everywhere
         // rather than counting it in one method while dropping it in another (see TaxCashDeposited).
         var m = Gstr3b.Build(company, monthFrom, monthTo);
-        var forwardNet = Math.Max(0m, m.TotalOutwardTax.Amount - (m.TotalItc.Amount + m.TotalRcmItc.Amount));
+
+        // 🔴 REVIEW FIX (wave 46 wave-3, track gstscope). THE TABLE 4(A)(4) ISD TERM BELONGS IN THIS SUBTRAHEND AND
+        // WAS MISSING. The ISD-receipt slice added Itc4A4Isd* to the monthly GSTR-3B and carried it into Table 4(C),
+        // the on-screen 3B, the annual return and the filed offline JSON — and not into this advisory, which is the
+        // one place the figure becomes a CASH DEPOSIT the filer actually makes. Measured on the reviewer's fixture:
+        // ₹18,000.00 of forward output tax against ₹14,000.00 of ISD credit availed in the same month's 3B
+        // suggested a PMT-06 deposit of ₹18,000.00 instead of ₹4,000.00 — 4.5x the cash due, with the credit sitting
+        // unused in the electronic credit ledger.
+        //
+        // It is credit the ledger genuinely holds: an ISD receipt DEBITS the Input {head} ledgers, so
+        // ElectronicLedgersView — the pool the Run Set-Off screen actually posts from — already counts it, and this
+        // advisory therefore disagreed with the authoritative poster beside it.
+        //
+        // The three terms are DISJOINT BY CONSTRUCTION, so nothing is counted twice: TotalItc is 4(A)(5) alone,
+        // TotalRcmItc is 4(A)(1)/(2)/(3), and TotalItc4A4Isd is 4(A)(4) — an ISD receipt is a Journal-base stat
+        // adjustment, which Gstr3b.ReadSide excludes from 4(A)(5). All three drop cess, as this advisory does
+        // everywhere (see the paragraph above and TaxCashDeposited).
+        var forwardNet = Math.Max(
+            0m,
+            m.TotalOutwardTax.Amount - (m.TotalItc.Amount + m.TotalRcmItc.Amount + m.TotalItc4A4Isd.Amount));
         var self = forwardNet + m.TotalRcmOutward.Amount;
 
         return new GstPmt06Suggestion(

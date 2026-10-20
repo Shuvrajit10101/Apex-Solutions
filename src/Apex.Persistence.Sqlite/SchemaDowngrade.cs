@@ -755,6 +755,67 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV66ToV67"/> (census rows <b>2.4, 2.7, 2.9, 2.11, 3.7</b>): removes all
+    /// <b>twenty-two</b> columns v67 adds — <see cref="Schema.V67VoucherTypeColumns"/>,
+    /// <see cref="Schema.V67CostCategoryColumns"/>, <see cref="Schema.V67BudgetLineColumns"/>,
+    /// <see cref="Schema.V67CurrencyColumns"/>, <see cref="Schema.V67GodownColumns"/> and
+    /// <see cref="Schema.V67CompanyColumns"/> — and stamps <c>schema_version</c> back to <b>66</b>.
+    ///
+    /// <para>🔴 <b><see cref="RebuildPreservingShape"/> SIX TIMES, NOT <see cref="DropColumns"/>, and the reason
+    /// is a recorded failure rather than a preference.</b> FIVE of the six tables are FK <b>PARENTS</b> —
+    /// <c>vouchers.type_id</c> and <c>inventory_vouchers.type_id</c> reference <c>voucher_types(id)</c>,
+    /// <c>cost_centres.category_id</c> and <c>cost_allocations.category_id</c> reference
+    /// <c>cost_categories(id)</c>, <c>exchange_rates.currency_id</c> references <c>currencies(id)</c>,
+    /// <c>godowns.parent_id</c> and every stock-location row reference <c>godowns(id)</c>, and most of the
+    /// schema references <c>companies(id)</c> — and a <c>CREATE … AS SELECT</c> rebuild of a parent silently
+    /// loses the PRIMARY KEY, which is the <c>foreign key mismatch</c> failure <see cref="V56ToV55"/>
+    /// records.</para>
+    ///
+    /// <para>⚠️ <b>ONE RESIDUAL, STATED PLAINLY, AND IT IS ON THE ONE CHILD TABLE.</b> <c>budget_lines</c> is
+    /// declared <c>INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT</c>, and
+    /// <see cref="RebuildPreservingShape"/> reconstructs the declaration from <c>PRAGMA table_info</c>, which
+    /// does not report <c>AUTOINCREMENT</c>. The rebuilt table therefore keeps its PRIMARY KEY but loses the
+    /// strictly-monotonic rowid guarantee, so a downgraded book may reuse a deleted budget line's id. Nothing
+    /// in this product reads a <c>budget_lines.id</c> back — the reader orders by <c>(line_order, id)</c> and
+    /// the writer never returns one — and the downgrade is a test-fixture manoeuvre, never a production path,
+    /// so this is an acceptable residual. It is written down because it is a real shape change and the next
+    /// reader should not have to re-derive it.</para>
+    ///
+    /// <para><b>WHAT IS LOST, stated plainly, and NONE of it moves a posted figure.</b> Every per-type
+    /// election on the Voucher Type screen's Printing and Sharing blocks, each cost category's alias, every
+    /// cost-centre budget line's TARGET (the line survives with a NULL target and is then neither a group nor a
+    /// ledger nor a cost-centre line — ⚠️ <b>a book carrying any cost-centre budget line should not be
+    /// downgraded and then handed back to an operator</b>), every non-default currency formatting choice, each
+    /// godown's no-storage election and its address, and both F12 switches. A v66 build reads the result
+    /// exactly as it read any v66 book.</para>
+    ///
+    /// <para>⚠️ <b>This is now the TOP rung — <see cref="V66ToV65"/> sits below it.</b> Manufacturing an older
+    /// book out of a CURRENT one runs this FIRST and every lower rung after it: to reach v65 the caller runs
+    /// <c>V67ToV66</c> then <see cref="V66ToV65"/>. Calling <see cref="V66ToV65"/> alone on a v67 file stamps
+    /// the marker 65 while v67's twenty-two columns are still there, which is a lie the next open cannot
+    /// detect.</para>
+    /// </summary>
+    public static void V67ToV66(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(
+            connection, "voucher_types", Schema.V67VoucherTypeColumns, "voucher_types_v66");
+        RebuildPreservingShape(
+            connection, "cost_categories", Schema.V67CostCategoryColumns, "cost_categories_v66");
+        RebuildPreservingShape(
+            connection, "budget_lines", Schema.V67BudgetLineColumns, "budget_lines_v66");
+        RebuildPreservingShape(
+            connection, "currencies", Schema.V67CurrencyColumns, "currencies_v66");
+        RebuildPreservingShape(
+            connection, "godowns", Schema.V67GodownColumns, "godowns_v66");
+        RebuildPreservingShape(
+            connection, "companies", Schema.V67CompanyColumns, "companies_v66");
+
+        Exec(connection, "UPDATE schema_version SET version = 66;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV65ToV66"/> (<b>user ruling 30(3)+(4)</b>; census rows 5.5 and 6.23;
     /// gap register <b>T2-121(ii)</b>, <b>T2-125</b>): removes <c>voucher_types.retain_original_voucher_no</c>
     /// (<see cref="Schema.V66VoucherTypeColumns"/>) and <c>gstr2b_snapshots.gst_registration_id</c>
@@ -778,10 +839,11 @@ public static class SchemaDowngrade
     /// downgrade. The downgrade is a test-fixture manoeuvre and never a production path, so this is an
     /// acceptable residual — but such a book should not be downgraded and then handed back to an operator.</para>
     ///
-    /// <para>⚠️ <b>This is now the TOP rung — <see cref="V65ToV64"/> sits below it.</b> Manufacturing an older
-    /// book out of a CURRENT one runs this FIRST and every lower rung after it: to reach v64 the caller runs
-    /// <c>V66ToV65</c> then <see cref="V65ToV64"/>. Calling <see cref="V65ToV64"/> alone on a v66 file stamps
-    /// the marker 64 while v66's two columns are still there, which is a lie the next open cannot detect.</para>
+    /// <para>⚠️ <b>This is NO LONGER the TOP rung — <see cref="V67ToV66"/> now sits above it.</b> Manufacturing
+    /// an older book out of a CURRENT one runs <see cref="V67ToV66"/> FIRST, then this, then every lower rung —
+    /// to reach v64 the caller runs <c>V67ToV66</c> → <c>V66ToV65</c> → <see cref="V65ToV64"/>. Calling
+    /// <see cref="V65ToV64"/> alone on a v66 file stamps the marker 64 while v66's two columns are still there,
+    /// which is a lie the next open cannot detect.</para>
     /// </summary>
     public static void V66ToV65(SqliteConnection connection)
     {

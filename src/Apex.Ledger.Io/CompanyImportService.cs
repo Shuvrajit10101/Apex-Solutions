@@ -596,6 +596,10 @@ public sealed class CompanyImportService
                     errors.Add($"Budget '{bd.Name}' has a line referencing a group that is neither imported nor present.");
                 if (bl.LedgerId is { } lid && !plan.CanResolveLedger(lid, _target))
                     errors.Add($"Budget '{bd.Name}' has a line referencing a ledger that is neither imported nor present.");
+                // v67 (census 2.9): the third target. Without this the plan would throw out of ApplyTo with a
+                // KeyNotFoundException instead of returning a named error the operator can act on.
+                if (bl.CostCentreId is { } ccid && !plan.CanResolveCostCentre(ccid, _target))
+                    errors.Add($"Budget '{bd.Name}' has a line referencing a cost centre that is neither imported nor present.");
             }
         }
 

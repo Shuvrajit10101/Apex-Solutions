@@ -784,6 +784,28 @@ public enum GstAdjustmentKind
 
     /// <summary>A re-availment (reclaim) of an earlier Rule 37 / 37A reversal (S7b) — Table 4(D)(1).</summary>
     Reclaim = 9,
+
+    /// <summary>
+    /// ITC <b>received</b> from an Input Service Distributor against an ISD invoice / ISD debit note —
+    /// GSTR-3B <b>Table 4(A)(4) "Inward supplies from ISD"</b>. An <b>increase</b> in input tax credit, so the
+    /// tagged leg is a <b>debit</b> of the <c>Input {head}</c> pool (the opposite side from every
+    /// <c>Reversal*</c> member above) and it is <b>not</b> a Table 4(B)/4(D) bucket.
+    ///
+    /// <para><b>This is the recipient side of ISD, which is the side the vendor documents.</b> Verified by
+    /// content at <c>help.tallysolutions.com/tally-prime/india-gst/isd-credit/</c>: <i>"You can account for
+    /// Input Service Distributor Credit (ISD) Credit in TallyPrime when your branch receives Input Tax Credit
+    /// distributed by the head office"</i>, recorded on a Journal voucher whose Stat Adjustment carries
+    /// <i>Nature of Adjustment</i> = <i>"Increase in Input Tax Credit"</i> and <i>Additional Nature of
+    /// Adjustment</i> = <i>"ISD Invoice/Debit Note"</i>, after which <i>"The voucher will be included in
+    /// GSTR-3B and appear under 4A: Input Tax Credit Available (either in part or in full) &gt; Inward
+    /// supplies from ISD."</i></para>
+    ///
+    /// <para>🔴 <b>Adding this member is NOT a schema change.</b> <c>gst_adjustment_kind</c> is a bare
+    /// <c>INTEGER NULL</c> with no CHECK constraint (<c>Schema.cs</c>), and <c>Apex.Ledger.Io</c> maps the tag
+    /// by NAME (<c>ImportPlan.ParseEnum&lt;GstAdjustmentKind&gt;</c>), so no DDL and no migration. A book that
+    /// never receives ISD credit stores nothing new and is byte-identical (ER-13).</para>
+    /// </summary>
+    IsdCreditReceived = 10,
 }
 
 /// <summary>

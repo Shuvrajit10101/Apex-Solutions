@@ -49,7 +49,11 @@ public sealed class VoucherTypeService
         NumberingMethod numbering,
         string? abbreviation = null,
         bool printAfterSaving = false,
-        bool provideNarrationForEachLedger = false)
+        bool provideNarrationForEachLedger = false,
+        // v67 (census 2.4): the eleven remaining attested fields, as ONE value rather than eleven more
+        // positional parameters. Omitted = VoucherTypeMasterFields.Default = exactly what this build did
+        // before v67, so every existing caller is unchanged (ER-13).
+        VoucherTypeMasterFields? fields = null)
     {
         var clean = Clean(name);
         EnsureNameIsFree(clean, exceptId: null);
@@ -62,6 +66,10 @@ public sealed class VoucherTypeService
             isPredefined: false,
             printAfterSaving: printAfterSaving,
             provideNarrationForEachLedger: provideNarrationForEachLedger);
+
+        // v67 (census 2.4). Applied BEFORE the type joins the company, so a half-written type never
+        // becomes visible to anything that enumerates Company.VoucherTypes.
+        (fields ?? VoucherTypeMasterFields.Default).ApplyTo(type);
 
         _company.AddVoucherType(type);
         return type;
@@ -83,7 +91,12 @@ public sealed class VoucherTypeService
         string? abbreviation,
         bool isActive,
         bool printAfterSaving,
-        bool provideNarrationForEachLedger)
+        bool provideNarrationForEachLedger,
+        // v67 (census 2.4). 🔴 OMITTING IT MEANS "LEAVE THE ELEVEN AS THEY ARE", NOT "RESET THEM TO THE
+        // DEFAULTS" - which is why this is nullable and why the null branch below writes nothing. An alter
+        // that silently cleared a type's printing and sharing block because the caller did not know about
+        // it would be a data loss no test outside this slice would have caught.
+        VoucherTypeMasterFields? fields = null)
     {
         var type = Require(id);
         var clean = Clean(name);
@@ -95,6 +108,7 @@ public sealed class VoucherTypeService
         type.IsActive = isActive;
         type.PrintAfterSaving = printAfterSaving;
         type.ProvideNarrationForEachLedger = provideNarrationForEachLedger;
+        fields?.ApplyTo(type);   // v67 (census 2.4) - null leaves all eleven untouched
     }
 
     /// <summary>
