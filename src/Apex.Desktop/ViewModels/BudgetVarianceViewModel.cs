@@ -102,7 +102,7 @@ public sealed partial class BudgetVarianceViewModel : ViewModelBase
             totalBudget += line.Budget.Amount;
             totalActual += line.Actual.Amount;
             Rows.Add(BuildRow(
-                $"{line.TargetName}  ({(line.IsGroup ? "Group" : "Ledger")})",
+                $"{line.TargetName}  ({line.TargetKindLabel})",   // v67 (census 2.9): a cost-centre row said "Ledger"
                 BudgetMasterViewModel.TypeLabel(line.Type),
                 line.Budget.Amount, line.Actual.Amount, line.Variance.Amount,
                 line.VariancePercent, isTotal: false));

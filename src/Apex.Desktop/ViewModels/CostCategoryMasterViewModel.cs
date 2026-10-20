@@ -18,6 +18,11 @@ namespace Apex.Desktop.ViewModels;
 public sealed partial class CostCategoryListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
+
+    /// <summary>v67 (census 2.7): the vendor-attested alias, shown so the Existing list proves the field is
+    /// really stored rather than merely accepted by the form. Em dash when the category has none.</summary>
+    public string Alias { get; init; } = string.Empty;
+
     public string Allocates { get; init; } = string.Empty;
     public string Kind { get; init; } = string.Empty;
 
@@ -90,6 +95,7 @@ public sealed partial class CostCategoryMasterViewModel
         Name = category.Name;
         AllocateRevenueItems = category.AllocateRevenueItems;
         AllocateNonRevenueItems = category.AllocateNonRevenueItems;
+        Alias = category.Alias ?? string.Empty;   // v67 (census 2.7)
     }
 
     /// <summary>
@@ -108,7 +114,7 @@ public sealed partial class CostCategoryMasterViewModel
         try
         {
             var altered = new CostMasterService(_company)
-                .AlterCostCategory(_editingId, Name, AllocateRevenueItems, AllocateNonRevenueItems);
+                .AlterCostCategory(_editingId, Name, AllocateRevenueItems, AllocateNonRevenueItems, Alias);
             _storage.Save(_company);
             Message = $"Cost category '{altered.Name}' altered.";
         }
@@ -166,6 +172,15 @@ public sealed partial class CostCategoryMasterViewModel
 
     [ObservableProperty] private string _name = string.Empty;
 
+    /// <summary>
+    /// v67 (census 2.7): the vendor's <b>alias</b> on the Cost Category screen — <i>"Name &amp; alias: As in
+    /// other masters, you can specify multiple aliases"</i>
+    /// (help.tallysolutions.com/cost-centre-or-profit-centre-tally/, opened by content 2026-10-16, in the Cost
+    /// CATEGORY section). Optional; blank means no alias. ⚠️ ONE alias, not the vendor's plural — the
+    /// divergence every master on this product shares, recorded on <c>CostCategory.Alias</c>.
+    /// </summary>
+    [ObservableProperty] private string _alias = string.Empty;
+
     /// <summary>"Allocate Revenue Items" (catalog §6) — may allocate P&amp;L (income/expense) lines. On by default.</summary>
     [ObservableProperty] private bool _allocateRevenueItems = true;
 
@@ -210,7 +225,11 @@ public sealed partial class CostCategoryMasterViewModel
         var category = new CostCategory(
             Guid.NewGuid(), name,
             allocateRevenueItems: AllocateRevenueItems,
-            allocateNonRevenueItems: AllocateNonRevenueItems);
+            allocateNonRevenueItems: AllocateNonRevenueItems)
+        {
+            // v67 (census 2.7): blank means no alias, matching every other optional text field on this product.
+            Alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim(),
+        };
 
         _company.AddCostCategory(category);
         _storage.Save(_company);
@@ -218,6 +237,7 @@ public sealed partial class CostCategoryMasterViewModel
         RefreshList();
         Message = $"Cost category '{name}' created.";
         Name = string.Empty;
+        Alias = string.Empty;   // v67 (census 2.7)
         AllocateRevenueItems = true;
         AllocateNonRevenueItems = false;
         _onChanged();
@@ -243,6 +263,7 @@ public sealed partial class CostCategoryMasterViewModel
             {
                 MasterId = c.Id,
                 Name = c.Name,
+                Alias = string.IsNullOrWhiteSpace(c.Alias) ? "—" : c.Alias,   // v67 (census 2.7)
                 Allocates = allocates,
                 Kind = c.IsPredefined ? "Predefined" : "User",
             });

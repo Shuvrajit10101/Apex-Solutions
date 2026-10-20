@@ -457,6 +457,7 @@ public static class CanonicalMapper
     {
         Id = x.Id, Name = x.Name, AllocateRevenueItems = x.AllocateRevenueItems,
         AllocateNonRevenueItems = x.AllocateNonRevenueItems, IsPredefined = x.IsPredefined,
+        Alias = x.Alias,   // v67 (census 2.7)
     };
 
     private static CostCentreDto MapCostCentre(CostCentre x) => new()
@@ -583,7 +584,9 @@ public static class CanonicalMapper
 
     private static BudgetLineDto MapBudgetLine(BudgetLine l) => new()
     {
-        GroupId = l.GroupId, LedgerId = l.LedgerId, BudgetType = l.Type.ToString(),
+        GroupId = l.GroupId, LedgerId = l.LedgerId,
+        CostCentreId = l.CostCentreId,   // v67 (census 2.9) — the third target
+        BudgetType = l.Type.ToString(),
         AmountPaisa = MoneyCodec.ToPaisa(l.Amount),
     };
 

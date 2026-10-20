@@ -329,7 +329,10 @@ public static class CanonicalXml
 
     private static XElement BuildCostCategory(CostCategoryDto x) => new("costCategory",
         Attr("id", x.Id), Attr("name", x.Name), Attr("allocateRevenueItems", x.AllocateRevenueItems),
-        Attr("allocateNonRevenueItems", x.AllocateNonRevenueItems), Attr("isPredefined", x.IsPredefined));
+        Attr("allocateNonRevenueItems", x.AllocateNonRevenueItems), Attr("isPredefined", x.IsPredefined),
+        // v67 (census 2.7). Opt(), like the cost CENTRE alias below: a category with no alias emits no
+        // attribute at all, so a document from a book that sets none is byte-identical to a pre-v67 one.
+        Opt("alias", x.Alias));
 
     private static XElement BuildCostCentre(CostCentreDto x) => new("costCentre",
         Attr("id", x.Id), Attr("name", x.Name), Attr("categoryId", x.CategoryId),
@@ -439,6 +442,9 @@ public static class CanonicalXml
         var lines = new XElement("lines");
         foreach (var l in x.Lines)
             lines.Add(new XElement("line", OptId("groupId", l.GroupId), OptId("ledgerId", l.LedgerId),
+                // v67 (census 2.9). Opt, like the other two: a group or ledger line emits no attribute at
+                // all, so a document from a book that budgets no cost centre is byte-identical to a pre-v67 one.
+                OptId("costCentreId", l.CostCentreId),
                 Attr("budgetType", l.BudgetType), Attr("amountPaisa", l.AmountPaisa)));
         el.Add(lines);
         return el;
@@ -1289,6 +1295,7 @@ public static class CanonicalXml
         Id = Guid(e, "id"), Name = Str(e, "name")!,
         AllocateRevenueItems = Bool(e, "allocateRevenueItems"),
         AllocateNonRevenueItems = Bool(e, "allocateNonRevenueItems"), IsPredefined = Bool(e, "isPredefined"),
+        Alias = Str(e, "alias"),   // v67 (census 2.7); absent in a pre-v67 document ⇒ null ⇒ no alias
     };
 
     private static CostCentreDto ReadCostCentre(XElement e) => new()
@@ -1422,6 +1429,7 @@ public static class CanonicalXml
             .Select(l => new BudgetLineDto
             {
                 GroupId = OptGuid(l, "groupId"), LedgerId = OptGuid(l, "ledgerId"),
+                CostCentreId = OptGuid(l, "costCentreId"),   // v67 (census 2.9); absent pre-v67 ⇒ null
                 BudgetType = Str(l, "budgetType")!, AmountPaisa = Long(l, "amountPaisa"),
             }).ToList(),
     };

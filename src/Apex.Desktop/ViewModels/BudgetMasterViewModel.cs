@@ -28,16 +28,28 @@ public sealed partial class BudgetListRow : ObservableObject, IMasterListRow
 }
 
 /// <summary>
-/// One entry in the budget-line "Target" picker: either a <b>Group</b> (rolls up its ledgers) or a
-/// single <b>Ledger</b>. Groups are listed first, then ledgers, each name-sorted; the <see cref="Display"/>
-/// carries a "(Group)"/"(Ledger)" suffix so the two never read ambiguously in the combo.
+/// One entry in the budget-line "Target" picker: a <b>Group</b> (rolls up its ledgers), a single
+/// <b>Ledger</b>, or (v67; census 2.9) a <b>Cost Centre</b>. Groups are listed first, then ledgers, then
+/// cost centres, each name-sorted; the <see cref="Display"/> carries a "(Group)"/"(Ledger)"/"(Cost Centre)"
+/// suffix so the three never read ambiguously in the combo.
+///
+/// <para>v67 (census 2.9) added the third target. <b>R7:</b> <c>help.tallysolutions.com/budgets-tally/</c>
+/// ("Create, Alter, and Delete Budgets in TallyPrime"), opened by content 2026-10-16: the budget screen
+/// offers <i>"Set Groups to Yes"</i>, <i>"Set Ledgers to Yes"</i> and <i>"Set Cost Centres to Yes"</i>.</para>
 /// </summary>
 public sealed class BudgetTargetOption
 {
     public Guid? GroupId { get; init; }
     public Guid? LedgerId { get; init; }
+
+    /// <summary>v67 (census 2.9): the budgeted cost centre, when this option is a cost-centre target.</summary>
+    public Guid? CostCentreId { get; init; }
+
     public string Display { get; init; } = string.Empty;
     public bool IsGroup => GroupId is not null;
+
+    /// <summary>v67 (census 2.9): true iff this option targets a cost centre.</summary>
+    public bool IsCostCentre => CostCentreId is not null;
 }
 
 /// <summary>One pending budget line shown in the "Budget Lines" grid before the budget is created.</summary>
@@ -333,6 +345,12 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             Targets.Add(new BudgetTargetOption { GroupId = g.Id, Display = $"{g.Name}  (Group)" });
         foreach (var l in _company.Ledgers.OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
             Targets.Add(new BudgetTargetOption { LedgerId = l.Id, Display = $"{l.Name}  (Ledger)" });
+        // v67 (census 2.9): the vendor's THIRD budget target - "Set Cost Centres to Yes"
+        // (help.tallysolutions.com/budgets-tally/, opened by content 2026-10-16). Listed LAST so every
+        // existing option keeps its position in the combo and a book that budgets only groups and ledgers
+        // reads exactly as it did.
+        foreach (var c in _company.CostCentres.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
+            Targets.Add(new BudgetTargetOption { CostCentreId = c.Id, Display = $"{c.Name}  (Cost Centre)" });
     }
 
     /// <summary>
@@ -345,7 +363,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
 
         if (SelectedTarget is null)
         {
-            Message = "Pick a group or ledger to budget.";
+            Message = "Pick a group, ledger or cost centre to budget.";   // v67 (census 2.9)
             return false;
         }
         if (!TryParseAmount(LineAmountText, out var amount))
@@ -365,9 +383,14 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             return false;
         }
 
-        var line = SelectedTarget.IsGroup
-            ? BudgetLine.ForGroup(SelectedTarget.GroupId!.Value, SelectedType, new Money(amount))
-            : BudgetLine.ForLedger(SelectedTarget.LedgerId!.Value, SelectedType, new Money(amount));
+        // v67 (census 2.9): THREE target kinds now. The cost-centre arm is tested FIRST because it is the
+        // only one whose absence used to fall through to the ledger arm - a cost-centre option reaching
+        // ForLedger would dereference a null LedgerId and throw out of a keystroke.
+        var line = SelectedTarget.IsCostCentre
+            ? BudgetLine.ForCostCentre(SelectedTarget.CostCentreId!.Value, SelectedType, new Money(amount))
+            : SelectedTarget.IsGroup
+                ? BudgetLine.ForGroup(SelectedTarget.GroupId!.Value, SelectedType, new Money(amount))
+                : BudgetLine.ForLedger(SelectedTarget.LedgerId!.Value, SelectedType, new Money(amount));
 
         var row = RowFor(line);
 
@@ -394,8 +417,13 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
 
     /// <summary>True iff two budget lines name the same target AND the same measure — the identity under which
     /// one line replaces another in the pending grid.</summary>
+    /// <para>🔴 v67 (census 2.9) ADDED <c>CostCentreId</c> TO THIS COMPARISON, AND LEAVING IT OUT WOULD HAVE
+    /// BEEN A SILENT WRONG ANSWER: every cost-centre line has <c>GroupId</c> and <c>LedgerId</c> both null,
+    /// so under the two-field test ALL of them would have compared equal and budgeting a second centre would
+    /// have overwritten the first instead of adding a row.</para>
     private static bool SameTarget(BudgetLine a, BudgetLine b) =>
-        a.Type == b.Type && a.GroupId == b.GroupId && a.LedgerId == b.LedgerId;
+        a.Type == b.Type && a.GroupId == b.GroupId && a.LedgerId == b.LedgerId
+        && a.CostCentreId == b.CostCentreId;
 
     /// <summary>
     /// The pending-grid row for an engine line — the one place the three display strings are derived, so a line
@@ -403,7 +431,12 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     private PendingBudgetLineRow RowFor(BudgetLine line)
     {
-        var display = Targets.FirstOrDefault(t => t.GroupId == line.GroupId && t.LedgerId == line.LedgerId)
+        // v67 (census 2.9): CostCentreId is part of the match. Without it a cost-centre line would find the
+        // first option whose group and ledger are both null - which is the first cost centre in the list,
+        // whichever one the line actually names - and the grid would print the WRONG centre's name beside a
+        // real budgeted figure.
+        var display = Targets.FirstOrDefault(t => t.GroupId == line.GroupId && t.LedgerId == line.LedgerId
+                                                  && t.CostCentreId == line.CostCentreId)
                              ?.Display
                       // A target whose group/ledger has since been deleted still has to render: naming it
                       // "(unknown)" keeps the row visible and countable instead of dropping a budgeted figure

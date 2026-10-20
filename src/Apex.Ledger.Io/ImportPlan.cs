@@ -293,7 +293,10 @@ internal sealed class ImportPlan
                 continue;
             }
             var domain = new CostCategory(Guid.NewGuid(), cc.Name, cc.AllocateRevenueItems,
-                cc.AllocateNonRevenueItems, isPredefined: false);
+                cc.AllocateNonRevenueItems, isPredefined: false)
+            {
+                Alias = cc.Alias,   // v67 (census 2.7); null in a pre-v67 document
+            };
             t.AddCostCategory(domain);
             journal.RecordCostCategory(domain);
             costCategoryId[cc.Id] = domain.Id;
@@ -867,9 +870,15 @@ internal sealed class ImportPlan
             {
                 var type = ParseEnum<BudgetType>(bl.BudgetType);
                 var amount = MoneyCodec.FromPaisa(bl.AmountPaisa);
-                domain.AddLine(bl.GroupId is { } gid
-                    ? BudgetLine.ForGroup(ResolveGroupId(gid, groupId, t), type, amount)
-                    : BudgetLine.ForLedger(ResolveLedgerId(bl.LedgerId!.Value, ledgerId, t), type, amount));
+                // v67 (census 2.9): THREE targets. The cost-centre arm is tested FIRST, for the same reason
+                // BudgetMasterViewModel.AddLine tests it first — a cost-centre line has GroupId and LedgerId
+                // both null, so without this arm it fell through to `bl.LedgerId!.Value` and aborted the
+                // WHOLE import ("Nullable object must have a value"), not merely the budget.
+                domain.AddLine(bl.CostCentreId is { } ccid
+                    ? BudgetLine.ForCostCentre(ResolveCostCentreId(ccid, costCentreId, t), type, amount)
+                    : bl.GroupId is { } gid
+                        ? BudgetLine.ForGroup(ResolveGroupId(gid, groupId, t), type, amount)
+                        : BudgetLine.ForLedger(ResolveLedgerId(bl.LedgerId!.Value, ledgerId, t), type, amount));
             }
             t.AddBudget(domain);
             journal.RecordBudget(domain);

@@ -68,7 +68,17 @@ public sealed class IsdRegistrationPersistenceTests
         // DDL belongs to the attribution track, NOT to the ISD slice — the ISD still adds no DDL of its own and
         // still round-trips through the registration_type / gst_reg_type INTEGER columns that already exist,
         // which the round-trip test below proves independently of this number.
-        Assert.Equal(66, Schema.CurrentVersion);
+        //
+        // 🔴 RE-BASELINED 66 -> 67, 2026-10-16. It tripped again, exactly as predicted, when the Area-2/3
+        // master-field track took v67 (census 2.4 / 2.7 / 2.9 / 2.11 / 3.7). THE PRESCRIBED CHECK WAS PERFORMED
+        // BEFORE THE NUMBER WAS CHANGED, and this is the check to repeat next time: the whole v67 diff under
+        // src/Apex.Persistence.Sqlite/ is the twenty-two master-field columns (voucher_types ×11,
+        // cost_categories.alias, budget_lines.cost_centre_id, currencies ×5, godowns ×2, companies ×2) and NOT
+        // ONE of them is an ISD column — no file matching *Isd* is touched by that track at all. The ISD slice
+        // still adds no DDL of its own and still round-trips through the registration_type / gst_reg_type
+        // INTEGER columns that already exist, which the round-trip test below proves independently of this
+        // number.
+        Assert.Equal(67, Schema.CurrentVersion);
     }
 
     [Fact]
