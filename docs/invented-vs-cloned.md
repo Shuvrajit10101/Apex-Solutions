@@ -2348,6 +2348,25 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Why** | This is the **established practice** on this codebase rather than a v67 slip: v66's own `RetainOriginalVoucherNo` is likewise absent from the canonical model (0 hits), and `GodownDto` already drops v58's `JobCostCentreId`. The wave that takes a migration has not been carrying its fields into Io. |
 | **Fix** | **NOT DONE — recorded, owed, and deliberately not attempted in the same pass as BF-2/BF-4/BF-8.** ⚠️ Note the asymmetry that makes this safe-but-wrong rather than dangerous: a dropped NULLABLE field reads back as null, which is why none of these crash — unlike `BudgetLineDto`, whose missing target dereferenced a `Nullable` and aborted the entire import. **A later wave should sweep ALL of them together, including the pre-v67 arrears, rather than one field per migration.** |
 
+## 2I. Wave 46 wave-4 — the comparative engine (census 11.14 / 11.17, cluster C3)
+
+> 🔴 **THE IV NUMBER IN THIS SECTION IS PROVISIONAL AND MUST BE ARBITRATED AT MERGE.** It was authored on
+> `claude/apex-bq-comparative`, cut from `origin/main` `02a0a74`, while **three sibling tracks were building in
+> three other trees**. `IV-106` is the next free number *as this branch sees main* — which is exactly the state
+> §2G and §2H were each in when they both took numbers another branch had already claimed. **This register has
+> now hit that trap twice running** (see the renumber notes on §2G and §2H, and `T2-138`). If a sibling also took
+> `IV-106`, renumber this section hunk by hunk and keep both entries; do not resolve it by dropping one.
+
+### IV-106 · **Auto-column bucket anchoring where no vendor page states one** — Alt+N daily / weekly / fortnightly / yearly
+
+| | |
+|---|---|
+| **Severity** | **LOW. A presentation choice on a new, additive axis, labelled rather than hidden.** No figure is wrong under any anchor — the buckets partition the chosen period exactly, so the column values always sum back to the single-column report. What an anchor changes is *where the boundaries fall*, and therefore which column a given voucher lands in. |
+| **What TallyPrime does** | **Partly attested, partly silent — and the silence is the divergence.** Both vendor pages, opened by content 2026-10-20, state the *list* of periodicities but not the *anchor*: `help.tallysolutions.com/funds-flow-report-tally/` gives *"add periodic columns like monthly, quarterly, weekly, and so on for a comparative view of the funds flow across periods"*, and `help.tallysolutions.com/cash-flow-and-projection-report-tally/` gives *"you can configure the columns to appear quarterly, weekly, daily, fortnightly, and so on"*. ⚠️ **Neither page says where a week starts, and no page we have opened does** — stated as a bounded claim, not a universal negative: we searched the two report pages and the shortcut reference, not the whole site. `Yearly` is not in either list; both lists end in *"and so on"*, so it is an extension rather than a contradiction. |
+| **What we ship** | **Months and quarters are anchored to the CALENDAR; days, weeks, fortnights and years are fixed-length blocks measured from the chosen period's own first day.** The split is not arbitrary: where the calendar itself defines the unit we borrow it, and where it does not — a "week" has no vendor-stated start day, and a financial year is not a calendar year — we anchor to the window the operator actually chose rather than invent a convention. 🟢 **The calendar-quarter choice is invisible for the standard Indian financial year:** for a 1-April start the four calendar quarters (Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar) and the four FY quarters coincide exactly. That is *why* it was chosen, and it is pinned by a test that asserts the quarter boundaries for FY 2024-25. |
+| **Why** | The alternative was to pick an anchor silently. Three of the four unanchored periodicities had no shipped behaviour at all before this wave (only Monthly and a by-scenario axis existed), so there was no precedent to follow and nothing to regress. |
+| **Fix** | **None owed unless a vendor page is found that states an anchor.** If one is, the change is confined to the four private block helpers in `ComparativeReport` (`FixedBlocks`, `YearBlocks`, and the two calendar ones) and to the two bucket-count tests — `PeriodicColumns` is the single axis every caller goes through, so no call site moves. The partition invariant (no gap, no overlap, first bucket opens the window, last closes it) is asserted for **every** periodicity and is anchor-independent, so it would survive the change and catch an error in it. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
