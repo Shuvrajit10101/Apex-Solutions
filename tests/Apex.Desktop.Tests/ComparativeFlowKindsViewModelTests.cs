@@ -321,6 +321,15 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
             panel.Periodicities.Select(p => p.Periodicity).ToArray());
         Assert.All(panel.Periodicities, p => Assert.False(string.IsNullOrWhiteSpace(p.Caption)));
 
+        // 🔴 REACHABILITY, NOT PRESENCE. The ComboBox carries no ItemTemplate (one would put a trimming
+        // TextBlock inside a horizontal StackPanel, which measures at infinite width — XamlLayoutInvariantTests
+        // rejects it). With no template Avalonia renders each item through ToString(), so the caption only
+        // reaches the screen if ToString() IS the caption. A record's generated ToString would print
+        // "PeriodicityOption { Periodicity = Monthly, Caption = Monthly }" into the dropdown instead.
+        Assert.All(panel.Periodicities, p => Assert.Equal(p.Caption, p.ToString()));
+        Assert.Equal("Fortnightly", panel.Periodicities.Single(
+            p => p.Periodicity == ColumnPeriodicity.Fortnightly).ToString());
+
         // Monthly preselected — the shipped "open Alt+N, Generate" gesture is unchanged.
         Assert.Equal(ColumnPeriodicity.Monthly, panel.Periodicity);
         Assert.True(panel.ByPeriod);

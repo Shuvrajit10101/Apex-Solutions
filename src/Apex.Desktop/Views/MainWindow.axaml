@@ -22234,14 +22234,14 @@
                                             IsEnabled="{Binding ByPeriod}">
                                   <TextBlock Text="Periodicity" VerticalAlignment="Center"
                                              FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- No ItemTemplate on purpose. PeriodicityOption.ToString() IS the caption,
+                                       and the six captions are short enough that the 150px box never clips the
+                                       longest ("Fortnightly"). A templated TextBlock here would sit inside this
+                                       horizontal StackPanel, which measures children at infinite width — so a
+                                       TextTrimming on it could never engage and would overflow onto its
+                                       neighbour instead (XamlLayoutInvariantTests). -->
                                   <ComboBox ItemsSource="{Binding Periodicities}" MinWidth="150"
-                                            SelectedItem="{Binding SelectedPeriodicity, Mode=TwoWay}">
-                                    <ComboBox.ItemTemplate>
-                                      <DataTemplate x:DataType="vm:PeriodicityOption">
-                                        <TextBlock Text="{Binding Caption}" TextTrimming="CharacterEllipsis"/>
-                                      </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                  </ComboBox>
+                                            SelectedItem="{Binding SelectedPeriodicity, Mode=TwoWay}"/>
                                 </StackPanel>
                                 <RadioButton GroupName="AutoColumnAxis"
                                              Content="By scenario (one column per defined scenario)"
