@@ -252,7 +252,7 @@ public sealed class ComparativeReportViewModelTests : IDisposable
     {
         var report = new ReportsViewModel(Robert(), ReportKind.ProfitAndLoss);
         report.SetPeriod(BooksBegin, new DateOnly(2020, 6, 30)); // 3 months
-        var panel = new AutoColumnsViewModel(report) { ByMonth = true };
+        var panel = new AutoColumnsViewModel(report) { ByPeriod = true };
 
         panel.Apply();
 
@@ -292,11 +292,11 @@ public sealed class ComparativeReportViewModelTests : IDisposable
     {
         var report = new ReportsViewModel(Robert(), ReportKind.TrialBalance);
         var panel = new AutoColumnsViewModel(report);
-        Assert.True(panel.ByMonth);
+        Assert.True(panel.ByPeriod);
         Assert.False(panel.ByScenario);
 
         panel.ByScenario = true;
-        Assert.False(panel.ByMonth); // selecting one clears the other
+        Assert.False(panel.ByPeriod); // selecting one clears the other
         Assert.Equal(AutoColumnAxis.ByScenario, panel.Axis);
     }
 

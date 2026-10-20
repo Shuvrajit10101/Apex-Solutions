@@ -31,6 +31,12 @@ public static class ReportPrintProjector
         if (vm.IsPayrollMatrix) return ProjectPayrollMatrix(vm);
         if (vm.IsPayslipReport) return ProjectPayslip(vm);
 
+        // 🔴 THE COMPARATIVE GRID COMES BEFORE EVERYTHING, BECAUSE WHEN IT IS SHOWING IT IS THE REPORT.
+        // The same hole the export carried: in comparative mode this projector read `vm.Rows`, the single-column
+        // rows the view model keeps intact underneath, so the PDF of a five-column comparison was a one-column
+        // report under the same title. Print and export now take the same branch and agree by construction.
+        if (vm.IsComparative) return ProjectComparative(vm);
+
         // 🔴 THE DECLARED COLUMN BAND COMES FIRST — the same ReportColumnBands entry the export reads, so a
         // printed page and a spreadsheet of one report carry identical headings by construction. Before this,
         // THIS projector had no per-kind caption table at all and printed an empty caption for every column
@@ -49,6 +55,50 @@ public static class ReportPrintProjector
             // 🔴 RULING 18: carry the producer's provenance, do not re-decide it here. The view model built the
             // heading and is the only party that knows whether a master name is inside it.
             TitleCarriesMasterName = vm.TitleCarriesMasterName,
+            Subtitle = Ascii(vm.Subtitle),
+            Columns = columns,
+            Rows = rows,
+        };
+    }
+
+    /// <summary>
+    /// Projects the comparative (Alt+C / Alt+N) grid for print: a wide Particulars column, then one
+    /// right-aligned column per comparison column, captioned exactly as the screen captions it, with the
+    /// per-column totals as a leading total row (a printed column heading has one line of its own).
+    ///
+    /// <para>Cells keep the sign-bearing suffix the grid shows, for the same reason the export keeps it: an
+    /// outflow printed as a bare magnitude reads as an inflow.</para>
+    /// </summary>
+    private static PrintReport ProjectComparative(ReportsViewModel vm)
+    {
+        var columns = new List<PrintColumn>(vm.ComparativeColumns.Count + 1)
+        {
+            new(Ascii("Particulars"), 3, CellAlign.Left),
+        };
+        foreach (var c in vm.ComparativeColumns)
+            columns.Add(new PrintColumn(Ascii(c.Label), 1.6, CellAlign.Right));
+
+        var rows = new List<PrintRow>(vm.ComparativeRows.Count + 1);
+
+        var totalCells = new string[columns.Count];
+        totalCells[0] = Ascii("Column totals");
+        for (int i = 0; i < vm.ComparativeColumns.Count; i++)
+            totalCells[i + 1] = Ascii(vm.ComparativeColumns[i].TotalText);
+        rows.Add(new PrintRow { Cells = totalCells, IsTotal = true });
+
+        foreach (var r in vm.ComparativeRows)
+        {
+            var cells = new string[columns.Count];
+            cells[0] = Ascii(string.IsNullOrEmpty(r.GroupName) ? r.Label : $"{r.Label} ({r.GroupName})");
+            for (int i = 0; i < vm.ComparativeColumns.Count; i++)
+                cells[i + 1] = Ascii(i < r.Cells.Count ? r.Cells[i] : string.Empty);
+            rows.Add(new PrintRow { Cells = cells });
+        }
+
+        return new PrintReport
+        {
+            Title = Ascii(vm.Title),
+            TitleCarriesMasterName = vm.TitleCarriesMasterName, // 🔴 RULING 18 — carry, never re-decide.
             Subtitle = Ascii(vm.Subtitle),
             Columns = columns,
             Rows = rows,

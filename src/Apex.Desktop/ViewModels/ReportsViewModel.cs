@@ -1067,17 +1067,54 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// multi-column grid instead of the plain single-column grid. Clearing all extra columns flips it back.</summary>
     public bool IsComparative => _extraColumns.Count > 0;
 
-    /// <summary>True for the report kinds that can be shown comparatively (TB / BS / P&amp;L / Stock Summary) —
-    /// the four families the engine <see cref="ComparativeReport"/> composes. Alt+C / Alt+N are inert elsewhere.</summary>
+    /// <summary>True for the report kinds that can be shown comparatively (TB / BS / P&amp;L / Stock Summary /
+    /// Cash Flow / Funds Flow) — the families the engine <see cref="ComparativeReport"/> composes. Alt+C / Alt+N
+    /// are inert elsewhere.</summary>
     public bool SupportsComparative => ComparativeKind is not null;
 
+    /// <summary>
+    /// True when the current kind may carry a <b>scenario</b> column, as distinct from a period column. The two
+    /// flow statements are scenario-blind in the engine, so Alt+C's scenario field and Alt+N's by-scenario axis
+    /// must be refused there rather than producing a column that silently reproduces the actual books.
+    /// </summary>
+    public bool SupportsComparativeScenarioColumns =>
+        ComparativeKind is { } k && ComparativeReport.SupportsScenarioColumns(k);
+
+    /// <summary>
+    /// 🔴 <b>THE VENDOR'S OWN EXCLUSION, STATED AS A RULE RATHER THAN LEFT TO ACCIDENT.</b>
+    ///
+    /// <para>The shortcut reference gives both chords with the same carve-out — <i>"Alt+C — To add a new column
+    /// (except in Day Book and GST Returns)"</i> and <i>"Alt+N — To auto repeat columns (except in Day Book and
+    /// GST Returns)"</i> (<c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c>).
+    /// Until this method existed the product excluded them only <i>by accident</i>: they simply were not among
+    /// the four mapped kinds, so the first widening pass that added a kind would have been free to add them.
+    /// The rule is now written down, checked by <see cref="ComparativeKind"/>, and tested, so a later widening
+    /// has to confront it rather than walk past it.</para>
+    /// </summary>
+    /// <param name="kind">The report kind to test.</param>
+    /// <returns><c>true</c> when the vendor's own carve-out keeps Alt+C / Alt+N off this report.</returns>
+    public static bool IsVendorExcludedFromComparative(ReportKind kind)
+        // The Day Book and the three registers that ARE the Day Book under one flag each (census 11.13: each is
+        // "the Day Book filtered by one flag over the shared ExceptionVouchers engine"), so the carve-out that
+        // names the Day Book covers them.
+        => kind is ReportKind.DayBook
+            or ReportKind.OptionalVouchersRegister
+            or ReportKind.CancelledVouchersRegister
+            or ReportKind.PostDatedVouchersRegister
+        // The GST returns carried on this surface. GSTR-4/9/9C are dedicated screens rather than ReportKind
+        // members, so they are out of this surface's reach entirely; TaxAnalysis is a GST report but not a
+        // return, and is excluded with them because the carve-out's subject is the GST return family.
+        || kind is ReportKind.Gstr1 or ReportKind.Gstr3b or ReportKind.TaxAnalysis;
+
     /// <summary>The engine comparative kind for the current report, or null when this kind is not comparative.</summary>
-    private ComparativeReportKind? ComparativeKind => Kind switch
+    private ComparativeReportKind? ComparativeKind => IsVendorExcludedFromComparative(Kind) ? null : Kind switch
     {
         ReportKind.TrialBalance => ComparativeReportKind.TrialBalance,
         ReportKind.BalanceSheet => ComparativeReportKind.BalanceSheet,
         ReportKind.ProfitAndLoss => ComparativeReportKind.ProfitAndLoss,
         ReportKind.StockSummary => ComparativeReportKind.StockSummary,
+        ReportKind.CashFlow => ComparativeReportKind.CashFlow,
+        ReportKind.FundsFlow => ComparativeReportKind.FundsFlow,
         _ => null,
     };
 
@@ -1914,8 +1951,30 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // Carry the report's OWN full options (as-of, Detailed/HideZero/%/ClosingStock, period, scenario) so the base
         // column reproduces the exact single-column report. Period/Scenario ride inside Options; leaving the spec's
         // own Period/Scenario null means OptionsFor starts from _options verbatim rather than the FY-end fallback.
-        return new ComparativeReport.ColumnSpec(label, Period: null, Scenario: null, Options: _options);
+        //
+        // 🔴 STRIP A STALE SCENARIO ON A SCENARIO-BLIND KIND. `_options` keeps whatever scenario the picker last
+        // applied, and the picker only re-writes it when the PICKER changes — not when the report kind does. So
+        // viewing a Trial Balance under a scenario and then switching to Cash Flow leaves a scenario sitting in
+        // `_options` that the Cash Flow build already ignores (CashFlow.Build takes a window, not options). Passing
+        // it to the comparative engine would hit the engine's scenario refusal and throw on the Alt+C keystroke.
+        // Stripping it here makes the base column reproduce what is actually on screen, which is the contract.
+        return new ComparativeReport.ColumnSpec(label, Period: null, Scenario: null, Options: ColumnOptions);
     }
+
+    /// <summary>
+    /// The report options EVERY comparative column (base and added alike) starts from.
+    ///
+    /// <para>🔴 <b>One accessor, because getting this right in one of the three call sites and not the others is
+    /// exactly the bug it exists to prevent — and that bug was committed here once already.</b> <c>_options</c>
+    /// retains whatever scenario the picker last applied, and the picker rewrites it only when the PICKER
+    /// changes, not when the report kind does. So a Trial Balance viewed under a scenario, then switched to Cash
+    /// Flow, leaves a scenario in <c>_options</c> that the Cash Flow build already ignores (it takes a window,
+    /// not options) — and handing it to the comparative engine trips the engine's scenario refusal and throws on
+    /// the Alt+C keystroke. Stripping it on a scenario-blind kind makes every column reproduce what is actually
+    /// on screen. The base spec, Alt+C and the Alt+N axes all read it from here.</para>
+    /// </summary>
+    private ReportOptions ColumnOptions =>
+        SupportsComparativeScenarioColumns ? _options : _options.WithScenario(null);
 
     /// <summary>
     /// Rebuilds <see cref="ComparativeColumns"/> + <see cref="ComparativeRows"/> from the base column spec plus
@@ -1970,6 +2029,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 + IndianFormat.AmountAlways(new Money(Math.Abs(c.NetProfit.Amount))),
         ComparativeReportKind.StockSummary =>
             IndianFormat.AmountAlways(c.StockClosingValue),
+        // Cash Flow's column total is the statement's own reconciliation line: opening + net == closing. Showing
+        // the net alone would leave the operator unable to tell a quiet month from a month that moved and came
+        // back, which is the whole reason a cash column is read beside its neighbours.
+        ComparativeReportKind.CashFlow =>
+            $"Open {IndianFormat.AmountAlways(c.CashOpening)}"
+                + $" · Net {IndianFormat.AmountAlways(c.CashNetFlow)}"
+                + $" · Close {IndianFormat.AmountAlways(c.CashClosing)}",
+        // Funds Flow balances by construction, so both sides are shown: a column where they differ is a defect
+        // the operator can see rather than one the grid hides.
+        ComparativeReportKind.FundsFlow =>
+            $"Sources {IndianFormat.AmountAlways(c.TotalSources)}"
+                + $" · Applic. {IndianFormat.AmountAlways(c.TotalApplications)}",
         _ => string.Empty,
     };
 
@@ -1986,6 +2057,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
             ComparativeReportKind.TrialBalance => value.Amount >= 0m ? $"{magnitude} Dr" : $"{magnitude} Cr",
             ComparativeReportKind.BalanceSheet => magnitude, // side implied by the row's group; keep it clean
             ComparativeReportKind.ProfitAndLoss => magnitude,
+            // 🔴 The two flow statements MUST show their side on the cell, because the side is the whole reading
+            // and it is NOT implied by the row: the same counterparty releases cash one month and absorbs it the
+            // next, and the same ledger sources funds one quarter and applies them the next. A bare magnitude
+            // here would render an outflow identically to an inflow — the reader would see a number that is
+            // exactly as wrong as it is plausible. The single-column statements carry the side as a section
+            // heading; a comparative grid has no sections to carry it, so the cell does.
+            ComparativeReportKind.CashFlow =>
+                value.Amount >= 0m ? $"{magnitude} In" : $"{magnitude} Out",
+            ComparativeReportKind.FundsFlow =>
+                value.Amount >= 0m ? $"{magnitude} Src" : $"{magnitude} App",
             _ => magnitude,
         };
     }
@@ -2000,11 +2081,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         if (!SupportsComparative) return false;
         if (period is { } p && !p.IsValid) return false; // reject an inverted window
+        // 🔴 Refuse a scenario column on a scenario-blind kind HERE as well as in the engine. The engine throws,
+        // which is right for a programming error, but this is a user gesture: it must come back as a declined
+        // action the panel can explain, not an exception — and above all not as a column that quietly shows the
+        // actual books under a scenario's name.
+        if (scenario is not null && !SupportsComparativeScenarioColumns) return false;
 
         var text = string.IsNullOrWhiteSpace(label) ? DefaultColumnLabel(period, scenario) : label.Trim();
         // Carry the report's OWN display options (Detailed/HideZero/%/ClosingStock) so every column renders
         // consistently with the base; the spec's own period/scenario are overlaid on top of them by the engine.
-        _extraColumns.Add(new ComparativeReport.ColumnSpec(text, period, scenario, Options: _options));
+        // ColumnOptions — not _options — so a scenario left over from a previous kind cannot ride in here. The
+        // guard above only sees the scenario ARGUMENT; this one is hiding inside the carried options.
+        _extraColumns.Add(new ComparativeReport.ColumnSpec(text, period, scenario, Options: ColumnOptions));
         RebuildComparative();
         return true;
     }
@@ -2022,14 +2110,35 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// period (or books-begin → as-of when no explicit period is set). The base column stays first, so the
     /// months read alongside the whole-period base. A no-op on a non-comparative kind.
     /// </summary>
-    public bool AutoColumnsByMonth()
+    public bool AutoColumnsByMonth() => AutoColumnsByPeriodicity(ColumnPeriodicity.Monthly);
+
+    /// <summary>
+    /// Alt+N (by period) — replaces the extra columns with one column per <paramref name="periodicity"/> bucket
+    /// across the current period (or books-begin → as-of when no explicit period is set). The base column stays
+    /// first, so the buckets read alongside the whole-period base. A no-op on a non-comparative kind, or when the
+    /// window yields no buckets.
+    ///
+    /// <para>The periodicity list is the vendor's own — <i>"add periodic columns like monthly, quarterly, weekly,
+    /// and so on"</i> (<c>help.tallysolutions.com/funds-flow-report-tally/</c>) and <i>"you can configure the
+    /// columns to appear quarterly, weekly, daily, fortnightly, and so on"</i>
+    /// (<c>help.tallysolutions.com/cash-flow-and-projection-report-tally/</c>), both opened by content
+    /// 2026-10-20. Before this, the only axes were monthly and by-scenario.</para>
+    /// </summary>
+    public bool AutoColumnsByPeriodicity(ColumnPeriodicity periodicity)
     {
         if (!SupportsComparative) return false;
         var period = _options.Period ?? new PeriodRange(_company.BooksBeginFrom, _asOf);
+        var specs = ComparativeReport.PeriodicColumns(period, periodicity);
+        // An inverted or empty window yields no buckets; say so rather than silently clearing the grid.
+        if (specs.Count == 0) return false;
+
         _extraColumns.Clear();
-        // Inherit the report's display flags on every monthly column (each month overlays its own period).
-        foreach (var spec in ComparativeReport.MonthlyColumns(period))
-            _extraColumns.Add(spec with { Options = _options });
+        // Inherit the report's display flags on every column (each bucket overlays its own period).
+        // 🔴 The carried options may hold a scenario (a Trial Balance viewed under one, say). An auto-column
+        // axis is a PERIOD axis, so strip it: leaving it on would make every bucket a scenario column, which on
+        // a scenario-blind kind the engine then refuses outright.
+        foreach (var spec in specs)
+            _extraColumns.Add(spec with { Options = ColumnOptions });
         RebuildComparative();
         return true;
     }
@@ -2042,6 +2151,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public bool AutoColumnsByScenario()
     {
         if (!SupportsComparative) return false;
+        // 🔴 Scenario-blind kinds decline the axis instead of generating columns that reproduce the actuals.
+        if (!SupportsComparativeScenarioColumns) return false;
         if (_company.Scenarios.Count == 0) return false;
 
         var period = _options.Period ?? new PeriodRange(_company.BooksBeginFrom, _asOf);
