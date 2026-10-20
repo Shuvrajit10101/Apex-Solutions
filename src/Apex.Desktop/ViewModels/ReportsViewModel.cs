@@ -454,6 +454,51 @@ public enum ReportKind
     /// when both sides failed to build, and a reviewer must be able to tell which.</para>
     /// </summary>
     Gstr9cReconciliation,
+
+    // ---- W-BJ2 (census 11.16 / 12.1): THE REST OF THE FINANCIAL-YEAR-COMBOBOX FAMILY. Three more advanced-GST
+    // report pages that, exactly like the two annual returns above, replaced the vendor's report period control
+    // with a financial-year ComboBox of their own — and so had F2 as-of, Alt+F2 period, the F12 configuration
+    // panel, Ctrl+H saved views and the Enter-drill all switched off at once by their page Screen.
+    //
+    // 🔴 GROUNDING, AND IT IS THE GENERAL CONTRACT RATHER THAN A PER-REPORT SENTENCE — SAID THAT WAY ON PURPOSE.
+    // Opened by content 2026-10-20 at help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-
+    // tally-prime/, the vendor gives F2 as "To change the date of voucher entry or date/period for reports". No
+    // vendor page we have opened carries a per-report period sentence for these three by name — unlike GSTR-9 and
+    // GSTR-9C, which do — so the claim made here is the general one: a REPORT carries the period control, and a
+    // dedicated page Screen cannot. (Note for the next pass: the same page gives Alt+F2 as "To change the period
+    // of the company", NOT the report period; our report-scoped Alt+F2 is a pre-existing divergence, untouched.)
+    //
+    // 🔴 WHAT IS DELIBERATELY NOT HERE, AND WHY — so the count is not read as the whole family:
+    //   · GST Amendments  carries a multi-registration PICKER (GstAmendmentsReportViewModel.Registrations /
+    //     SelectedRegistration). This surface has no registration scope, so re-homing it would buy a period
+    //     control at the price of registration scoping — and on a book with two GSTINs an amendment report
+    //     folded over both registrations is a wrong-money document. Filed, not built. The same reasoning
+    //     excludes ITC Reversal and the ITC Gate, which both scope by ScopedRegistrationId.
+    //   · GST Offline Returns  WRITES files. It is not a read-only report.
+    //   · Forex Gain/Loss  POSTS a revaluation Journal through _storage.Save. Whether a writing report may sit
+    //     on the read-only shared surface is a USER decision this track was told not to take, and has not.
+
+    /// <summary>
+    /// The <b>ITC Set-Off (Rule 88A) projection</b> (census 6.x / 11.16), re-homed off
+    /// <see cref="Screen.ItcSetOffReport"/>. Projects <see cref="ItcSetOffReportViewModel"/>'s own grid through
+    /// its <c>ToMasterListSnapshot</c>, so the re-homed report is cell-for-cell the superseded page and the
+    /// Rule-88A allocation is not computed a second time here.
+    /// </summary>
+    ItcSetOffProjection,
+
+    /// <summary>
+    /// The <b>QRMP / IFF cadence</b> report (census 6.x / 11.16), re-homed off <see cref="Screen.QrmpReport"/>.
+    /// Projects <see cref="QrmpReportViewModel"/>'s own grid — the IFF window view and the PMT-06 advisory —
+    /// through its <c>ToMasterListSnapshot</c>.
+    /// </summary>
+    QrmpIffCadence,
+
+    /// <summary>
+    /// The <b>Electronic Ledgers</b> report (census 6.x / 11.16), re-homed off
+    /// <see cref="Screen.ElectronicLedgersReport"/>. Projects <see cref="ElectronicLedgersReportViewModel"/>'s
+    /// own grid — the credit, cash and liability pools — through its <c>ToMasterListSnapshot</c>.
+    /// </summary>
+    ElectronicLedgers,
 }
 
 /// <summary>
@@ -655,7 +700,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // W-BJ — the two annual GST returns. Same reasoning again: the matrix's live column band is the ONE
         // list both egress projectors read, so screen, spreadsheet and printed page cannot disagree about a
         // statutory table's caption.
-        or ReportKind.Gstr9AnnualReturn or ReportKind.Gstr9cReconciliation;
+        or ReportKind.Gstr9AnnualReturn or ReportKind.Gstr9cReconciliation
+        // W-BJ2 — the rest of the financial-year-ComboBox family, for the same reason again: the matrix's live
+        // column band is the ONE list both egress projectors read, so a kind added here gets a correct screen, a
+        // correct exported header row and a correct printed header band from one declaration.
+        or ReportKind.ItcSetOffProjection or ReportKind.QrmpIffCadence or ReportKind.ElectronicLedgers;
 
     /// <summary>True for either side of the re-homed Outstandings report (census 11.9).</summary>
     public bool IsOutstandingsReport =>
@@ -1857,6 +1906,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.Gstr9AnnualReturn: RunStatutoryForm(BuildGstr9AnnualReturn); break;
             case ReportKind.Gstr9cReconciliation: RunStatutoryForm(BuildGstr9cReconciliation); break;
 
+            // W-BJ2 — the rest of the financial-year-ComboBox family. Through RunStatutoryForm for the identical
+            // reason: each page's own Rebuild() catches the multi-registration refusal GSTR-3B throws and shows
+            // its message, and the re-home must not be what turns that back into a shell crash.
+            case ReportKind.ItcSetOffProjection:
+                RunStatutoryForm(() => BuildRehomedFyScopedGstPage(new ItcSetOffReportViewModel(_company)));
+                break;
+            case ReportKind.QrmpIffCadence:
+                RunStatutoryForm(() => BuildRehomedFyScopedGstPage(new QrmpReportViewModel(_company)));
+                break;
+            case ReportKind.ElectronicLedgers:
+                RunStatutoryForm(() => BuildRehomedFyScopedGstPage(new ElectronicLedgersReportViewModel(_company)));
+                break;
+
             case ReportKind.CashFlow: BuildCashFlow(); break;
             case ReportKind.FundsFlow: BuildFundsFlow(); break;
             case ReportKind.RatioAnalysis: BuildRatioAnalysis(); break;
@@ -2240,6 +2302,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // KeyNotFoundException on the very gesture the re-home delivers. Frozen strings.
         [ReportKind.Gstr9AnnualReturn] = "Gstr9AnnualReturn",
         [ReportKind.Gstr9cReconciliation] = "Gstr9cReconciliation",
+        // W-BJ2 — the rest of the financial-year-ComboBox family. Same rule, same reason. Frozen strings.
+        [ReportKind.ItcSetOffProjection] = "ItcSetOffProjection",
+        [ReportKind.QrmpIffCadence] = "QrmpIffCadence",
+        [ReportKind.ElectronicLedgers] = "ElectronicLedgers",
     };
 
     private static readonly IReadOnlyDictionary<string, ReportKind> TokenKinds =
@@ -8291,6 +8357,58 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         MarkStatutoryFormEmpty(PayrollRows.Count == 0,
             "No reconciliation figures for this financial year.");
+    }
+
+    /// <summary>
+    /// 🔴 <b>W-BJ2 — ONE BUILDER FOR EVERY FINANCIAL-YEAR-SCOPED ADVANCED-GST PAGE RE-HOMED ONTO THIS SURFACE.</b>
+    /// Declares the matrix band from the page's own <see cref="MasterListSnapshot"/> columns and fills it from
+    /// that snapshot's rows, so the re-homed report is <b>cell-for-cell the superseded page by construction</b>
+    /// and none of its arithmetic is transcribed a second time. Transcribing is how a re-home loses a figure
+    /// between the engine and the grid; this cannot, and a test compares the two projections row for row.
+    ///
+    /// <para>🔴 <b>THE PERIOD IS REAL, AND WHERE IT CANNOT BE THE REPORT SAYS SO.</b> The whole point of the
+    /// re-home is that Alt+F2 re-scopes the projection, so the report period's financial year is pushed into the
+    /// page's own <see cref="IFyScopedGstReportPage.SelectedYear"/> — which re-projects it. A page offers a
+    /// BOUNDED list of years (its own ComboBox did too: the company FY and the two prior). When the chosen
+    /// period falls outside that list the report is marked EMPTY and names the years on offer. It must never
+    /// fall back to the page's default year, because that prints one year's tax under another year's heading —
+    /// a parameter that silently does nothing is the inert-control defect this surface exists to remove, and a
+    /// parameter that silently does something ELSE is worse.</para>
+    ///
+    /// <para>The subtitle always names the projected financial year, so the figures on screen, in the
+    /// spreadsheet and on the printed page can always be attributed to a period.</para>
+    /// </summary>
+    private void BuildRehomedFyScopedGstPage(IFyScopedGstReportPage page)
+    {
+        var (from, to) = GstAnnualReturnWindow();
+        IsTwoColumn = false;
+
+        var wanted = page.FinancialYears.FirstOrDefault(o => o.StartYear == from.Year);
+        if (wanted is not null) page.SelectedYear = wanted;   // re-projects the page over the chosen year
+
+        var snapshot = page.ToMasterListSnapshot();
+        Title = snapshot.Title;
+
+        foreach (var column in snapshot.Columns)
+            WideCol(column.Caption, column.IsNumeric ? WideMoneyWidth : WideNameWidth, column.IsNumeric);
+
+        Subtitle = $"{CompanyName}  —  FY {FormatDate(from)} to {FormatDate(to)}";
+
+        if (wanted is null)
+        {
+            var offered = string.Join(", ", page.FinancialYears.Select(o => o.Label));
+            MarkStatutoryFormEmpty(true,
+                $"This report is projected a financial year at a time, and FY {from.Year}-{(from.Year + 1) % 100:00} "
+              + $"is not one it can project. Years available: {offered}. Press Alt+F2 and choose a date inside one "
+              + "of them.");
+            return;
+        }
+
+        foreach (var row in snapshot.Rows)
+            PayrollRows.Add(WideRow(false, row.ToArray()));
+
+        MarkStatutoryFormEmpty(PayrollRows.Count == 0,
+            $"No figures for FY {FormatDate(from)} to {FormatDate(to)}.");
     }
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;

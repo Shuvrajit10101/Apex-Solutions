@@ -277,6 +277,14 @@ public sealed partial class MainWindowViewModel
             [ReportKind.Gstr9AnnualReturn] = ReportFeatureGate.RegularGstDealer,
             [ReportKind.Gstr9cReconciliation] = ReportFeatureGate.RegularGstDealer,
 
+            // ---- BuildGstAdvancedReturnsColumn (W-BJ2). The same gate and for the same reason: "GST Returns
+            // (Advanced)" is a conditional col.Add on a Regular dealer and ShowGstAdvancedReturnsMenu refuses
+            // outright for anyone else, so a saved view holding one of these kinds must be refused on exactly
+            // that condition or it is a second door into a group this company does not have.
+            [ReportKind.ItcSetOffProjection] = ReportFeatureGate.RegularGstDealer,
+            [ReportKind.QrmpIffCadence] = ReportFeatureGate.RegularGstDealer,
+            [ReportKind.ElectronicLedgers] = ReportFeatureGate.RegularGstDealer,
+
             // ---- BuildStatementsColumn / BuildExceptionReportsColumn: unconditional.
             [ReportKind.CashFlow] = ReportFeatureGate.None,
             [ReportKind.FundsFlow] = ReportFeatureGate.None,

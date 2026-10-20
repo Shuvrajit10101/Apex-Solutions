@@ -7534,24 +7534,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "GST Offline Return Files (JSON)", () => GstOfflineReturns = page);
     }
 
-    /// <summary>Opens the <b>Electronic Ledgers</b> report (Reports → Statutory Reports → GST Returns (Advanced) →
-    /// Electronic Ledgers; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>Electronic Ledgers</b> report (Reports -> Statutory Reports -> GST Returns (Advanced) -> Electronic Ledgers).
+    /// A no-op unless the company is a Regular GST dealer (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ2 — RE-HOMED off <see cref="Screen.ElectronicLedgersReport"/> onto
+    /// <see cref="ReportKind.ElectronicLedgers"/>, and this opener is the ONE door, so the menu row and the Ctrl+H
+    /// saved view land on the same surface.</b> A page <c>Screen</c> leaves <see cref="Reports"/> null, and
+    /// that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Ctrl+H saved views and the
+    /// report's own Enter-drill simultaneously; this page offered a financial-year ComboBox in place of the
+    /// period control. <b>Grounded on the vendor's general report contract, opened by content 2026-10-20:</b>
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> gives
+    /// <c>F2</c> as <i>"To change the date of voucher entry or date/period for reports"</i>. No vendor page we
+    /// have opened names this report's period gesture specifically, so the claim is the general one and is
+    /// written that way deliberately.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back: print and export.</b> Those were never off here —
+    /// <see cref="ElectronicLedgersReportViewModel"/> already implements <c>IMasterListExportSource</c>, which
+    /// <c>IsPrintablePage</c>'s third arm reached. What LEAVES is the page's financial-year ComboBox,
+    /// replaced by F2 / Alt+F2 — and the re-homed report is built FROM this page's own snapshot, so it is
+    /// cell-for-cell what the page showed.</para>
+    /// </summary>
     public void OpenElectronicLedgersReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new ElectronicLedgersReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Electronic Ledgers", page), Screen.ElectronicLedgersReport,
-            "Electronic Ledgers", () => ElectronicLedgersReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.ElectronicLedgers);
     }
 
-    /// <summary>Opens the <b>ITC Set-Off</b> (Rule-88A) display-only projection (Reports → Statutory Reports → GST
-    /// Returns (Advanced) → ITC Set-Off; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>ITC Set-Off (Rule 88A) projection</b> report (Reports -> Statutory Reports -> GST Returns (Advanced) -> ITC Set-Off).
+    /// A no-op unless the company is a Regular GST dealer (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ2 — RE-HOMED off <see cref="Screen.ItcSetOffReport"/> onto
+    /// <see cref="ReportKind.ItcSetOffProjection"/>, and this opener is the ONE door, so the menu row and the Ctrl+H
+    /// saved view land on the same surface.</b> A page <c>Screen</c> leaves <see cref="Reports"/> null, and
+    /// that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Ctrl+H saved views and the
+    /// report's own Enter-drill simultaneously; this page offered a financial-year ComboBox in place of the
+    /// period control. <b>Grounded on the vendor's general report contract, opened by content 2026-10-20:</b>
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> gives
+    /// <c>F2</c> as <i>"To change the date of voucher entry or date/period for reports"</i>. No vendor page we
+    /// have opened names this report's period gesture specifically, so the claim is the general one and is
+    /// written that way deliberately.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back: print and export.</b> Those were never off here —
+    /// <see cref="ItcSetOffReportViewModel"/> already implements <c>IMasterListExportSource</c>, which
+    /// <c>IsPrintablePage</c>'s third arm reached. What LEAVES is the page's financial-year ComboBox,
+    /// replaced by F2 / Alt+F2 — and the re-homed report is built FROM this page's own snapshot, so it is
+    /// cell-for-cell what the page showed.</para>
+    /// </summary>
     public void OpenItcSetOffReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new ItcSetOffReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("ITC Set-Off", page), Screen.ItcSetOffReport,
-            "ITC Set-Off (Rule 88A) — projection", () => ItcSetOffReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.ItcSetOffProjection);
     }
 
     /// <summary>Opens the <b>ITC Reversal</b> display-only view (Reports → Statutory Reports → GST Returns (Advanced) →
@@ -7584,14 +7618,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "ITC Gate — §16(2)(aa) / §17(5)", () => ItcGateReport = page);
     }
 
-    /// <summary>Opens the <b>QRMP / IFF</b> cadence report (Reports → Statutory Reports → GST Returns (Advanced) →
-    /// QRMP / IFF; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>QRMP / IFF Cadence</b> report (Reports -> Statutory Reports -> GST Returns (Advanced) -> QRMP / IFF).
+    /// A no-op unless the company is a Regular GST dealer (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ2 — RE-HOMED off <see cref="Screen.QrmpReport"/> onto
+    /// <see cref="ReportKind.QrmpIffCadence"/>, and this opener is the ONE door, so the menu row and the Ctrl+H
+    /// saved view land on the same surface.</b> A page <c>Screen</c> leaves <see cref="Reports"/> null, and
+    /// that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Ctrl+H saved views and the
+    /// report's own Enter-drill simultaneously; this page offered a financial-year ComboBox in place of the
+    /// period control. <b>Grounded on the vendor's general report contract, opened by content 2026-10-20:</b>
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> gives
+    /// <c>F2</c> as <i>"To change the date of voucher entry or date/period for reports"</i>. No vendor page we
+    /// have opened names this report's period gesture specifically, so the claim is the general one and is
+    /// written that way deliberately.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back: print and export.</b> Those were never off here —
+    /// <see cref="QrmpReportViewModel"/> already implements <c>IMasterListExportSource</c>, which
+    /// <c>IsPrintablePage</c>'s third arm reached. What LEAVES is the page's financial-year ComboBox,
+    /// replaced by F2 / Alt+F2 — and the re-homed report is built FROM this page's own snapshot, so it is
+    /// cell-for-cell what the page showed.</para>
+    /// </summary>
     public void OpenQrmpReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new QrmpReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("QRMP / IFF", page), Screen.QrmpReport,
-            "QRMP / IFF Cadence", () => QrmpReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.QrmpIffCadence);
     }
 
     /// <summary>Opens the <b>GST Amendments</b> (GSTR-1/3B) report (Reports → Statutory Reports → GST Returns

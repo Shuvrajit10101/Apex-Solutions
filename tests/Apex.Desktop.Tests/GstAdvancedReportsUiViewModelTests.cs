@@ -437,6 +437,19 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         return row!.Cells[1].Text;
     }
 
+    /// <summary>
+    /// 🔴 <b>THE FIGURES THIS TEST IS ABOUT ACTUALLY REACHED THE RE-HOMED GRID.</b> After W-BJ2 the page
+    /// view model is built by the TEST, not by production, so an assertion on it alone proves the arithmetic and
+    /// says nothing about what an operator sees. The full cell-for-cell equality between the re-homed report and
+    /// the superseded page is asserted in <c>RehomedReportSurfaceBj2Tests</c>; this is the local check that these
+    /// particular figures are on the matrix an operator reads, prints and exports.
+    /// </summary>
+    private static void AssertMatrixCarries(ReportsViewModel reports, params string[] figures)
+    {
+        foreach (var figure in figures)
+            Assert.Contains(reports.PayrollRows, r => r.Cells.Any(c => c.Text == figure));
+    }
+
     // ================================================================ Screen 3: Electronic Ledgers
 
     [Fact]
@@ -445,8 +458,14 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         var vm = NewRegularGstCompany("ELedgers Co");
         vm.OpenElectronicLedgersReport();
 
-        Assert.Equal(Screen.ElectronicLedgersReport, vm.CurrentScreen);
-        var page = vm.ElectronicLedgersReport!;
+        // 🔴 W-BJ2 — RE-HOMED onto the shared report surface, so the landing is Screen.Report and no
+        // production path constructs the page view model any more. Its arithmetic is NOT dropped: the page is
+        // built here and every figure below is still asserted against it, and the re-homed report's own cells
+        // are asserted beside them — which is strictly stronger than the old shape, because a re-home that lost
+        // a figure between the page and the grid would have passed it.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.ElectronicLedgers, vm.Reports!.Kind);
+        var page = new ElectronicLedgersReportViewModel(vm.Company!);
         Assert.Equal(4, page.CreditRows.Count);      // CGST / SGST / IGST / Cess
         Assert.Equal(4, page.LiabilityRows.Count);
 
@@ -463,6 +482,8 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         // Cash-ledger section never renders a bare header over nothing).
         Assert.Empty(page.CashRows);
         Assert.False(page.HasCashCells);
+
+        AssertMatrixCarries(vm.Reports!, "450.00", "900.00", "90.00");
     }
 
     // ================================================================ Screen 4: ITC Set-Off (view)
@@ -474,8 +495,14 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         var voucherCountBefore = vm.Company!.Vouchers.Count;
 
         vm.OpenItcSetOffReport();
-        Assert.Equal(Screen.ItcSetOffReport, vm.CurrentScreen);
-        var page = vm.ItcSetOffReport!;
+        // 🔴 W-BJ2 — RE-HOMED onto the shared report surface, so the landing is Screen.Report and no
+        // production path constructs the page view model any more. Its arithmetic is NOT dropped: the page is
+        // built here and every figure below is still asserted against it, and the re-homed report's own cells
+        // are asserted beside them — which is strictly stronger than the old shape, because a re-home that lost
+        // a figure between the page and the grid would have passed it.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.ItcSetOffProjection, vm.Reports!.Kind);
+        var page = new ItcSetOffReportViewModel(vm.Company!);
 
         // Liability 90+90 fully covered by the 450+450 own-head credit ⇒ two lines, zero residual cash.
         Assert.Equal(2, page.Lines.Count);
@@ -489,6 +516,8 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         // Display-only: opening the projection posts NOTHING (no set-off journal appears).
         Assert.Equal(voucherCountBefore, vm.Company!.Vouchers.Count);
         Assert.Empty(vm.Company!.GstSetoffLines);
+
+        AssertMatrixCarries(vm.Reports!, "90.00", "360.00");
     }
 
     /// <summary>
@@ -516,13 +545,15 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
 
         // The Electronic Ledgers screen: the reversal reduced the Input pools to ₹50 per head.
         vm.OpenElectronicLedgersReport();
-        var ledgers = vm.ElectronicLedgersReport!;
+        Assert.Equal(ReportKind.ElectronicLedgers, vm.Reports!.Kind);   // W-BJ2 — re-homed
+        var ledgers = new ElectronicLedgersReportViewModel(vm.Company!);
         Assert.Equal(50m, ledgers.View.CreditCgst.Amount);
         Assert.Equal(50m, ledgers.View.CreditSgst.Amount);
         Assert.Equal(400m, ledgers.View.CreditReversedCgst.Amount);
 
         vm.OpenItcSetOffReport();
-        var page = vm.ItcSetOffReport!;
+        Assert.Equal(ReportKind.ItcSetOffProjection, vm.Reports!.Kind);   // W-BJ2 — re-homed
+        var page = new ItcSetOffReportViewModel(vm.Company!);
 
         // (1) The two screens agree on the credit pool — the set-off draws on the SAME Input-ledger pool.
         Assert.Equal("50.00", page.CreditCgstText);
@@ -543,6 +574,8 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
 
         // Still strictly display-only.
         Assert.Empty(c.GstSetoffLines);
+
+        AssertMatrixCarries(vm.Reports!, "50.00", "80.00", "100.00");
     }
 
     /// <summary>
@@ -560,7 +593,8 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.Equal(18_000m, page3b.TotalRcmOutward.Amount);       // 18% CGST+SGST — and NOT the cess
 
         vm.OpenItcSetOffReport();
-        var page = vm.ItcSetOffReport!;
+        Assert.Equal(ReportKind.ItcSetOffProjection, vm.Reports!.Kind);   // W-BJ2 — re-homed
+        var page = new ItcSetOffReportViewModel(vm.Company!);
 
         // The RCM cash liability carries the cess: ₹18,000 (CGST+SGST) + ₹22,000 (cess) = ₹40,000.
         Assert.Equal("40,000.00", page.LiabRcmCashText);
@@ -570,6 +604,8 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         // Ring-fence intact: the cess ITC is still credit (carried forward), never netted against the RCM cash.
         Assert.Equal("22,000.00", page.CreditCessText);
         Assert.Equal("22,000.00", page.ClosingCessText);
+
+        AssertMatrixCarries(vm.Reports!, "40,000.00", "22,000.00");
     }
 
     // ================================================================ Screen 5: ITC Reversal (view)
@@ -848,8 +884,14 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         var vm = NewRegularGstCompany("Qrmp Co", GstReturnPeriodicity.Quarterly);
         vm.OpenQrmpReport();
 
-        Assert.Equal(Screen.QrmpReport, vm.CurrentScreen);
-        var page = vm.QrmpReport!;
+        // 🔴 W-BJ2 — RE-HOMED onto the shared report surface, so the landing is Screen.Report and no
+        // production path constructs the page view model any more. Its arithmetic is NOT dropped: the page is
+        // built here and every figure below is still asserted against it, and the re-homed report's own cells
+        // are asserted beside them — which is strictly stronger than the old shape, because a re-home that lost
+        // a figure between the page and the grid would have passed it.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.QrmpIffCadence, vm.Reports!.Kind);
+        var page = new QrmpReportViewModel(vm.Company!);
         Assert.True(page.Applicable);
         Assert.Equal(4, page.Projection.Quarters.Count);
         Assert.Equal(8, page.IffRows.Count);      // M1 + M2 across four quarters
@@ -863,6 +905,8 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.False(q1m1.ExceedsCap);
         Assert.True(q1m1.WithinCap);
         Assert.Equal("Within cap", q1m1.Cap);
+
+        AssertMatrixCarries(vm.Reports!, "Apr 2024", "1,000.00", "Within cap");
     }
 
     [Fact]
@@ -871,12 +915,22 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         var vm = NewRegularGstCompany("Qrmp Monthly Co");   // seeded Monthly
         vm.OpenQrmpReport();
 
-        Assert.Equal(Screen.QrmpReport, vm.CurrentScreen);
-        var page = vm.QrmpReport!;
+        // 🔴 W-BJ2 — RE-HOMED onto the shared report surface, so the landing is Screen.Report and no
+        // production path constructs the page view model any more. Its arithmetic is NOT dropped: the page is
+        // built here and every figure below is still asserted against it, and the re-homed report's own cells
+        // are asserted beside them — which is strictly stronger than the old shape, because a re-home that lost
+        // a figure between the page and the grid would have passed it.
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(ReportKind.QrmpIffCadence, vm.Reports!.Kind);
+        var page = new QrmpReportViewModel(vm.Company!);
         Assert.False(page.Applicable);
         Assert.Empty(page.IffRows);
         Assert.Empty(page.Pmt06Rows);
         Assert.Contains("Not applicable", page.StatusText);
+
+        // 🔴 The "Not applicable" sentence is on the GRID, not only on a page property nothing draws.
+        Assert.Contains(vm.Reports!.PayrollRows,
+            r => r.Cells.Any(c => c.Text.Contains("Not applicable", StringComparison.Ordinal)));
     }
 
     // ================================================================ Screen 9: GST Amendments

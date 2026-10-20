@@ -32,7 +32,7 @@ public sealed class ItcSetOffLineRowVm
 /// <b>It posts nothing</b> — this is a read-only what-if projection; the actual set-off is
 /// posted by the S7 engine, not here. Gated: Regular GST company (ER-13). MVVM boundary: engine only; deterministic.
 /// </summary>
-public sealed partial class ItcSetOffReportViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class ItcSetOffReportViewModel : ViewModelBase, IFyScopedGstReportPage
 {
     private readonly Company _company;
 
