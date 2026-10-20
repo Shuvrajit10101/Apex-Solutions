@@ -400,9 +400,14 @@ public static class GstReturnJson
     /// (UTF-8, no BOM). Money is integer paisa (ER-10). Every figure is emitted <b>verbatim from the engine</b> — no
     /// arithmetic is invented here, and a negative net head (a carried-forward credit, DP-9) is emitted as it stands
     /// rather than floored to zero.</summary>
-    public static byte[] Gstr3b(Company company, DateOnly from, DateOnly to)
+    /// <para>🔴 <b>REGISTRATION SCOPE (T2-119 (ii) / census 6.23).</b> This writer took no
+    /// <paramref name="registrationId"/>, while the on-screen projection beside it (<c>ProjectGstr3b</c>) already
+    /// took one — so on a multi-registration book the preview rendered the SELECTED registration and the export
+    /// threw <c>EnsureRegistrationScoped</c>'s refusal instead of emitting. Scoped here because this slice touches
+    /// the call site; FOUR offline writers still take none (Gstr9c, Cmp08, Gstr4, Gstr9a).</para>
+    public static byte[] Gstr3b(Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
     {
-        var r = Reports.Gstr3b.Build(company, from, to);
+        var r = Reports.Gstr3b.Build(company, from, to, registrationId);
         var dto = new Gstr3bDto
         {
             Gstin = company.Gst?.Gstin,
@@ -428,9 +433,16 @@ public static class GstReturnJson
             Tbl4a4IsdSamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdSgst),
             Tbl4a4IsdIamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdIgst),
             Tbl4a4IsdCsamtPaisa = MoneyCodec.ToPaisa(r.Itc4A4IsdCess),
-            Tbl4a5CamtPaisa = MoneyCodec.ToPaisa(r.ItcCgst),
-            Tbl4a5SamtPaisa = MoneyCodec.ToPaisa(r.ItcSgst),
-            Tbl4a5IamtPaisa = MoneyCodec.ToPaisa(r.ItcIgst),
+            // 🔴 THE RECLAIM BELONGS INSIDE 4(A)(5) AND THE FILED BYTES WERE OMITTING IT. The screen renders
+            // Gstr3b.ItcReportedAllOther* (= Itc* + ItcReclaimed4D1*) under this caption; this writer rendered the
+            // bare Itc*, so an operator who reclaimed a Rule-37 reversal saw the credit on screen and FILED a
+            // 4(A)(5) short by exactly the reclaimed amount. Same class as the 4(A)(4) omission fixed above.
+            // CBIC Circular No. 170/02/2022-GST (cbic-gst.gov.in), para 4.3(C), read by content: "Such ITC may be
+            // reclaimed in Table 4(A)(5) on fulfilment of necessary conditions. Further, all such reclaimed ITC
+            // shall also be shown in Table 4(D)(1)." It is reported TWICE on purpose — hence tbl4d1_* stays as it is.
+            Tbl4a5CamtPaisa = MoneyCodec.ToPaisa(r.ItcReportedAllOtherCgst),
+            Tbl4a5SamtPaisa = MoneyCodec.ToPaisa(r.ItcReportedAllOtherSgst),
+            Tbl4a5IamtPaisa = MoneyCodec.ToPaisa(r.ItcReportedAllOtherIgst),
 
             Tbl4b1CamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B1Cgst),
             Tbl4b1SamtPaisa = MoneyCodec.ToPaisa(r.ItcReversed4B1Sgst),
@@ -445,9 +457,9 @@ public static class GstReturnJson
             Tbl4d1IamtPaisa = MoneyCodec.ToPaisa(r.ItcReclaimed4D1Igst),
             Tbl4d1CsamtPaisa = MoneyCodec.ToPaisa(r.ItcReclaimed4D1Cess),
 
-            Tbl6_1NetCamtPaisa = MoneyCodec.ToPaisa(r.NetCgst),
-            Tbl6_1NetSamtPaisa = MoneyCodec.ToPaisa(r.NetSgst),
-            Tbl6_1NetIamtPaisa = MoneyCodec.ToPaisa(r.NetIgst),
+            Tbl4cNetItcCamtPaisa = MoneyCodec.ToPaisa(r.NetItcAvailableCgst),
+            Tbl4cNetItcSamtPaisa = MoneyCodec.ToPaisa(r.NetItcAvailableSgst),
+            Tbl4cNetItcIamtPaisa = MoneyCodec.ToPaisa(r.NetItcAvailableIgst),
             SchemaStatus = SchemaStatusFlag,
         };
         return Serialize(dto);
@@ -736,9 +748,43 @@ public static class GstReturnJson
         [JsonPropertyName("tbl4d1_iamt_paisa")] public long Tbl4d1IamtPaisa { get; init; }
         [JsonPropertyName("tbl4d1_csamt_paisa")] public long Tbl4d1CsamtPaisa { get; init; }
 
-        [JsonPropertyName("tbl6_1_net_camt_paisa")] public long Tbl6_1NetCamtPaisa { get; init; }
-        [JsonPropertyName("tbl6_1_net_samt_paisa")] public long Tbl6_1NetSamtPaisa { get; init; }
-        [JsonPropertyName("tbl6_1_net_iamt_paisa")] public long Tbl6_1NetIamtPaisa { get; init; }
+        // ---- Table 4(C) "Net ITC Available (A) − (B)" ------------------------------------------------------------
+        // 🔴 ADDED, AND IT REPLACES AN INVENTED TABLE 6.1 (see the struck keys below). 4(C) is the figure that is
+        // actually credited to the electronic credit ledger, and the envelope did not carry it at all even though
+        // the screen renders it — the same "the screen shows it and the filed artefact does not" defect as 4(A)(4).
+        // CBIC Circular No. 170/02/2022-GST (cbic-gst.gov.in), read by content — para 4.2: "the amount of Net ITC
+        // Available as per Table 4(C) of FORM GSTR-3B gets credited into the electronic credit ledger (ECL) of the
+        // registered person"; para 4.3(D): "the net ITC Available will be calculated in Table 4 (C) which is as per
+        // the formula (4A - [4B (1) + 4B (2)]) and same will be credited to the ECL".
+        //
+        // KEY NAMES ARE OURS, on the same terms as every other tbl* key on this envelope (the GSTN upload schema is
+        // published only behind the authenticated developer portal), and they ride the same schemaStatus flag.
+        [JsonPropertyName("tbl4c_net_itc_camt_paisa")] public long Tbl4cNetItcCamtPaisa { get; init; }
+        [JsonPropertyName("tbl4c_net_itc_samt_paisa")] public long Tbl4cNetItcSamtPaisa { get; init; }
+        [JsonPropertyName("tbl4c_net_itc_iamt_paisa")] public long Tbl4cNetItcIamtPaisa { get; init; }
+
+        // ---- Table 6.1 "Payment of tax" — REMOVED, DELIBERATELY, AND STRUCK RATHER THAN DELETED --------------------
+        // ~~[JsonPropertyName("tbl6_1_net_camt_paisa")] public long Tbl6_1NetCamtPaisa { get; init; }~~
+        // ~~[JsonPropertyName("tbl6_1_net_samt_paisa")] public long Tbl6_1NetSamtPaisa { get; init; }~~
+        // ~~[JsonPropertyName("tbl6_1_net_iamt_paisa")] public long Tbl6_1NetIamtPaisa { get; init; }~~
+        //
+        // 🔴 THESE THREE WERE OUR OWN INVENTION AND THEY FILED A WRONG NUMBER. They carried Gstr3b.Net* =
+        // Outward − ItcCgst, which is wrong in BOTH directions at once:
+        //   (i)  the credit it nets is the raw posted input credit, NOT Table 4(C) — so it ignores 4(A)(2)/(3) RCM
+        //        credit, 4(A)(4) ISD credit, both 4(B) reversals and the 4(D)(1) reclaim. W3ReviewIsdFiledJsonTests
+        //        pinned that shape as "pre-existing, recorded not fixed"; this is the fix.
+        //   (ii) it omits the Table 3.1(d) reverse-charge liability altogether, and that liability is CASH-ONLY, so
+        //        no single net figure can be right here. CGST Act §2(82) excludes reverse-charge tax from "output
+        //        tax" and §49(4) lets the credit ledger pay only "output tax" (cbic-gst.gov.in, quoted in full on
+        //        Gstr3b.OutwardAndRcmTaxCgst). Netting the two legs together offers a set-off the statute forbids.
+        //
+        // AND THE VENDOR DOES NOT FILL THIS TABLE EITHER, which is why removal — not a two-legged replacement — is
+        // the clone-faithful answer. help.tallysolutions.com/tally-prime/india-gst/gstr-3b-report-tally/ ("How to
+        // View GSTR-3B Report in TallyPrime"), opened by content: "6.1 Payment of tax This section will be left
+        // blank." Payment depends on the electronic cash and credit ledgers, which an accounting book does not hold.
+        //
+        // NO INFORMATION IS LOST: 3.1(a) tax, 3.1(d) tax and the newly emitted 4(C) are all on this envelope, so the
+        // payment table is derivable by the portal from the rows it is handed — which is how it is meant to arrive.
         [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
     }
 
