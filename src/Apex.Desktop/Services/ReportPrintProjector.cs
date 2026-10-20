@@ -102,8 +102,13 @@ public static class ReportPrintProjector
     /// one row per <see cref="ReportsViewModel.PayrollRows"/> entry. Figures are already formatted on the cells.</summary>
     private static PrintReport ProjectPayrollMatrix(ReportsViewModel vm)
     {
-        var columns = new List<PrintColumn>(vm.PayrollColumns.Count);
-        foreach (var c in vm.PayrollColumns)
+        // 🔴 The band is the MERGE of section 1 and section 2, not section 1 alone — see ReportMatrixEgressBand.
+        // PrintReport carries one band and ReportPdf clamps every row with Math.Min(Columns.Count, Cells.Count),
+        // so a section-2 row wider than section 1 was truncated on the printed page. GSTR-9 Table 17 printed
+        // "17  Total" with nothing beside it.
+        var band = ReportMatrixEgressBand.For(vm);
+        var columns = new List<PrintColumn>(band.Count);
+        foreach (var c in band)
             columns.Add(new PrintColumn(Ascii(c.Header), c.IsNumeric ? 1.3 : 2.4,
                 c.IsNumeric ? CellAlign.Right : CellAlign.Left));
 

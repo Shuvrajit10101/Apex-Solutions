@@ -299,8 +299,7 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.NotEqual(GatewayMenu.GstAdvancedReturns, vm.CurrentGatewayMenu);
 
         // And every opener is a no-op — the page stays null and the screen never changes.
-        vm.OpenGstr9Report(); Assert.Null(vm.Gstr9Report);
-        vm.OpenGstr9cReport(); Assert.Null(vm.Gstr9cReport);
+        AssertTheTwoRehomedOpenersRefuse(vm);
         vm.OpenElectronicLedgersReport(); Assert.Null(vm.ElectronicLedgersReport);
         vm.OpenItcSetOffReport(); Assert.Null(vm.ItcSetOffReport);
         vm.OpenItcReversalReport(); Assert.Null(vm.ItcReversalReport);
@@ -310,6 +309,29 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         vm.OpenGstAmendmentsReport(); Assert.Null(vm.GstAmendmentsReport);
         vm.OpenEInvoiceEWayStatusReport(); Assert.Null(vm.EInvoiceEWayStatusReport);
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE TWO RE-HOMED OPENERS' ER-13 GATE, ASSERTED WHERE IT NOW LIVES.</b> This replaces
+    /// <c>Assert.Null(vm.Gstr9Report)</c> / <c>Assert.Null(vm.Gstr9cReport)</c>, which W-BJ made <b>VACUOUS</b>:
+    /// GSTR-9 and GSTR-9C were re-homed onto the shared report surface, so nothing in production constructs
+    /// either page view model any more and those two properties can never be non-null — a test that cannot fail
+    /// is worse than none, because it reads like a gate that is being checked. The gate is now where the reports
+    /// actually open: the shared surface must not come up, and it must not come up carrying their kind.
+    /// </summary>
+    private static void AssertTheTwoRehomedOpenersRefuse(MainWindowViewModel vm)
+    {
+        foreach (var (open, kind, name) in new (Action Open, ReportKind Kind, string Name)[]
+        {
+            (vm.OpenGstr9Report, ReportKind.Gstr9AnnualReturn, "GSTR-9"),
+            (vm.OpenGstr9cReport, ReportKind.Gstr9cReconciliation, "GSTR-9C"),
+        })
+        {
+            open();
+            Assert.True(vm.Reports is null || vm.Reports.Kind != kind,
+                $"{name} built itself on the shared report surface for a company the ER-13 gate denies.");
+            Assert.NotEqual(Screen.Report, vm.CurrentScreen);
+        }
     }
 
     /// <summary>
@@ -334,8 +356,7 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         Assert.NotEqual(GatewayMenu.GstAdvancedReturns, vm.CurrentGatewayMenu);
 
         // And every opener is a no-op — the page stays null and the screen never changes.
-        vm.OpenGstr9Report(); Assert.Null(vm.Gstr9Report);
-        vm.OpenGstr9cReport(); Assert.Null(vm.Gstr9cReport);
+        AssertTheTwoRehomedOpenersRefuse(vm);
         vm.OpenElectronicLedgersReport(); Assert.Null(vm.ElectronicLedgersReport);
         vm.OpenItcSetOffReport(); Assert.Null(vm.ItcSetOffReport);
         vm.OpenItcReversalReport(); Assert.Null(vm.ItcReversalReport);

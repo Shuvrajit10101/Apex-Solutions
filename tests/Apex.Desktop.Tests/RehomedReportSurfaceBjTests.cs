@@ -57,6 +57,9 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
     private const string GstinMaharashtra = "27AAPFU0939F1ZV"; // state code 27 (home)
     private const string GstinSupplier = "27AAACC1206D1ZM";    // an in-state supplier
 
+    /// <summary>The SAC the fixture's Sales ledger carries, so GSTR-9 Part VI Table 17 has a real body row.</summary>
+    internal const string Table17Sac = "998313";
+
     private static readonly DateOnly FyStart = new(2024, 4, 1);
     private static readonly DateOnly PurchaseDate = new(2024, 4, 3);
     private static readonly DateOnly SaleDate = new(2024, 4, 5);
@@ -122,12 +125,25 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         Assert.All(printed.Columns, c => Assert.False(string.IsNullOrWhiteSpace(c.Header),
             $"{kind} printed a BLANK column caption band."));
 
+        // 🔴 THE EGRESS BAND IS BAND 1 FOLLOWED BY BAND 2'S SURPLUS COLUMNS, NOT BAND 1 ALONE. This assertion
+        // used to compare against PayrollColumns and so PINNED THE WRONG ANSWER: it was green on the build where
+        // GSTR-9 Table 17 printed and exported with Quantity, Taxable Value and Total Tax deleted, because band 1
+        // is two columns wide and the writers clamp every row to the band. See ReportMatrixEgressBand.
+        var egress = ReportMatrixEgressBand.For(reports).Select(c => c.Header).ToList();
+        Assert.Equal(egress, exported.Columns.Select(c => c.Header).ToList());
+        Assert.Equal(egress, printed.Columns.Select(c => c.Header).ToList());
+
+        // …and band 1's own captions are still the LEADING ones, unmoved — band 1's rows must never slide under a
+        // heading that is not theirs.
         Assert.Equal(
             reports.PayrollColumns.Select(c => c.Header).ToList(),
-            exported.Columns.Select(c => c.Header).ToList());
-        Assert.Equal(
-            reports.PayrollColumns.Select(c => c.Header).ToList(),
-            printed.Columns.Select(c => c.Header).ToList());
+            egress.Take(reports.PayrollColumns.Count).ToList());
+
+        // 🔴 The two assertions above are both stated against ReportMatrixEgressBand, so a regression INSIDE it
+        // would move all three together and neither would fail. The absolute statement is this one: the band
+        // must be wide enough for the widest row either section emits, measured off the rows themselves.
+        if (reports.HasPayrollSection2)
+            MatrixSecondBandEgressTests.AssertBandCoversBothSections(reports);
 
         // …and the document is not an empty shell under those captions.
         Assert.NotEmpty(reports.PayrollRows);
@@ -707,6 +723,16 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         var ledgers = new LedgerService(c);
 
         var sales = Add(c, "Sales", "Sales Accounts", false);
+        // 🔴 THE SALES LEDGER CARRIES AN SAC, AND THAT IS NOT DECORATION. Without it GSTR-1's HSN summary is
+        // empty, Table 17 holds nothing but its own "17  Total" foot, and every band-2 assertion in this file
+        // passes over a band with ONE row and two "0.00" cells. That is precisely why the egress defect BJ-1 —
+        // Quantity / Taxable Value / Total Tax deleted from the printed and exported Table 17 — was invisible to
+        // a 4922-test suite. With the SAC the band has a real body row carrying real money.
+        sales.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = Table17Sac, Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+            SupplyType = GstSupplyType.Services,
+        };
         var purchases = Add(c, "Purchases", "Purchase Accounts", true);
         var debtor = Add(c, "Local Debtor", "Sundry Debtors", true);
         debtor.PartyGst = new PartyGstDetails
