@@ -314,12 +314,54 @@ public static class ReportPdf
 
         double stubBudget = Math.Min(need[0], Math.Max(MinProseWidth, widest / 3));
 
-        var sheets = new List<PrintReport>();
-        int start = 1;
-        while (start < n)
+        // PASS 1 — greedy packing, purely to learn how many groups the sheet forces.
+        int groups = GreedyGroupCount(report, need, stubBudget, widest, n);
+
+        // PASS 2 — deal the columns out in near-EQUAL counts over that many groups, still honouring the budget.
+        //
+        // 🔴 WHY NOT JUST SHIP PASS 1'S GROUPS. Greedy packing fills each sheet to the brim and leaves the
+        // remainder on the last one: thirteen monthly columns come out 8 + 5. Two consequences, and the second
+        // is the one that matters. A nearly-empty last sheet reads as a mistake; and because FitOrientation is
+        // asked per document, a group narrow enough to fit PORTRAIT is not turned while its wide siblings are —
+        // so an operator collating a three-sheet comparison would be handed two landscape sheets and one
+        // portrait. Near-equal groups have near-equal width (these columns all hold money, so their
+        // requirements are within a glyph or two of each other), which keeps the whole job one way up and the
+        // sheets the same shape. 7 + 6, not 8 + 5.
+        var sheets = new List<PrintReport>(groups);
+        int columnsToDeal = n - 1;
+        int dealt = 0;
+        for (int g = 0; g < groups && dealt < columnsToDeal; g++)
         {
+            int remainingGroups = groups - g;
+            int target = (int)Math.Ceiling((columnsToDeal - dealt) / (double)remainingGroups);
+
+            int start = 1 + dealt;
             double used = stubBudget;
-            int end = start;                            // exclusive
+            int end = start;
+            while (end < n && end - start < target)
+            {
+                double next = FloorOf(report.Columns[end], need[end]);
+                // The budget still wins over the target: a column too wide to join this group starts the next
+                // one, and a single column that cannot fit alone is given its own group anyway (the documented
+                // page-size residual) rather than looping forever.
+                if (end > start && used + next > widest) break;
+                used += next;
+                end++;
+            }
+            if (end == start) end = start + 1;
+
+            sheets.Add(SliceColumns(report, start, end, n));
+            dealt += end - start;
+        }
+
+        // Pass 2 honours the budget over the target, so it can need one more group than pass 1 predicted in a
+        // document whose column widths are very uneven. Finish the deal rather than drop columns — a dropped
+        // comparison column is a missing figure, which is the whole defect this method exists to cure.
+        while (dealt < columnsToDeal)
+        {
+            int start = 1 + dealt;
+            double used = stubBudget;
+            int end = start;
             while (end < n)
             {
                 double next = FloorOf(report.Columns[end], need[end]);
@@ -327,13 +369,37 @@ public static class ReportPdf
                 used += next;
                 end++;
             }
-            if (end == start) end = start + 1;           // always make progress
-
+            if (end == start) end = start + 1;
             sheets.Add(SliceColumns(report, start, end, n));
-            start = end;
+            dealt += end - start;
         }
 
         return sheets.Count == 0 ? whole : sheets;
+    }
+
+    /// <summary>How many column groups a greedy left-to-right packing needs. Pass 1 of
+    /// <see cref="SplitWideColumns"/> — the count only; the columns are then dealt out in near-equal groups.</summary>
+    private static int GreedyGroupCount(
+        PrintReport report, double[] need, double stubBudget, double widest, int n)
+    {
+        int groups = 0;
+        int start = 1;
+        while (start < n)
+        {
+            double used = stubBudget;
+            int end = start;
+            while (end < n)
+            {
+                double next = FloorOf(report.Columns[end], need[end]);
+                if (end > start && used + next > widest) break;
+                used += next;
+                end++;
+            }
+            if (end == start) end = start + 1;
+            groups++;
+            start = end;
+        }
+        return groups < 1 ? 1 : groups;
     }
 
     /// <summary>The floor <see cref="ComputeColumnX"/> and <see cref="FitOrientation"/> both reason from: a

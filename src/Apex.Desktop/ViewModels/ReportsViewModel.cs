@@ -2166,9 +2166,16 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         _extraColumns.Clear();
         // Inherit the report's display flags on every column (each bucket overlays its own period).
-        // 🔴 The carried options may hold a scenario (a Trial Balance viewed under one, say). An auto-column
-        // axis is a PERIOD axis, so strip it: leaving it on would make every bucket a scenario column, which on
-        // a scenario-blind kind the engine then refuses outright.
+        //
+        // 🔴 WHAT ColumnOptions ACTUALLY DOES WITH A CARRIED SCENARIO, STATED CORRECTLY. The previous comment
+        // here read "An auto-column axis is a PERIOD axis, so strip it" — and that is NOT what happens.
+        // ColumnOptions strips the scenario only on a scenario-BLIND kind; on a kind that supports one it passes
+        // `_options` through untouched. So on a Trial Balance being viewed under a scenario, EVERY Alt+N bucket
+        // is a scenario column — the axis is the period, but the basis stays the scenario the operator is
+        // looking at. That is the defensible behaviour (the buckets reproduce what is on screen, which is the
+        // whole contract of the base spec), and it is the comment that was wrong rather than the code. What the
+        // strip is for is the OTHER case: a scenario left in `_options` by a previous kind, which on Cash Flow
+        // or Funds Flow the engine refuses outright and would turn the Alt+N keystroke into an exception.
         foreach (var spec in specs)
             _extraColumns.Add(spec with { Options = ColumnOptions });
         RebuildComparative();

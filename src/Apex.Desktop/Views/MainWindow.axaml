@@ -22164,8 +22164,13 @@
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
 
-                                <!-- Scenario -->
-                                <Grid>
+                                <!-- Scenario. The picker is WITHHELD on a scenario-blind kind rather than
+                                     offered and then refused: Cash Flow and Funds Flow are built from
+                                     unscenarioed movements, AddComparisonColumn declines a scenario column on
+                                     them, and a field the panel will not honour is a field that should not be
+                                     on the panel. Before this the picker was offered on both of them and the
+                                     refusal came back as a status line. -->
+                                <Grid IsVisible="{Binding SupportsScenarioColumns}">
                                   <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" SharedSizeGroup="AccL"/>
                                     <ColumnDefinition Width="*"/>
@@ -22182,6 +22187,10 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <TextBlock Text="This report is built from actual movements only — it has no scenario view."
+                                           IsVisible="{Binding !SupportsScenarioColumns}"
+                                           FontSize="11" Foreground="#8A8A8A"
+                                           TextWrapping="Wrap"/>
 
                                 <Grid ColumnDefinitions="*,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Status}"

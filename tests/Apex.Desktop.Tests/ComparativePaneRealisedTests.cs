@@ -111,6 +111,56 @@ public sealed class ComparativePaneRealisedTests : IDisposable
             $"the comparative pane realised only {paneText} non-empty text runs");
     }
 
+    /// <summary>
+    /// 🔴 <b>THE Alt+C SCENARIO PICKER IS NOT OFFERED ON A SCENARIO-BLIND KIND — ASSERTED ON THE REALISED
+    /// CONTROL, BECAUSE THAT IS WHERE THE DEFECT LIVED.</b>
+    ///
+    /// <para>The view model already refused a scenario column on Cash Flow and Funds Flow and already said so
+    /// in its status line, and a view-model test passed on both counts — while <c>MainWindow.axaml</c> went on
+    /// drawing the ComboBox, populated with every defined scenario, on exactly those two panels. A field the
+    /// panel will not honour is a field that should not be on the panel, and only the arranged tree can say
+    /// whether it is there. So this walks the Alt+C panel's realised ComboBoxes and requires that the one bound
+    /// to <c>Scenarios</c> is effectively invisible on a scenario-blind kind and effectively VISIBLE on a kind
+    /// that takes one — the second half being what stops the fix from being "hide it everywhere".</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(ReportKind.CashFlow, false)]
+    [InlineData(ReportKind.FundsFlow, false)]
+    [InlineData(ReportKind.TrialBalance, true)]
+    [InlineData(ReportKind.BalanceSheet, true)]
+    public void The_Alt_C_scenario_picker_is_offered_only_where_a_scenario_column_is_honoured(
+        ReportKind kind, bool expectOffered)
+    {
+        var vm = new MainWindowViewModel(_storage);
+        vm.LoadRobertDemo();
+        vm.ShowGateway();
+        vm.OpenReport(kind);
+        vm.OpenAddComparisonColumn();
+        Assert.NotNull(vm.AddComparisonColumn);
+        Assert.Equal(expectOffered, vm.AddComparisonColumn!.SupportsScenarioColumns);
+
+        var win = Show(vm);
+
+        // The panel's own scenario ComboBox, found by what it is BOUND to rather than by position, so a
+        // re-ordering of the panel cannot silently make this test look at the wrong control.
+        var pickers = win.GetVisualDescendants().OfType<ComboBox>()
+                         .Where(c => c.ItemsSource is System.Collections.Generic.IEnumerable<ScenarioOption>)
+                         .ToList();
+        Assert.NotEmpty(pickers);
+
+        bool offered = pickers.Any(c => c.IsEffectivelyVisible);
+        Assert.Equal(expectOffered, offered);
+
+        // And on a scenario-blind kind the panel SAYS why, rather than leaving a silently missing field.
+        var realisedText = win.GetVisualDescendants().OfType<TextBlock>()
+                              .Where(t => t.IsEffectivelyVisible && !string.IsNullOrWhiteSpace(t.Text))
+                              .Select(t => t.Text!)
+                              .ToList();
+        const string Hint = "This report is built from actual movements only — it has no scenario view.";
+        if (expectOffered) Assert.DoesNotContain(Hint, realisedText);
+        else Assert.Contains(Hint, realisedText);
+    }
+
     [Fact]
     public void A_report_outside_the_comparative_set_never_shows_the_pane()
     {
