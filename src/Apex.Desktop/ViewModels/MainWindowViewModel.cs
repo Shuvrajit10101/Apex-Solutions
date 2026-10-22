@@ -5973,11 +5973,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return;
         ArgumentNullException.ThrowIfNull(type);
 
+        // 🔴 CENSUS 5.11 — "Print voucher after saving" STOPS BEING A DEAD CHECKBOX HERE.
+        // help.tallysolutions.com/voucher-types-tally/ (re-fetched by content 2026-10-22): "Enable Print voucher
+        // after saving to automatically open the Voucher Printing screen for the voucher, once it is saved."
+        // The flag had setters, persistence (v53) and canonical export but NOT ONE reader that changed behaviour.
+        //
+        // 🔴 WHY THE EXISTING onSaved IS WRAPPED RATHER THAN REPLACED. Each caller's own post-save navigation is
+        // load-bearing — ShowGateway for the Vouchers menu, a REFRESHED Day Book for the Alt+A flow — and
+        // ClearSubScreens (which ShowGateway runs) nulls PrintPreview. So the caller's action must run FIRST and
+        // the printing column is appended on top of wherever it landed; appending first would have the navigation
+        // immediately discard it.
+        //
+        // 🔴 SCOPED TO CREATION, AND THE NARROWING IS THE VENDOR'S OWN WORDING, not a convenience. The same page
+        // scopes the option to "the vouchers/invoices created using that particular voucher type". The alteration
+        // door (ShowVoucherAlteration) is deliberately NOT wired: re-printing on every re-save would put a second
+        // document under one live number, and the row 5.1 family already records what an unrefreshed document
+        // surface costs. Reported as not-covered rather than smuggled in either direction.
+        var afterSaved = onSaved ?? ShowGateway;
+        VoucherEntryViewModel? opened = null;
+
         var entry = new VoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: onSaved ?? ShowGateway,
+            onSaved: () =>
+            {
+                afterSaved();
+                // Read off the SCREEN's committed id, which is written only after _storage.Save returned — so a
+                // refused save that rolled the voucher back off the aggregate prints nothing at all.
+                if (type.PrintAfterSaving && opened?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage,
             date: date);
+        opened = entry;
         // G-5 (BOOK pp.130–132): a batch-tracked line on a Purchase/Sales ITEM INVOICE opens the same real
         // batch-allocation sub-screen the stock screens use — as a cascade column to the right, so the invoice
         // stays beneath it and comes back intact on Esc. Wired here (not inside the entry VM) because the shell
@@ -5987,6 +6014,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
+    }
+
+    /// <summary>
+    /// 🔴 <b>Opens the Voucher Printing screen for the voucher just committed</b> — the one reader that makes the
+    /// voucher type's <c>Print voucher after saving</c> flag mean something (census 5.11).
+    ///
+    /// <para><b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/voucher-types-tally/, verified by content:
+    /// <i>"Enable Print voucher after saving to automatically open the Voucher Printing screen for the voucher,
+    /// once it is saved."</i> The screen it opens is this product's print preview — the same column
+    /// <see cref="OpenPrintPreview"/> raises on <see cref="Screen.VoucherDetail"/>, with the same Configure /
+    /// Preview / Save arms — so the flag routes to the EXISTING printing surface and invents no second one.</para>
+    ///
+    /// <para><b>🔴 It re-resolves the voucher out of the BOOK rather than trusting a captured instance.</b> The
+    /// post-save navigation has already run by the time this is called (it may have rebuilt the cascade and
+    /// reloaded the report beneath), so the voucher is looked up by id on <see cref="Company"/>. A voucher that is
+    /// no longer there prints nothing — the same rule <c>ResolveInventoryVoucherForAlteration</c> states for a
+    /// stale row id.</para>
+    ///
+    /// <para><b>🔴 The cheque refusal is honoured, not bypassed.</b> Census 8.4: a payment drawn by cheque on a
+    /// cheque-enabled bank whose leaf this product cannot ink must SAY so rather than ink the Dr/Cr voucher onto
+    /// the cheque stationery loaded in the printer. <see cref="OpenPrintPreview"/> carries that guard, and an
+    /// automatic door that walked around it would re-open the very defect that guard exists for — "a gate a second
+    /// door walks around is not a gate", in this file's own words.</para>
+    /// </summary>
+    private void OpenVoucherPrintingAfterSave(Guid voucherId)
+    {
+        if (Company?.FindVoucher(voucherId) is not { } voucher) return;
+        if (PrintPreview is not null) return;        // a preview is already up — don't stack a second one
+
+        var detail = new VoucherDetailViewModel(Company, voucher);
+        if (detail.ChequePrintRefusal is { } refusal)
+        {
+            RaiseLifecycleNotice(refusal);
+            return;
+        }
+
+        // The tail is OpenPrintPreview's verbatim — the shape that APPENDS a column without trimming the pane
+        // beneath, so the report or Gateway the save returned to survives and Esc pops straight back to it.
+        var preview = detail.BuildPrintPreview();
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
     }
 
     // =============================================================== screen: inventory voucher entry
