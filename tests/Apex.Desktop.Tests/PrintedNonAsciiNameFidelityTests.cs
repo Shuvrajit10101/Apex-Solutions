@@ -137,8 +137,17 @@ public sealed class PrintedNonAsciiNameFidelityTests
             Money.Zero, openingIsDebit: true);
         c.AddLedger(party);
         var sales = new Domain.Ledger(
-            Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Guid.NewGuid(), "Consultancy Income", c.FindGroupByName("Sales Accounts")!.Id,
             Money.Zero, openingIsDebit: false);
+        // The income leg needs a SAC block or the projector sees no stateable service line, prices the
+        // document at 0.00 against a 4,720.00 party leg and refuses it. Exempt, not Taxable: a ledger that
+        // DECLARES taxability while the voucher posts no tax leg is refused too, and this company has GST off.
+        sales.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998311",
+            Taxability = GstTaxability.Exempt,
+            SupplyType = GstSupplyType.Services,
+        };
         c.AddLedger(sales);
 
         // An ACCOUNTING invoice on a GST-less company: the simplest voucher the invoice projector will accept.
