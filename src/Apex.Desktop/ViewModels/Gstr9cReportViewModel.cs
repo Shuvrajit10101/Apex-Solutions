@@ -23,6 +23,16 @@ namespace Apex.Desktop.ViewModels;
 /// </list>
 /// Gated: only reachable for a Regular GST company (Composition / GST-off ⇒ not-applicable, ER-13). MVVM boundary:
 /// engine only, no Avalonia types (headlessly testable); deterministic.
+///
+/// <para>🔴 <b>THIS PAGE IS NO LONGER REACHABLE IN THE PRODUCT, AND IT IS KEPT FOR EXACTLY ONE REASON:
+/// IT IS THE TRANSCRIPTION ORACLE OF THE RE-HOME.</b> W-BJ moved GSTR-9C onto
+/// <see cref="ReportKind.Gstr9cReconciliation"/>; <c>Screen.Gstr9cReport</c>, <c>MainWindowViewModel</c>'s page
+/// property and this page's <c>MainWindow.axaml</c> template have all since been DELETED, so nothing in
+/// <c>src/</c> constructs this type. <c>RehomedReportSurfaceBjTests</c> builds it directly and asserts the
+/// re-homed matrix reproduces its (label, amount) lines in order — a comparison, which is a stronger claim
+/// than a frozen literal list and the reason this file was not deleted with the rest of the residue.
+/// <b>Do not wire it to anything.</b> Its <c>Gstr9c.Build</c> call is nonetheless registration-scoped
+/// (census 6.23), so a scope sweep over <c>src/</c> finds no unscoped GST call here either.</para>
 /// </summary>
 public sealed partial class Gstr9cReportViewModel : ViewModelBase, IMasterListExportSource
 {

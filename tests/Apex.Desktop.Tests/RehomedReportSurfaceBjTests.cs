@@ -403,7 +403,8 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         vm.OpenGstr9Report();
         Assert.Equal(Screen.Report, vm.CurrentScreen);
         Assert.NotNull(vm.Reports);
-        Assert.Null(vm.Gstr9Report);
+        // `MainWindowViewModel.Gstr9Report` and `Screen.Gstr9Report` have since been deleted as dead
+        // residue, so "leaves the page view model unbuilt" is now structural rather than asserted.
         Assert.Equal("Form GSTR-9 — Annual Return", vm.Reports!.Title);
         Assert.True(vm.IsReportContext,
             "the whole point of the re-home: the report-parameter chords act only in report context.");
@@ -411,7 +412,7 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         vm.Back();
         vm.OpenGstr9cReport();
         Assert.Equal(Screen.Report, vm.CurrentScreen);
-        Assert.Null(vm.Gstr9cReport);
+        // Likewise `MainWindowViewModel.Gstr9cReport` / `Screen.Gstr9cReport`.
         Assert.Equal("Form GSTR-9C — Reconciliation Statement", vm.Reports!.Title);
         Assert.True(vm.IsReportContext);
     }

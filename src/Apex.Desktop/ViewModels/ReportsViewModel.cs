@@ -437,7 +437,7 @@ public enum ReportKind
     /// payable), Table 5 (exempt / nil / non-GST and total turnover), Table 6 (ITC availed), Table 7 (ITC
     /// reversed by rule), Table 8 (ITC reconciliation 8A / 8B / 8D), Table 9 (tax paid through ITC vs cash) and,
     /// in the matrix's SECOND band, Table 17 (the outward HSN summary). Projects
-    /// <c>Apex.Ledger.Reports.Gstr9</c> — the same engine the dedicated <see cref="Screen.Gstr9Report"/> page
+    /// <c>Apex.Ledger.Reports.Gstr9</c> — the same engine the dedicated <c>Screen.Gstr9Report</c> (since removed) page
     /// projected, over the same financial-year window.
     /// </summary>
     Gstr9AnnualReturn,
@@ -446,7 +446,7 @@ public enum ReportKind
     /// The <b>Form GSTR-9C reconciliation statement</b> (census 6.12): Part A Table 5 (books turnover → return
     /// turnover → unreconciled), Part III Tables 9–11 (tax per return vs tax per books → unreconciled tax) and
     /// Part B Table 12 (ITC per books → net ITC per GSTR-9 → unreconciled). Projects
-    /// <c>Apex.Ledger.Reports.Gstr9c</c> — the same engine the dedicated <see cref="Screen.Gstr9cReport"/> page
+    /// <c>Apex.Ledger.Reports.Gstr9c</c> — the same engine the dedicated <c>Screen.Gstr9cReport</c> (since removed) page
     /// projected.
     ///
     /// <para>🔴 <b>Each reconciliation carries all THREE of its lines, never the difference alone</b>, for the

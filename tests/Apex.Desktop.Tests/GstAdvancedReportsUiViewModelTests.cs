@@ -385,7 +385,10 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         vm.OpenGstr9Report();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
-        Assert.Null(vm.Gstr9Report);                     // the dedicated page is no longer built
+        // 🔴 THE OLD `Assert.Null(vm.Gstr9Report)` IS NOW A COMPILE-TIME FACT, WHICH IS WHY IT IS GONE
+        // RATHER THAN RELAXED: `MainWindowViewModel.Gstr9Report`, `Screen.Gstr9Report` and the page's
+        // MainWindow.axaml template have all been deleted as dead residue, so the dedicated page cannot be
+        // built by any path. `CurrentScreen == Screen.Report` above is the live half of the claim.
         var reports = vm.Reports!;
         Assert.Equal(ReportKind.Gstr9AnnualReturn, reports.Kind);
         Assert.True(reports.IsWideMatrixReport);
@@ -414,7 +417,7 @@ public sealed class GstAdvancedReportsUiViewModelTests : IDisposable
         vm.OpenGstr9cReport();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
-        Assert.Null(vm.Gstr9cReport);
+        // See the GSTR-9 case: the page property and its Screen member no longer exist.
         var reports = vm.Reports!;
         Assert.Equal(ReportKind.Gstr9cReconciliation, reports.Kind);
         Assert.True(reports.IsWideMatrixReport);
