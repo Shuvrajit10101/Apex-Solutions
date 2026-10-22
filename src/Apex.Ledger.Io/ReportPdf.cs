@@ -312,10 +312,24 @@ public static class ReportPdf
         for (int i = 0; i < n; i++) asIs += FloorOf(report.Columns[i], need[i]);
         if (asIs <= widest) return whole;
 
-        double stubBudget = Math.Min(need[0], Math.Max(MinProseWidth, widest / 3));
+        // 🔴 THE GROUPS ARE PACKED AGAINST THE *CONFIGURED* PAGE, NOT THE WIDEST ONE — AND THE DIFFERENCE IS
+        // MEASURED, NOT STYLISTIC. The fast path above has already handed every document that fits SIDEWAYS
+        // back to FitOrientation, so anything reaching here fits NEITHER way up and the turn cannot save it.
+        // Packing the remainder against the landscape width then produced groups that straddled the portrait
+        // threshold: with 27 money columns the even deal came out 5,5,5,4,4,4 and `LayOut` reported
+        // [Landscape, Portrait] — a five-column group needs more than A4 portrait's 523.276pt so it was turned,
+        // a four-column group does not so it was not, and the operator collating the job would be handed sheets
+        // of two different shapes. Packed against the configured width, EVERY group fits the page the operator
+        // asked for, FitOrientation turns none of them, and the job is one way up BY CONSTRUCTION rather than by
+        // arithmetic that happens to land on one side of a threshold. It costs sheets — thirteen money columns
+        // go to portrait sheets of three rather than landscape sheets of five — and that is the right way round:
+        // the operator configured A4 portrait, and more portrait sheets are less surprising than a stack that
+        // changes orientation halfway down.
+        double budget = config.ContentWidth;
+        double stubBudget = Math.Min(need[0], Math.Max(MinProseWidth, budget / 3));
 
         // PASS 1 — greedy packing, purely to learn how many groups the sheet forces.
-        int groups = GreedyGroupCount(report, need, stubBudget, widest, n);
+        int groups = GreedyGroupCount(report, need, stubBudget, budget, n);
 
         // PASS 2 — deal the columns out in near-EQUAL counts over that many groups, still honouring the budget.
         //
@@ -344,7 +358,7 @@ public static class ReportPdf
                 // The budget still wins over the target: a column too wide to join this group starts the next
                 // one, and a single column that cannot fit alone is given its own group anyway (the documented
                 // page-size residual) rather than looping forever.
-                if (end > start && used + next > widest) break;
+                if (end > start && used + next > budget) break;
                 used += next;
                 end++;
             }
@@ -365,7 +379,7 @@ public static class ReportPdf
             while (end < n)
             {
                 double next = FloorOf(report.Columns[end], need[end]);
-                if (end > start && used + next > widest) break;
+                if (end > start && used + next > budget) break;
                 used += next;
                 end++;
             }
@@ -380,7 +394,7 @@ public static class ReportPdf
     /// <summary>How many column groups a greedy left-to-right packing needs. Pass 1 of
     /// <see cref="SplitWideColumns"/> — the count only; the columns are then dealt out in near-equal groups.</summary>
     private static int GreedyGroupCount(
-        PrintReport report, double[] need, double stubBudget, double widest, int n)
+        PrintReport report, double[] need, double stubBudget, double budget, int n)
     {
         int groups = 0;
         int start = 1;
@@ -391,7 +405,7 @@ public static class ReportPdf
             while (end < n)
             {
                 double next = FloorOf(report.Columns[end], need[end]);
-                if (end > start && used + next > widest) break;
+                if (end > start && used + next > budget) break;
                 used += next;
                 end++;
             }

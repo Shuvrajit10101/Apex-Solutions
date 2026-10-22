@@ -141,24 +141,31 @@ public sealed class ComparativePaneRealisedTests : IDisposable
 
         var win = Show(vm);
 
-        // The panel's own scenario ComboBox, found by what it is BOUND to rather than by position, so a
-        // re-ordering of the panel cannot silently make this test look at the wrong control.
-        var pickers = win.GetVisualDescendants().OfType<ComboBox>()
-                         .Where(c => c.ItemsSource is System.Collections.Generic.IEnumerable<ScenarioOption>)
-                         .ToList();
-        Assert.NotEmpty(pickers);
+        // 🔴 SCOPED TO THE PANEL'S OWN SUBTREE, AND THAT IS NOT FUSSINESS. The report screen behind the panel
+        // carries its OWN scenario ComboBox (gated on SupportsScenario), and the cascading navigation keeps that
+        // screen realised while the panel is open. A window-wide search would therefore report "offered = true"
+        // on Trial Balance from the REPORT's picker alone — so this test would pass even if the fix were "hide
+        // the Alt+C picker everywhere", which is exactly the wrong fix it exists to rule out.
+        // GetVisualDescendants walks depth-first in document order and the panel's DataContext is INHERITED by
+        // every descendant, so First is the template root and Single would throw on its own children.
+        var panel = win.GetVisualDescendants()
+                       .First(v => v is Control { DataContext: AddComparisonColumnViewModel });
 
-        bool offered = pickers.Any(c => c.IsEffectivelyVisible);
-        Assert.Equal(expectOffered, offered);
+        // Found by what it is BOUND to rather than by position, so a re-ordering of the panel cannot silently
+        // make this test look at the wrong control.
+        var picker = panel.GetVisualDescendants().OfType<ComboBox>()
+                          .Single(c => c.ItemsSource is System.Collections.Generic.IEnumerable<ScenarioOption>);
+
+        Assert.Equal(expectOffered, picker.IsEffectivelyVisible);
 
         // And on a scenario-blind kind the panel SAYS why, rather than leaving a silently missing field.
-        var realisedText = win.GetVisualDescendants().OfType<TextBlock>()
-                              .Where(t => t.IsEffectivelyVisible && !string.IsNullOrWhiteSpace(t.Text))
-                              .Select(t => t.Text!)
-                              .ToList();
+        var panelText = panel.GetVisualDescendants().OfType<TextBlock>()
+                             .Where(t => t.IsEffectivelyVisible && !string.IsNullOrWhiteSpace(t.Text))
+                             .Select(t => t.Text!)
+                             .ToList();
         const string Hint = "This report is built from actual movements only — it has no scenario view.";
-        if (expectOffered) Assert.DoesNotContain(Hint, realisedText);
-        else Assert.Contains(Hint, realisedText);
+        if (expectOffered) Assert.DoesNotContain(Hint, panelText);
+        else Assert.Contains(Hint, panelText);
     }
 
     [Fact]

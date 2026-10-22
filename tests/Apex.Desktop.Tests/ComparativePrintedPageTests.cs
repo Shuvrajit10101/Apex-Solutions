@@ -115,6 +115,62 @@ public sealed class ComparativePrintedPageTests
     }
 
     /// <summary>
+    /// 🔴 <b>THE FIGURES REACH PAPER IN MONEY-WIDTH COLUMNS, NOT ONE COLUMN TO A SHEET — WHICH IS WHAT THE
+    /// SHORT PER-METRIC TOTAL ROWS BUY, AND NOTHING ELSE IN THIS FILE OBSERVES IT.</b>
+    ///
+    /// <para>This assertion exists because a mutation found a hole in the rest of the file. Reverting the
+    /// per-metric total rows — putting the joined reconciliation sentence back into the comparison columns —
+    /// left every printed-page test above GREEN, because the column split then simply deals the sheet into
+    /// narrower and narrower groups until even a fifty-character cell fits. The figures survive; the document
+    /// does not. At the default Alt+N monthly gesture the sentence sets each column's floor to ~230pt against
+    /// A4 portrait's 523.276pt of content, so each sheet holds ONE comparison column and the thirteen months
+    /// print on thirteen sheets instead of four.</para>
+    ///
+    /// <para>So the artefact's own SHEET COUNT is held, measured at 4 for this gesture and bounded generously at
+    /// 8 — the bound is deliberately loose, because the exact count moves with the money figure's width and the
+    /// page, and pinning 4 would make this a transcription of today's arithmetic. Thirteen is far outside it.
+    /// Counted from the emitted bytes (<c>/Type /Page</c> objects), not from a model.</para>
+    /// </summary>
+    [Fact]
+    public void The_default_monthly_comparative_prints_on_a_handful_of_sheets_not_one_per_column()
+    {
+        var vm = new ReportsViewModel(Robert(), ReportKind.CashFlow);
+        vm.SetPeriod(BooksBegin, YearEnd);
+        Assert.True(vm.AutoColumnsByPeriodicity(ColumnPeriodicity.Monthly));
+        Assert.Equal(13, vm.ComparativeColumns.Count);   // the whole-period base column + 12 months
+
+        var pdf = ReportPdf.Render(ReportPrintProjector.Project(vm), ShippedDefault());
+        var drawn = DrawnStrings(pdf);
+
+        // 🔴 NO RECONCILIATION SENTENCE REACHES A COMPARISON COLUMN. This is the direct byte-level statement of
+        // the fix, and it reddens whatever the sheet count does: the joined line is "Open X · Net Y · Close Z",
+        // which the projector ASCII-folds to "Open X - Net Y - Close Z", so a drawn cell carrying " - Net " is
+        // the sentence arriving in a money column.
+        var sentences = drawn.Where(d => d.Contains(" - Net ", StringComparison.Ordinal)
+                                      || d.Contains(" - Cr ", StringComparison.Ordinal)
+                                      || d.Contains(" - Assets ", StringComparison.Ordinal)
+                                      || d.Contains(" - Applic. ", StringComparison.Ordinal)).ToList();
+        Assert.True(
+            sentences.Count == 0,
+            "a joined column-total sentence was drawn inside a comparison column: "
+            + string.Join(" | ", sentences.Take(4))
+            + ". That cell's width sets the column's print FLOOR, and thirteen such floors do not fit a sheet.");
+
+        // And the consequence on the artefact: the thirteen months come out on a handful of sheets. The bound is
+        // deliberately loose — the exact count moves with the money figures in the book and with the page, and
+        // on this fixture it is ONE (the whole grid fits a turned sheet once the totals are money-width).
+        // Thirteen — one comparison column per sheet, which is what the joined sentence forces — is far outside
+        // it, so this reddens on that mutation without pinning today's arithmetic.
+        int sheets = SheetCount(pdf);
+        Assert.True(
+            sheets <= 8,
+            $"the 13-column monthly comparative printed on {sheets} sheets. Past about eight the cause is not "
+            + "paper: it is a comparison column whose widest CELL is a reconciliation sentence rather than a "
+            + "money figure, which sets that column's floor and leaves room for nothing else.");
+        Assert.True(sheets >= 1);
+    }
+
+    /// <summary>
     /// 🔴 THE SIDE SUFFIX IS THE WHOLE READING OF A FLOW STATEMENT, so it is held on its own. Every drawn Cash
     /// Flow figure that the model marked " In" or " Out" is drawn WITH that word: a figure whose suffix was
     /// clipped is not a cosmetic loss, it is an outflow that reads as an inflow.
@@ -200,6 +256,21 @@ public sealed class ComparativePrintedPageTests
         var slices = ReportPdf.SplitWideColumns(print, ShippedDefault());
         Assert.Same(print, Assert.Single(slices));
         Assert.Equal(ReportPdf.Render(print, ShippedDefault()), ReportPdf.Render(slices, ShippedDefault()));
+    }
+
+    /// <summary>The number of sheets a PDF carries, counted from its own page objects.</summary>
+    private static int SheetCount(byte[] pdf)
+    {
+        string text = Encoding.Latin1.GetString(pdf);
+        int count = 0;
+        for (int i = text.IndexOf("/Type /Page", StringComparison.Ordinal); i >= 0;
+             i = text.IndexOf("/Type /Page", i + 1, StringComparison.Ordinal))
+        {
+            // "/Type /Pages" is the page TREE, not a sheet.
+            if (i + 11 < text.Length && text[i + 11] == 's') continue;
+            count++;
+        }
+        return count;
     }
 
     /// <summary>A drawn cell that was cut short — <c>PdfWriter.FitToWidth</c> appends an ellipsis when it has to

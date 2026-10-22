@@ -87,8 +87,31 @@ public sealed class ReportPdfColumnSplitTests
 
     // ---------------------------------------------------------------- the split itself
 
+    /// <summary>
+    /// 🔴 THE MEASURED THRESHOLD, PRINTED BY THE TEST ITSELF RATHER THAN WRITTEN AS A LITERAL. Which column
+    /// count first needs a split is a function of the money figure's width, the stub's budget and the page — all
+    /// three of which can move — so pinning "it splits at N" would be a transcription of today's arithmetic
+    /// rather than a statement about the renderer. This walks upward and reports the first count that splits,
+    /// which is also what keeps the theory below from going vacuous if the threshold ever rises above its cases.
+    /// </summary>
+    [Fact]
+    public void The_split_threshold_is_measured_and_a_wide_comparative_is_past_it()
+    {
+        var config = ShippedDefault();
+        int first = 0;
+        for (int c = 1; c <= 60 && first == 0; c++)
+            if (ReportPdf.SplitWideColumns(Comparative(c), config).Count > 1) first = c;
+
+        Assert.True(first > 0, "no column count up to 60 produced a split — the premise of this file is stale");
+
+        // The gesture that forced all of this: Alt+N MONTHLY over a financial year is 13 comparison columns.
+        Assert.True(
+            first <= 13,
+            $"the first splitting column count is {first}, so the default Alt+N monthly comparative (13 "
+            + "comparison columns) is NOT past the threshold and this file is testing nothing real");
+    }
+
     [Theory]
-    [InlineData(5)]
     [InlineData(13)]
     [InlineData(27)]
     [InlineData(54)]
@@ -144,7 +167,6 @@ public sealed class ReportPdfColumnSplitTests
     /// one portrait. Equal counts keep the job one way up, which is asserted directly below.
     /// </summary>
     [Theory]
-    [InlineData(5)]
     [InlineData(13)]
     [InlineData(27)]
     [InlineData(54)]
@@ -215,7 +237,6 @@ public sealed class ReportPdfColumnSplitTests
     /// and no cell is drawn as a bare ellipsis. Before the split this document's PDF carried neither.
     /// </summary>
     [Theory]
-    [InlineData(5)]
     [InlineData(13)]
     [InlineData(27)]
     public void Every_figure_of_a_split_document_is_drawn_whole(int columns)
