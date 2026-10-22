@@ -2378,7 +2378,21 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Fix — the whole of it, so the next wave does not have to re-derive it** | (1) **Schema vNN:** `order_voucher_id TEXT NULL` + `order_line_index INTEGER NULL` on `inventory_allocations` **and** `voucher_inventory_lines` — an identity link rather than the vendor's display string, so the retirement cannot be broken by renumbering; the vendor's rendered *Order No.* stays a presentation of the linked order. (2) **UI:** an Order No. picker on the Items Allocation row listing that party's open orders (the vendor's *"List of Orders"*), prefilling the order's item/quantity lines, with **"Not Applicable"** as an explicit choice. (3) **Engine:** `OrderFulfilment.Accumulate` retires the **linked** line and nothing else; an unlinked movement retires **nothing** — which is the pre-WF-8 figure for that order, i.e. a bounded and explainable gap rather than an unbounded invisible misattribution. (4) **Carry both columns into `CanonicalModel`/`CanonicalXml`/`ImportPlan` in the same pass** — see `IV-105` for what happens when a migration does not. (5) **Then, and only then,** the three residuals the class doc enumerates (the cancelled-order cohort exclusion, the duplicate-document per-order spill, the un-netted Rejection In) collapse, because each of them is the FIFO walk guessing. |
 | **🔴 USER GO/NO-GO — this is the one `OrderFulfilment.cs` has been asking for** | Its class doc asks for *"a user go/no-go on whether a derived match may retire an order at all"*. Put plainly, with the figure above attached: **until the Order No. link is built, do we keep retiring orders on a guess (today: per-order rows can be exactly inverted and the outstanding value 90% wrong, item totals usually right), or do we stop retiring derived matches and go back to reporting every order fully outstanding (always wrong, but wrong in one known direction and never inverted)?** This register's standing view is that a bounded, explainable error beats an unbounded invisible one — but **this is the user's call, not ours**, and it has been open since WF-8. |
 
-### IV-107 · `Print voucher after saving` opens the printing screen on ONE save path — the accounting voucher-entry screen. The alteration, duplicate, inventory-entry and POS save paths print nothing
+> 🔴 **RENUMBERED AT MERGE BY A12, 2026-10-22 (wave 5) — `IV-107` → `IV-117`, AND THE REASON IS A COLLISION
+> THAT ACTUALLY HAPPENED, NOT A PRECAUTION.** This section was authored as **`IV-107`** on a branch cut from
+> `origin/main` **9ddeec5**, where the highest number in the register is **`IV-106`**, so `IV-107` was
+> genuinely the next free number *as this tree could see it*. **Three sibling tracks of the same wave each
+> reached that same conclusion independently** and all three took `IV-107` —
+> `claude/apex-bs-gstr1-tables` (registration scoping) and `claude/apex-bq-comparative` (`IV-107` **and**
+> `IV-108`) besides this one. The wave's pre-assigned disjoint blocks are **bs 107–116, bt 117–126, bu
+> 127–136, bq 137–146**, so this section takes the first number of **its own** block and `bs` keeps `107`.
+> **Nothing on `main` is touched or dropped**, and the three citing sites — the register heading, the
+> `OpenVoucher` reader comment and the `PrintAfterSavingTests` class doc — were moved together, so the
+> citation still resolves by content. ⚠️ **This is the THIRD wave running in which the same trap has bitten,
+> and the pattern is now mechanical rather than unlucky: a branch measures "the highest IV on main" correctly
+> and is still wrong, because its siblings are measuring the same thing at the same moment.**
+
+### IV-117 · `Print voucher after saving` opens the printing screen on ONE save path — the accounting voucher-entry screen. The alteration, duplicate, inventory-entry and POS save paths print nothing
 
 | | |
 |---|---|

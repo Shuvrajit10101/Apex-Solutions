@@ -25,7 +25,7 @@ namespace Apex.Desktop.Tests;
 /// to add that the page <i>"scopes the option to the vouchers/invoices created using that particular voucher
 /// type"</i> and gave that as the reason the alteration door is not wired. <b>That quote is not on the page</b>
 /// — the substring "created using" does not occur there (three content fetches plus a web search for the exact
-/// phrase). The narrowing is OURS and is argued on our own grounds in <c>IV-107</c>; only the first sentence
+/// phrase). The narrowing is OURS and is argued on our own grounds in <c>IV-117</c>; only the first sentence
 /// above is attested. These tests pin the creation arm and deliberately pin nothing about the alteration arm.</para>
 ///
 /// <para><b>🔴 WHY A CONTROL TEST IS THE FIRST TEST IN THIS FILE.</b> A single "the preview opened" assertion

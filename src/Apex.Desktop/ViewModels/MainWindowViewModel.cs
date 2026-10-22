@@ -5994,7 +5994,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // The alteration door (ShowVoucherAlteration) is deliberately NOT wired, on OUR reasoning: re-printing on
         // every re-save would put a second document under one live number. ShowVoucherDuplicate (Alt+2) and
         // OpenInventoryVoucher — both of which post a NEW voucher of the type — are NOT wired either, and that is
-        // an unclosed half of census 5.11 rather than a decision. See IV-107 for the measurement.
+        // an unclosed half of census 5.11 rather than a decision. See IV-117 for the measurement.
         var afterSaved = onSaved ?? ShowGateway;
         VoucherEntryViewModel? opened = null;
 
