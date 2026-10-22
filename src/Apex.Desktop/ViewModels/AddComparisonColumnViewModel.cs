@@ -35,6 +35,13 @@ public sealed partial class AddComparisonColumnViewModel : ViewModelBase
     /// <summary>True when the current report kind can be shown comparatively (else the panel is inert).</summary>
     public bool SupportsComparative => _report.SupportsComparative;
 
+    /// <summary>
+    /// True when this report can carry a <b>scenario</b> column as well as a period one. Cash Flow and Funds
+    /// Flow are built from unscenarioed ledger movements, so a scenario column is refused there — and the
+    /// refusal has to be SAID, not rolled into the period validation. See <see cref="Apply"/>.
+    /// </summary>
+    public bool SupportsScenarioColumns => _report.SupportsComparativeScenarioColumns;
+
     // ---- label ----
 
     /// <summary>The display label for the new column; blank falls back to a period/scenario-derived label.</summary>
@@ -123,6 +130,17 @@ public sealed partial class AddComparisonColumnViewModel : ViewModelBase
         }
 
         var scenario = SelectedScenario?.Scenario;
+        // 🔴 SAY WHICH FIELD WAS REFUSED. AddComparisonColumn declines a scenario on a scenario-blind kind,
+        // and the only status this panel had blamed the PERIOD for it — "Could not add the column (check the
+        // period)" — on a panel whose period was valid and whose scenario was the problem. The operator would
+        // re-type dates forever. The Alt+N panel already states this refusal in its own words; Alt+C did not.
+        if (scenario is not null && !SupportsScenarioColumns)
+        {
+            Status = "This report is built from actual movements only — it has no scenario view. "
+                   + "Leave the scenario on Actual and add a period column.";
+            return;
+        }
+
         var added = _report.AddComparisonColumn(Label, period, scenario);
         if (!added)
         {

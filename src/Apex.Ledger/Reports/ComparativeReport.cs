@@ -453,7 +453,8 @@ public sealed record ComparativeReport(
     /// (<c>help.tallysolutions.com/cash-flow-and-projection-report-tally/</c>). Yearly is added for a multi-year
     /// window; both pages end their list with "and so on" and neither enumerates exhaustively.</para>
     ///
-    /// <para>🔴 <b>Bucket anchoring is OURS where the calendar does not settle it (divergence IV-72).</b> No page we
+    /// <para>🔴 <b>Bucket anchoring is OURS where the calendar does not settle it (divergence IV-106,
+    /// <c>docs/invented-vs-cloned.md</c> §2I — PROVISIONAL, see that section's header).</b> No page we
     /// have opened states where a bucket starts. Months and quarters are anchored to the CALENDAR (and for the
     /// standard Indian financial year beginning 1 April the four calendar quarters and the four FY quarters
     /// coincide exactly, so the anchor is not visible there). Days, weeks, fortnights and years have no calendar

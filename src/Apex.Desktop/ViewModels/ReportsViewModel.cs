@@ -2427,8 +2427,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
             {
                 PeriodRange? period = c.PeriodFrom is { } cf && c.PeriodTo is { } ct
                     ? new PeriodRange(cf, ct) : null;
+                // 🔴 THE FOURTH COLUMN-SPEC SITE. ColumnOptions exists so that no site hands the engine a
+                // scenario on a scenario-blind kind, and its own summary names three — the base spec, Alt+C and
+                // the Alt+N axes. THIS one was missed, and it is the only site that can carry a scenario in
+                // from OUTSIDE the session: a saved view restores `_options` straight from its stored
+                // ScenarioName with no SupportsScenario gate, and the per-column ScenarioName with none either.
+                // Either one on a Cash Flow / Funds Flow view with columns reached the engine's scenario refusal
+                // and threw ArgumentException out of Alt+K, which the shell does not catch.
                 _extraColumns.Add(new ComparativeReport.ColumnSpec(
-                    c.Label, period, ScenarioByName(c.ScenarioName), Options: _options));
+                    c.Label,
+                    period,
+                    SupportsComparativeScenarioColumns ? ScenarioByName(c.ScenarioName) : null,
+                    Options: ColumnOptions));
             }
 
         NotifyParameterChanged();
