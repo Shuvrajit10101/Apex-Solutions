@@ -21,9 +21,12 @@ namespace Apex.Desktop.Tests;
 ///
 /// <para><b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/voucher-types-tally/, opened and verified BY
 /// CONTENT on 2026-10-22: <i>"Enable Print voucher after saving to automatically open the Voucher Printing
-/// screen for the voucher, once it is saved."</i> The same page scopes the option to the
-/// <i>"vouchers/invoices created using that particular voucher type"</i>, which is why the creation door is
-/// wired and the alteration door is not.</para>
+/// screen for the voucher, once it is saved."</i> ⚠️ <b>CORRECTED BY REVIEW 2026-10-22.</b> This paragraph used
+/// to add that the page <i>"scopes the option to the vouchers/invoices created using that particular voucher
+/// type"</i> and gave that as the reason the alteration door is not wired. <b>That quote is not on the page</b>
+/// — the substring "created using" does not occur there (three content fetches plus a web search for the exact
+/// phrase). The narrowing is OURS and is argued on our own grounds in <c>IV-107</c>; only the first sentence
+/// above is attested. These tests pin the creation arm and deliberately pin nothing about the alteration arm.</para>
 ///
 /// <para><b>🔴 WHY A CONTROL TEST IS THE FIRST TEST IN THIS FILE.</b> A single "the preview opened" assertion
 /// would stay green if the preview opened after EVERY save — which would be a worse defect than the dead
@@ -129,8 +132,15 @@ public sealed class PrintAfterSavingTests : IDisposable
     // ================================================================= (b) the flag does something
 
     /// <summary>
-    /// 🔴 <b>THE ROW-5.11 TEST.</b> Tick the flag on the voucher TYPE through the real master service route the
-    /// screen uses, then key and accept a voucher of that type: the Voucher Printing screen opens by itself.
+    /// 🔴 <b>THE ROW-5.11 TEST.</b> Tick the flag on the voucher TYPE, then key and accept a voucher of that
+    /// type through the real entry screen: the Voucher Printing screen opens by itself.
+    ///
+    /// <para>⚠️ <b>CORRECTED BY REVIEW 2026-10-22 — this used to say the flag is ticked "through the real master
+    /// service route the screen uses", and it is not:</b> the line below sets <c>PrintAfterSaving</c> on the
+    /// domain <see cref="VoucherType"/> directly, with no <c>VoucherTypeService.Alter</c> and no persistence.
+    /// That is adequate HERE, because what this file is about is the READER; the operator-facing master route
+    /// (checkbox → service → store → reload) is pinned separately by
+    /// <c>VoucherTypeMasterReachabilityTests</c>.</para>
     ///
     /// <para><b>Mutation:</b> deleting the two-line reader in <c>MainWindowViewModel.OpenVoucher</c> (the
     /// <c>if (type.PrintAfterSaving …) OpenVoucherPrintingAfterSave(saved)</c> call) reddens this on the first

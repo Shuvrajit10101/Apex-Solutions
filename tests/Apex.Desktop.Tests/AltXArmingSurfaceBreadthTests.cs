@@ -30,8 +30,10 @@ namespace Apex.Desktop.Tests;
 /// <c>Reports is not null &amp;&amp; CurrentScreen == Screen.Report</c> — a whole SURFACE CLASS, not the Day
 /// Book. And <c>RequestCancelHighlightedVoucher</c> resolves through <c>Reports.SelectedRow</c>, which every
 /// report kind on that screen fills. <c>ReportsViewModel</c>'s own drill switch stamps
-/// <c>DrillVoucherId</c> on the rows of at least <b>thirteen</b> kinds besides the Day Book — the four register
-/// families (Sales / Purchase / Journal / Credit-Note / Debit-Note), <c>GroupVouchers</c>, the three Day-Book
+/// <c>DrillVoucherId</c> on the rows of at least <b>thirteen</b> kinds besides the Day Book — the FIVE register
+/// families (Sales / Purchase / Journal / Credit-Note / Debit-Note — this read "four" while the list under it
+/// named five; corrected by review 2026-10-22, and 5 + 1 + 3 + 4 is where the thirteen comes
+/// from), <c>GroupVouchers</c>, the three Day-Book
 /// siblings (Optional / Cancelled / Post-dated) and the four banking lists (Cheque Printing / Supplier Payment
 /// Advice / Deposit Slip / e-Payments). Alt+X is armed on all of them.</para>
 ///

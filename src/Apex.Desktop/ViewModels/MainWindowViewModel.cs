@@ -5984,11 +5984,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // the printing column is appended on top of wherever it landed; appending first would have the navigation
         // immediately discard it.
         //
-        // 🔴 SCOPED TO CREATION, AND THE NARROWING IS THE VENDOR'S OWN WORDING, not a convenience. The same page
-        // scopes the option to "the vouchers/invoices created using that particular voucher type". The alteration
-        // door (ShowVoucherAlteration) is deliberately NOT wired: re-printing on every re-save would put a second
-        // document under one live number, and the row 5.1 family already records what an unrefreshed document
-        // surface costs. Reported as not-covered rather than smuggled in either direction.
+        // 🔴 THIS IS THE ONLY SAVE PATH THAT READS THE FLAG, AND THE NARROWING IS OURS — NOT THE VENDOR'S WORDING.
+        // ⚠️ CORRECTED BY REVIEW 2026-10-22: this comment used to say the page "scopes the option to the
+        // vouchers/invoices created using that particular voucher type". THAT QUOTE IS NOT ON THE PAGE — the
+        // substring "created using" does not occur on help.tallysolutions.com/voucher-types-tally/ (three content
+        // fetches plus a web search for the exact phrase). Of the three options in that group only "Generate
+        // Payment link/QR code" carries a voucher-kind restriction; this one carries none.
+        //
+        // The alteration door (ShowVoucherAlteration) is deliberately NOT wired, on OUR reasoning: re-printing on
+        // every re-save would put a second document under one live number. ShowVoucherDuplicate (Alt+2) and
+        // OpenInventoryVoucher — both of which post a NEW voucher of the type — are NOT wired either, and that is
+        // an unclosed half of census 5.11 rather than a decision. See IV-107 for the measurement.
         var afterSaved = onSaved ?? ShowGateway;
         VoucherEntryViewModel? opened = null;
 
