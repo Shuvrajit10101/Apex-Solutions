@@ -228,6 +228,34 @@ public sealed class GstReportSurfaceRegistrationScopeTests
               && f.Contains(GstinPrimary, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// 🔴 <b>A DISCLOSURE THAT IS SILENTLY CUT OFF IS NOT A DISCLOSURE.</b> On the <c>Rows</c> grid the note is
+    /// an <c>IsHeader</c> row, which the template renders as one <c>Grid.ColumnSpan="9"</c> <c>TextBlock</c>
+    /// carrying <c>TextTrimming="CharacterEllipsis"</c> inside a grid of <c>MinWidth="950"</c>. At 11.5px and
+    /// the 6.6px/character metric stated in that same template, the readable budget is
+    /// <see cref="ReportsViewModel.GstRegistrationScopeNoteBudget"/> characters.
+    ///
+    /// <para>The budget is read from the production constant rather than repeated here, so the two cannot
+    /// drift apart — and the GSTIN is asserted to survive inside it, because the one word a reader must get is
+    /// the registration the figures belong to. The branch GSTIN is the longest realistic case: a company may
+    /// hold more registrations, but the note names only one.</para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(GridGstKinds))]
+    public void The_scope_disclosure_fits_the_grids_own_width_without_being_ellipsised(ReportKind kind)
+    {
+        var (company, _) = TwoRegistrationBook($"Scope Width {kind}");
+
+        var reports = new ReportsViewModel(company, kind);
+        var note = reports.Rows.First(r => r.Col1.Contains("Scoped to GSTIN", StringComparison.Ordinal)).Col1;
+
+        Assert.True(
+            note.Length <= ReportsViewModel.GstRegistrationScopeNoteBudget,
+            $"the disclosure is {note.Length} characters and the grid can show "
+            + $"{ReportsViewModel.GstRegistrationScopeNoteBudget}; it would be ellipsised: '{note}'");
+        Assert.Contains(GstinPrimary, note, StringComparison.Ordinal);
+    }
+
     // ============================================================ ER-13
 
     /// <summary>
