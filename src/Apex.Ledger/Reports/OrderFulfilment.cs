@@ -79,7 +79,8 @@ namespace Apex.Ledger.Reports;
 /// <c>src/Apex.Ledger.Io/</c>, source only with <c>bin</c>/<c>obj</c> excluded: <c>order_lines</c> has no order
 /// number; <c>inventory_allocations</c> and <c>voucher_inventory_lines</c> carry <c>tracking_number</c> and
 /// <c>cost_tracking_number</c> and nothing order-shaped; the <see cref="InventoryVoucher"/> header carries no
-/// order reference; the only <c>order_no</c> columns in the schema belong to the two <b>job-work</b> tables.
+/// order reference; the only <c>order_no</c> columns in the schema belong to <b>one</b> job-work table,
+/// <c>job_work_orders</c>, declared twice (fresh-create and the v24 migration body).
 /// <b>So the fix is a MIGRATION</b> — <c>order_voucher_id</c> + <c>order_line_index</c> on both movement-line
 /// tables, an Order No. picker over the party's open orders (with <i>Not Applicable</i>), and an
 /// <see cref="Accumulate"/> that retires the LINKED line and nothing else. IV-106 carries the full shape,
