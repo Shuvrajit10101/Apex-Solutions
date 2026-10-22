@@ -30,9 +30,15 @@ namespace Apex.Desktop.Tests;
 /// "you can enter data in regional languages", "You can now create ledgers and stock items in your preferred
 /// language", and "you can now view and print all your transactions and reports in your preferred language".
 /// A party ledger named <c>Müller &amp; Söhne</c> printed as <c>M-ller &amp; S-hne</c> on its own statement of
-/// account, while <b>the same name printed correctly on an invoice</b> — <see cref="InvoicePdf"/> never calls
-/// this fold and hands party names straight to <see cref="PdfWriter"/>. One book, two spellings of one party,
-/// depending on which document you printed.</para>
+/// account, on its tax invoices, and on its vouchers.</para>
+///
+/// <para>🔴 <b>A CORRECTION KEPT IN PLACE RATHER THAN TIDIED AWAY, because it is the kind of mistake this file
+/// exists to catch.</b> An earlier draft of this note claimed the same name "printed correctly on an invoice,
+/// because <see cref="InvoicePdf"/> never calls this fold". <see cref="InvoicePdf"/> genuinely contains zero
+/// <c>Ascii</c> call sites — and the conclusion was still wrong, because the fold is applied UPSTREAM by the
+/// projector that builds the print model (<c>VoucherPrintProjector.CounterpartyBlock</c> and
+/// <c>VoucherPrintProjector.SellerBlock</c>). Grepping the renderer answered a different question than the one
+/// asked. The invoice path therefore gets its own byte-level assertion below rather than an inference.</para>
 ///
 /// <para><b>Reach.</b> <c>ReportPrintProjector.Ascii</c> is the single chokepoint for the whole printed
 /// surface — <see cref="ReportPrintProjector"/> itself (titles, subtitles, column captions and every banded and
@@ -112,6 +118,46 @@ public sealed class PrintedNonAsciiNameFidelityTests
 
         Assert.Contains("Müller", pdf, StringComparison.Ordinal);   // 'M' 0xFC 'l' 'l' 'e' 'r'
         Assert.Contains("Söhne", pdf, StringComparison.Ordinal);    // 'S' 0xF6 'h' 'n' 'e'
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE SECOND DOCUMENT, AND THE REASON IT IS HERE RATHER THAN INFERRED.</b> A tax invoice is the
+    /// document the counterparty actually keeps, and the fold reaches it through
+    /// <c>VoucherPrintProjector.SellerBlock</c> / <c>CounterpartyBlock</c> — not through
+    /// <see cref="InvoicePdf"/>, which contains no <c>Ascii</c> call site at all. This renders a posted sale
+    /// through the production invoice projector and renderer and reads the party's name off the emitted bytes,
+    /// so the claim rests on the artefact rather than on which file a grep happened to cover.
+    /// </summary>
+    [Fact]
+    public void A_tax_invoice_also_names_the_party_as_the_book_holds_it()
+    {
+        var c = CompanyFactory.CreateSeeded("Apex Retail", FyStart);
+        var party = new Domain.Ledger(
+            Guid.NewGuid(), WinAnsiParty, c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(party);
+        var sales = new Domain.Ledger(
+            Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, openingIsDebit: false);
+        c.AddLedger(sales);
+
+        // An ACCOUNTING invoice on a GST-less company: the simplest voucher the invoice projector will accept.
+        // Without the flag it refuses the document outright (its Grand Total would read 0.00 against a 4,720.00
+        // party leg) — a guard of its own, and the reason this test constructs a real invoice rather than a
+        // bare sale.
+        var salesType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales && t.IsActive);
+        var v = new Voucher(Guid.NewGuid(), salesType.Id, FyStart.AddDays(5), new[]
+        {
+            new EntryLine(party.Id, Money.FromRupees(4_720m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(4_720m), DrCr.Credit),
+        }, partyId: party.Id, isAccountingInvoice: true);
+        new LedgerService(c).Post(v);
+
+        string pdf = Encoding.Latin1.GetString(
+            InvoicePdf.Render(VoucherPrintProjector.ProjectInvoice(c, v), new PrintConfig(), new PageConfig()));
+
+        Assert.Contains(WinAnsiParty, pdf, StringComparison.Ordinal);
+        Assert.DoesNotContain(MangledOnMain, pdf, StringComparison.Ordinal);
     }
 
     /// <summary>

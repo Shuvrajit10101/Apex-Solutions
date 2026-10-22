@@ -298,8 +298,17 @@ public static class ReportPrintProjector
     /// <c>/Encoding /WinAnsiEncoding</c> and serialises content with <c>Encoding.Latin1</c> precisely so those
     /// bytes survive. So ~120 characters the writer renders correctly were being replaced by hyphens: a party
     /// ledger named <i>Müller &amp; Söhne</i> printed <i>M-ller &amp; S-hne</i> on its own statement of
-    /// account, while the SAME name printed correctly on an invoice, because <c>InvoicePdf</c> does not call
-    /// this fold. One book, two spellings of one party, depending on which document you printed.</para>
+    /// account.</para>
+    ///
+    /// <para>🔴 <b>AND THE REACH IS WIDER THAN THE FIRST READING OF IT.</b> An earlier draft of this note said
+    /// the same name "printed correctly on an invoice, because <c>InvoicePdf</c> does not call this fold". That
+    /// was <b>false</b>, and it was false because it was reasoned from a grep of <c>InvoicePdf.cs</c> — which
+    /// indeed never calls <c>Ascii</c> — while the fold is applied UPSTREAM, in the projector that builds the
+    /// print model: <c>VoucherPrintProjector.CounterpartyBlock</c> and <c>VoucherPrintProjector.SellerBlock</c>
+    /// both fold the party name before <see cref="InvoicePdf"/> ever sees it. So the tax invoice mangled the
+    /// name too, and the defect was uniform across the printed surface rather than inconsistent across it. The
+    /// invoice path is asserted on its own emitted bytes by
+    /// <c>PrintedNonAsciiNameFidelityTests.A_tax_invoice_also_names_the_party_as_the_book_holds_it</c>.</para>
     ///
     /// <para><b>Grounding.</b> Regional-language masters are a documented vendor capability, not our
     /// extension — help.tallysolutions.com, <i>"Use TallyPrime in your preferred language"</i>: "you can enter

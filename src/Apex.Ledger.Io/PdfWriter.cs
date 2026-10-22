@@ -317,8 +317,8 @@ public sealed class PdfWriter
     /// '?'"*, and replaced every character above U+007E with a hyphen. That premise was false: both fonts here
     /// are declared <c>/Encoding /WinAnsiEncoding</c> and <see cref="ToWinAnsi"/> maps the whole Latin-1 range
     /// plus the CP1252 0x80–0x9F block, so ~120 renderable characters were being destroyed — a party ledger
-    /// named <i>Müller</i> printed <i>M-ller</i> on its own statement of account while the SAME name printed
-    /// correctly on an invoice, which never calls that fold. Census 12.1 clause (d).</para>
+    /// named <i>Müller</i> printed <i>M-ller</i> on its own statement of account, on a tax invoice, and on a
+    /// voucher. Census 12.1 clause (d).</para>
     ///
     /// <para><b>Contract.</b> True exactly when <see cref="EscapeString"/> will NOT substitute
     /// <see cref="WinAnsiFallback"/> for this character — control characters are false, printable ASCII is true,
