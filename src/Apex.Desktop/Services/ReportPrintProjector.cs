@@ -285,9 +285,37 @@ public static class ReportPrintProjector
     }
 
     /// <summary>
-    /// Folds the common non-ASCII glyphs the reports use (em/en dash, the rupee sign, curly quotes, the
-    /// bullet) to ASCII so the ASCII-only PDF writer never emits a '?'. Any other non-ASCII char is dropped
-    /// to '-' as a last resort. This keeps the printed output clean and de-branded.
+    /// Prepares text for the PDF print path: applies the deliberate <b>editorial</b> folds the reports want
+    /// (em/en dash, the rupee sign, curly quotes, the bullet), keeps every other character the PDF font can
+    /// actually draw, and folds to '-' only what it cannot. This is the single fold in front of every printed
+    /// report, statement and voucher — <c>MultiAccountPrintProjector</c> and <c>VoucherPrintProjector</c> both
+    /// route their master names through here.
+    ///
+    /// <para>🔴 <b>THIS USED TO END <c>if (c &lt;= 126) sb.Append(c); else sb.Append('-');</c>, AND THAT WAS A
+    /// MEASURED DATA-LOSS DEFECT — census 12.1 clause (d).</b> Its own summary gave the reason, <i>"so the
+    /// ASCII-only PDF writer never emits a '?'"</i>, and the premise had stopped being true:
+    /// <see cref="PdfWriter"/> encodes <b>WinAnsi</b> (CP1252), declares both fonts
+    /// <c>/Encoding /WinAnsiEncoding</c> and serialises content with <c>Encoding.Latin1</c> precisely so those
+    /// bytes survive. So ~120 characters the writer renders correctly were being replaced by hyphens: a party
+    /// ledger named <i>Müller &amp; Söhne</i> printed <i>M-ller &amp; S-hne</i> on its own statement of
+    /// account, while the SAME name printed correctly on an invoice, because <c>InvoicePdf</c> does not call
+    /// this fold. One book, two spellings of one party, depending on which document you printed.</para>
+    ///
+    /// <para><b>Grounding.</b> Regional-language masters are a documented vendor capability, not our
+    /// extension — help.tallysolutions.com, <i>"Use TallyPrime in your preferred language"</i>: "you can enter
+    /// data in regional languages", "You can now create ledgers and stock items in your preferred language",
+    /// "you can now view and print all your transactions and reports in your preferred language".</para>
+    ///
+    /// <para><b>Three things deliberately did NOT change, because changing them would have been collateral.</b>
+    /// (1) The eight editorial cases below still fold: the dashes, curly quotes and bullet are all
+    /// WinAnsi-representable, so a blanket "keep what the font can draw" would have passed them through and
+    /// altered the bytes of every printed document we already ship. (2) The ASCII arm is byte-for-byte as it
+    /// was, so tab/CR/LF keep reaching <see cref="PdfWriter"/> as the structural escapes it maps them to.
+    /// (3) A character WinAnsi cannot represent still folds, because the writer carries the standard-14 faces
+    /// with <b>no font embedding</b> — there is no glyph for ₹ U+20B9 or for any Indic script, and letting
+    /// those through would put the writer's '?' fallback on a printed document. That residual is census 12.8;
+    /// the widening seam is <see cref="PdfWriter.CanRender"/>, which is <i>asked</i> here rather than guessed
+    /// at, because guessing it locally is what caused the defect above.</para>
     /// </summary>
     internal static string Ascii(string? s)
     {
@@ -311,7 +339,13 @@ public static class ReportPrintProjector
                 case '•': // • bullet
                     sb.Append('*'); break;
                 default:
+                    // ASCII arm unchanged, byte-for-byte: tab/CR/LF still reach the writer's structural escapes.
                     if (c <= 126) sb.Append(c);
+                    // Above ASCII, ASK the writer instead of assuming. WinAnsi covers the Latin-1 letters and
+                    // the CP1252 typographic block, so an accented master name now reaches paper as itself.
+                    else if (PdfWriter.CanRender(c)) sb.Append(c);
+                    // No glyph in a standard-14 face and no font embedded yet (census 12.8): fold
+                    // deterministically rather than let the writer's '?' fallback onto a printed document.
                     else sb.Append('-');
                     break;
             }
