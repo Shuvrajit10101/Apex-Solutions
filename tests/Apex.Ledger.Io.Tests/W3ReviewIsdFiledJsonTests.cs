@@ -109,18 +109,45 @@ public sealed class W3ReviewIsdFiledJsonTests
     }
 
     /// <summary>
-    /// 🔴 THE FILE'S OWN 6.1 NET. 6.1 is emitted from Gstr3b.NetCgst = Outward - ItcCgst, which counts
-    /// ONLY 4(A)(5). This pins the SHAPE so the next reader sees it: the filed 6.1 does NOT move when
-    /// 4(A)(4) arrives. Pre-existing (6.1 already ignores 4(A)(2)/(3) and 4(B)/4(D)), recorded not fixed.
+    /// ~~<c>Filed_6_1_net_is_unmoved_by_4a4_which_is_the_preexisting_shape</c>~~ 🔴 <b>THE DEFECT THIS TEST PINNED IS
+    /// NOW FIXED, SO THE TEST IS INVERTED RATHER THAN DELETED.</b> Its own summary recorded the shape as
+    /// "Pre-existing (6.1 already ignores 4(A)(2)/(3) and 4(B)/4(D)), recorded not fixed" — the fix is this slice.
+    ///
+    /// <para><b>What changed.</b> <c>tbl6_1_net_*</c> was our own invention: Outward − <c>ItcCgst</c>, a net taken
+    /// over the raw posted credit instead of Table 4(C), with the cash-only 3.1(d) leg omitted entirely (CGST Act
+    /// §2(82) + §49(4)). The vendor files nothing there either —
+    /// help.tallysolutions.com/tally-prime/india-gst/gstr-3b-report-tally/ ("How to View GSTR-3B Report in
+    /// TallyPrime"), opened by content: "6.1 Payment of tax This section will be left blank." The keys are gone and
+    /// <c>tbl4c_net_itc_*</c> stands in their place, carrying the figure that is credited to the ECL (CBIC Circular
+    /// No. 170/02/2022-GST para 4.2; formula at para 4.3(D), "(4A - [4B (1) + 4B (2)])").</para>
+    ///
+    /// <para><b>So the assertion flips:</b> 4(A)(4) now DOES move the filed net-credit figure, by exactly the ISD
+    /// credit, which is what the review was complaining about when it pinned the opposite.</para>
     /// </summary>
     [Fact]
-    public void Filed_6_1_net_is_unmoved_by_4a4_which_is_the_preexisting_shape()
+    public void Filed_4c_moves_by_exactly_the_isd_credit_and_no_6_1_is_invented()
     {
-        using var without = JsonDocument.Parse(GstReturnJson.Gstr3b(Book(withIsd: false), From, To));
-        using var with = JsonDocument.Parse(GstReturnJson.Gstr3b(Book(withIsd: true), From, To));
+        var withoutBytes = GstReturnJson.Gstr3b(Book(withIsd: false), From, To);
+        var withBytes = GstReturnJson.Gstr3b(Book(withIsd: true), From, To);
+        using var without = JsonDocument.Parse(withoutBytes);
+        using var with = JsonDocument.Parse(withBytes);
 
+        // The invented payment table is gone from the bytes, in both books.
+        Assert.DoesNotContain("tbl6_1", Encoding.UTF8.GetString(withoutBytes), StringComparison.Ordinal);
+        Assert.DoesNotContain("tbl6_1", Encoding.UTF8.GetString(withBytes), StringComparison.Ordinal);
+
+        // 4(C) without ISD is the bare purchase credit: CGST 900.00, SGST 900.00.
+        Assert.Equal(90_000L, without.RootElement.GetProperty("tbl4c_net_itc_camt_paisa").GetInt64());
+
+        // With ISD it moves by the ISD head figures from Book(): 1,111.11 CGST / 2,222.22 SGST / 3,333.33 IGST.
         Assert.Equal(
-            without.RootElement.GetProperty("tbl6_1_net_camt_paisa").GetInt64(),
-            with.RootElement.GetProperty("tbl6_1_net_camt_paisa").GetInt64());
+            without.RootElement.GetProperty("tbl4c_net_itc_camt_paisa").GetInt64() + 111_111L,
+            with.RootElement.GetProperty("tbl4c_net_itc_camt_paisa").GetInt64());
+        Assert.Equal(
+            without.RootElement.GetProperty("tbl4c_net_itc_samt_paisa").GetInt64() + 222_222L,
+            with.RootElement.GetProperty("tbl4c_net_itc_samt_paisa").GetInt64());
+        Assert.Equal(
+            without.RootElement.GetProperty("tbl4c_net_itc_iamt_paisa").GetInt64() + 333_333L,
+            with.RootElement.GetProperty("tbl4c_net_itc_iamt_paisa").GetInt64());
     }
 }

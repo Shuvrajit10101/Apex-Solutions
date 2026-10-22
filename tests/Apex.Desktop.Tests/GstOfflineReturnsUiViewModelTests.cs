@@ -381,11 +381,19 @@ public sealed class GstOfflineReturnsUiViewModelTests : IDisposable
 
         Assert.Equal("1,000.00", Figure(page, "3.1(a) Taxable outward value"));
         Assert.Equal("450.00", Figure(page, "4(A)(5) ITC CGST"));
-        // 90.00 − 450.00 = −360.00, a carried-forward credit shown as it stands (DP-9), never floored to zero.
-        Assert.Equal("-360.00", Figure(page, "6.1 Net CGST"));
+        // 🔴 THE "6.1 Net CGST" ROW IS GONE FROM THE PREVIEW AND ITS KEY FROM THE BYTES, TOGETHER — that pairing is
+        // the point of this test. The row showed Outward − ItcCgst, which nets the wrong credit (not Table 4(C)) and
+        // drops the cash-only 3.1(d) leg (CGST Act §2(82) + §49(4)). The vendor leaves the table empty too:
+        // help.tallysolutions.com/tally-prime/india-gst/gstr-3b-report-tally/, by content — "6.1 Payment of tax
+        // This section will be left blank."
+        Assert.DoesNotContain(page.Figures, f => f.Label.StartsWith("6.1", StringComparison.Ordinal));
+        // 4(C) replaces it on the preview, and matches what the same screen exports.
+        Assert.Equal("450.00", Figure(page, "4(C) Net ITC available (A) − (B) CGST"));
 
-        using var doc = JsonDocument.Parse(page.BuildJson());
-        Assert.Equal(-36000L, doc.RootElement.GetProperty("tbl6_1_net_camt_paisa").GetInt64());
+        var bytes = page.BuildJson();
+        Assert.DoesNotContain("tbl6_1", System.Text.Encoding.UTF8.GetString(bytes), StringComparison.Ordinal);
+        using var doc = JsonDocument.Parse(bytes);
+        Assert.Equal(45000L, doc.RootElement.GetProperty("tbl4c_net_itc_camt_paisa").GetInt64());
     }
 
     /// <summary>

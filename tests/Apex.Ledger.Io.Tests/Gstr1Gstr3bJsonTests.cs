@@ -217,18 +217,41 @@ public sealed class Gstr1Gstr3bJsonTests
         Assert.Equal(0L, root.GetProperty("tbl4a5_iamt_paisa").GetInt64());
     }
 
+    /// <summary>
+    /// ~~<c>Gstr3b_json_net_payable_is_outward_minus_itc_and_may_be_negative</c>~~ 🔴 <b>REWRITTEN, NOT DELETED, AND
+    /// THE OLD NAME IS KEPT ABOVE SO THE CHANGE CAN BE AUDITED.</b> It pinned <c>tbl6_1_net_*</c> = Outward −
+    /// <c>ItcCgst</c>. That key was our own invention and filed a wrong number twice over: the credit it netted was
+    /// the raw posted ITC rather than Table 4(C), and it omitted the Table 3.1(d) reverse-charge liability, which is
+    /// cash-only (CGST Act §2(82) + §49(4)) and so can never be netted against credit at all.
+    /// <para>And the vendor leaves the table empty: help.tallysolutions.com/tally-prime/india-gst/gstr-3b-report-tally/
+    /// ("How to View GSTR-3B Report in TallyPrime"), opened by content — "6.1 Payment of tax This section will be
+    /// left blank." So the keys are gone, and what this test now pins is their ABSENCE plus the 4(C) figure that
+    /// replaced them.</para>
+    /// <para><b>DP-9 is NOT lost with them</b> — a negative head is still emitted verbatim, never floored to zero;
+    /// it is asserted below on 4(C)'s own arithmetic, which is where the carried-forward credit now reads.</para>
+    /// </summary>
     [Fact]
-    public void Gstr3b_json_net_payable_is_outward_minus_itc_and_may_be_negative()
+    public void Gstr3b_json_emits_table_4c_and_does_not_invent_a_table_6_1()
     {
         var c = BuildRegular();
-        using var doc = JsonDocument.Parse(GstReturnJson.Gstr3b(c, AprFrom, AprTo));
+        var bytes = GstReturnJson.Gstr3b(c, AprFrom, AprTo);
+        using var doc = JsonDocument.Parse(bytes);
         var root = doc.RootElement;
 
-        // DP-9: display-only arithmetic. 9000 − 45000 = −36000 paisa; a negative head is a carried-forward
-        // credit and is emitted VERBATIM (never floored to zero) — the same rule GSTR-9C's unreconciled lines follow.
-        Assert.Equal(-36000L, root.GetProperty("tbl6_1_net_camt_paisa").GetInt64());
-        Assert.Equal(-36000L, root.GetProperty("tbl6_1_net_samt_paisa").GetInt64());
-        Assert.Equal(0L, root.GetProperty("tbl6_1_net_iamt_paisa").GetInt64());
+        Assert.DoesNotContain("tbl6_1", System.Text.Encoding.UTF8.GetString(bytes), StringComparison.Ordinal);
+
+        // 4(C) = 4(A)(5) 45000 with no RCM, ISD or reversal in this book.
+        Assert.Equal(45000L, root.GetProperty("tbl4c_net_itc_camt_paisa").GetInt64());
+        Assert.Equal(45000L, root.GetProperty("tbl4c_net_itc_samt_paisa").GetInt64());
+        Assert.Equal(0L, root.GetProperty("tbl4c_net_itc_iamt_paisa").GetInt64());
+
+        // The portal derives the payment table from the rows it is handed; all three inputs are still emitted,
+        // and 9000 − 45000 = −36000 remains readable off them without us filing a figure the vendor does not.
+        Assert.Equal(
+            -36000L,
+            root.GetProperty("tbl3_1a_camt_paisa").GetInt64()
+            + root.GetProperty("tbl3_1d_rcm_camt_paisa").GetInt64()
+            - root.GetProperty("tbl4c_net_itc_camt_paisa").GetInt64());
     }
 
     [Fact]
