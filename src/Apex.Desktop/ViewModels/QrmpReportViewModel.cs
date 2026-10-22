@@ -46,7 +46,7 @@ public sealed class QrmpPmt06RowVm
 /// deposited). A Monthly filer / Composition / GST-off company yields a not-applicable (empty) projection (ER-13). It
 /// posts nothing. MVVM boundary: engine only; deterministic.
 /// </summary>
-public sealed partial class QrmpReportViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class QrmpReportViewModel : ViewModelBase, IFyScopedGstReportPage
 {
     private readonly Company _company;
 

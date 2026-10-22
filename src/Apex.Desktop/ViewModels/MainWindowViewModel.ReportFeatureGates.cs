@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Apex.Ledger.Domain;
 
 namespace Apex.Desktop.ViewModels;
 
@@ -67,6 +68,19 @@ public enum ReportFeatureGate
     /// of that report onto <see cref="ReportKind.InterestCalculation"/> needed a gate of its own or the saved-view
     /// door would have reached a report whose menu row this company does not have.</summary>
     InterestCalculation,
+
+    /// <summary>
+    /// The company is a <b>Regular</b> GST dealer (GST on, registration type Regular). Gates the "Annual
+    /// Returns" group under Statutory Reports — a Composition dealer files GSTR-9A/GSTR-4 and a GST-off company
+    /// files nothing, so neither sees the group at all (ER-13).
+    ///
+    /// <para>🔴 W-BJ's re-home of GSTR-9 / GSTR-9C onto <see cref="ReportKind.Gstr9AnnualReturn"/> and
+    /// <see cref="ReportKind.Gstr9cReconciliation"/> needed a gate of its own: a saved view stores a kind token
+    /// and walks straight past the conditional menu row, so without this entry a Composition company could have
+    /// recalled a Regular taxpayer's annual return. That is the same hole the Pay Sheet was measured escaping
+    /// through, one module over.</para>
+    /// </summary>
+    RegularGstDealer,
 
     /// <summary>F11 → Enable TDS. Gates the "TDS Reports" group.</summary>
     Tds,
@@ -151,6 +165,13 @@ public sealed partial class MainWindowViewModel
     /// property for the Interest Calculation row, so the row and <see cref="ReportFeatureGate.InterestCalculation"/>
     /// are the same expression and cannot answer differently about the same company.</summary>
     internal bool InterestCalculationFeatureOn => Company?.EnableInterestCalculation != false;
+
+    /// <summary>The company is a Regular GST dealer — GST enabled and registration type Regular (ER-13). The
+    /// "Annual Returns" group and <c>ShowAnnualReturnsMenu</c> branch on THIS property (through
+    /// <c>IsRegularGstDealer</c>, which is now an alias for it), so the menu row, the opener and the Ctrl+H
+    /// saved-view door are the same expression and cannot answer differently about the same company.</summary>
+    internal bool RegularGstDealerFeatureOn =>
+        Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Regular };
 
     /// <summary>F11 → Enable TDS.</summary>
     internal bool TdsFeatureOn => Company is { TdsEnabled: true };
@@ -247,6 +268,22 @@ public sealed partial class MainWindowViewModel
             [ReportKind.TaxAnalysis] = ReportFeatureGate.None,
             [ReportKind.Gstr1] = ReportFeatureGate.None,
             [ReportKind.Gstr3b] = ReportFeatureGate.None,
+
+            // ---- BuildAnnualReturnsColumn (W-BJ). 🔴 NOT None, and the contrast with the trio above is the
+            // whole point: "GST Reports" is an unconditional ROOT row, but "Annual Returns" is a conditional
+            // col.Add gated on a Regular dealer, and ShowAnnualReturnsMenu refuses outright for anyone else.
+            // A saved view must be refused on exactly the same condition or it is a third door into a group
+            // this company does not have.
+            [ReportKind.Gstr9AnnualReturn] = ReportFeatureGate.RegularGstDealer,
+            [ReportKind.Gstr9cReconciliation] = ReportFeatureGate.RegularGstDealer,
+
+            // ---- BuildGstAdvancedReturnsColumn (W-BJ2). The same gate and for the same reason: "GST Returns
+            // (Advanced)" is a conditional col.Add on a Regular dealer and ShowGstAdvancedReturnsMenu refuses
+            // outright for anyone else, so a saved view holding one of these kinds must be refused on exactly
+            // that condition or it is a second door into a group this company does not have.
+            [ReportKind.ItcSetOffProjection] = ReportFeatureGate.RegularGstDealer,
+            [ReportKind.QrmpIffCadence] = ReportFeatureGate.RegularGstDealer,
+            [ReportKind.ElectronicLedgers] = ReportFeatureGate.RegularGstDealer,
 
             // ---- BuildStatementsColumn / BuildExceptionReportsColumn: unconditional.
             [ReportKind.CashFlow] = ReportFeatureGate.None,
@@ -371,6 +408,7 @@ public sealed partial class MainWindowViewModel
         ReportFeatureGate.BonusEnrolment => BonusRegisterFeatureOn,
         ReportFeatureGate.CostCentres => CostCentresFeatureOn,
         ReportFeatureGate.InterestCalculation => InterestCalculationFeatureOn,
+        ReportFeatureGate.RegularGstDealer => RegularGstDealerFeatureOn,
         ReportFeatureGate.Tds => TdsFeatureOn,
         ReportFeatureGate.Tcs => TcsFeatureOn,
         ReportFeatureGate.TdsOrTcs => TdsFeatureOn || TcsFeatureOn,

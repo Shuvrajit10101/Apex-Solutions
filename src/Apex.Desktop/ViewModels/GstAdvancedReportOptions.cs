@@ -45,6 +45,38 @@ public sealed class GstAdvFyOption
     public override string ToString() => Label;
 }
 
+/// <summary>
+/// 🔴 <b>W-BJ2 — the contract a financial-year-scoped advanced-GST page must satisfy to be RE-HOMED onto the
+/// shared report surface.</b> Every one of these pages replaced the vendor's report period control with a
+/// financial-year <see cref="GstAdvFyOption"/> ComboBox of its own, which is the gesture a dedicated page
+/// <c>Screen</c> switches off: the shell's report context goes null, and with it F2 as-of, Alt+F2 period, the
+/// F12 configuration panel, Ctrl+H saved views and the report's own Enter-drill, all at once. The vendor's
+/// keyboard-shortcuts page gives <c>F2</c> as <i>"To change the date of voucher entry or date/period for
+/// reports"</i> — opened by content on 2026-10-20 at
+/// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> — so the
+/// period control is the reference product's gesture on a REPORT, generally, and not a convenience.
+///
+/// <para>🔴 <b>WHY THE RE-HOME READS THE PAGE'S OWN SNAPSHOT INSTEAD OF RE-DERIVING ITS ROWS.</b>
+/// <see cref="IMasterListExportSource.ToMasterListSnapshot"/> is already the authoritative projection of the
+/// page's grid — it is what E / Alt+E exports today. Building the re-homed report FROM it means the report is
+/// cell-for-cell the superseded page by construction, which is provable by a test, and no arithmetic is
+/// transcribed twice. Transcribing instead is how a re-home loses a figure between the engine and the grid.</para>
+///
+/// <para><see cref="SelectedYear"/> is what the shared surface DRIVES: the report period's financial year is
+/// pushed into it, so Alt+F2 genuinely re-scopes the projection rather than decorating a fixed one. A page
+/// offers a bounded list of years, so the surface must handle a period outside it by SAYING SO — see the
+/// builder, which marks the report empty and names the years on offer rather than showing another year's
+/// figures under the chosen year's heading.</para>
+/// </summary>
+public interface IFyScopedGstReportPage : IMasterListExportSource
+{
+    /// <summary>The financial years this page can project (its own ComboBox's items).</summary>
+    System.Collections.ObjectModel.ObservableCollection<GstAdvFyOption> FinancialYears { get; }
+
+    /// <summary>The projected year; setting it re-projects the page.</summary>
+    GstAdvFyOption? SelectedYear { get; set; }
+}
+
 /// <summary>A selectable imported GSTR-2B snapshot on the 2B-reconciliation / ITC-gate report screens (its return
 /// period + a "GSTR-2B · 2024-07 · 27AAPFU0939F1ZV · imported 12-Aug" label). The reconciler + ITC-gate are built over
 /// the chosen snapshot's return-period window.

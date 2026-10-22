@@ -178,6 +178,40 @@ public sealed class OutputDeadEndClusterTests : IDisposable
         Assert.All(snap.Rows, r => Assert.Equal(snap.Columns.Count, r.Count));
     }
 
+
+    /// <summary>
+    /// 🔴 <b>THE SAME 6.19 CONTRACT, FOR A REPORT THAT HAS BEEN RE-HOMED OFF ITS DEDICATED PAGE SCREEN.</b>
+    /// W-BJ2 moved Electronic Ledgers, ITC Set-Off and QRMP / IFF onto the shared report surface, so there is no
+    /// page column to read an <see cref="IMasterListExportSource"/> off any more — E / Alt+E and P / Ctrl+P now
+    /// route through the REPORT projectors instead. The clause row 6.19 actually asserts is unchanged and is
+    /// asserted here on the new path: the two production gates are true, the emitted document is captioned, it is
+    /// not empty, and <b>no row is wider than the band</b> — a row the band cannot hold is how a writer silently
+    /// drops a cell or shifts a money figure into the wrong column, which is the defect BJ-1 turned out to be.
+    /// </summary>
+    private static void AssertHasAnExitOnTheReportSurface(
+        MainWindowViewModel vm, ReportKind kind, string expectedTitle)
+    {
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        Assert.Equal(kind, vm.Reports!.Kind);
+
+        Assert.True(vm.IsExportablePage, $"{kind}: E / Alt+E is dead on the re-homed report.");
+        Assert.True(vm.IsPrintablePage, $"{kind}: P / Ctrl+P is dead on the re-homed report.");
+
+        var export = ReportTabularProjector.Project(vm.Reports!);
+        Assert.Equal(expectedTitle, export.Title);
+        Assert.NotEmpty(export.Columns);
+        Assert.NotEmpty(export.Rows);
+        Assert.All(export.Columns, col => Assert.False(string.IsNullOrWhiteSpace(col.Header)));
+        Assert.All(export.Rows, r => Assert.True(r.Cells.Count <= export.Columns.Count,
+            $"{kind}: a row emits {r.Cells.Count} cells against a {export.Columns.Count}-column band, so the "
+          + "writers truncate it."));
+
+        var printed = ReportPrintProjector.Project(vm.Reports!);
+        Assert.NotEmpty(printed.Columns);
+        Assert.NotEmpty(printed.Rows);
+        Assert.All(printed.Columns, col => Assert.False(string.IsNullOrWhiteSpace(col.Header)));
+    }
+
     // ============================================================ 6.19 — six advanced-GST read-only screens
 
     [Fact]
@@ -185,7 +219,7 @@ public sealed class OutputDeadEndClusterTests : IDisposable
     {
         var vm = NewRegularGstCompany("Elec Ledgers Out Co");
         vm.OpenElectronicLedgersReport();
-        AssertHasAnExit(vm, Screen.ElectronicLedgersReport, "Electronic Ledgers");
+        AssertHasAnExitOnTheReportSurface(vm, ReportKind.ElectronicLedgers, "Electronic Ledgers");
     }
 
     [Fact]
@@ -193,7 +227,8 @@ public sealed class OutputDeadEndClusterTests : IDisposable
     {
         var vm = NewRegularGstCompany("Itc SetOff Out Co");
         vm.OpenItcSetOffReport();
-        AssertHasAnExit(vm, Screen.ItcSetOffReport, "ITC Set-Off (Rule 88A) — projection");
+        AssertHasAnExitOnTheReportSurface(vm, ReportKind.ItcSetOffProjection,
+            "ITC Set-Off (Rule 88A) — projection");
     }
 
     [Fact]
@@ -217,7 +252,7 @@ public sealed class OutputDeadEndClusterTests : IDisposable
     {
         var vm = NewRegularGstCompany("Qrmp Out Co");
         vm.OpenQrmpReport();
-        AssertHasAnExit(vm, Screen.QrmpReport, "QRMP / IFF Cadence");
+        AssertHasAnExitOnTheReportSurface(vm, ReportKind.QrmpIffCadence, "QRMP / IFF Cadence");
     }
 
     [Fact]
