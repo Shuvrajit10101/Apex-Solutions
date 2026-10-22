@@ -287,9 +287,24 @@ public static class ReportPrintProjector
     /// <summary>
     /// Prepares text for the PDF print path: applies the deliberate <b>editorial</b> folds the reports want
     /// (em/en dash, the rupee sign, curly quotes, the bullet), keeps every other character the PDF font can
-    /// actually draw, and folds to '-' only what it cannot. This is the single fold in front of every printed
-    /// report, statement and voucher — <c>MultiAccountPrintProjector</c> and <c>VoucherPrintProjector</c> both
-    /// route their master names through here.
+    /// actually draw, and folds to '-' only what it cannot. It is the fold in front of the report, statement and
+    /// voucher print paths — <c>MultiAccountPrintProjector</c> and <c>VoucherPrintProjector</c> both route their
+    /// master names through here.
+    ///
+    /// <para>🔴 <b>IT IS NOT, HOWEVER, THE ONLY TEXT SINK IN THE PRODUCT, AND THE CENSUS AMENDMENT THAT LANDED
+    /// THIS FIX CLAIMED IT WAS</b> — <i>"the single chokepoint for the entire printed surface"</i>, withdrawn
+    /// 2026-10-22. <b>Four</b> printed documents reach <see cref="PdfWriter"/> without passing through here, so on
+    /// those four an unrenderable character is still drawn as the writer's <c>'?'</c> fallback rather than as a
+    /// hyphen: the <b>cheque</b> (<c>ChequePrintProjector</c> has zero <c>Ascii</c> call sites and
+    /// <c>ChequePdf</c> inks <c>ChequePrintData.PayeeName</c> verbatim — deliberately, so the brand scrub cannot
+    /// rewrite a payee's legal name on a negotiable instrument), the two <b>TDS/TCS certificates</b>
+    /// (<c>Form16APdf</c> inks <c>cert.Deductee.Name</c> and <c>Form27DPdf</c> inks <c>cert.Collectee.Name</c>
+    /// straight through <c>CertificatePdfSupport.KeyVal</c>), and the <b>POS receipt</b>
+    /// (<c>PosBillingViewModel</c> fills <c>PosReceiptData.StoreName</c> and <c>.Party</c> from the book and
+    /// <c>PosReceiptPdf</c> draws them unfolded). Measured on the emitted cheque bytes by the wave-47 reviewer: a
+    /// Devanagari payee inks <c>?????</c>. That is a PRE-EXISTING gap, unchanged by this fix and recorded here
+    /// rather than patched, because routing a counterparty's name through a fold is the same decision the cheque
+    /// path already refused once for the brand scrub.</para>
     ///
     /// <para>🔴 <b>THIS USED TO END <c>if (c &lt;= 126) sb.Append(c); else sb.Append('-');</c>, AND THAT WAS A
     /// MEASURED DATA-LOSS DEFECT — census 12.1 clause (d).</b> Its own summary gave the reason, <i>"so the

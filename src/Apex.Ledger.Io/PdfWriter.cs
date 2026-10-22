@@ -312,8 +312,8 @@ public sealed class PdfWriter
     /// 🔴 <b>Whether this writer can draw <paramref name="c"/> as itself — the ONE place that question is
     /// answered, and the seam a print path must ask instead of deciding for itself.</b>
     ///
-    /// <para><b>Why it exists.</b> <c>ReportPrintProjector.Ascii</c> — the single fold in front of every printed
-    /// report, statement and voucher — decided the answer locally, as *"the ASCII-only PDF writer never emits a
+    /// <para><b>Why it exists.</b> <c>ReportPrintProjector.Ascii</c> — the fold in front of the report, statement
+    /// and voucher print paths — decided the answer locally, as *"the ASCII-only PDF writer never emits a
     /// '?'"*, and replaced every character above U+007E with a hyphen. That premise was false: both fonts here
     /// are declared <c>/Encoding /WinAnsiEncoding</c> and <see cref="ToWinAnsi"/> maps the whole Latin-1 range
     /// plus the CP1252 0x80–0x9F block, so ~120 renderable characters were being destroyed — a party ledger
@@ -324,6 +324,13 @@ public sealed class PdfWriter
     /// <see cref="WinAnsiFallback"/> for this character — control characters are false, printable ASCII is true,
     /// and above that it is true iff CP1252 assigns the code point a glyph. <c>'?'</c> itself is true: it is
     /// printable ASCII and renders as itself.</para>
+    ///
+    /// <para>🔴 <b>Four printed documents never ask this question, so widening it does not reach them.</b> The
+    /// cheque (<c>ChequePdf</c>, payee name and currency symbol), the two TDS/TCS certificates
+    /// (<c>Form16APdf</c>, <c>Form27DPdf</c>, the deductee/collectee name) and the POS receipt
+    /// (<c>PosReceiptPdf</c>, store and party name) call <see cref="Text"/> with the book's string unfolded, so
+    /// an unrenderable character there is drawn as <see cref="WinAnsiFallback"/>. Measured on the emitted cheque
+    /// bytes, wave 47; pre-existing and unfixed.</para>
     ///
     /// <para>🔴 <b>This is also the widening seam for font embedding (census 12.8).</b> The standard-14 faces
     /// carry no glyph for ₹ U+20B9 or for any Indic script, and this document embeds no font program, so those

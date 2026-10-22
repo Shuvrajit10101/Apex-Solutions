@@ -40,11 +40,24 @@ namespace Apex.Desktop.Tests;
 /// <c>VoucherPrintProjector.SellerBlock</c>). Grepping the renderer answered a different question than the one
 /// asked. The invoice path therefore gets its own byte-level assertion below rather than an inference.</para>
 ///
-/// <para><b>Reach.</b> <c>ReportPrintProjector.Ascii</c> is the single chokepoint for the whole printed
-/// surface — <see cref="ReportPrintProjector"/> itself (titles, subtitles, column captions and every banded and
-/// generic cell), <see cref="MultiAccountPrintProjector"/> (11 call sites: ledger-account, confirmation and
+/// <para><b>Reach.</b> <c>ReportPrintProjector.Ascii</c> is the chokepoint for the report, statement and voucher
+/// print paths — <see cref="ReportPrintProjector"/> itself (titles, subtitles, column captions and every banded
+/// and generic cell), <see cref="MultiAccountPrintProjector"/> (11 call sites: ledger-account, confirmation and
 /// reminder sheets) and <see cref="VoucherPrintProjector"/> (party name, ledger names, narration, voucher type,
-/// stock-item descriptions). One fold, every printed document.</para>
+/// stock-item descriptions).</para>
+///
+/// <para>🔴 <b>IT IS NOT "ONE FOLD, EVERY PRINTED DOCUMENT", WHICH IS WHAT THIS FILE FIRST CLAIMED, AND THE WAY
+/// THAT CLAIM WAS WRONG IS THE SAME WAY THE INVOICE CLAIM ABOVE WAS WRONG — IT WAS REASONED FROM THE THREE
+/// PROJECTORS IT HAD ALREADY OPENED.</b> <c>ChequePrintProjector</c> sits in the same folder and has <b>zero</b>
+/// <c>Ascii</c> call sites: <c>ChequePdf</c> inks <c>ChequePrintData.PayeeName</c> verbatim, deliberately, so the
+/// ER-11 brand scrub cannot rewrite a payee's legal name on a negotiable instrument. The two TDS/TCS certificate
+/// renderers bypass it too — <c>Form16APdf</c> inks <c>cert.Deductee.Name</c> and <c>Form27DPdf</c> inks
+/// <c>cert.Collectee.Name</c> straight through <c>CertificatePdfSupport.KeyVal</c> — and so does the POS receipt,
+/// whose <c>StoreName</c> and <c>Party</c> <c>PosBillingViewModel</c> fills straight from the book. On those four
+/// unrenderable character reaches <see cref="PdfWriter"/> and is drawn as its <c>'?'</c> fallback: the wave-47
+/// reviewer rendered a cheque to a Devanagari payee and read <c>?????</c> off the emitted bytes. That is
+/// <b>pre-existing and unchanged by this fix</b> — it is recorded so the next reader does not inherit the
+/// universal.</para>
 ///
 /// <para>🔴 <b>WHAT IS DELIBERATELY NOT CLOSED, AND IT IS THE EXPENSIVE HALF.</b> A character WinAnsi cannot
 /// represent still folds, because the writer carries the standard-14 faces with <b>no font embedding</b> — there
@@ -171,9 +184,14 @@ public sealed class PrintedNonAsciiNameFidelityTests
 
     /// <summary>
     /// 🔴 <b>THE RESIDUAL, PINNED SO IT CANNOT BE QUIETLY WIDENED OR QUIETLY WORSENED.</b> A Devanagari name has
-    /// no glyph in a standard-14 face, so it still folds — and it must fold to the deterministic hyphen, never
-    /// reach <see cref="PdfWriter"/> and come out as the writer's <c>'?'</c> last-resort byte. The ASCII tail of
-    /// the same name still prints, which is what proves the fold is per-character and not a blanking.
+    /// no glyph in a standard-14 face, so it still folds — and <b>on the paths that go through this fold</b> it
+    /// must fold to the deterministic hyphen, never reach <see cref="PdfWriter"/> and come out as the writer's
+    /// <c>'?'</c> last-resort byte. The ASCII tail of the same name still prints, which is what proves the fold
+    /// is per-character and not a blanking.
+    ///
+    /// <para>🔴 <b>The method name says "the page" and that is narrower than it sounds: it means the statement
+    /// page this test renders.</b> It is NOT a claim about every printed document — a cheque and the two TDS/TCS
+    /// certificates do not route through this fold at all (see the class note) and DO ink <c>'?'</c> there.</para>
     /// </summary>
     [Fact]
     public void A_script_the_pdf_font_cannot_render_still_folds_and_never_reaches_the_page_as_a_question_mark()
