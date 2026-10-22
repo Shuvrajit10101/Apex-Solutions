@@ -12,11 +12,17 @@ namespace Apex.Ledger.Io.Tests;
 /// <para><b>What was wrong.</b> The ISD-credit slice wired <c>Itc4A4Isd*</c> into <c>Gstr3b.Build</c>, into the
 /// Table 4(C) net and (after review) into the on-screen GSTR-3B — and <b>not</b> into
 /// <see cref="GstReturnJson.Gstr3b"/>, the envelope that is actually <b>filed</b>. The emitted object carried
-/// <c>tbl4a2</c>, <c>tbl4a3</c>, <c>tbl4a5</c>, <c>tbl4b1</c>, <c>tbl4b2</c>, <c>tbl4d1</c> and <c>tbl6_1</c>, and
+/// <c>tbl4a2</c>, <c>tbl4a3</c>, <c>tbl4a5</c>, <c>tbl4b1</c>, <c>tbl4b2</c>, <c>tbl4d1</c> and ~~<c>tbl6_1</c>~~, and
 /// <b>no 4(A)(4) key at all</b>. So the screen showed the ISD credit and the file did not: on the fixture below the
 /// filed ITC was understated by the whole of <b>₹5,500.00</b> (CGST ₹1,500.00 + SGST ₹1,500.00 + IGST ₹2,000.00 +
 /// Cess ₹500.00). The GSTN offline tool derives 4(C) from the rows it is handed, so nothing inside the file
 /// contradicted itself — which is exactly why no existing test saw it.
+/// <para>⚠️ <b><c>tbl6_1</c> IS STRUCK ABOVE: the envelope no longer carries it.</b> That key was our own invention
+/// — Outward − <c>ItcCgst</c>, netting the raw posted credit instead of Table 4(C) and omitting the cash-only
+/// 3.1(d) leg (CGST Act §2(82) + §49(4)) — and the vendor files nothing there either
+/// (<c>help.tallysolutions.com/tally-prime/india-gst/gstr-3b-report-tally/</c>, by content: "6.1 Payment of tax
+/// This section will be left blank."). It was replaced by <c>tbl4c_net_itc_*</c>, which IS the figure credited to
+/// the electronic credit ledger. The sentence above is kept because it records what was measured at the time.</para>
 ///
 /// <para><b>These tests assert on the EMITTED BYTES</b> — <c>GstReturnJson.Gstr3b</c>'s UTF-8 output, parsed and
 /// also matched as text — never on the DTO the emitter just populated.</para>

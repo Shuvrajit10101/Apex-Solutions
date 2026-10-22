@@ -28,7 +28,7 @@ namespace Apex.Ledger.Reports;
 /// match is derived").</para>
 ///
 /// <para><b>🔴 THE ATTRIBUTION RULE IS A STATED ENGINEERING CHOICE, NOT A SOURCED TALLY BEHAVIOUR (R7).</b>
-/// TallyPrime retires an order through an explicit order/tracking number captured on the note; this product has
+/// TallyPrime retires an order through an explicit order reference captured on the note; this product has
 /// no such field on any master or line, and no UI to capture one. In its absence the rule is:
 /// <list type="number">
 ///   <item>the cohort is the pair <b>(PartyId, StockItemId)</b> — a movement can only ever retire an order for
@@ -37,9 +37,54 @@ namespace Apex.Ledger.Reports;
 ///     first-out — and never an order dated after the movement;</item>
 ///   <item><b>"no party" is a cohort of its own, not a wildcard</b> — see the next paragraph.</item>
 /// </list>
-/// It is recorded here rather than in a doc because the rule decides a figure. Owed to the post-merge
-/// documentation slice: its own row in <c>docs/invented-vs-cloned.md</c>, and a user go/no-go on whether a
-/// derived match may retire an order at all.</para>
+/// It is recorded here rather than in a doc because the rule decides a figure.</para>
+///
+/// <para><b>🔴 THE OWED REGISTER ROW NOW EXISTS — <c>docs/invented-vs-cloned.md</c> §2I, <b>IV-106</b> (added
+/// 2026-10-20).</b> The sentence that used to stand here said the row was *owed to the post-merge documentation
+/// slice*; it was never written, and the go/no-go went with it. Both are now in IV-106, with a figure attached
+/// rather than a description: one party, one item, <b>SO-1</b> 05-Apr 100 Nos @ ₹47.33 and <b>SO-2</b> 10-Apr
+/// 100 Nos @ ₹90.00, a 15-Apr Delivery Note for 100 Nos the operator raised <b>against SO-2</b> — the gesture
+/// the vendor provides and this product cannot record. The two Order Register rows come out <b>exactly
+/// inverted</b> and the outstanding value reads <b>₹9,000.00 against a ₹4,733.00 truth — ₹4,267.00 (90.2%)
+/// high.</b> ⚠️ <b>The item-level quantity is IDENTICAL in that shape (100 Nos either way), so
+/// <see cref="ReorderStatus"/> is untouched by it</b> — the per-order half of the error is the half this
+/// fixture isolates, and the cohort/date-ordering half that DOES move the item total is the one the
+/// per-line-attribution paragraph at the end of this doc analyses. The go/no-go is stated there in the terms
+/// the user has to answer it in, and it is still open.</para>
+///
+/// <para><b>🔴 WHAT THE VENDOR ACTUALLY USES IS THE <i>ORDER NO.</i>, AND IT IS <u>NOT</u> THE TRACKING NO. —
+/// corrected here because the two were compressed into "an explicit order/tracking number" above, and a wave
+/// was briefed on the strength of that compression to "retire by the tracking number".</b> Both pages opened
+/// <b>BY CONTENT</b> 2026-10-20:
+/// <list type="bullet">
+///   <item><b>The order link is the Order No.</b> <c>help.tallysolutions.com/purchase-order-tally/</c>:
+///     <i>"Select Order No(s) from the List of Orders, if a purchase order exists for that supplier."</i> ·
+///     <i>"The Order No. is prefilled in the Stock Item Allocations screen."</i> · <i>"Set the Order No. to Not
+///     Applicable."</i> <c>help.tallysolutions.com/sales-order-tally/</c>: <i>"The Order no. field appears in
+///     the Items Allocation screen. It does not appear on the main screen of the invoice."</i> ·
+///     <i>"In the Order Details screen, select the order number."</i> · and the closure rule itself —
+///     <i>"The Sales Order gets closed if completely delivered. Otherwise, it is partially closed, and you can
+///     view the details in the Sales Order Outstandings report."</i> and <i>"The Sales Order gets closed if
+///     completely billed."</i></item>
+///   <item><b>The Tracking No. is the note ↔ BILL link and retires no order.</b> <i>"You can select the
+///     tracking number of the receipt note to track the received goods in the purchase invoice."</i> ·
+///     <i>"A receipt note is closed if billed completely."</i> · <i>"appears as Bills made but goods not
+///     received in the Purchase Bill Pending report."</i> That is exactly and only what
+///     <see cref="BillsPending"/> already consumes <c>tracking_number</c> for. <b>Re-pointing it at order
+///     retirement would give one persisted operator datum two incompatible meanings — a NEW invention, not a
+///     de-invention of this one.</b></item>
+/// </list>
+/// <b>And the field the vendor rule needs does not exist in this product</b>, searched over
+/// <c>Schema.cs</c> (fresh-create and migration bodies), <c>src/Apex.Ledger/Domain/</c> and
+/// <c>src/Apex.Ledger.Io/</c>, source only with <c>bin</c>/<c>obj</c> excluded: <c>order_lines</c> has no order
+/// number; <c>inventory_allocations</c> and <c>voucher_inventory_lines</c> carry <c>tracking_number</c> and
+/// <c>cost_tracking_number</c> and nothing order-shaped; the <see cref="InventoryVoucher"/> header carries no
+/// order reference; the only <c>order_no</c> columns in the schema belong to <b>one</b> job-work table,
+/// <c>job_work_orders</c>, declared twice (fresh-create and the v24 migration body).
+/// <b>So the fix is a MIGRATION</b> — <c>order_voucher_id</c> + <c>order_line_index</c> on both movement-line
+/// tables, an Order No. picker over the party's open orders (with <i>Not Applicable</i>), and an
+/// <see cref="Accumulate"/> that retires the LINKED line and nothing else. IV-106 carries the full shape,
+/// including carrying both columns into the canonical transport in the same pass.</para>
 ///
 /// <para><b>🔴 WHAT HAPPENS WHEN A NOTE NAMES NO PARTY — the rule, and why it is this one.</b> The party field
 /// is optional on both an order and a note ("(none)" in the picker), so <c>null</c> is a real, reachable value

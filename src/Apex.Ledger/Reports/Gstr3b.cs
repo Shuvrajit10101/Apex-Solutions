@@ -113,6 +113,18 @@ public sealed record Gstr3b(
         ItcReversed4B1Cgst.Amount + ItcReversed4B1Sgst.Amount + ItcReversed4B1Igst.Amount +
         ItcReversed4B2Cgst.Amount + ItcReversed4B2Sgst.Amount + ItcReversed4B2Igst.Amount);
 
+    /// <summary>Σ Table 4(B)(1) alone — the PERMANENT reversals (rules 38, 42, 43 and section 17(5)) — across the
+    /// GST heads (excludes cess, ER-2). Split out from <see cref="TotalItcReversed"/> because the form files the
+    /// two 4(B) rows separately and only 4(B)(2) is reclaimable: CBIC Circular No. 170/02/2022-GST, para 4.3(B)/(C).
+    /// </summary>
+    public Money TotalItcReversed4B1 =>
+        new(ItcReversed4B1Cgst.Amount + ItcReversed4B1Sgst.Amount + ItcReversed4B1Igst.Amount);
+
+    /// <summary>Σ Table 4(B)(2) alone — the reversals that "can be reclaimed in future" (rule 37 / 37A) — across the
+    /// GST heads (excludes cess, ER-2). See <see cref="TotalItcReversed4B1"/>.</summary>
+    public Money TotalItcReversed4B2 =>
+        new(ItcReversed4B2Cgst.Amount + ItcReversed4B2Sgst.Amount + ItcReversed4B2Igst.Amount);
+
     /// <summary>Σ Table 4(D)(1) ITC reclaimed across the GST heads (excludes cess, ER-2).</summary>
     public Money TotalItcReclaimed =>
         new(ItcReclaimed4D1Cgst.Amount + ItcReclaimed4D1Sgst.Amount + ItcReclaimed4D1Igst.Amount);
