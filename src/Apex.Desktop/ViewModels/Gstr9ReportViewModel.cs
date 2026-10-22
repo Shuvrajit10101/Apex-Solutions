@@ -135,7 +135,11 @@ public sealed partial class Gstr9ReportViewModel : ViewModelBase, IMasterListExp
         Gstr9 ret;
         try
         {
-            ret = Gstr9.Build(_company, fyFrom, fyTo);
+            // census 6.23: NAMED. Unscoped, EnsureRegistrationScoped refused on any multi-registration book and
+            // this page showed the refusal text instead of a return. Byte-identical on a single-registration
+            // book, because FindRegistration normalises null and PrimaryId to the same registration.
+            ret = Gstr9.Build(_company, fyFrom, fyTo,
+                _company.Gst?.PrimaryRegistration?.Id ?? GstRegistration.PrimaryId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {

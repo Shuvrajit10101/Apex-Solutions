@@ -88,7 +88,9 @@ public sealed partial class Gstr9cReportViewModel : ViewModelBase, IMasterListEx
         Gstr9c stmt;
         try
         {
-            stmt = Gstr9c.Build(_company, fyFrom, fyTo);
+            // census 6.23: NAMED, for the reason Gstr9ReportViewModel.Rebuild gives — 9C folds through 9.
+            stmt = Gstr9c.Build(_company, fyFrom, fyTo,
+                _company.Gst?.PrimaryRegistration?.Id ?? GstRegistration.PrimaryId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {

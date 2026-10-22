@@ -117,17 +117,30 @@ public static class Report
 
     // ------------------------------------------------------------------ GST reports (slice 4b)
 
+    // 🔴 THE THREE FACADES BELOW WERE THE PLACE THE REGISTRATION SCOPE WAS LOST (census 6.23). Each engine has
+    // taken a `Guid? registrationId` since v61, but these wrappers had no parameter to pass — so the only caller
+    // (ReportsViewModel's Tax Analysis / GSTR-1 / GSTR-3B) COULD NOT name one however much it wanted to, and on a
+    // multi-registration company GstReportSupport.EnsureRegistrationScoped threw its refusal. Those three kinds
+    // are dispatched WITHOUT RunStatutoryForm, so the throw left Show() unhandled and took the shell down.
+    // The parameter defaults to null, so every existing caller and test is byte-identical (ER-13).
+
     /// <summary>The GST Tax Analysis period summary (catalog §12; RQ-20) — outward + inward tax by rate/head.</summary>
-    public static TaxAnalysis BuildTaxAnalysis(Company c, DateOnly from, DateOnly to)
-        => TaxAnalysis.Build(c, from, to);
+    /// <param name="registrationId">The registration to fold over (census 6.23); <c>null</c> ⇒ the company's
+    /// only registration, and a multi-registration company REFUSES an unscoped projection.</param>
+    public static TaxAnalysis BuildTaxAnalysis(Company c, DateOnly from, DateOnly to, Guid? registrationId = null)
+        => TaxAnalysis.Build(c, from, to, registrationId);
 
     /// <summary>GSTR-1 (outward supplies) over a period (catalog §12; RQ-21): B2B/B2C, rate-wise, HSN summary.</summary>
-    public static Gstr1 BuildGstr1(Company c, DateOnly from, DateOnly to)
-        => Gstr1.Build(c, from, to);
+    /// <param name="registrationId">The registration this return is filed for (census 6.23); <c>null</c> ⇒ the
+    /// company's only registration, and a multi-registration company REFUSES an unscoped build.</param>
+    public static Gstr1 BuildGstr1(Company c, DateOnly from, DateOnly to, Guid? registrationId = null)
+        => Gstr1.Build(c, from, to, registrationId);
 
     /// <summary>GSTR-3B (summary return) over a period (catalog §12; RQ-22; DP-9): outward tax, ITC, net payable.</summary>
-    public static Gstr3b BuildGstr3b(Company c, DateOnly from, DateOnly to)
-        => Gstr3b.Build(c, from, to);
+    /// <param name="registrationId">The registration this return is filed for (census 6.23); <c>null</c> ⇒ the
+    /// company's only registration, and a multi-registration company REFUSES an unscoped build.</param>
+    public static Gstr3b BuildGstr3b(Company c, DateOnly from, DateOnly to, Guid? registrationId = null)
+        => Gstr3b.Build(c, from, to, registrationId);
 
     // ------------------------------------------------------------------ TDS/TCS exception reports (slice 8)
 
