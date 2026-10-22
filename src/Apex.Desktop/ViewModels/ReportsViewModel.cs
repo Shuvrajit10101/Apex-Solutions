@@ -1081,33 +1081,32 @@ public sealed partial class ReportsViewModel : ViewModelBase
         ComparativeKind is { } k && ComparativeReport.SupportsScenarioColumns(k);
 
     /// <summary>
-    /// 🔴 <b>THE VENDOR'S OWN EXCLUSION, STATED AS A RULE RATHER THAN LEFT TO ACCIDENT.</b>
+    /// The engine comparative kind for the current report, or null when this kind is not comparative.
     ///
-    /// <para>The shortcut reference gives both chords with the same carve-out — <i>"Alt+C — To add a new column
-    /// (except in Day Book and GST Returns)"</i> and <i>"Alt+N — To auto repeat columns (except in Day Book and
-    /// GST Returns)"</i> (<c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c>).
-    /// Until this method existed the product excluded them only <i>by accident</i>: they simply were not among
-    /// the four mapped kinds, so the first widening pass that added a kind would have been free to add them.
-    /// The rule is now written down, checked by <see cref="ComparativeKind"/>, and tested, so a later widening
-    /// has to confront it rather than walk past it.</para>
+    /// <para>🔴 <b>THE VENDOR'S CARVE-OUT IS ENFORCED BY THIS MAP'S SHAPE AND BY AN EXACT-SET TEST — NOT BY A
+    /// FILTERING GUARD, BECAUSE THAT GUARD WAS DECORATIVE AND THE MEASUREMENT SAYS SO.</b> The shortcut
+    /// reference gives both chords with the same carve-out — <i>"Alt+C — To add a new column (except in Day Book
+    /// and GST Returns)"</i> and <i>"Alt+N — To auto repeat columns (except in Day Book and GST Returns)"</i>
+    /// (<c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c>). An
+    /// earlier version of this property opened with
+    /// <c>IsVendorExcludedFromComparative(Kind) ? null :</c> and a commit message claiming the carve-out was now
+    /// "a named, TESTED rule a later widening has to confront". It was neither: every kind the predicate named
+    /// (Day Book, the three registers that are the Day Book under one flag each, Gstr1, Gstr3b, TaxAnalysis) is
+    /// absent from the switch below anyway, so <b>mutation M6 deleted the guard outright and not one test
+    /// reddened</b>, and the assertion that claimed to pin it — an <c>Assert.Empty</c> over the intersection of
+    /// the working set with a provably disjoint set — could not fail. <b>A test that cannot fail is worse than
+    /// no test</b>, and a guard whose removal nothing notices is worse than no guard, because it is read as
+    /// cover that is not there.</para>
+    ///
+    /// <para><b>What enforces the carve-out instead, and reddens on exactly the mutation that matters.</b> The
+    /// only way an excluded kind can become comparative is for someone to ADD it to the switch below.
+    /// <c>ComparativeFlowKindsViewModelTests.Alt_C_coverage_is_counted_by_driving_every_report_kind</c> drives
+    /// Alt+C on every <see cref="ReportKind"/> and asserts the working set is EXACTLY the six named here, and
+    /// <c>The_vendors_Day_Book_and_GST_return_carve_out_holds_on_the_realised_screen</c> drives all three
+    /// gestures on each carved-out kind and asserts the realised refusal. Both fail the instant a carved-out
+    /// kind is added — which is what the deleted guard only claimed to do.</para>
     /// </summary>
-    /// <param name="kind">The report kind to test.</param>
-    /// <returns><c>true</c> when the vendor's own carve-out keeps Alt+C / Alt+N off this report.</returns>
-    public static bool IsVendorExcludedFromComparative(ReportKind kind)
-        // The Day Book and the three registers that ARE the Day Book under one flag each (census 11.13: each is
-        // "the Day Book filtered by one flag over the shared ExceptionVouchers engine"), so the carve-out that
-        // names the Day Book covers them.
-        => kind is ReportKind.DayBook
-            or ReportKind.OptionalVouchersRegister
-            or ReportKind.CancelledVouchersRegister
-            or ReportKind.PostDatedVouchersRegister
-        // The GST returns carried on this surface. GSTR-4/9/9C are dedicated screens rather than ReportKind
-        // members, so they are out of this surface's reach entirely; TaxAnalysis is a GST report but not a
-        // return, and is excluded with them because the carve-out's subject is the GST return family.
-        || kind is ReportKind.Gstr1 or ReportKind.Gstr3b or ReportKind.TaxAnalysis;
-
-    /// <summary>The engine comparative kind for the current report, or null when this kind is not comparative.</summary>
-    private ComparativeReportKind? ComparativeKind => IsVendorExcludedFromComparative(Kind) ? null : Kind switch
+    private ComparativeReportKind? ComparativeKind => Kind switch
     {
         ReportKind.TrialBalance => ComparativeReportKind.TrialBalance,
         ReportKind.BalanceSheet => ComparativeReportKind.BalanceSheet,
@@ -1995,7 +1994,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var comparative = ComparativeReport.Build(_company, kind, specs);
 
         foreach (var c in comparative.Columns)
-            ComparativeColumns.Add(new ComparativeColumnVM(c.Label, ColumnTotalText(kind, c)));
+            ComparativeColumns.Add(new ComparativeColumnVM(c.Label, ColumnTotalLines(kind, c)));
 
         foreach (var row in comparative.Rows)
         {
@@ -2016,32 +2015,65 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(ShowSingleInventoryGrid));
     }
 
-    /// <summary>The per-column total text appropriate to the kind (TB: Dr/Cr; BS: Liab/Assets; P&amp;L: net;
-    /// Stock: closing value). Shown under each column header as a bold total line.</summary>
-    private static string ColumnTotalText(ComparativeReportKind kind, ComparativeReport.Column c) => kind switch
+    /// <summary>
+    /// The per-column total appropriate to the kind, <b>as one metric-and-figure PAIR per metric</b> (TB: Dr and
+    /// Cr; BS: Liab and Assets; P&amp;L: net; Cash Flow: open/net/close; Funds Flow: sources and applications;
+    /// Stock: closing value). <see cref="ComparativeColumnVM.TotalText"/> joins them back into the single bold
+    /// line the grid header shows, so the screen reads exactly as it always has.
+    ///
+    /// <para>🔴 <b>WHY THIS IS STRUCTURED AND NOT A STRING, MEASURED ON THE EMITTED PDF.</b> The joined line is
+    /// a reconciliation SENTENCE — <c>"Open 1,00,000.00 · Net 45,000.00 · Close 55,000.00"</c>, fifty-odd
+    /// characters. The print projector emitted it as a data row inside the comparison columns, which are
+    /// right-aligned; <c>ReportPdf.IsFigureColumn</c> is <c>Align == Right</c> and a figure column's width FLOOR
+    /// is its full requirement, so EVERY comparison column's floor became that sentence's width instead of a
+    /// money figure's. Past a handful of columns the floors alone exceeded the sheet and the renderer took its
+    /// own documented "not even the floors fit, nothing can be printed whole" branch: at the default Alt+N
+    /// monthly Cash Flow every Particulars cell drew as <c>"..."</c> and every figure as <c>"37,000...."</c> —
+    /// <b>with the In/Out suffix clipped off, so a clipped outflow was identical to an inflow.</b> A comparative
+    /// Trial Balance printed 0 of 12 labels and 0 of 12 figures. Splitting the sentence into one short money row
+    /// per metric is what lets the printed page carry money figures in money-width columns.</para>
+    /// </summary>
+    private static IReadOnlyList<ComparativeColumnTotal> ColumnTotalLines(
+        ComparativeReportKind kind, ComparativeReport.Column c) => kind switch
     {
-        ComparativeReportKind.TrialBalance =>
-            $"Dr {IndianFormat.AmountAlways(c.TotalDebit)} · Cr {IndianFormat.AmountAlways(c.TotalCredit)}",
-        ComparativeReportKind.BalanceSheet =>
-            $"Liab {IndianFormat.AmountAlways(c.TotalLiabilities)} · Assets {IndianFormat.AmountAlways(c.TotalAssets)}",
-        ComparativeReportKind.ProfitAndLoss =>
-            (c.NetProfit.Amount >= 0m ? "Net Profit " : "Net Loss ")
-                + IndianFormat.AmountAlways(new Money(Math.Abs(c.NetProfit.Amount))),
-        ComparativeReportKind.StockSummary =>
-            IndianFormat.AmountAlways(c.StockClosingValue),
+        ComparativeReportKind.TrialBalance => new ComparativeColumnTotal[]
+        {
+            new("Dr", IndianFormat.AmountAlways(c.TotalDebit)),
+            new("Cr", IndianFormat.AmountAlways(c.TotalCredit)),
+        },
+        ComparativeReportKind.BalanceSheet => new ComparativeColumnTotal[]
+        {
+            new("Liab", IndianFormat.AmountAlways(c.TotalLiabilities)),
+            new("Assets", IndianFormat.AmountAlways(c.TotalAssets)),
+        },
+        // The metric NAME carries the side here, because the figure is a magnitude: a column that lost money is
+        // captioned "Net Loss" and one that made money "Net Profit", exactly as the single line always read.
+        ComparativeReportKind.ProfitAndLoss => new ComparativeColumnTotal[]
+        {
+            new(c.NetProfit.Amount >= 0m ? "Net Profit" : "Net Loss",
+                IndianFormat.AmountAlways(new Money(Math.Abs(c.NetProfit.Amount)))),
+        },
+        ComparativeReportKind.StockSummary => new ComparativeColumnTotal[]
+        {
+            new(string.Empty, IndianFormat.AmountAlways(c.StockClosingValue)),
+        },
         // Cash Flow's column total is the statement's own reconciliation line: opening + net == closing. Showing
         // the net alone would leave the operator unable to tell a quiet month from a month that moved and came
         // back, which is the whole reason a cash column is read beside its neighbours.
-        ComparativeReportKind.CashFlow =>
-            $"Open {IndianFormat.AmountAlways(c.CashOpening)}"
-                + $" · Net {IndianFormat.AmountAlways(c.CashNetFlow)}"
-                + $" · Close {IndianFormat.AmountAlways(c.CashClosing)}",
+        ComparativeReportKind.CashFlow => new ComparativeColumnTotal[]
+        {
+            new("Open", IndianFormat.AmountAlways(c.CashOpening)),
+            new("Net", IndianFormat.AmountAlways(c.CashNetFlow)),
+            new("Close", IndianFormat.AmountAlways(c.CashClosing)),
+        },
         // Funds Flow balances by construction, so both sides are shown: a column where they differ is a defect
         // the operator can see rather than one the grid hides.
-        ComparativeReportKind.FundsFlow =>
-            $"Sources {IndianFormat.AmountAlways(c.TotalSources)}"
-                + $" · Applic. {IndianFormat.AmountAlways(c.TotalApplications)}",
-        _ => string.Empty,
+        ComparativeReportKind.FundsFlow => new ComparativeColumnTotal[]
+        {
+            new("Sources", IndianFormat.AmountAlways(c.TotalSources)),
+            new("Applic.", IndianFormat.AmountAlways(c.TotalApplications)),
+        },
+        _ => System.Array.Empty<ComparativeColumnTotal>(),
     };
 
     /// <summary>
@@ -8451,18 +8483,49 @@ public sealed class ScenarioOption
 }
 
 /// <summary>
+/// One metric of a comparative column's total: the metric's short caption ("Dr", "Open", "Sources", or the empty
+/// string on a kind whose total is a single unnamed figure) and that metric's already-formatted figure.
+///
+/// <para>🔴 <b>THE PAIR IS THE UNIT BECAUSE THE PRINTED PAGE NEEDS THE FIGURE IN A COLUMN OF ITS OWN WIDTH.</b>
+/// See <c>ReportsViewModel.ColumnTotalLines</c> for the measured defect that forced it: a joined reconciliation
+/// sentence inside a right-aligned column sets that column's print floor, and fourteen such floors do not fit on
+/// any sheet.</para>
+/// </summary>
+/// <param name="Metric">The metric's short caption, or the empty string when the total is a single unnamed figure.</param>
+/// <param name="Figure">The metric's formatted figure.</param>
+public readonly record struct ComparativeColumnTotal(string Metric, string Figure)
+{
+    /// <summary>The metric and its figure as one phrase — <c>"Dr 1,37,000.00"</c>, or just the figure when the
+    /// metric is unnamed.</summary>
+    public string Phrase => Metric.Length == 0 ? Figure : $"{Metric} {Figure}";
+}
+
+/// <summary>
 /// One header of a comparative (RQ-4) report grid: the column's display <see cref="Label"/> (its period and/or
-/// scenario) plus a pre-formatted <see cref="TotalText"/> total line for that column. Presentation-only.
+/// scenario) plus the column's total, held as one <see cref="ComparativeColumnTotal"/> per metric and joined into
+/// the single bold <see cref="TotalText"/> line the grid header shows. Presentation-only.
 /// </summary>
 public sealed class ComparativeColumnVM
 {
     public string Label { get; }
+
+    /// <summary>The column's total, one entry per metric (TB: Dr then Cr; Cash Flow: open, net, close; …).</summary>
+    public System.Collections.Generic.IReadOnlyList<ComparativeColumnTotal> TotalLines { get; }
+
+    /// <summary>
+    /// The bold total line under the column header — the metrics joined with <c>" · "</c>.
+    ///
+    /// <para>🔴 <b>COMPOSED FROM <see cref="TotalLines"/> RATHER THAN STORED BESIDE THEM</b>, so the screen's line
+    /// and the printed rows cannot drift apart. Two independently-built renderings of one total is how a grid and
+    /// a printed page come to disagree about a figure.</para>
+    /// </summary>
     public string TotalText { get; }
 
-    public ComparativeColumnVM(string label, string totalText)
+    public ComparativeColumnVM(string label, System.Collections.Generic.IReadOnlyList<ComparativeColumnTotal> totalLines)
     {
         Label = label;
-        TotalText = totalText;
+        TotalLines = totalLines ?? System.Array.Empty<ComparativeColumnTotal>();
+        TotalText = string.Join(" · ", System.Linq.Enumerable.Select(TotalLines, t => t.Phrase));
     }
 }
 

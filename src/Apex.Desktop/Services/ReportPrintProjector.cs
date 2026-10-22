@@ -64,27 +64,45 @@ public static class ReportPrintProjector
     /// <summary>
     /// Projects the comparative (Alt+C / Alt+N) grid for print: a wide Particulars column, then one
     /// right-aligned column per comparison column, captioned exactly as the screen captions it, with the
-    /// per-column totals as a leading total row (a printed column heading has one line of its own).
+    /// per-column totals as leading total rows — <b>one row per METRIC</b>.
     ///
-    /// <para>Cells keep the sign-bearing suffix the grid shows, for the same reason the export keeps it: an
+    /// <para>🔴 <b>ONE ROW PER METRIC, NOT ONE ROW OF JOINED SENTENCES — AND THAT IS THE WHOLE DIFFERENCE
+    /// BETWEEN A READABLE PAGE AND AN UNREADABLE ONE, MEASURED ON THE EMITTED PDF.</b> This method used to emit
+    /// <c>ComparativeColumnVM.TotalText</c> — the screen's joined reconciliation line,
+    /// <c>"Open 1,00,000.00 · Net 45,000.00 · Close 55,000.00"</c>, fifty-odd characters — as a data row inside
+    /// the comparison columns. Those columns are right-aligned, <c>ReportPdf.IsFigureColumn</c> is
+    /// <c>Align == Right</c>, and a figure column's width FLOOR is its full requirement, so every column's floor
+    /// was set by that sentence instead of by a money figure. At the default Alt+N monthly Cash Flow (14 print
+    /// columns) the floors alone exceeded any sheet, the renderer took its own documented "nothing can be printed
+    /// whole" branch, every Particulars cell drew as <c>"..."</c> and every figure as <c>"37,000...."</c> — with
+    /// the <c>In</c>/<c>Out</c> suffix clipped off, so <b>a clipped outflow printed identically to an
+    /// inflow</b>. A comparative Trial Balance drew 0 of 12 labels and 0 of 12 figures. Emitting
+    /// <c>Open</c> / <c>Net</c> / <c>Close</c> as three short money rows puts money-width figures in
+    /// money-width columns, which is the only shape a page can hold.</para>
+    ///
+    /// <para>The metric names the ROW; the cell carries the figure alone. When one kind's metric differs from
+    /// column to column — Profit &amp; Loss captions a column "Net Profit" or "Net Loss" by its sign, and the
+    /// figure is a magnitude — the cell carries its own metric so a loss can never read as a profit, and the row
+    /// is captioned with every metric it holds.</para>
+    ///
+    /// <para>Data cells keep the sign-bearing suffix the grid shows, for the same reason the export keeps it: an
     /// outflow printed as a bare magnitude reads as an inflow.</para>
     /// </summary>
     private static PrintReport ProjectComparative(ReportsViewModel vm)
     {
         var columns = new List<PrintColumn>(vm.ComparativeColumns.Count + 1)
         {
-            new(Ascii("Particulars"), 3, CellAlign.Left),
+            // 🔴 Weight 6, not the 3 a two-column accounting report uses. On a comparative grid Particulars is
+            // the ONLY prose column on a page of money, and ReportPdf hands the width left over after every
+            // figure column reaches its need back out BY WEIGHT — so the weight is what decides how much of a
+            // ledger name survives. At 3 it was taking a fifth of the residue against seven money columns.
+            new(Ascii("Particulars"), 6, CellAlign.Left),
         };
         foreach (var c in vm.ComparativeColumns)
             columns.Add(new PrintColumn(Ascii(c.Label), 1.6, CellAlign.Right));
 
-        var rows = new List<PrintRow>(vm.ComparativeRows.Count + 1);
-
-        var totalCells = new string[columns.Count];
-        totalCells[0] = Ascii("Column totals");
-        for (int i = 0; i < vm.ComparativeColumns.Count; i++)
-            totalCells[i + 1] = Ascii(vm.ComparativeColumns[i].TotalText);
-        rows.Add(new PrintRow { Cells = totalCells, IsTotal = true });
+        var rows = new List<PrintRow>(vm.ComparativeRows.Count + 3);
+        rows.AddRange(ComparativeTotalRows(vm, columns.Count));
 
         foreach (var r in vm.ComparativeRows)
         {
@@ -103,6 +121,56 @@ public static class ReportPrintProjector
             Columns = columns,
             Rows = rows,
         };
+    }
+
+    /// <summary>
+    /// The leading total rows of a printed comparative grid: one row per metric of the columns' totals, the
+    /// metric naming the row and the figure alone in each cell.
+    ///
+    /// <para>The metric count is taken from the WIDEST column rather than the first, so a column that somehow
+    /// carries fewer metrics cannot silently drop a metric from the page; a column with nothing for that metric
+    /// prints a blank cell, which is what the renderer already does for a missing cell everywhere else.</para>
+    /// </summary>
+    private static List<PrintRow> ComparativeTotalRows(ReportsViewModel vm, int columnCount)
+    {
+        int metrics = 0;
+        foreach (var c in vm.ComparativeColumns)
+            if (c.TotalLines.Count > metrics) metrics = c.TotalLines.Count;
+
+        var rows = new List<PrintRow>(metrics);
+        for (int m = 0; m < metrics; m++)
+        {
+            // Does every column agree on what this metric is called? P&L does not (its caption carries the sign),
+            // and there the cell must say which it is or a loss reads as a profit.
+            var names = new List<string>();
+            foreach (var c in vm.ComparativeColumns)
+            {
+                if (m >= c.TotalLines.Count) continue;
+                string name = c.TotalLines[m].Metric;
+                if (!names.Contains(name)) names.Add(name);
+            }
+            bool uniform = names.Count <= 1;
+
+            var cells = new string[columnCount];
+            // A kind whose total is a single unnamed figure (Stock Summary) still needs a row caption, or the
+            // printed page carries a bold row of money with nothing saying what it totals.
+            string caption = names.Count == 0 || (uniform && names[0].Length == 0)
+                ? "Column total"
+                : string.Join(" / ", names);
+            cells[0] = Ascii(caption);
+
+            for (int i = 0; i < vm.ComparativeColumns.Count && i + 1 < columnCount; i++)
+            {
+                var lines = vm.ComparativeColumns[i].TotalLines;
+                cells[i + 1] = m < lines.Count
+                    ? Ascii(uniform ? lines[m].Figure : lines[m].Phrase)
+                    : string.Empty;
+            }
+
+            rows.Add(new PrintRow { Cells = cells, IsTotal = true });
+        }
+
+        return rows;
     }
 
     /// <summary>

@@ -52,15 +52,12 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
         // in the commit message cannot drift away from the code.
         var kinds = Enum.GetValues<ReportKind>();
         var worked = new List<ReportKind>();
-        var refusedByVendorRule = new List<ReportKind>();
 
         foreach (var kind in kinds)
         {
             ReportsViewModel vm;
             try { vm = new ReportsViewModel(Robert(), kind); }
             catch (Exception) { continue; } // a kind this fixture cannot build is out of scope for the count
-            if (ReportsViewModel.IsVendorExcludedFromComparative(kind)) refusedByVendorRule.Add(kind);
-
             var added = vm.AddComparisonColumn("B", new PeriodRange(BooksBegin, LastVoucher), scenario: null);
             // Presence of the flag is not enough — the grid must actually be in comparative mode with columns.
             if (added && vm.IsComparative && vm.ComparativeColumns.Count >= 2) worked.Add(kind);
@@ -76,9 +73,15 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
             worked.OrderBy(k => k.ToString()).ToArray());
 
         Assert.Equal(6, worked.Count);
-        // The vendor's carve-out is non-empty and none of its members got a column.
-        Assert.NotEmpty(refusedByVendorRule);
-        Assert.Empty(worked.Intersect(refusedByVendorRule));
+
+        // 🔴 THE SET EQUALITY ABOVE IS WHAT ENFORCES THE VENDOR'S DAY-BOOK / GST-RETURN CARVE-OUT, and it
+        // replaces an assertion that COULD NOT FAIL. This test used to collect the kinds a now-deleted
+        // ReportsViewModel.IsVendorExcludedFromComparative predicate named and then assert Assert.Empty over the
+        // intersection of `worked` with them. The two sets are provably disjoint — every kind that predicate
+        // named is absent from ComparativeKind's switch anyway — so the assertion was a tautology, and mutation
+        // M6 (deleting the predicate's use outright) reddened nothing in the whole suite. Exact set equality
+        // DOES redden the moment a carved-out kind is added to the switch, which is the only way the carve-out
+        // can be broken.
 
         // And the denominator is the enum's own size, re-derived here rather than quoted.
         Assert.True(kinds.Length > 90, $"ReportKind has {kinds.Length} members — re-derive, do not copy.");
@@ -164,14 +167,17 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
     [InlineData(ReportKind.Gstr1)]
     [InlineData(ReportKind.Gstr3b)]
     [InlineData(ReportKind.TaxAnalysis)]
-    public void The_vendors_Day_Book_and_GST_return_carve_out_is_a_RULE_not_an_accident(ReportKind kind)
+    public void The_vendors_Day_Book_and_GST_return_carve_out_holds_on_the_realised_screen(ReportKind kind)
     {
         // The shortcut reference gives both chords with the same carve-out: "Alt+C — To add a new column (except
         // in Day Book and GST Returns)" and "Alt+N — To auto repeat columns (except in Day Book and GST
-        // Returns)". Before this, these kinds were excluded only by NOT being among the four mapped ones — so a
-        // widening pass was free to add them. Now the rule refuses them explicitly.
-        Assert.True(ReportsViewModel.IsVendorExcludedFromComparative(kind));
-
+        // Returns)".
+        //
+        // 🔴 EVERY ASSERTION HERE IS NOW ON THE REALISED SCREEN, AND THAT IS THE POINT. This test opened with
+        // Assert.True(IsVendorExcludedFromComparative(kind)) — a predicate asserting itself, which stayed green
+        // when the predicate's only use was deleted (mutation M6). The predicate is gone; what is left drives
+        // all three gestures and reads the grid back, so it reddens if any of these kinds ever becomes
+        // comparative, by whatever route.
         var vm = new ReportsViewModel(Robert(), kind);
         Assert.False(vm.SupportsComparative);
         Assert.False(vm.AddComparisonColumn("B", new PeriodRange(BooksBegin, LastVoucher), scenario: null));
@@ -181,6 +187,11 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
         Assert.Empty(vm.ComparativeColumns);
     }
 
+    /// <summary>
+    /// The carve-out's twin: each of the six kinds that SHOULD be comparative really is, driven and read back
+    /// off the grid. Replaces an <c>Assert.False</c> over the deleted predicate, which asserted nothing about
+    /// the product at all.
+    /// </summary>
     [Theory]
     [InlineData(ReportKind.TrialBalance)]
     [InlineData(ReportKind.BalanceSheet)]
@@ -188,8 +199,15 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
     [InlineData(ReportKind.StockSummary)]
     [InlineData(ReportKind.CashFlow)]
     [InlineData(ReportKind.FundsFlow)]
-    public void The_carve_out_does_not_catch_a_kind_that_should_be_comparative(ReportKind kind)
-        => Assert.False(ReportsViewModel.IsVendorExcludedFromComparative(kind));
+    public void A_kind_that_should_be_comparative_takes_a_column(ReportKind kind)
+    {
+        var vm = new ReportsViewModel(Robert(), kind);
+        vm.SetPeriod(BooksBegin, LastVoucher);
+        Assert.True(vm.SupportsComparative);
+        Assert.True(vm.AddComparisonColumn("B", new PeriodRange(BooksBegin, LastVoucher), scenario: null));
+        Assert.True(vm.IsComparative);
+        Assert.Equal(2, vm.ComparativeColumns.Count);
+    }
 
     // =============================================================== scenario columns
 
@@ -425,13 +443,30 @@ public sealed class ComparativeFlowKindsViewModelTests : IDisposable
             Assert.False(string.IsNullOrWhiteSpace(print.Columns[i + 1].Header));
         }
 
-        Assert.Equal(vm.ComparativeRows.Count + 1, print.Rows.Count);
+        // 🔴 ONE LEADING TOTAL ROW PER METRIC, NOT ONE ROW OF JOINED RECONCILIATION SENTENCES. The metric count
+        // is read off the view model rather than written as a literal, so the two cannot drift; see
+        // ReportPrintProjector.ProjectComparative for the measured reason the shape changed.
+        int metrics = vm.ComparativeColumns.Max(c => c.TotalLines.Count);
+        Assert.True(metrics > 0);
+        Assert.Equal(vm.ComparativeRows.Count + metrics, print.Rows.Count);
         Assert.All(print.Rows, r => Assert.Equal(print.Columns.Count, r.Cells.Count));
-        Assert.True(print.Rows[0].IsTotal);
+        Assert.All(print.Rows.Take(metrics), r => Assert.True(r.IsTotal));
 
-        // 🔴 Not a page of blank cells: every data row carries a figure in every column (both/all columns here
-        // cover windows inside the same book, and at minimum the row must not be entirely empty).
-        foreach (var row in print.Rows.Skip(1))
+        // Each total row carries that metric's FIGURE ALONE in each column — the whole point of the shape — and
+        // the metric names the row.
+        for (var m = 0; m < metrics; m++)
+        {
+            Assert.False(string.IsNullOrWhiteSpace(print.Rows[m].Cells[0]));
+            for (var i = 0; i < vm.ComparativeColumns.Count; i++)
+                Assert.Equal(vm.ComparativeColumns[i].TotalLines[m].Figure, print.Rows[m].Cells[i + 1]);
+        }
+
+        // 🔴 THE MODEL IS NOT A PAGE, AND SAYING SO HERE WAS A FALSE CLAIM ABOUT EVIDENCE. This block used to be
+        // commented "Not a page of blank cells" while reading only the PrintReport model — which was true of the
+        // model and false of the rendered sheet: at 13 print columns every one of these cells drew as "..." in
+        // the emitted PDF. The page itself is asserted in ComparativePrintedPageTests, on the PDF bytes. What is
+        // left here is a MODEL claim, stated as one: every data row has a label and at least one figure.
+        foreach (var row in print.Rows.Skip(metrics))
         {
             Assert.False(string.IsNullOrWhiteSpace(row.Cells[0]));
             Assert.Contains(row.Cells.Skip(1), c => !string.IsNullOrWhiteSpace(c));

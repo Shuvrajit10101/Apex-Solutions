@@ -73,12 +73,18 @@ public static class ReportPdf
         foreach (var report in documents)
         {
             if (report is null) continue;
-            // Each document carries its OWN effective page: a report too wide for portrait is turned onto its
-            // side rather than printed with its figures cut. The orientation is per document because the column
-            // geometry already is — a ledger account and a nine-column GST return do not share a page shape.
-            var (effective, pages) = LayOutCore(report, config);
-            double[] colX = ComputeColumnX(report, effective);
-            foreach (var rows in pages) laid.Add((report, effective, colX, rows));
+            // 🔴 A document wider than any sheet is split into COLUMN GROUPS first — see SplitWideColumns. A
+            // document that fits is handed through as the same instance, so nothing else in the repertoire moves.
+            foreach (var sheet in SplitWideColumns(report, config))
+            {
+                // Each document carries its OWN effective page: a report too wide for portrait is turned onto
+                // its side rather than printed with its figures cut. The orientation is per document because the
+                // column geometry already is — a ledger account and a nine-column GST return do not share a page
+                // shape.
+                var (effective, pages) = LayOutCore(sheet, config);
+                double[] colX = ComputeColumnX(sheet, effective);
+                foreach (var rows in pages) laid.Add((sheet, effective, colX, rows));
+            }
         }
         int total = laid.Count == 0 ? 1 : laid.Count;
 
@@ -234,6 +240,162 @@ public static class ReportPdf
         for (int i = 0; i < need.Length; i++)
             total += IsFigureColumn(report.Columns[i]) ? need[i] : Math.Min(need[i], MinProseWidth);
         return total;
+    }
+
+    /// <summary>
+    /// A document too wide for any sheet, split into COLUMN GROUPS: the leading (stub) column repeated on each
+    /// group, then as many of the remaining columns as a sheet can hold with every figure whole. Returns
+    /// <b><see langword="this"/> document as the only member</b> — the same instance — whenever it fits, which is
+    /// every report this renderer has ever drawn, so their bytes are provably unmoved (ER-13).
+    ///
+    /// <para>🔴 <b>WHY THE RENDERER NEEDED THIS AT ALL, MEASURED ON REAL ARTEFACTS.</b>
+    /// <see cref="ComputeColumnX"/> abbreviates prose to free width for the figures and
+    /// <see cref="FitOrientation"/> turns the sheet, and between them they cured every band this product shipped
+    /// — but neither can create page, and both documented that residual while nothing in the repertoire reached
+    /// it. A comparative report reaches it immediately: Alt+N monthly over a financial year is fourteen columns,
+    /// thirteen of which must each hold a rupee figure, and no allocation of A4 landscape's 769.89pt fits that.
+    /// What came out was the "not even the floors fit" branch — every Particulars cell drawn as <c>"..."</c>,
+    /// every figure as <c>"37,000...."</c> with its In/Out suffix clipped, so an outflow printed identically to
+    /// an inflow; weekly drew single characters and daily produced a 1142-byte sheet. <b>The answer to "the
+    /// figures do not fit across the page" is more page, not smaller figures.</b></para>
+    ///
+    /// <para><b>The stub column repeats on every group</b> because a sheet of figures whose rows do not say what
+    /// they are about is not a report. It is also why the split is only offered to documents with a stub and at
+    /// least two further columns; with one column there is nothing to move to a second sheet.</para>
+    ///
+    /// <para><b>The groups are packed against the WIDEST page this configuration could choose</b> — landscape
+    /// when <see cref="FitOrientation"/> is free to turn the sheet, the configured page when it is not (pinned
+    /// orientation, or pre-printed stationery which must never be turned). So each group is then turned by the
+    /// same rule every other document is, and a group never asks for a page that rule cannot give it.</para>
+    ///
+    /// <para><b>Why the stub is budgeted a third of the sheet rather than its <see cref="MinProseWidth"/>
+    /// floor.</b> Packing to the floor would fit one more figure column per sheet and leave the labels at
+    /// thirteen characters on every sheet of a multi-sheet document — trading the readability of every row for
+    /// one fewer sheet. A third of the page is ~174pt in portrait and ~256pt in landscape, enough for a real
+    /// ledger or party name, and it is derived from the page rather than guessed at. The stub never claims more
+    /// than it needs, so a short-labelled document still packs tight.</para>
+    ///
+    /// <para>🔴 <b>TWO CONFIGURATIONS ARE DELIBERATELY NOT SPLIT, AND THE SECOND ONE IS A SHIPPED CONTRACT I AM
+    /// NOT ENTITLED TO REDEFINE HERE.</b> PRE-PRINTED stationery is never split for the same reason
+    /// <see cref="FitOrientation"/> never turns it: the sheet already carries a letterhead and a ruled column
+    /// grid that the operator aligned the tray to, and dealing the columns onto two of those sheets puts every
+    /// figure under the wrong printed rule — a worse outcome than the clip. And a caller that PINNED the page
+    /// with <c>AutoFitOrientation = false</c> asked for one deterministic sheet shape;
+    /// <c>PageConfigWithOrientationTests.Pinning_the_orientation_keeps_portrait_even_when_the_figures_will_cut</c>
+    /// asserts the cut there as "the honest consequence of pinning the page", so adding sheets behind that
+    /// caller's back would be this change quietly answering a question another slice already answered. Both
+    /// residuals are the ones census 12.1 is PARTIAL over; they are not widened and not cured here.</para>
+    ///
+    /// <para><b>The residual that remains even where the split DOES apply, stated rather than hidden:</b> if the
+    /// stub plus a SINGLE figure column still exceeds the sheet, that column is given a group of its own and the
+    /// clipping falls where it must — the same page-size limit <see cref="ComputeColumnX"/> documents, now
+    /// reached only by a figure too wide for a page rather than by a document too wide for one.</para>
+    /// </summary>
+    public static IReadOnlyList<PrintReport> SplitWideColumns(PrintReport report, PageConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(config);
+
+        var whole = new[] { report };
+        int n = report.Columns.Count;
+        if (n < 3) return whole;                       // a stub plus one column has nothing to split
+        if (!config.AutoFitOrientation) return whole;  // the caller pinned the page shape — see the remarks
+        if (config.Paper == PaperKind.PrePrinted) return whole;
+
+        double widest = WidestContentWidth(config);
+        var need = MeasureRequirements(report, config, double.MaxValue);
+
+        // The same floors FitOrientation asks about: a figure column's full requirement, a prose column's
+        // requirement capped at the prose floor. If they fit the widest page, the renderer can draw this
+        // document whole and MUST be left to — this is the ER-13 fast path and it is an exact test.
+        double asIs = 0;
+        for (int i = 0; i < n; i++) asIs += FloorOf(report.Columns[i], need[i]);
+        if (asIs <= widest) return whole;
+
+        double stubBudget = Math.Min(need[0], Math.Max(MinProseWidth, widest / 3));
+
+        var sheets = new List<PrintReport>();
+        int start = 1;
+        while (start < n)
+        {
+            double used = stubBudget;
+            int end = start;                            // exclusive
+            while (end < n)
+            {
+                double next = FloorOf(report.Columns[end], need[end]);
+                if (end > start && used + next > widest) break;
+                used += next;
+                end++;
+            }
+            if (end == start) end = start + 1;           // always make progress
+
+            sheets.Add(SliceColumns(report, start, end, n));
+            start = end;
+        }
+
+        return sheets.Count == 0 ? whole : sheets;
+    }
+
+    /// <summary>The floor <see cref="ComputeColumnX"/> and <see cref="FitOrientation"/> both reason from: a
+    /// figure column's full requirement (a clipped figure is a wrong figure), a prose column's requirement capped
+    /// at <see cref="MinProseWidth"/> (prose is the one thing on the page that can give way).</summary>
+    private static double FloorOf(PrintColumn column, double need)
+        => IsFigureColumn(column) ? need : Math.Min(need, MinProseWidth);
+
+    /// <summary>
+    /// The widest content width this configuration could end up drawing on: the landscape page when
+    /// <see cref="FitOrientation"/> is free to turn the sheet, the configured page when it is not. Packing column
+    /// groups against anything wider would hand the renderer a group it then has to clip.
+    /// </summary>
+    private static double WidestContentWidth(PageConfig config)
+    {
+        if (!config.AutoFitOrientation) return config.ContentWidth;
+        if (config.Orientation != PageOrientation.Portrait) return config.ContentWidth;
+        if (config.Paper == PaperKind.PrePrinted) return config.ContentWidth;
+        return Math.Max(config.ContentWidth, config.WithOrientation(PageOrientation.Landscape).ContentWidth);
+    }
+
+    /// <summary>
+    /// One column group of <paramref name="report"/>: the stub column plus columns
+    /// <c>[<paramref name="start"/>, <paramref name="end"/>)</c>, rows sliced to match.
+    ///
+    /// <para>The sub-title says WHICH columns the sheet carries ("columns 2-7 of 14", 1-based over the whole
+    /// document). A sheet of a split document that does not say which slice it is cannot be collated, and an
+    /// operator holding sheet 2 would have no way to tell that sheet 1 exists.</para>
+    /// </summary>
+    private static PrintReport SliceColumns(PrintReport report, int start, int end, int n)
+    {
+        var columns = new PrintColumn[end - start + 1];
+        columns[0] = report.Columns[0];
+        for (int i = start; i < end; i++) columns[i - start + 1] = report.Columns[i];
+
+        var rows = new PrintRow[report.Rows.Count];
+        for (int r = 0; r < report.Rows.Count; r++)
+        {
+            var source = report.Rows[r];
+            var cells = new string[columns.Length];
+            cells[0] = source.Cells.Count > 0 ? source.Cells[0] ?? string.Empty : string.Empty;
+            for (int i = start; i < end; i++)
+                cells[i - start + 1] = i < source.Cells.Count ? source.Cells[i] ?? string.Empty : string.Empty;
+
+            rows[r] = new PrintRow
+            {
+                Cells = cells,
+                IsHeader = source.IsHeader,
+                IsTotal = source.IsTotal,
+                Indent = source.Indent,
+            };
+        }
+
+        string slice = $"columns {start + 1}-{end} of {n}";
+        return new PrintReport
+        {
+            Title = report.Title,
+            TitleCarriesMasterName = report.TitleCarriesMasterName,
+            Subtitle = report.Subtitle.Length == 0 ? slice : report.Subtitle + "  -  " + slice,
+            Columns = columns,
+            Rows = rows,
+        };
     }
 
     /// <summary>The /Title for a job: the lone document's title, or a neutral label for a set.</summary>
