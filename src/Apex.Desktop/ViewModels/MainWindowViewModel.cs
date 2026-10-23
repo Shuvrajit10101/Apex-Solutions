@@ -246,9 +246,6 @@ public enum Screen
 
     // Advanced-GST read-only report/return screens (Phase 9 UI-1; RQ-17) — surfaced for a Regular GST company under
     // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced).
-    Gstr9Report,
-    Gstr9cReport,
-
     /// <summary>The FORM GSTR-6 Input Service Distributor return (census row 6.24) — surfaced only for a company
     /// that actually holds an ISD registration, under Reports → Statutory Reports → GST Returns (Advanced).</summary>
     Gstr6Report,
@@ -614,12 +611,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The GSTR-4 composition annual-return report (Phase 9 slice 3), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr4ReportViewModel? _gstr4Report;
 
-    /// <summary>The GSTR-9 annual-return report (Phase 9 UI-1), non-null only while that page is open.</summary>
-    [ObservableProperty] private Gstr9ReportViewModel? _gstr9Report;
-
-    /// <summary>The GSTR-9C reconciliation-statement report (Phase 9 UI-1), non-null only while that page is open.</summary>
-    [ObservableProperty] private Gstr9cReportViewModel? _gstr9cReport;
-
+    // 🔴 THE TWO ANNUAL-RETURN PAGE PROPERTIES ARE GONE, AND SO ARE Screen.Gstr9Report /
+    // Screen.Gstr9cReport and their two MainWindow.axaml page templates. W-BJ re-homed both returns onto
+    // ReportKind.Gstr9AnnualReturn / ReportKind.Gstr9cReconciliation, after which NOTHING assigned these
+    // properties but ResetPageColumns' own `= null`: the templates could never become visible, and the two
+    // page view models they bound could never be constructed by production. Removed rather than left as
+    // residue, because an unreachable page that still calls a GST engine is a call site every
+    // registration-scope sweep has to re-examine and dismiss. The two view models survive ONLY as the
+    // transcription oracle of RehomedReportSurfaceBjTests, which compares the re-homed matrix to the
+    // superseded page line for line; nothing in src/ constructs them.
     /// <summary>The GSTR-6 Input Service Distributor return (census row 6.24), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr6ReportViewModel? _gstr6Report;
 
@@ -957,7 +957,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null && Form12Ba is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
-        && Gstr9Report is null && Gstr9cReport is null && Gstr6Report is null && GstOfflineReturns is null
+        && Gstr6Report is null && GstOfflineReturns is null
         && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
@@ -1020,8 +1020,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstRateSetupChanged(GstRateSetupViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCmp08ReportChanged(Cmp08ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
-    partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
-    partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr6ReportChanged(Gstr6ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstOfflineReturnsChanged(GstOfflineReturnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -7549,7 +7547,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Opens the <b>GSTR-9</b> annual return (Reports → Statutory Reports → Annual Returns → GSTR-9).
     /// A no-op unless the company is a Regular GST dealer.
     ///
-    /// <para>🔴 <b>W-BJ — RE-HOMED off <see cref="Screen.Gstr9Report"/> onto
+    /// <para>🔴 <b>W-BJ — RE-HOMED off <c>Screen.Gstr9Report</c> (since removed) onto
     /// <see cref="ReportKind.Gstr9AnnualReturn"/>, and this opener is the ONE door, so the menu row, any
     /// button and the Ctrl+H saved view all land on the same surface.</b> A page <c>Screen</c> leaves
     /// <see cref="Reports"/> null, and that switches off F2 as-of, Alt+F2 period, the F12 configuration panel,
@@ -7574,7 +7572,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Opens the <b>GSTR-9C</b> reconciliation statement (Reports → Statutory Reports → Annual Returns →
     /// GSTR-9C). A no-op unless the company is a Regular GST dealer.
     ///
-    /// <para>🔴 <b>W-BJ — RE-HOMED off <see cref="Screen.Gstr9cReport"/> onto
+    /// <para>🔴 <b>W-BJ — RE-HOMED off <c>Screen.Gstr9cReport</c> (since removed) onto
     /// <see cref="ReportKind.Gstr9cReconciliation"/>, for the reason <see cref="OpenGstr9Report"/> gives.
     /// Vendor-attested on its own page, opened by content 2026-10-18:</b>
     /// <c>help.tallysolutions.com/file-gstr-9c-tally/</c> carries the identical sentence
@@ -9082,8 +9080,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstRateSetup = null;
         Cmp08Report = null;
         Gstr4Report = null;
-        Gstr9Report = null;
-        Gstr9cReport = null;
         Gstr6Report = null;
         GstOfflineReturns = null;
         ElectronicLedgersReport = null;
@@ -12887,8 +12883,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 Gstr6Report?.ExportJson();
                 return;
             // Advanced-GST report screens (Phase 9 UI-1) — all read-only projections; Ctrl+A/Enter is a safe no-op.
-            case Screen.Gstr9Report:
-            case Screen.Gstr9cReport:
             case Screen.ElectronicLedgersReport:
             case Screen.ItcSetOffReport:
             case Screen.ItcReversalReport:

@@ -437,7 +437,7 @@ public enum ReportKind
     /// payable), Table 5 (exempt / nil / non-GST and total turnover), Table 6 (ITC availed), Table 7 (ITC
     /// reversed by rule), Table 8 (ITC reconciliation 8A / 8B / 8D), Table 9 (tax paid through ITC vs cash) and,
     /// in the matrix's SECOND band, Table 17 (the outward HSN summary). Projects
-    /// <c>Apex.Ledger.Reports.Gstr9</c> — the same engine the dedicated <see cref="Screen.Gstr9Report"/> page
+    /// <c>Apex.Ledger.Reports.Gstr9</c> — the same engine the dedicated <c>Screen.Gstr9Report</c> (since removed) page
     /// projected, over the same financial-year window.
     /// </summary>
     Gstr9AnnualReturn,
@@ -446,7 +446,7 @@ public enum ReportKind
     /// The <b>Form GSTR-9C reconciliation statement</b> (census 6.12): Part A Table 5 (books turnover → return
     /// turnover → unreconciled), Part III Tables 9–11 (tax per return vs tax per books → unreconciled tax) and
     /// Part B Table 12 (ITC per books → net ITC per GSTR-9 → unreconciled). Projects
-    /// <c>Apex.Ledger.Reports.Gstr9c</c> — the same engine the dedicated <see cref="Screen.Gstr9cReport"/> page
+    /// <c>Apex.Ledger.Reports.Gstr9c</c> — the same engine the dedicated <c>Screen.Gstr9cReport</c> (since removed) page
     /// projected.
     ///
     /// <para>🔴 <b>Each reconciliation carries all THREE of its lines, never the difference alone</b>, for the
@@ -4085,6 +4085,83 @@ public sealed partial class ReportsViewModel : ViewModelBase
         _ => head.ToString(),
     };
 
+    /// <summary>
+    /// 🔴 <b>THE REGISTRATION EVERY GST PROJECTION ON THIS SHARED SURFACE IS FOLDED OVER (census 6.23).</b>
+    /// Five GST reports live on this surface — Tax Analysis, GSTR-1, GSTR-3B and the two re-homed annual returns
+    /// — and every one of them called its engine with NO registration. <c>GstReportSupport.EnsureRegistrationScoped</c>
+    /// <b>REFUSES</b> an unscoped GST projection the moment a company holds a second registration, so on a
+    /// multi-registration book all five were unreachable: GSTR-9 / GSTR-9C surfaced the refusal text through
+    /// <see cref="RunStatutoryForm"/>, and Tax Analysis / GSTR-1 / GSTR-3B are NOT routed through it, so the
+    /// <c>InvalidOperationException</c> left <c>Show()</c> unhandled — a shell crash on the headline GST report.
+    ///
+    /// <para><b>Why the PRIMARY registration and not a picker.</b> This surface has no F3 registration control
+    /// (the comment on <see cref="ReportKind.ItcSetOffProjection"/>'s block says so, and that is still true), and
+    /// inventing one is a shell change, not a report change. Defaulting to the primary is what every screen that
+    /// DOES have a picker already defaults to — <c>GstAmendmentsReportViewModel.ScopedRegistrationId</c>,
+    /// <c>GstOfflineReturnsViewModel</c>, <c>ItcGateReportViewModel</c>, <c>ItcReversalReportViewModel</c> and
+    /// <c>PostItcReversalViewModel</c> are each <c>_selectedRegistration?.Id ?? GstRegistration.PrimaryId</c> — so
+    /// this is the repository's own established default, not a new rule.</para>
+    ///
+    /// <para><b>A single-registration book is byte-identical (ER-13), and that is structural rather than hoped
+    /// for:</b> <c>GstConfig.FindRegistration</c> normalises <c>null</c> AND
+    /// <see cref="GstRegistration.PrimaryId"/> to the primary, and <c>GstReportSupport.RegistrationOf</c> reads a
+    /// voucher's <c>null</c> registration as <see cref="GstRegistration.PrimaryId"/> — so naming the primary and
+    /// naming nothing select exactly the same voucher set and resolve exactly the same GSTIN.</para>
+    ///
+    /// <para>⚠️ <b>On a multi-registration book this report now shows ONE registration's figures, and it says
+    /// so on the face of the report</b> (<see cref="GstRegistrationScopeNote"/>). A branch's own return is
+    /// reached through GST Offline Returns, which carries the picker. A silent fold over every registration —
+    /// the one thing that would be a wrong figure rather than a narrower one — remains impossible, because the
+    /// engine's refusal is untouched.</para>
+    /// </summary>
+    private Guid GstScopedRegistrationId =>
+        _company.Gst?.PrimaryRegistration?.Id ?? GstRegistration.PrimaryId;
+
+    /// <summary>The GSTIN <see cref="GstScopedRegistrationId"/> resolves to, or null when none can be.</summary>
+    private string? GstScopedGstin =>
+        _company.Gst?.FindRegistration(GstScopedRegistrationId)?.Gstin ?? _company.Gst?.Gstin;
+
+    /// <summary>
+    /// The one sentence that keeps the narrowed scope honest, or <c>null</c> on a single-registration book —
+    /// where there is nothing to disclose and emitting a line would move a figure-free report's shape for no
+    /// reason (ER-13). Rendered as a grid header row by the three <c>Rows</c>-based GST reports and as a
+    /// footnote by the two matrix annual returns, because the footnote panel lives inside the matrix body.
+    ///
+    /// <para>🔴 <b>IT IS KEPT SHORT ON PURPOSE, AND THE BUDGET IS A MEASUREMENT RATHER THAN A FEELING.</b> On
+    /// the <c>Rows</c> grid it is an <c>IsHeader</c> row, which the template renders as a single
+    /// <c>Grid.ColumnSpan="9"</c> <c>TextBlock</c> carrying <c>TextTrimming="CharacterEllipsis"</c> inside a
+    /// grid whose <c>MinWidth</c> is <b>950</b> with an 8px margin. At the template's 11.5px font the
+    /// repository's own metric in that same file is 13 characters = 85.8px, i.e. <b>6.6px per character</b>, so
+    /// the readable budget is (950 − 8) / 6.6 ≈ <b>142 characters</b>. A longer sentence is silently cut off at
+    /// the one width every reader has, which would be a disclosure that does not disclose — the exact failure
+    /// this product's UI defect catalogue records across its fixed-track grids.
+    /// <see cref="GstRegistrationScopeNoteBudget"/> is the pinned limit and a test asserts against it.</para>
+    /// </summary>
+    private string? GstRegistrationScopeNote =>
+        _company.Gst is { IsMultiRegistration: true }
+            ? $"Scoped to GSTIN {GstScopedGstin ?? "—"} (primary of {_company.Gst.AllRegistrations.Count}) "
+              + "— use GST Offline Returns for another registration."
+            : null;
+
+    /// <summary>
+    /// The character budget <see cref="GstRegistrationScopeNote"/> must fit inside to render un-ellipsised on
+    /// the shared 9-column GST grid at its own <c>MinWidth</c> — see that member for the derivation. Exposed
+    /// internally so the assertion lives next to the number it is asserting, rather than being re-derived in a
+    /// test where it would drift out of agreement with the template.
+    /// </summary>
+    internal const int GstRegistrationScopeNoteBudget = 142;
+
+    /// <summary>
+    /// Puts <see cref="GstRegistrationScopeNote"/> on a <c>Rows</c>-based GST report as its first line, or does
+    /// nothing at all on a single-registration book — so every pre-existing book's grid is row-for-row what it
+    /// was (ER-13) and only the book that actually has something to disclose gains a line.
+    /// </summary>
+    private void AddGstRegistrationScopeRow()
+    {
+        if (GstRegistrationScopeNote is not { } note) return;
+        Rows.Add(new ReportRow { Col1 = note, IsHeader = true });
+    }
+
     /// <summary>The empty-state row shown when GST is off (no crash — the returns are simply empty).</summary>
     private bool GstOffGuard(string title)
     {
@@ -4106,8 +4183,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         if (GstOffGuard("Tax Analysis")) return;
 
-        var ta = Report.BuildTaxAnalysis(_company, BooksFrom, _asOf);
+        // census 6.23: NAMED, not folded over every registration. Unscoped this threw
+        // EnsureRegistrationScoped's refusal, and this kind is dispatched WITHOUT RunStatutoryForm, so the
+        // exception left Show() unhandled. See GstScopedRegistrationId.
+        var ta = Report.BuildTaxAnalysis(_company, BooksFrom, _asOf, GstScopedRegistrationId);
         Title = "Tax Analysis";
+        AddGstRegistrationScopeRow();
 
         AddTaxAnalysisSide("Outward Supplies (Output Tax)", ta.Outward);
         AddTaxAnalysisSide("Inward Supplies (Input Tax / ITC)", ta.Inward);
@@ -4166,8 +4247,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         if (GstOffGuard("GSTR-1")) return;
 
-        var r = Report.BuildGstr1(_company, BooksFrom, _asOf);
+        // census 6.23: see GstScopedRegistrationId. Unscoped, a multi-registration book crashed the shell here.
+        var r = Report.BuildGstr1(_company, BooksFrom, _asOf, GstScopedRegistrationId);
         Title = "GSTR-1";
+        AddGstRegistrationScopeRow();
 
         // --- B2B: Party/GSTIN | Invoice No/Date | POS | Rate | Taxable | CGST | SGST | IGST ---
         Rows.Add(new ReportRow { Col1 = "B2B — Registered (party-wise invoices)", IsHeader = true });
@@ -4286,8 +4369,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         if (GstOffGuard("GSTR-3B")) return;
 
-        var r = Report.BuildGstr3b(_company, BooksFrom, _asOf);
+        // census 6.23: see GstScopedRegistrationId. Unscoped, a multi-registration book crashed the shell here.
+        var r = Report.BuildGstr3b(_company, BooksFrom, _asOf, GstScopedRegistrationId);
         Title = "GSTR-3B";
+        AddGstRegistrationScopeRow();
 
         // Col1 label | Col2 Taxable value | Col3 CGST | Col4 SGST | Col5 IGST | Col6 Cess.
         Rows.Add(new ReportRow
@@ -8219,10 +8304,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Particulars", WideNameWidth, false);
         WideCol("Amount", WideMoneyWidth, true);
 
-        var ret = Apex.Ledger.Reports.Gstr9.Build(_company, from, to);
+        // 🔴 census 6.23 — NAMED. This call shipped unscoped, and on a multi-registration book
+        // GstReportSupport.EnsureRegistrationScoped REFUSED it, so RunStatutoryForm replaced the whole annual
+        // return with the refusal text: a hard stop, never a wrong figure. See GstScopedRegistrationId for why
+        // the primary is the scope and why a single-registration book is byte-identical.
+        var ret = Apex.Ledger.Reports.Gstr9.Build(_company, from, to, GstScopedRegistrationId);
 
         Subtitle = $"{CompanyName}  —  FY {FormatDate(from)} to {FormatDate(to)}  ·  "
                  + (string.IsNullOrWhiteSpace(ret.Gstin) ? "GSTIN —" : $"GSTIN {ret.Gstin}");
+
+        // The narrowed scope is disclosed on the face of the report, never inferred from the subtitle's GSTIN.
+        if (GstRegistrationScopeNote is { } scopeNote) Footnote(scopeNote);
 
         if (!ret.Applicable)
         {
@@ -8340,10 +8432,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         WideCol("Particulars", WideNameWidth, false);
         WideCol("Amount", WideMoneyWidth, true);
 
-        var stmt = Apex.Ledger.Reports.Gstr9c.Build(_company, from, to);
+        // 🔴 census 6.23 — NAMED, for the reason BuildGstr9AnnualReturn gives. GSTR-9C folds through GSTR-9,
+        // so it carried the same refusal.
+        var stmt = Apex.Ledger.Reports.Gstr9c.Build(_company, from, to, GstScopedRegistrationId);
 
         Subtitle = $"{CompanyName}  —  FY {FormatDate(from)} to {FormatDate(to)}  ·  "
                  + (string.IsNullOrWhiteSpace(stmt.Gstin) ? "GSTIN —" : $"GSTIN {stmt.Gstin}");
+
+        // The narrowed scope is disclosed on the face of the report, never inferred from the subtitle's GSTIN.
+        if (GstRegistrationScopeNote is { } scopeNote) Footnote(scopeNote);
 
         if (!stmt.Applicable)
         {
