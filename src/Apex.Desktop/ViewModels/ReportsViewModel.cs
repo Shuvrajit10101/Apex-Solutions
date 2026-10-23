@@ -3614,6 +3614,24 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Col5 = IndianFormat.Quantity(r.ReceivedQuantity),
                 Col6 = IndianFormat.Quantity(r.BilledQuantity),
                 Col7 = IndianFormat.Quantity(r.PendingQuantity),
+
+                // 🔴 Census 9.8's third named gap — "no drill from a pending row to its voucher" — closes
+                // here. A pending row drills to the document that MADE IT PENDING, which is the same document
+                // the row's date and party already come from: a GoodsNotBilled row is pending because of a
+                // note (an InventoryVoucher), a BilledNotReceived row because of a bill (an accounting
+                // Voucher). The two slots are distinct precisely because the two aggregates must never be
+                // confused — see MainWindowViewModel's inventory-alteration arm and census row 4.9.
+                //
+                // 🔴 EXACTLY ONE SLOT IS SET PER ROW, AND THAT IS NOT TIDINESS. MainWindowViewModel:9299
+                // tests DrillInventoryVoucherId FIRST and returns on it, so a BilledNotReceived row carrying
+                // both ids would answer Alt+X by offering to cancel the NOTE while the operator is standing
+                // on a row about the BILL — a destructive verb aimed at the wrong voucher.
+                DrillInventoryVoucherId = section == BillsPendingSection.GoodsNotBilled
+                    ? r.GoodsVoucherId ?? Guid.Empty
+                    : Guid.Empty,
+                DrillVoucherId = section == BillsPendingSection.BilledNotReceived
+                    ? r.BillVoucherId ?? Guid.Empty
+                    : Guid.Empty,
             });
         }
 

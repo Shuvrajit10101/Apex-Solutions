@@ -34,6 +34,28 @@ public enum InventoryLineKind
 }
 
 /// <summary>
+/// One entry of the bill-side tracking-number selection (census 9.8) — either a Receipt/Delivery Note whose
+/// goods are still unbilled, or the vendor's <b>New Number</b> escape.
+/// </summary>
+/// <remarks>
+/// <para>🔴 <b>R7 — the SELECTION and the New Number entry are the vendor's; the caption and the label format
+/// are OURS.</b> <i>"You can select the tracking number of the receipt note to track the received goods in the
+/// purchase invoice."</i> and <i>"Select New Number for the Tracking No."</i>
+/// (<c>help.tallysolutions.com/purchase-order-tally/</c>, opened by content 2026-10-23); the sales twin is on
+/// <c>help.tallysolutions.com/sales-order-tally/</c>. <b>The phrase "List of Tracking Numbers" is NOT on
+/// either page</b> — it is the census's wording for the gap, and is deliberately not used as a caption. See
+/// <c>docs/invented-vs-cloned.md</c> IV-149.</para>
+/// </remarks>
+/// <param name="Label">What the picker row reads — ours.</param>
+/// <param name="Number">The tracking string to write, or <c>null</c> for the <b>New Number</b> entry.</param>
+public sealed record TrackingNumberChoice(string Label, string? Number)
+{
+    /// <summary>True for the vendor's <b>New Number</b> entry, which clears the box for the operator to
+    /// type rather than writing a number of its own.</summary>
+    public bool IsNewNumber => Number is null;
+}
+
+/// <summary>
 /// One editable line in the inventory/order voucher-entry grid: the picked <see cref="Stock Item"/>, the
 /// <see cref="Godown"/>, a quantity typed as text, an optional per-unit rate (paisa-exact) and an optional
 /// batch/lot label. It mirrors <see cref="VoucherLineViewModel"/> (the accounting Dr/Cr line) but for the
@@ -165,6 +187,98 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     /// <summary>Guards <see cref="OnTrackingNumberChanged"/> while the seed — not the operator — is writing.</summary>
     private bool _seedingTrackingNumber;
 
+    // ------------------------------------------------- census 9.8 · the bill-side tracking-number selection
+
+    /// <summary>
+    /// The notes this bill line may be raised against, plus the vendor's <b>New Number</b> entry. Owned and
+    /// refreshed by the parent <c>VoucherEntryViewModel.RecalculateItemInvoice</c>; EMPTY on the note side,
+    /// which is why <see cref="ShowTrackingNumberPicker"/> is false there.
+    ///
+    /// <para>🔴 <b>WHY THE NOTE SIDE GETS NO PICKER, STATED SO IT IS NOT READ AS AN OVERSIGHT.</b> A Receipt
+    /// or Delivery Note is routinely keyed BEFORE the bill that will quote its number exists, so there is
+    /// nothing to pick from; the vendor's own rule there is a DEFAULT, not a selection — <i>"Enter a Tracking
+    /// No. By default, the invoice number appears"</i> — and that default is already shipped by
+    /// <c>InventoryVoucherEntryViewModel.SeedTrackingNumberDefaults</c>. The two sides implement two different
+    /// attested behaviours, not one behaviour half-built.</para>
+    /// </summary>
+    public ObservableCollection<TrackingNumberChoice> TrackingNumberChoices { get; } = new();
+
+    /// <summary>
+    /// True when the tracking-number picker is shown — the column is on AND there is something to pick.
+    /// <para>The second half matters: a combo box offering nothing but <b>New Number</b> is a control that
+    /// cannot do anything, and on the note side the list is always empty.</para>
+    /// </summary>
+    public bool ShowTrackingNumberPicker => ShowTrackingNumber && TrackingNumberChoices.Count > 0;
+
+    /// <summary>
+    /// The picked entry. Setting it to a note writes that note's number into <see cref="TrackingNumber"/>
+    /// through the ORDINARY setter, so the write counts as operator-set and the seed can never undo it;
+    /// setting it to <b>New Number</b> clears the box for the operator to type.
+    /// </summary>
+    [ObservableProperty] private TrackingNumberChoice? _selectedTrackingNumberChoice;
+
+    /// <summary>Guards the two-way loop between the picker and the text box.</summary>
+    private bool _syncingTrackingChoice;
+
+    partial void OnSelectedTrackingNumberChoiceChanged(TrackingNumberChoice? value)
+    {
+        if (_syncingTrackingChoice || value is null) return;
+
+        _syncingTrackingChoice = true;
+        try
+        {
+            // Both arms go through the ORDINARY TrackingNumber setter, never through
+            // SeedTrackingNumberDefault: a pick is the operator speaking, and must set the operator-set flag
+            // so a later Recalculate cannot write the seeded voucher number back over it.
+            TrackingNumber = value.Number ?? string.Empty;
+        }
+        finally { _syncingTrackingChoice = false; }
+    }
+
+    /// <summary>
+    /// Replaces the picker's option list, preserving the operator's current selection where the number is
+    /// still offered. Called by the parent on every recalculation.
+    /// </summary>
+    /// <param name="choices">The notes still open, in the order the picker should show them. The
+    /// <b>New Number</b> entry is appended here rather than by the caller, so it can never be forgotten.</param>
+    public void SetTrackingNumberChoices(IReadOnlyList<TrackingNumberChoice> choices)
+    {
+        ArgumentNullException.ThrowIfNull(choices);
+
+        // Rebuild only when the offered numbers actually changed. An unconditional Clear()/re-Add on every
+        // keystroke would reset SelectedTrackingNumberChoice to null and make the combo box look like it
+        // forgot the operator's pick.
+        var unchanged = TrackingNumberChoices.Count == choices.Count + 1;
+        if (unchanged)
+        {
+            for (var i = 0; i < choices.Count; i++)
+            {
+                if (TrackingNumberChoices[i] == choices[i]) continue;
+                unchanged = false;
+                break;
+            }
+        }
+        if (unchanged) return;
+
+        _syncingTrackingChoice = true;
+        try
+        {
+            TrackingNumberChoices.Clear();
+            foreach (var c in choices) TrackingNumberChoices.Add(c);
+            TrackingNumberChoices.Add(NewNumberChoice);
+
+            SelectedTrackingNumberChoice = TrackingNumberChoices
+                .FirstOrDefault(c => c.Number is { } n
+                    && string.Equals(n, TrackingNumber, StringComparison.Ordinal));
+        }
+        finally { _syncingTrackingChoice = false; }
+
+        OnPropertyChanged(nameof(ShowTrackingNumberPicker));
+    }
+
+    /// <summary>The vendor's <b>New Number</b> entry — <i>"Select New Number for the Tracking No."</i></summary>
+    public static TrackingNumberChoice NewNumberChoice { get; } = new("New Number", null);
+
     /// <summary>
     /// Writes the vendor's default into <see cref="TrackingNumber"/> WITHOUT marking it operator-set, and does
     /// nothing at all once <see cref="TrackingNumberIsOperatorSet"/> is true.
@@ -236,8 +350,27 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     {
         // The seed writes through this same setter, so the flag is set only when the writer was NOT the seed.
         if (!_seedingTrackingNumber) TrackingNumberIsOperatorSet = true;
+
+        // Keep the picker pointing at whatever the box now holds, so typing a number by hand selects it and
+        // typing over one deselects it. Without this the combo keeps showing a note the line no longer
+        // references — a control that lies about the value beside it.
+        if (!_syncingTrackingChoice && TrackingNumberChoices.Count > 0)
+        {
+            _syncingTrackingChoice = true;
+            try
+            {
+                SelectedTrackingNumberChoice = TrackingNumberChoices
+                    .FirstOrDefault(c => c.Number is { } n
+                        && string.Equals(n, value, StringComparison.Ordinal));
+            }
+            finally { _syncingTrackingChoice = false; }
+        }
+
         _onChanged();
     }
+
+    partial void OnShowTrackingNumberChanged(bool value)
+        => OnPropertyChanged(nameof(ShowTrackingNumberPicker));
 
     partial void OnCostTrackingNumberChanged(string value) => _onChanged();
 
