@@ -4915,6 +4915,30 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             }
             preview = vd.BuildPrintPreview();
         }
+        // 🔴 CENSUS 12.7 — the DELIVERY CHALLAN, and the wrong document that stood where it should have been.
+        //
+        // This arm did not exist. Screen.InventoryVoucherDetail is a drill column raised FROM a register (the
+        // Day Book, the Delivery Note Register), so `Reports` is still live underneath it — and with no arm of
+        // its own, Ctrl+P on a drilled stock voucher fell through to the `Reports is not null` arm below and
+        // printed THE WHOLE REGISTER: every other party's goods movements, on a sheet the operator raised from
+        // one voucher and would hand to one consignee. That is the same class as the Day Book that once shared
+        // itself to a third party instead of exporting one invoice. Measured on emitted bytes, then fixed here.
+        //
+        // The arm is deliberately narrow (DeliveryChallanPrintProjector.PrintsAChallan): a Delivery Note is
+        // "an inventory document/challan sent with the goods to be delivered to the customer"
+        // (help.tallysolutions.com/tally-prime/sales-process/faq-sales/), and no TallyPrime page we opened gives
+        // any other pure-stock kind a printed document. So every other kind now gets a NOTICE saying it has
+        // none — which is what InventoryVoucherDetailViewModel's own note always asked for — instead of
+        // somebody else's data.
+        else if (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is { } ivd)
+        {
+            if (ivd.BuildPrintPreview() is not { } challan)
+            {
+                RaiseLifecycleNotice(ivd.ChallanProjection.Refusal ?? DeliveryChallanPrintProjector.NotAChallan);
+                return;
+            }
+            preview = challan;
+        }
         // A Payslip prints the dedicated de-branded PayslipPdf (RQ-16) — the same PDF pipeline as the tax invoice /
         // TDS certificates — rather than the generic report grid; a payslip with no employee/structure is a no-op.
         else if (Reports is { IsPayslipReport: true, CurrentPayslip: { } slip })
