@@ -466,15 +466,28 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
         Add("4(A)(4) ITC from ISD SGST", r.Itc4A4IsdSgst);
         Add("4(A)(4) ITC from ISD IGST", r.Itc4A4IsdIgst);
         Add("4(A)(4) ITC from ISD Cess", r.Itc4A4IsdCess);
-        Add("4(A)(5) ITC CGST", r.ItcCgst);
-        Add("4(A)(5) ITC SGST", r.ItcSgst);
-        Add("4(A)(5) ITC IGST", r.ItcIgst);
-        Add("4(B) ITC reversed", r.TotalItcReversed);
+        // 4(A)(5) carries the RECLAIM of an earlier Rule-37/37A reversal as well as the ordinary input credit. This
+        // preview showed the bare Itc*, so it disagreed with the 3B screen (which renders ItcReportedAllOther*) and
+        // with the bytes this very screen exports. CBIC Circular No. 170/02/2022-GST (cbic-gst.gov.in), para 4.3(C),
+        // by content: "Such ITC may be reclaimed in Table 4(A)(5) on fulfilment of necessary conditions. Further,
+        // all such reclaimed ITC shall also be shown in Table 4(D)(1)" — twice on purpose, so 4(D)(1) stays below.
+        Add("4(A)(5) ITC CGST", r.ItcReportedAllOtherCgst);
+        Add("4(A)(5) ITC SGST", r.ItcReportedAllOtherSgst);
+        Add("4(A)(5) ITC IGST", r.ItcReportedAllOtherIgst);
+        // 4(B) is split on the form and in the exported bytes; a single merged total here was the odd one out.
+        Add("4(B)(1) ITC reversed — rules 38, 42, 43 and section 17(5)", r.TotalItcReversed4B1);
+        Add("4(B)(2) ITC reversed — others (rule 37 / 37A)", r.TotalItcReversed4B2);
+        // 4(C) is the figure credited to the electronic credit ledger (ibid. para 4.2; formula at para 4.3(D),
+        // "(4A - [4B (1) + 4B (2)])"). The 3B screen shows it and the preview did not.
+        Add("4(C) Net ITC available (A) − (B) CGST", r.NetItcAvailableCgst);
+        Add("4(C) Net ITC available (A) − (B) SGST", r.NetItcAvailableSgst);
+        Add("4(C) Net ITC available (A) − (B) IGST", r.NetItcAvailableIgst);
         Add("4(D)(1) ITC reclaimed", r.TotalItcReclaimed);
-        Add("6.1 Net CGST", r.NetCgst);
-        Add("6.1 Net SGST", r.NetSgst);
-        Add("6.1 Net IGST", r.NetIgst);
-        StatusText = "GSTR-3B ready — a negative net head is a carried-forward credit, shown as it stands.";
+        // 🔴 THE "6.1 Net" ROWS ARE GONE. They showed Outward − ItcCgst, which nets the WRONG credit (not 4(C)) and
+        // silently drops the cash-only 3.1(d) reverse-charge leg (CGST Act §2(82) + §49(4)). The vendor's own 3B
+        // leaves this table empty — help.tallysolutions.com/tally-prime/india-gst/gstr-3b-report-tally/, by content:
+        // "6.1 Payment of tax This section will be left blank." The exported bytes drop the matching keys.
+        StatusText = "GSTR-3B ready — 6.1 Payment of tax is left to the portal, which holds the cash and credit ledgers.";
     }
 
     private void ProjectGstr9(DateOnly from, DateOnly to)
@@ -620,9 +633,11 @@ public sealed partial class GstOfflineReturnsViewModel : ViewModelBase
             // multi-registration company each throws EnsureRegistrationScoped's refusal instead of emitting —
             // reported, not silently widened, because each needs its own projection scoped and tested.
             // 🔴 T2-123: GSTR-9 now takes it too, because its Table 7 (ITC reversed) was the one unscoped leg of
-            // Gstr9.Build and the figure is emitted here. Five writers still take none.
+            // Gstr9.Build and the figure is emitted here. ~~Five writers still take none.~~ 🔴 GSTR-3B NOW TAKES IT
+            // TOO: ProjectGstr3b already previewed the SELECTED registration while this line exported unscoped, so
+            // on a multi-registration book the operator got a preview and then a refusal. FOUR still take none.
             GstOfflineReturnKind.Gstr1 => GstReturnJson.Gstr1(_company, from, to, ScopedRegistrationId),
-            GstOfflineReturnKind.Gstr3b => GstReturnJson.Gstr3b(_company, from, to),
+            GstOfflineReturnKind.Gstr3b => GstReturnJson.Gstr3b(_company, from, to, ScopedRegistrationId),
             GstOfflineReturnKind.Gstr9 => GstReturnJson.Gstr9(_company, from, to, ScopedRegistrationId),
             GstOfflineReturnKind.Gstr9c => GstReturnJson.Gstr9c(_company, from, to),
             GstOfflineReturnKind.Cmp08 => GstReturnJson.Cmp08(_company, from, to),

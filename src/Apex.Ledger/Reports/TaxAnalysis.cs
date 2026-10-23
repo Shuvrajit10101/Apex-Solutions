@@ -41,11 +41,19 @@ public sealed record TaxAnalysisSide(
 /// claim is struck rather than deleted because an unreachable projection and a rendered one are graded differently,
 /// and this one was misfiled.</para>
 ///
-/// <para>⚠️ <b>REPORTED, NOT FIXED HERE (census 6.23).</b> That single caller passes <b>no</b>
+/// <para>⚠️ ~~<b>REPORTED, NOT FIXED HERE (census 6.23).</b> That single caller passes <b>no</b>
 /// <paramref name="registrationId"/>, so on a multi-registration company this report throws
 /// <c>GstReportSupport.EnsureRegistrationScoped</c>'s refusal instead of rendering — the screen has no F3
 /// registration picker wired to it, unlike the GST filing screen. The parameter here is honoured; supplying it is
-/// a Desktop change outside this slice and is filed rather than half-done.</para>
+/// a Desktop change outside this slice and is filed rather than half-done.~~</para>
+///
+/// <para>🔴 <b>FIXED, AND THE NOTE ABOVE IS STRUCK RATHER THAN DELETED SO THE CHANGE CAN BE AUDITED.</b>
+/// <c>ReportsViewModel.BuildTaxAnalysis</c> now names a registration (<c>GstScopedRegistrationId</c>, the
+/// primary) through <c>Report.BuildTaxAnalysis</c>, which gained the parameter it had been missing. The struck
+/// note also UNDERSTATED the consequence: <c>ReportKind.TaxAnalysis</c> is dispatched WITHOUT
+/// <c>RunStatutoryForm</c>, so the refusal was not "instead of rendering" — it was an unhandled
+/// <c>InvalidOperationException</c> out of <c>Show()</c>. The F3 picker is still absent and the scope is still
+/// the primary registration only; the report discloses that on its own first row.</para>
 /// </summary>
 public sealed record TaxAnalysis(DateOnly From, DateOnly To, TaxAnalysisSide Outward, TaxAnalysisSide Inward)
 {

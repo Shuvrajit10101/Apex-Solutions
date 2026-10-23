@@ -44,7 +44,7 @@ public sealed class ElectronicCashRowVm
 /// cash-only RCM) and the <b>Cash</b> ledger (per (major, minor)-head cell + balance). Cess is ring-fenced (ER-2); a
 /// company that never accrued reads all-zero (ER-13). MVVM boundary: engine only, no Avalonia types; deterministic.
 /// </summary>
-public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class ElectronicLedgersReportViewModel : ViewModelBase, IFyScopedGstReportPage
 {
     private readonly Company _company;
 

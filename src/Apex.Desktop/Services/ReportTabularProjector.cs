@@ -146,8 +146,13 @@ public static class ReportTabularProjector
     /// (money/day) column so the spreadsheet stores real numbers; the label/text columns stay Text.</summary>
     private static TabularExport ProjectPayrollMatrix(ReportsViewModel vm)
     {
-        var columns = new List<TabularColumn>(vm.PayrollColumns.Count);
-        foreach (var c in vm.PayrollColumns)
+        // 🔴 The band is the MERGE of section 1 and section 2, not section 1 alone — see ReportMatrixEgressBand.
+        // TabularExport carries one band and DelimitedText/Xlsx/Html/Xml/Json all loop to Columns.Count, so a
+        // section-2 row wider than section 1 lost its right-hand cells on every export format at once. GSTR-9
+        // Table 17 exported its HSN codes with Quantity, Taxable Value and Total Tax deleted.
+        var band = ReportMatrixEgressBand.For(vm);
+        var columns = new List<TabularColumn>(band.Count);
+        foreach (var c in band)
             columns.Add(new TabularColumn(c.Header, c.IsNumeric ? CellType.Number : CellType.Text));
 
         var rows = new List<TabularRow>(vm.PayrollRows.Count);

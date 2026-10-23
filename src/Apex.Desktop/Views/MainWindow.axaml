@@ -1803,10 +1803,23 @@
                                   <DataTemplate x:DataType="vm:ReportRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="*,120,120,120,150,150" MinWidth="830" Height="24">
+                                        <!-- 🔴 A SECTION-HEADER ROW SPANS THE FULL WIDTH, exactly as the GSTR-1 grid
+                                             below already does. The Rate/Head star track is 830-660 = 170px at this
+                                             grid's own floor (175px measured on a realised window at 1440), which is
+                                             about 25 characters at the 12.5px advance — so ANY header longer than a
+                                             short label was silently ellipsised inside one column. That is what cut
+                                             the 98-character registration-scope disclosure ("Scoped to GSTIN …") down
+                                             to "Scoped to GSTIN 29AAPFU09…", losing the GSTIN it exists to name: a
+                                             disclosure that does not disclose. Header rows carry Col1 ONLY (see
+                                             AddTaxAnalysisSide), so the span overlaps nothing. -->
                                         <TextBlock Grid.Column="0" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding !IsHeader}"
                                                    VerticalAlignment="Center" FontSize="12.5"
-                                                   TextTrimming="CharacterEllipsis"
-                                                   FontWeight="{Binding IsHeader, Converter={StaticResource BoolWeight}}"/>
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="0" Grid.ColumnSpan="6" Text="{Binding Col1}" Margin="8,0"
+                                                   IsVisible="{Binding IsHeader}"
+                                                   VerticalAlignment="Center" FontSize="12.5" FontWeight="Bold"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Col2}" TextAlignment="Right"
                                                    Margin="0,0,10,0" VerticalAlignment="Center" FontSize="12"
                                                    FontWeight="{Binding IsTotal, Converter={StaticResource BoolWeight}}"/>
@@ -14142,163 +14155,6 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: GSTR-9 annual return (Phase 9 UI-1; RQ-17) -->
-                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9Report, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9Report}">
-                      <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="vm:Gstr9ReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="{Binding Title}"
-                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
-                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
-                                       FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*,Auto" Margin="0,0,0,8">
-                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
-                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
-                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
-                                        ItemsSource="{Binding FinancialYears}"
-                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
-                                <ComboBox.ItemTemplate>
-                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
-                                </ComboBox.ItemTemplate>
-                              </ComboBox>
-                              <TextBlock Grid.Column="3" Text="{Binding GstinText}" FontSize="12" FontWeight="SemiBold"
-                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                            </Grid>
-                            <ScrollViewer Grid.Row="3">
-                              <StackPanel Spacing="8">
-                                <!-- Part II Table 4 — outward + inward-RCM on which tax is payable -->
-                                <TextBlock Text="Part II · Table 4 — Outward + inward-RCM supplies (tax payable)"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Taxable value of outward supplies"/><TextBlock Grid.Column="1" Text="{Binding Table4TaxableValueText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward CGST"/><TextBlock Grid.Column="1" Text="{Binding Table4CgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding Table4SgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward IGST"/><TextBlock Grid.Column="1" Text="{Binding Table4IgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Outward Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table4CessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM CGST"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmCgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmSgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM IGST"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmIgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="4G — Inward RCM Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table4RcmCessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total tax payable (GST heads)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table4TotalTaxText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <!-- Part II Table 5 — outward on which tax is NOT payable -->
-                                <TextBlock Text="Part II · Table 5 — Outward supplies (no tax) + total turnover"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Exempt / nil-rated / non-GST outward"/><TextBlock Grid.Column="1" Text="{Binding Table5ExemptText}" TextAlignment="Right"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="5N — Total turnover" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table5NTurnoverText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <!-- Part III Table 6 — ITC availed -->
-                                <TextBlock Text="Part III · Table 6 — ITC availed"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — CGST"/><TextBlock Grid.Column="1" Text="{Binding Table6CgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — SGST/UTGST"/><TextBlock Grid.Column="1" Text="{Binding Table6SgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — IGST"/><TextBlock Grid.Column="1" Text="{Binding Table6IgstText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="ITC availed — Cess (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table6CessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="6H — ITC reclaimed" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding Table6ReclaimedText}" TextAlignment="Right" Foreground="#555555"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total ITC availed (GST heads)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table6ItcAvailedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <!-- Part III Table 7 — ITC reversed by rule -->
-                                <TextBlock Text="Part III · Table 7 — ITC reversed (by rule)"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7A — Rule 37 / 37A"/><TextBlock Grid.Column="1" Text="{Binding Table7Rule37Text}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7C — Rule 42"/><TextBlock Grid.Column="1" Text="{Binding Table7Rule42Text}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7D — Rule 43"/><TextBlock Grid.Column="1" Text="{Binding Table7Rule43Text}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7E — §17(5) blocked"/><TextBlock Grid.Column="1" Text="{Binding Table7Section17_5Text}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="7H — Other reversals"/><TextBlock Grid.Column="1" Text="{Binding Table7OtherText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Cess reversed (ring-fenced)" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table7CessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,150"><TextBlock Grid.Column="0" Text="Total ITC reversed (GST heads)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table7ItcReversedText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <!-- Part III Table 8 — ITC reconciliation + Part IV Table 9 — tax paid -->
-                                <Grid ColumnDefinitions="*,8,*">
-                                  <StackPanel Grid.Column="0" Spacing="3">
-                                    <TextBlock Text="Part III · Table 8 — ITC reconciliation" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                    <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                      <StackPanel Spacing="3">
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8A — ITC per GSTR-2B"/><TextBlock Grid.Column="1" Text="{Binding Table8AText}" TextAlignment="Right"/></Grid>
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8A — Cess per 2B" Foreground="#777777"/><TextBlock Grid.Column="1" Text="{Binding Table8ACessText}" TextAlignment="Right" Foreground="#777777"/></Grid>
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8B — ITC per Table 6"/><TextBlock Grid.Column="1" Text="{Binding Table8BText}" TextAlignment="Right"/></Grid>
-                                        <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="8D — Difference (8A − 8B)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding Table8DText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Net ITC (6 − 7)" Foreground="#555555"/><TextBlock Grid.Column="1" Text="{Binding NetItcText}" TextAlignment="Right" Foreground="#555555"/></Grid>
-                                      </StackPanel>
-                                    </Border>
-                                  </StackPanel>
-                                  <StackPanel Grid.Column="2" Spacing="3">
-                                    <TextBlock Text="Part IV · Table 9 — Tax paid" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                    <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                      <StackPanel Spacing="3">
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Payable (Table 9)"/><TextBlock Grid.Column="1" Text="{Binding Table9PayableText}" TextAlignment="Right"/></Grid>
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Paid through ITC"/><TextBlock Grid.Column="1" Text="{Binding Table9PaidThroughItcText}" TextAlignment="Right"/></Grid>
-                                        <Grid ColumnDefinitions="*,120"><TextBlock Grid.Column="0" Text="Paid in cash (PMT-06)"/><TextBlock Grid.Column="1" Text="{Binding Table9PaidInCashText}" TextAlignment="Right"/></Grid>
-                                      </StackPanel>
-                                    </Border>
-                                  </StackPanel>
-                                </Grid>
-                                <!-- Part VI Table 17 — outward HSN summary -->
-                                <TextBlock Text="Part VI · Table 17 — HSN summary of outward supplies"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="{StaticResource BrandNavy}">
-                                  <Grid ColumnDefinitions="120,*,70,80,*,*">
-                                    <TextBlock Grid.Column="0" Text="HSN/SAC" Classes="colHdr"/>
-                                    <TextBlock Grid.Column="1" Text="Description" Classes="colHdr"/>
-                                    <TextBlock Grid.Column="2" Text="UQC" Classes="colHdr"/>
-                                    <TextBlock Grid.Column="3" Text="Qty" Classes="colHdr" TextAlignment="Right"/>
-                                    <TextBlock Grid.Column="4" Text="Taxable" Classes="colHdr" TextAlignment="Right"/>
-                                    <TextBlock Grid.Column="5" Text="Total tax" Classes="colHdr" TextAlignment="Right"/>
-                                  </Grid>
-                                </Border>
-                                <ItemsControl Background="White" ItemsSource="{Binding HsnRows}">
-                                  <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:Gstr9HsnRowVm">
-                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
-                                        <Grid ColumnDefinitions="120,*,70,80,*,*" Height="24">
-                                          <TextBlock Grid.Column="0" Text="{Binding HsnSac}" Margin="8,0" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
-                                          <TextBlock Grid.Column="1" Text="{Binding Description}" Margin="4,0" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                          <TextBlock Grid.Column="2" Text="{Binding Uqc}" Margin="4,0" VerticalAlignment="Center" FontSize="12"/>
-                                          <TextBlock Grid.Column="3" Text="{Binding Quantity}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
-                                          <TextBlock Grid.Column="4" Text="{Binding TaxableValue}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"/>
-                                          <TextBlock Grid.Column="5" Text="{Binding TotalTax}" TextAlignment="Right" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Margin="0,0,6,0"/>
-                                        </Grid>
-                                      </Border>
-                                    </DataTemplate>
-                                  </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                                <Border Background="#F4F4EC" BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0">
-                                  <Grid ColumnDefinitions="120,*,70,80,*,*" Height="26">
-                                    <TextBlock Grid.Column="0" Text="Total" Margin="8,0" VerticalAlignment="Center" FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                    <TextBlock Grid.Column="4" Text="{Binding Table17TaxableValueText}" TextAlignment="Right" VerticalAlignment="Center" FontWeight="Bold" FontSize="12" Margin="0,0,6,0"/>
-                                    <TextBlock Grid.Column="5" Text="{Binding Table17TotalTaxText}" TextAlignment="Right" VerticalAlignment="Center" FontWeight="Bold" FontSize="12" Margin="0,0,6,0"/>
-                                  </Grid>
-                                </Border>
-                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                <TextBlock Text="{Binding Message}"
-                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
-                              </StackPanel>
-                            </ScrollViewer>
-                          </Grid>
-                        </DataTemplate>
-                      </ContentControl.ContentTemplate>
-                    </ContentControl>
-
                     <!-- PAGE: GST offline return files (JSON) (W2-06; census rows 6.10 / 6.13). The ONLY route to the
                          GstReturnJson writers: pick a form + period, read the figures, write the upload file.
                          The key names in the file are OURS (the portal schema sits behind an authenticated portal) and
@@ -14438,74 +14294,6 @@
                                       Background="{StaticResource BrandNavy}" Foreground="White"
                                       Click="OnExportGstReturnJsonClick"/>
                             </Grid>
-                          </Grid>
-                        </DataTemplate>
-                      </ContentControl.ContentTemplate>
-                    </ContentControl>
-
-                    <!-- PAGE: GSTR-9C reconciliation statement (Phase 9 UI-1; RQ-17) -->
-                    <ContentControl IsVisible="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9cReport, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                    Content="{Binding #Root.((vm:MainWindowViewModel)DataContext).Gstr9cReport}">
-                      <ContentControl.ContentTemplate>
-                        <DataTemplate x:DataType="vm:Gstr9cReportViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="{Binding Title}"
-                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
-                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
-                            <TextBlock Grid.Row="1" Text="{Binding Subtitle}"
-                                       FontSize="12" Foreground="#555555"
-                                       HorizontalAlignment="Center" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                            <Grid Grid.Row="2" ColumnDefinitions="Auto,150,*,Auto" Margin="0,0,0,8">
-                              <TextBlock Grid.Column="0" Text="Financial Year" FontWeight="SemiBold" FontSize="12"
-                                         VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{StaticResource BrandNavy}"/>
-                              <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
-                                        ItemsSource="{Binding FinancialYears}"
-                                        SelectedItem="{Binding SelectedYear, Mode=TwoWay}">
-                                <ComboBox.ItemTemplate>
-                                  <DataTemplate x:DataType="vm:GstAdvFyOption"><TextBlock Text="{Binding Label}"/></DataTemplate>
-                                </ComboBox.ItemTemplate>
-                              </ComboBox>
-                              <TextBlock Grid.Column="3" Text="{Binding GstinText}" FontSize="12" FontWeight="SemiBold"
-                                         VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                            </Grid>
-                            <ScrollViewer Grid.Row="3">
-                              <StackPanel Spacing="8">
-                                <TextBlock Text="Part A · Table 5 — Reconciliation of gross turnover"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="5A — Turnover per audited books"/><TextBlock Grid.Column="1" Text="{Binding BooksTurnoverText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="5Q — Turnover per GSTR-9"/><TextBlock Grid.Column="1" Text="{Binding ReturnTurnoverText}" TextAlignment="Right"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="5R — Unreconciled (books − return)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UnreconciledTurnoverText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <TextBlock Text="Part III · Tables 9–11 — Reconciliation of tax liability"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="Tax per GSTR-9"/><TextBlock Grid.Column="1" Text="{Binding TaxPerReturnText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="Tax per books"/><TextBlock Grid.Column="1" Text="{Binding TaxPerBooksText}" TextAlignment="Right"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="Table 11 — Unreconciled (return − books)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UnreconciledTaxText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <TextBlock Text="Part B · Table 12 — Reconciliation of net ITC"
-                                           FontWeight="Bold" FontSize="12" Foreground="{StaticResource BrandNavy}"/>
-                                <Border Background="White" BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="10">
-                                  <StackPanel Spacing="3">
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="12A — ITC per audited books"/><TextBlock Grid.Column="1" Text="{Binding BooksItcText}" TextAlignment="Right"/></Grid>
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="12E — Net ITC per GSTR-9"/><TextBlock Grid.Column="1" Text="{Binding ReturnItcText}" TextAlignment="Right"/></Grid>
-                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0"/>
-                                    <Grid ColumnDefinitions="*,160"><TextBlock Grid.Column="0" Text="12F — Unreconciled (books − return)" FontWeight="Bold"/><TextBlock Grid.Column="1" Text="{Binding UnreconciledItcText}" TextAlignment="Right" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"/></Grid>
-                                  </StackPanel>
-                                </Border>
-                                <TextBlock Text="{Binding StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="#555555" TextWrapping="Wrap" Margin="0,4,0,0"/>
-                                <TextBlock Text="{Binding Message}"
-                                           IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                           Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
-                              </StackPanel>
-                            </ScrollViewer>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>

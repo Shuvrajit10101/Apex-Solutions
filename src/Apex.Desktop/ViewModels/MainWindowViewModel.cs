@@ -246,9 +246,6 @@ public enum Screen
 
     // Advanced-GST read-only report/return screens (Phase 9 UI-1; RQ-17) — surfaced for a Regular GST company under
     // Reports → Statutory Reports → Annual Returns / GST Returns (Advanced).
-    Gstr9Report,
-    Gstr9cReport,
-
     /// <summary>The FORM GSTR-6 Input Service Distributor return (census row 6.24) — surfaced only for a company
     /// that actually holds an ISD registration, under Reports → Statutory Reports → GST Returns (Advanced).</summary>
     Gstr6Report,
@@ -614,12 +611,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The GSTR-4 composition annual-return report (Phase 9 slice 3), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr4ReportViewModel? _gstr4Report;
 
-    /// <summary>The GSTR-9 annual-return report (Phase 9 UI-1), non-null only while that page is open.</summary>
-    [ObservableProperty] private Gstr9ReportViewModel? _gstr9Report;
-
-    /// <summary>The GSTR-9C reconciliation-statement report (Phase 9 UI-1), non-null only while that page is open.</summary>
-    [ObservableProperty] private Gstr9cReportViewModel? _gstr9cReport;
-
+    // 🔴 THE TWO ANNUAL-RETURN PAGE PROPERTIES ARE GONE, AND SO ARE Screen.Gstr9Report /
+    // Screen.Gstr9cReport and their two MainWindow.axaml page templates. W-BJ re-homed both returns onto
+    // ReportKind.Gstr9AnnualReturn / ReportKind.Gstr9cReconciliation, after which NOTHING assigned these
+    // properties but ResetPageColumns' own `= null`: the templates could never become visible, and the two
+    // page view models they bound could never be constructed by production. Removed rather than left as
+    // residue, because an unreachable page that still calls a GST engine is a call site every
+    // registration-scope sweep has to re-examine and dismiss. The two view models survive ONLY as the
+    // transcription oracle of RehomedReportSurfaceBjTests, which compares the re-homed matrix to the
+    // superseded page line for line; nothing in src/ constructs them.
     /// <summary>The GSTR-6 Input Service Distributor return (census row 6.24), non-null only while that page is open.</summary>
     [ObservableProperty] private Gstr6ReportViewModel? _gstr6Report;
 
@@ -957,7 +957,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && GratuityProvisionRegister is null && BonusRegister is null
         && TaxDeclarationMaster is null && Form24Q is null && Form16 is null && Form12Ba is null
         && GstConfig is null && GstRateSetup is null && Cmp08Report is null && Gstr4Report is null
-        && Gstr9Report is null && Gstr9cReport is null && Gstr6Report is null && GstOfflineReturns is null
+        && Gstr6Report is null && GstOfflineReturns is null
         && ElectronicLedgersReport is null
         && ItcSetOffReport is null && ItcReversalReport is null && Gstr2bReconReport is null
         && ItcGateReport is null && QrmpReport is null && GstAmendmentsReport is null
@@ -1020,8 +1020,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnGstRateSetupChanged(GstRateSetupViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnCmp08ReportChanged(Cmp08ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr4ReportChanged(Gstr4ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
-    partial void OnGstr9ReportChanged(Gstr9ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
-    partial void OnGstr9cReportChanged(Gstr9cReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstr6ReportChanged(Gstr6ReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnGstOfflineReturnsChanged(GstOfflineReturnsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnElectronicLedgersReportChanged(ElectronicLedgersReportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2936,9 +2934,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Composition };
 
     /// <summary>True iff the open company is a Regular GST dealer (drives the advanced-GST report surfacing; Phase 9
-    /// UI-1). A Composition / GST-off company never sees the Annual Returns / GST Returns (Advanced) groups (ER-13).</summary>
-    private bool IsRegularGstDealer =>
-        Company?.Gst is { Enabled: true, RegistrationType: GstRegistrationType.Regular };
+    /// UI-1). A Composition / GST-off company never sees the Annual Returns / GST Returns (Advanced) groups (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ: THIS IS NOW AN ALIAS, NOT A SECOND COPY OF THE CONDITION.</b> The two annual returns were
+    /// re-homed onto <see cref="ReportKind.Gstr9AnnualReturn"/> / <see cref="ReportKind.Gstr9cReconciliation"/>, so
+    /// the saved-view door (Ctrl+H) asks <see cref="ReportFeatureGate.RegularGstDealer"/> — which is defined AS
+    /// <see cref="RegularGstDealerFeatureOn"/>. Two copies of the same expression is exactly the drift
+    /// <c>MainWindowViewModel.ReportFeatureGates.cs</c> exists to make impossible, and the measured consequence of
+    /// that drift was a saved view opening the Pay Sheet on a company with payroll switched off.</para></summary>
+    private bool IsRegularGstDealer => RegularGstDealerFeatureOn;
 
     /// <summary>
     /// True iff the open company holds at least one <b>Input Service Distributor</b> registration (census row 6.24) —
@@ -5967,11 +5971,44 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return;
         ArgumentNullException.ThrowIfNull(type);
 
+        // 🔴 CENSUS 5.11 — "Print voucher after saving" STOPS BEING A DEAD CHECKBOX HERE.
+        // help.tallysolutions.com/voucher-types-tally/ (re-fetched by content 2026-10-22): "Enable Print voucher
+        // after saving to automatically open the Voucher Printing screen for the voucher, once it is saved."
+        // The flag had setters, persistence (v53) and canonical export but NOT ONE reader that changed behaviour.
+        //
+        // 🔴 WHY THE EXISTING onSaved IS WRAPPED RATHER THAN REPLACED. Each caller's own post-save navigation is
+        // load-bearing — ShowGateway for the Vouchers menu, a REFRESHED Day Book for the Alt+A flow — and
+        // ClearSubScreens (which ShowGateway runs) nulls PrintPreview. So the caller's action must run FIRST and
+        // the printing column is appended on top of wherever it landed; appending first would have the navigation
+        // immediately discard it.
+        //
+        // 🔴 THIS IS THE ONLY SAVE PATH THAT READS THE FLAG, AND THE NARROWING IS OURS — NOT THE VENDOR'S WORDING.
+        // ⚠️ CORRECTED BY REVIEW 2026-10-22: this comment used to say the page "scopes the option to the
+        // vouchers/invoices created using that particular voucher type". THAT QUOTE IS NOT ON THE PAGE — the
+        // substring "created using" does not occur on help.tallysolutions.com/voucher-types-tally/ (three content
+        // fetches plus a web search for the exact phrase). Of the three options in that group only "Generate
+        // Payment link/QR code" carries a voucher-kind restriction; this one carries none.
+        //
+        // The alteration door (ShowVoucherAlteration) is deliberately NOT wired, on OUR reasoning: re-printing on
+        // every re-save would put a second document under one live number. ShowVoucherDuplicate (Alt+2) and
+        // OpenInventoryVoucher — both of which post a NEW voucher of the type — are NOT wired either, and that is
+        // an unclosed half of census 5.11 rather than a decision. See IV-117 for the measurement.
+        var afterSaved = onSaved ?? ShowGateway;
+        VoucherEntryViewModel? opened = null;
+
         var entry = new VoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: onSaved ?? ShowGateway,
+            onSaved: () =>
+            {
+                afterSaved();
+                // Read off the SCREEN's committed id, which is written only after _storage.Save returned — so a
+                // refused save that rolled the voucher back off the aggregate prints nothing at all.
+                if (type.PrintAfterSaving && opened?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage,
             date: date);
+        opened = entry;
         // G-5 (BOOK pp.130–132): a batch-tracked line on a Purchase/Sales ITEM INVOICE opens the same real
         // batch-allocation sub-screen the stock screens use — as a cascade column to the right, so the invoice
         // stays beneath it and comes back intact on Esc. Wired here (not inside the entry VM) because the shell
@@ -5981,6 +6018,52 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var title = $"Accounting Voucher Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.VoucherEntry, title,
             () => VoucherEntry = entry);
+    }
+
+    /// <summary>
+    /// 🔴 <b>Opens the Voucher Printing screen for the voucher just committed</b> — the one reader that makes the
+    /// voucher type's <c>Print voucher after saving</c> flag mean something (census 5.11).
+    ///
+    /// <para><b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/voucher-types-tally/, verified by content:
+    /// <i>"Enable Print voucher after saving to automatically open the Voucher Printing screen for the voucher,
+    /// once it is saved."</i> The screen it opens is this product's print preview — the same column
+    /// <see cref="OpenPrintPreview"/> raises on <see cref="Screen.VoucherDetail"/>, with the same Configure /
+    /// Preview / Save arms — so the flag routes to the EXISTING printing surface and invents no second one.</para>
+    ///
+    /// <para><b>🔴 It re-resolves the voucher out of the BOOK rather than trusting a captured instance.</b> The
+    /// post-save navigation has already run by the time this is called (it may have rebuilt the cascade and
+    /// reloaded the report beneath), so the voucher is looked up by id on <see cref="Company"/>. A voucher that is
+    /// no longer there prints nothing — the same rule <c>ResolveInventoryVoucherForAlteration</c> states for a
+    /// stale row id.</para>
+    ///
+    /// <para><b>🔴 The cheque refusal is honoured, not bypassed.</b> Census 8.4: a payment drawn by cheque on a
+    /// cheque-enabled bank whose leaf this product cannot ink must SAY so rather than ink the Dr/Cr voucher onto
+    /// the cheque stationery loaded in the printer. <see cref="OpenPrintPreview"/> carries that guard, and an
+    /// automatic door that walked around it would re-open the very defect that guard exists for — "a gate a second
+    /// door walks around is not a gate", in this file's own words.</para>
+    /// </summary>
+    private void OpenVoucherPrintingAfterSave(Guid voucherId)
+    {
+        if (Company?.FindVoucher(voucherId) is not { } voucher) return;
+        if (PrintPreview is not null) return;        // a preview is already up — don't stack a second one
+
+        var detail = new VoucherDetailViewModel(Company, voucher);
+        if (detail.ChequePrintRefusal is { } refusal)
+        {
+            RaiseLifecycleNotice(refusal);
+            return;
+        }
+
+        // The tail is OpenPrintPreview's verbatim — the shape that APPENDS a column without trimming the pane
+        // beneath, so the report or Gateway the save returned to survives and Esc pops straight back to it.
+        var preview = detail.BuildPrintPreview();
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
     }
 
     // =============================================================== screen: inventory voucher entry
@@ -7460,24 +7543,45 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // ---- Advanced-GST report screens (Phase 9 UI-1; RQ-17). Each opens a read-only page column projecting its pure
     // engine; all are gated on a Regular GST dealer (a Composition / GST-off company never reaches them, ER-13). ----
 
-    /// <summary>Opens the <b>GSTR-9</b> annual-return report (Reports → Statutory Reports → Annual Returns → GSTR-9;
-    /// Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>GSTR-9</b> annual return (Reports → Statutory Reports → Annual Returns → GSTR-9).
+    /// A no-op unless the company is a Regular GST dealer.
+    ///
+    /// <para>🔴 <b>W-BJ — RE-HOMED off <c>Screen.Gstr9Report</c> (since removed) onto
+    /// <see cref="ReportKind.Gstr9AnnualReturn"/>, and this opener is the ONE door, so the menu row, any
+    /// button and the Ctrl+H saved view all land on the same surface.</b> A page <c>Screen</c> leaves
+    /// <see cref="Reports"/> null, and that switches off F2 as-of, Alt+F2 period, the F12 configuration panel,
+    /// Alt+F12 sort/filter, Ctrl+H saved views and the report's own Enter-drill simultaneously.
+    /// <b>Vendor-attested, opened by content 2026-10-18:</b>
+    /// <c>help.tallysolutions.com/tally-prime/gstr-9-9c/file-gstr-9-tally/</c> says
+    /// <i>"Press F2 (Period) and set it to the relevant financial year."</i> — so the period control is the
+    /// reference product's own gesture on this report, and the dedicated page had no F2 at all.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back, stated so the claim is not overstated: print and export.</b>
+    /// Those were never off here — <see cref="Gstr9ReportViewModel"/> implements
+    /// <c>IMasterListExportSource</c>, which <c>IsPrintablePage</c>'s third arm already reached. The page's own
+    /// financial-year ComboBox is what LEAVES, replaced by F2 / Alt+F2.</para>
+    /// </summary>
     public void OpenGstr9Report()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new Gstr9ReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("GSTR-9", page), Screen.Gstr9Report,
-            "Form GSTR-9 — Annual Return", () => Gstr9Report = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.Gstr9AnnualReturn);
     }
 
-    /// <summary>Opens the <b>GSTR-9C</b> reconciliation-statement report (Reports → Statutory Reports → Annual Returns
-    /// → GSTR-9C; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>GSTR-9C</b> reconciliation statement (Reports → Statutory Reports → Annual Returns →
+    /// GSTR-9C). A no-op unless the company is a Regular GST dealer.
+    ///
+    /// <para>🔴 <b>W-BJ — RE-HOMED off <c>Screen.Gstr9cReport</c> (since removed) onto
+    /// <see cref="ReportKind.Gstr9cReconciliation"/>, for the reason <see cref="OpenGstr9Report"/> gives.
+    /// Vendor-attested on its own page, opened by content 2026-10-18:</b>
+    /// <c>help.tallysolutions.com/file-gstr-9c-tally/</c> carries the identical sentence
+    /// <i>"Press F2 (Period) and set it to the relevant financial year."</i></para>
+    /// </summary>
     public void OpenGstr9cReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new Gstr9cReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("GSTR-9C", page), Screen.Gstr9cReport,
-            "Form GSTR-9C — Reconciliation Statement", () => Gstr9cReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.Gstr9cReconciliation);
     }
 
     /// <summary>
@@ -7514,24 +7618,58 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "GST Offline Return Files (JSON)", () => GstOfflineReturns = page);
     }
 
-    /// <summary>Opens the <b>Electronic Ledgers</b> report (Reports → Statutory Reports → GST Returns (Advanced) →
-    /// Electronic Ledgers; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>Electronic Ledgers</b> report (Reports -> Statutory Reports -> GST Returns (Advanced) -> Electronic Ledgers).
+    /// A no-op unless the company is a Regular GST dealer (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ2 — RE-HOMED off <see cref="Screen.ElectronicLedgersReport"/> onto
+    /// <see cref="ReportKind.ElectronicLedgers"/>, and this opener is the ONE door, so the menu row and the Ctrl+H
+    /// saved view land on the same surface.</b> A page <c>Screen</c> leaves <see cref="Reports"/> null, and
+    /// that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Ctrl+H saved views and the
+    /// report's own Enter-drill simultaneously; this page offered a financial-year ComboBox in place of the
+    /// period control. <b>Grounded on the vendor's general report contract, opened by content 2026-10-20:</b>
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> gives
+    /// <c>F2</c> as <i>"To change the date of voucher entry or date/period for reports"</i>. No vendor page we
+    /// have opened names this report's period gesture specifically, so the claim is the general one and is
+    /// written that way deliberately.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back: print and export.</b> Those were never off here —
+    /// <see cref="ElectronicLedgersReportViewModel"/> already implements <c>IMasterListExportSource</c>, which
+    /// <c>IsPrintablePage</c>'s third arm reached. What LEAVES is the page's financial-year ComboBox,
+    /// replaced by F2 / Alt+F2 — and the re-homed report is built FROM this page's own snapshot, so it is
+    /// cell-for-cell what the page showed.</para>
+    /// </summary>
     public void OpenElectronicLedgersReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new ElectronicLedgersReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("Electronic Ledgers", page), Screen.ElectronicLedgersReport,
-            "Electronic Ledgers", () => ElectronicLedgersReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.ElectronicLedgers);
     }
 
-    /// <summary>Opens the <b>ITC Set-Off</b> (Rule-88A) display-only projection (Reports → Statutory Reports → GST
-    /// Returns (Advanced) → ITC Set-Off; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>ITC Set-Off (Rule 88A) projection</b> report (Reports -> Statutory Reports -> GST Returns (Advanced) -> ITC Set-Off).
+    /// A no-op unless the company is a Regular GST dealer (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ2 — RE-HOMED off <see cref="Screen.ItcSetOffReport"/> onto
+    /// <see cref="ReportKind.ItcSetOffProjection"/>, and this opener is the ONE door, so the menu row and the Ctrl+H
+    /// saved view land on the same surface.</b> A page <c>Screen</c> leaves <see cref="Reports"/> null, and
+    /// that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Ctrl+H saved views and the
+    /// report's own Enter-drill simultaneously; this page offered a financial-year ComboBox in place of the
+    /// period control. <b>Grounded on the vendor's general report contract, opened by content 2026-10-20:</b>
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> gives
+    /// <c>F2</c> as <i>"To change the date of voucher entry or date/period for reports"</i>. No vendor page we
+    /// have opened names this report's period gesture specifically, so the claim is the general one and is
+    /// written that way deliberately.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back: print and export.</b> Those were never off here —
+    /// <see cref="ItcSetOffReportViewModel"/> already implements <c>IMasterListExportSource</c>, which
+    /// <c>IsPrintablePage</c>'s third arm reached. What LEAVES is the page's financial-year ComboBox,
+    /// replaced by F2 / Alt+F2 — and the re-homed report is built FROM this page's own snapshot, so it is
+    /// cell-for-cell what the page showed.</para>
+    /// </summary>
     public void OpenItcSetOffReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new ItcSetOffReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("ITC Set-Off", page), Screen.ItcSetOffReport,
-            "ITC Set-Off (Rule 88A) — projection", () => ItcSetOffReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.ItcSetOffProjection);
     }
 
     /// <summary>Opens the <b>ITC Reversal</b> display-only view (Reports → Statutory Reports → GST Returns (Advanced) →
@@ -7564,14 +7702,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "ITC Gate — §16(2)(aa) / §17(5)", () => ItcGateReport = page);
     }
 
-    /// <summary>Opens the <b>QRMP / IFF</b> cadence report (Reports → Statutory Reports → GST Returns (Advanced) →
-    /// QRMP / IFF; Phase 9 UI-1). A no-op unless the company is a Regular GST dealer.</summary>
+    /// <summary>
+    /// Opens the <b>QRMP / IFF Cadence</b> report (Reports -> Statutory Reports -> GST Returns (Advanced) -> QRMP / IFF).
+    /// A no-op unless the company is a Regular GST dealer (ER-13).
+    ///
+    /// <para>🔴 <b>W-BJ2 — RE-HOMED off <see cref="Screen.QrmpReport"/> onto
+    /// <see cref="ReportKind.QrmpIffCadence"/>, and this opener is the ONE door, so the menu row and the Ctrl+H
+    /// saved view land on the same surface.</b> A page <c>Screen</c> leaves <see cref="Reports"/> null, and
+    /// that switches off F2 as-of, Alt+F2 period, the F12 configuration panel, Ctrl+H saved views and the
+    /// report's own Enter-drill simultaneously; this page offered a financial-year ComboBox in place of the
+    /// period control. <b>Grounded on the vendor's general report contract, opened by content 2026-10-20:</b>
+    /// <c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c> gives
+    /// <c>F2</c> as <i>"To change the date of voucher entry or date/period for reports"</i>. No vendor page we
+    /// have opened names this report's period gesture specifically, so the claim is the general one and is
+    /// written that way deliberately.</para>
+    ///
+    /// <para>⚠️ <b>What this does NOT hand back: print and export.</b> Those were never off here —
+    /// <see cref="QrmpReportViewModel"/> already implements <c>IMasterListExportSource</c>, which
+    /// <c>IsPrintablePage</c>'s third arm reached. What LEAVES is the page's financial-year ComboBox,
+    /// replaced by F2 / Alt+F2 — and the re-homed report is built FROM this page's own snapshot, so it is
+    /// cell-for-cell what the page showed.</para>
+    /// </summary>
     public void OpenQrmpReport()
     {
-        if (Company is null || !IsRegularGstDealer) return;
-        var page = new QrmpReportViewModel(Company);
-        OpenPageColumn(new GatewayColumn("QRMP / IFF", page), Screen.QrmpReport,
-            "QRMP / IFF Cadence", () => QrmpReport = page);
+        if (Company is null || !RegularGstDealerFeatureOn) return;
+        OpenReport(ReportKind.QrmpIffCadence);
     }
 
     /// <summary>Opens the <b>GST Amendments</b> (GSTR-1/3B) report (Reports → Statutory Reports → GST Returns
@@ -8925,8 +9080,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         GstRateSetup = null;
         Cmp08Report = null;
         Gstr4Report = null;
-        Gstr9Report = null;
-        Gstr9cReport = null;
         Gstr6Report = null;
         GstOfflineReturns = null;
         ElectronicLedgersReport = null;
@@ -12730,8 +12883,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 Gstr6Report?.ExportJson();
                 return;
             // Advanced-GST report screens (Phase 9 UI-1) — all read-only projections; Ctrl+A/Enter is a safe no-op.
-            case Screen.Gstr9Report:
-            case Screen.Gstr9cReport:
             case Screen.ElectronicLedgersReport:
             case Screen.ItcSetOffReport:
             case Screen.ItcReversalReport:

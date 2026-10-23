@@ -493,7 +493,13 @@ public sealed class XamlLayoutInvariantTests
         // Base 86->92, Annual Bonus 96->98) and the grid Width was raised 560->641 to pay for them, which
         // leaves the star at exactly 150px. Locked by
         // StatutoryRegisterAndOpeningColumnLockTests.Star_column_keeps_its_full_width_after_the_widening.
-        "120,*,70,80,*,*",             // IMS action twins
+        // "120,*,70,80,*,*" — GONE WITH ITS SITE, and the comment it carried was WRONG. The entry claimed
+        // "IMS action twins". The spec occurred exactly THREE times in MainWindow.axaml and all three were in
+        // the GSTR-9 annual-return PAGE template (its Part VI Table 17 HSN grid, header + body + foot), which
+        // this branch deleted as dead residue once the return was re-homed onto ReportKind.Gstr9AnnualReturn.
+        // The IMS page is still in the file and `grep -c '120,\*,70,80'` over it now returns 0, so IMS never
+        // used this spec at all. SEVENTH misattributed allow-list comment found in this campaign — and the
+        // invariant's own stale-entry arm is what caught it, by failing the gate when the last site vanished.
         "130,2*,130,*",                // Import 2B twins
         "130,*,*,*,*",                 // e-invoice generate twins
         "*,*,*,*,*",                   // 5-way even split

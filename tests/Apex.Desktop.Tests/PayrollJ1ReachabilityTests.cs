@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Ledger.Reports;
 using Apex.Ledger.Services;
 using Apex.Desktop.Services;
@@ -452,6 +453,57 @@ public sealed class PayrollJ1ReachabilityTests : IDisposable
                 Assert.DoesNotContain(r.PayrollFootnotes,
                     n => n.Contains("have not been notified", StringComparison.Ordinal));
             }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THESE TWO REPORTS WERE LOSING FIGURES ON EVERY EXPORT AND EVERY PRINTED PAGE, AND HAD BEEN SINCE
+    /// THEY SHIPPED.</b> Both declare a SECOND band WIDER than their first — Income Tax Computation 2 then 3,
+    /// Payroll Statutory Summary 4 then 6 — and the egress projectors used to build the document's single column
+    /// band from the first section alone. Every writer loops to <c>Columns.Count</c> or clamps with
+    /// <c>Math.Min</c>, so the Component-details <i>Amount</i> and the Statutory-Pay-Head-Details <i>Paid</i> and
+    /// <i>Balance</i> were cut off the file and the page while the SCREEN showed them correctly — which is why
+    /// the existing on-screen assertions above are all green and prove nothing about this.
+    ///
+    /// <para>The shape, and the fix, are the same one GSTR-9 Table 17 exposed; see
+    /// <see cref="MatrixSecondBandEgressTests"/> for the mechanism and for the emitted-bytes proof. These two
+    /// cases exist so the fix is measured on the kinds that carried the defect <b>before</b> this wave, not only
+    /// on the one that made it visible.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(ReportKind.PayrollStatutorySummary)]
+    [InlineData(ReportKind.IncomeTaxComputation)]
+    public void A_second_band_wider_than_the_first_reaches_the_file_and_the_page_whole(ReportKind kind)
+    {
+        var (window, vm) = OpenWindow();
+        try
+        {
+            vm.OpenPayrollStatutoryForm(kind);
+            Pump(window);
+            var r = vm.Reports!;
+
+            Assert.True(r.PayrollColumns2.Count > r.PayrollColumns.Count,
+                $"{kind} no longer declares a second band wider than its first; this case is now vacuous and "
+              + "must be re-pointed at a kind that does, or deleted.");
+
+            MatrixSecondBandEgressTests.AssertBandCoversBothSections(r);
+
+            // And the rightmost figure of a real detail row survives into the emitted PDF, which is the artefact
+            // an operator actually files. Read off a band-2 row that carries one, not off the view model.
+            var detail = r.PayrollRows2.FirstOrDefault(
+                row => row.Cells.Count == r.PayrollColumns2.Count
+                    && !string.IsNullOrWhiteSpace(row.Cells[^1].Text));
+            Assert.True(detail is not null,
+                $"{kind}'s second band has no row with a figure in its last column, so this proves nothing.");
+
+            string page = System.Text.Encoding.Latin1.GetString(
+                ReportPdf.Render(ReportPrintProjector.Project(r), new PageConfig()));
+            Assert.True(page.Contains(detail!.Cells[^1].Text, StringComparison.Ordinal),
+                $"{kind}: the detail row's last-column figure \"{detail.Cells[^1].Text}\" never reached the "
+              + "printed page — the egress band truncated it.");
+            Assert.True(page.Contains(r.PayrollColumns2[^1].Header, StringComparison.Ordinal),
+                $"{kind}: the second band's last caption \"{r.PayrollColumns2[^1].Header}\" is not on the page.");
         }
         finally { window.Close(); }
     }

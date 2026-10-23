@@ -32,6 +32,16 @@ public sealed class Gstr9HsnRowVm
 /// <para>Gated: only reachable for a Regular GST company (a Composition dealer files 9A, a GST-off company nothing —
 /// both yield a not-applicable projection, ER-13). MVVM boundary: engine only, no Avalonia types (headlessly
 /// testable); deterministic (no clock/RNG beyond the default FY).</para>
+///
+/// <para>🔴 <b>THIS PAGE IS NO LONGER REACHABLE IN THE PRODUCT, AND IT IS KEPT FOR EXACTLY ONE REASON:
+/// IT IS THE TRANSCRIPTION ORACLE OF THE RE-HOME.</b> W-BJ moved GSTR-9 onto
+/// <see cref="ReportKind.Gstr9AnnualReturn"/>; <c>Screen.Gstr9Report</c>, <c>MainWindowViewModel</c>'s page
+/// property and this page's <c>MainWindow.axaml</c> template have all since been DELETED, so nothing in
+/// <c>src/</c> constructs this type. <c>RehomedReportSurfaceBjTests</c> builds it directly and asserts the
+/// re-homed matrix reproduces its (label, amount) lines in order — a comparison, which is a stronger claim
+/// than a frozen literal list and the reason this file was not deleted with the rest of the residue.
+/// <b>Do not wire it to anything.</b> Its <c>Gstr9.Build</c> call is nonetheless registration-scoped
+/// (census 6.23), so a scope sweep over <c>src/</c> finds no unscoped GST call here either.</para>
 /// </summary>
 public sealed partial class Gstr9ReportViewModel : ViewModelBase, IMasterListExportSource
 {
@@ -135,7 +145,11 @@ public sealed partial class Gstr9ReportViewModel : ViewModelBase, IMasterListExp
         Gstr9 ret;
         try
         {
-            ret = Gstr9.Build(_company, fyFrom, fyTo);
+            // census 6.23: NAMED. Unscoped, EnsureRegistrationScoped refused on any multi-registration book and
+            // this page showed the refusal text instead of a return. Byte-identical on a single-registration
+            // book, because FindRegistration normalises null and PrimaryId to the same registration.
+            ret = Gstr9.Build(_company, fyFrom, fyTo,
+                _company.Gst?.PrimaryRegistration?.Id ?? GstRegistration.PrimaryId);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
