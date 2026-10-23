@@ -14,7 +14,8 @@ namespace Apex.Desktop.Services;
 /// <para><b>Vendor grounding, quoted by content.</b> The reference product reaches this from the print menu and
 /// configures it by voucher type: <i>"Press <b>Alt+P</b> (Print) &gt; <b>Others</b> &gt; select
 /// <b>Multi-Voucher</b> &gt; press Enter"</i> and <i>"Type or select <b>Multi-Voucher Printing</b> &gt; and press
-/// Enter"</i>, after which <i>"Press <b>C</b> (Configure), select <b>Voucher Type</b>"</i>
+/// Enter"</i>, after which <i>"Press <b>C</b> (Configure) &gt; type or select <b>Voucher Type</b> and press
+/// Enter."</i>
 /// (<c>help.tallysolutions.com/faq-e-way-bill-tally/</c>;
 /// <c>help.tallysolutions.com/gcc-sales-and-print-fta-tally/</c>). The party and period axes are attested on the
 /// vendor's own release notes: <i>"You can also print, export, or e-mail multi-voucher reports for a specific

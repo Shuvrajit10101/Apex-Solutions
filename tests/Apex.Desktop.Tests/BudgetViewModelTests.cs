@@ -248,8 +248,10 @@ public sealed class BudgetViewModelTests : IDisposable
         var vm = NewSeededCompany("Budget Nav Reports Co");
 
         // Reports → Statements of Accounts is a hub that now also offers Budgets, Interest Calculation,
-        // Forex Gain/Loss, — since W2-12 — Statistics (census 11.8), and — since W2-32 — Multi-Account
-        // Printing (census 12.6). Still an exact ORDERED list, not a Contains.
+        // Forex Gain/Loss, — since W2-12 — Statistics (census 11.8), — since W2-32 — Multi-Account
+        // Printing, and Multi-Voucher Printing (both halves of census 12.6). Still an exact ORDERED list,
+        // not a Contains: this assertion is what tells a later slice that it has added a row to a shared hub,
+        // which is exactly what it did for the Multi-Voucher row.
         vm.ShowStatementsOfAccountsMenu();
         Assert.Equal(GatewayMenu.StatementsOfAccounts, vm.CurrentGatewayMenu);
         var hubLabels = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
@@ -257,7 +259,7 @@ public sealed class BudgetViewModelTests : IDisposable
             new[]
             {
                 "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss",
-                "Statistics", "Multi-Account Printing",
+                "Statistics", "Multi-Account Printing", "Multi-Voucher Printing",
             },
             hubLabels);
 

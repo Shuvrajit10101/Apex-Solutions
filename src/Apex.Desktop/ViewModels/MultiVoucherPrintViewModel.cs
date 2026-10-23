@@ -35,7 +35,7 @@ public sealed class MultiVoucherChoice
 /// <list type="bullet">
 ///   <item><b>Voucher type.</b> <i>"Press <b>Alt+P</b> (Print) &gt; <b>Others</b> &gt; select
 ///   <b>Multi-Voucher</b> &gt; press Enter"</i> (<c>help.tallysolutions.com/faq-e-way-bill-tally/</c>), then
-///   <i>"Press <b>C</b> (Configure), select <b>Voucher Type</b>"</i>
+///   <i>"Press <b>C</b> (Configure) &gt; type or select <b>Voucher Type</b> and press Enter."</i>
 ///   (<c>help.tallysolutions.com/gcc-sales-and-print-fta-tally/</c>, which also gives the screen its name:
 ///   <i>"Type or select <b>Multi-Voucher Printing</b> &gt; and press Enter"</i>).</item>
 ///   <item><b>Party and period.</b> <i>"You can also print, export, or e-mail multi-voucher reports for a
