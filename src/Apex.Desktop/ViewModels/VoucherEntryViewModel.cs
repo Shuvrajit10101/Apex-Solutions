@@ -1339,6 +1339,24 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>The number assigned to the voucher once accepted (0 until then).</summary>
     [ObservableProperty] private int _savedNumber;
 
+    /// <summary>
+    /// 🔴 <b>The IDENTITY of the voucher this screen last committed</b> — <see cref="Guid.Empty"/> until an
+    /// accept succeeds (census 5.11, the <c>Print voucher after saving</c> flag).
+    ///
+    /// <para><b>Why the id and not just <see cref="SavedNumber"/>.</b> The shell has to open the Voucher Printing
+    /// screen for <i>the voucher that was just saved</i>, and a NUMBER does not identify one: numbering is
+    /// per-series, a Manual or <c>None</c> method can leave it 0 or repeated, and <c>5.3</c>'s accepted residual
+    /// is that a deleted top number is REUSED. Looking a number back up would therefore print a different
+    /// voucher — the exact class of defect <c>PickAddVoucherType</c> records for resolving a chosen type back
+    /// down to its base kind.</para>
+    ///
+    /// <para>Written at ALL FOUR accept exits (the three creation posts and the alteration <c>Replace</c>),
+    /// immediately beside <see cref="SavedNumber"/>, and only AFTER <c>_storage.Save</c> has returned — so a
+    /// refused save that rolls the voucher back off the aggregate leaves this untouched and nothing can print a
+    /// document for a voucher the book does not hold.</para>
+    /// </summary>
+    [ObservableProperty] private Guid _savedVoucherId;
+
     public VoucherEntryViewModel(
         Company company,
         VoucherType type,
@@ -4127,6 +4145,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         }
 
         SavedNumber = replacement.Number;
+        SavedVoucherId = replacement.Id;             // census 5.11 — see SavedVoucherId
         Message = $"{_type.Name} No. {_company.FormatVoucherNumber(replacement)} altered."
                 + WarningNote(warnings);
         _onSaved();
@@ -5324,6 +5343,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         }
 
         SavedNumber = posted.Number;
+        SavedVoucherId = posted.Id;                  // census 5.11 — see SavedVoucherId
         Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.{rcmDocNote}";
         _onSaved();
         return true;
@@ -6656,6 +6676,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             }
 
             SavedNumber = posted.Number;
+            SavedVoucherId = posted.Id;              // census 5.11 — see SavedVoucherId
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;
@@ -7483,6 +7504,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             }
 
             SavedNumber = posted.Number;
+            SavedVoucherId = posted.Id;              // census 5.11 — see SavedVoucherId
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;
