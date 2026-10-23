@@ -4105,8 +4105,17 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     construction**, because it reads the GST home State and never `Company.State` — under INHERIT that is still
     exactly right, since the GST State remains the authoritative GST value and merely acquires its initial value
     from the postal one.
-  - **W0-3 (T1-7) Restore reachable from Company Select** — **~½ day. ⏸ DEFERRED 2026-08-16 BY USER RULING 6
-    (R12 — §5 banner): it now runs BEHIND Phase 10.11 (voucher lifecycle), not ahead of it.** The engine already
+  - **W0-3 (T1-7) Restore reachable from Company Select** — 🟢 **DONE 2026-10-23 (wave-6 `ca` track); census row
+    13.2 proposed `PARTIAL` → `COMPLETE`, A12 grades.** Brought back into scope by **user ruling 30**, whose
+    stated reason this row's own last line had already recorded. Both locks removed (`ShowDataMenu`'s bounce to
+    Company Select and `OpenRestoreCompany`'s early return), the target-name property bound by a real two-way
+    `TextBox`, and Company Select given a **Restore Company** row. **The engine needed no change and never did.**
+    Apply now also registers the restored book, or a restore that CREATED a company would have written a good
+    `.db` that Company Select never lists. ⚠️ **Removing the lock exposed a crash** — `SelectRootItem` indexed
+    `Columns[0]` on a cascade that `ShowGateway()` leaves empty when no company is open — so for a short while
+    the lock was gone and the route still did not work; fixed and pinned. Divergences **IV-139**…**IV-141**.
+    ~~**~½ day. ⏸ DEFERRED 2026-08-16 BY USER RULING 6
+    (R12 — §5 banner): it now runs BEHIND Phase 10.11 (voucher lifecycle), not ahead of it.**~~ The engine already
     restores a company this machine never had; the screen is gated on an **open** company. **The difference
     between a backup feature and a disaster-recovery one.**
     **▶ WHY THIS ROW SLIPPED RATHER THAN THE LIFECYCLE WAITING FOR IT.** This row makes an existing recovery
