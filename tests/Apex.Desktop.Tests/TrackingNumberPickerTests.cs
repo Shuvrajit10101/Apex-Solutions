@@ -316,16 +316,25 @@ public sealed class TrackingNumberPickerTests : IDisposable
 
         var window = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
         window.Show();
-        window.UpdateLayout();
+        try
+        {
+            window.UpdateLayout();
 
-        var picker = window.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault(
-            cb => cb.ItemsSource is System.Collections.IEnumerable items
-                  && items.OfType<TrackingNumberChoice>().Any(c => c.Number == tracking));
+            var picker = window.GetVisualDescendants().OfType<ComboBox>().FirstOrDefault(
+                cb => cb.ItemsSource is System.Collections.IEnumerable items
+                      && items.OfType<TrackingNumberChoice>().Any(c => c.Number == tracking));
 
-        Assert.NotNull(picker);
-        Assert.True(picker!.IsVisible,
-            "The tracking-number picker is in the tree but collapsed, so no operator can reach it.");
-        Assert.True(picker.Bounds.Width > 0 && picker.Bounds.Height > 0,
-            "The tracking-number picker laid out with zero area, so it is on screen only in principle.");
+            Assert.NotNull(picker);
+            Assert.True(picker!.IsVisible,
+                "The tracking-number picker is in the tree but collapsed, so no operator can reach it.");
+            Assert.True(picker.Bounds.Width > 0 && picker.Bounds.Height > 0,
+                "The tracking-number picker laid out with zero area, so it is on screen only in principle.");
+        }
+        // 🔴 THE WINDOW IS CLOSED IN A finally, AND THAT IS NOT HOUSEKEEPING. An earlier draft of this test
+        // left it open; the headless Avalonia platform is shared across the whole assembly, and the leaked
+        // window crashed the Desktop test PROCESS after 199 tests — which `dotnet test` then reported as
+        // "Passed! - Failed: 0, Passed: 199" rather than as a failure. Every realised-window test in this
+        // suite closes its window (see ReportBandOnScreenAgreementTests.Cleanup); this one must too.
+        finally { window.Close(); }
     }
 }
