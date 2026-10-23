@@ -82,20 +82,26 @@ public sealed class RestoreAndRangeRealisedReachabilityTests
     // ------------------------------------------------------------------ 13.2
 
     /// <summary>
-    /// <b>THE OPERATOR-FACING ASSERTION FOR 13.2.</b> On a machine with <b>zero</b> companies the restore panel
-    /// opens and realises an <b>editable</b> target-name box, and typing into the realised control moves the
-    /// view model. Both directions are asserted because each fails differently: a read-only
-    /// <see cref="TextBlock"/> would satisfy "something is displayed" and still leave the target un-redirectable,
-    /// and a <c>OneWay</c> binding would display the name and silently discard what the operator typed.
+    /// <b>THE OPERATOR-FACING ASSERTION FOR 13.2, AND THE ONE THAT PINS THE CELL'S OWN CLAUSE.</b> The restore
+    /// panel realises an <b>editable, two-way-bound</b> target-name box, and typing into the realised control
+    /// moves the view model. Both directions are asserted because each fails differently: a read-only
+    /// <see cref="TextBlock"/> would satisfy "something is displayed" and still leave the target
+    /// un-redirectable (which is exactly what shipped before — <c>DocumentTitle</c> and <c>TargetPath</c>
+    /// <i>were</i> bound, read-only), and a <c>OneWay</c> binding would display the name and silently discard
+    /// what the operator typed.
+    ///
+    /// <para>Opened with a company, because that is the state in which the cell's clause was written
+    /// (<i>"even with a company open the target cannot be redirected"</i>) and because the panel's template
+    /// only realises inside the cascade. The <b>zero-company</b> half of the row is proved at view-model level
+    /// by <c>RestoreOnFreshInstallTests</c>, which opens the panel with nothing open at all.</para>
     /// </summary>
     [AvaloniaFact]
-    public void With_no_company_the_restore_target_is_realised_as_an_editable_box_that_moves_the_view_model()
+    public void The_restore_target_is_realised_as_an_editable_box_that_moves_the_view_model()
     {
         var dir = TempDir();
         Directory.CreateDirectory(dir);
         var vm = new MainWindowViewModel(new CompanyStorage(dir));
-        Assert.Null(vm.Company);           // a genuinely fresh install — the case the row is for
-
+        vm.LoadRobertDemo();
         vm.OpenRestoreCompany();
         Assert.NotNull(vm.RestoreCompanyPanel);
 
@@ -112,12 +118,11 @@ public sealed class RestoreAndRangeRealisedReachabilityTests
         Assert.False(box.IsReadOnly, "a read-only box cannot redirect a restore");
         Assert.True(box.IsEffectivelyEnabled, "a disabled box cannot redirect a restore");
 
-        // Operator -> view model, through the realised control.
+        // Operator -> view model, through the realised control. The name is deliberately one that is NOT on
+        // disk, so the panel must also re-answer the CREATE/REPLACE question off the realised keystroke.
         box.Text = "Recovered Books";
         Dispatcher.UIThread.RunJobs();
         Assert.Equal("Recovered Books", vm.RestoreCompanyPanel!.TargetCompanyName);
-
-        // And the panel reacted as it would for a real keystroke: this name is not on disk, so it is a CREATE.
         Assert.False(vm.RestoreCompanyPanel.TargetExists);
         Assert.Contains("CREATED", vm.RestoreCompanyPanel.TargetEffectNote, StringComparison.Ordinal);
     }
@@ -183,10 +188,23 @@ public sealed class RestoreAndRangeRealisedReachabilityTests
         vm.LoadRobertDemo();
         vm.ShowStatementsOfAccountsMenu();
 
-        var row = vm.Menu.SingleOrDefault(m => m.IsSelectable && m.Label == "Multi-Voucher Printing");
-        Assert.NotNull(row);
+        // Selected-then-drilled, the idiom MultiAccountPrintReachabilityTests established for this hub —
+        // the operator's actual gesture, not a direct call to the opener.
+        var hub = vm.Columns[^1];
+        var found = false;
+        for (var i = 0; i < hub.Items.Count; i++)
+            if (hub.Items[i].IsSelectable && hub.Items[i].Label == "Multi-Voucher Printing")
+            {
+                hub.SetSelected(i);
+                found = true;
+                break;
+            }
 
-        row!.Activate();
+        Assert.True(found,
+            "Reports → Statements of Accounts carries no \"Multi-Voucher Printing\" item — the panel is " +
+            "unreachable, so census 12.6's multi-voucher half is not closed however well the projector works.");
+
+        vm.DrillIn();
         Assert.NotNull(vm.MultiVoucherPrint);
     }
 }
