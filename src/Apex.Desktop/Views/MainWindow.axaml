@@ -20970,10 +20970,39 @@
 
                                 <TextBlock Text="Restore into" FontWeight="Bold"
                                            Foreground="{StaticResource BrandNavy}" Margin="0,4,0,0"/>
+                                <!-- 13.2 / T1-7 / T1-20: THE TARGET IS EDITABLE, and before this it was not.
+                                     The census recorded that "the target-name property has zero bindings in the
+                                     XAML, so even with a company open the target cannot be redirected", which
+                                     was not quite right (DocumentTitle and TargetPath were bound, read-only)
+                                     but whose CONCLUSION was: there was no control through which the operator
+                                     could point the restore anywhere. Now there is, and with nothing open it is
+                                     the only way to say where the book should land. The vendor asks the same
+                                     question with its "Restore Data Path" field: "This is the location where
+                                     your company data will be restored"
+                                     (help.tallysolutions.com/restore-company-data/). -->
+                                <TextBox Text="{Binding TargetCompanyName, Mode=TwoWay}"
+                                         PlaceholderText="(company name to restore into)"/>
+                                <!-- The companies already on this machine, so the operator need not retype a
+                                     name exactly. EMPTY on a fresh install, which is the case this screen now
+                                     serves; hence a free-text box above rather than a pick from this list. -->
+                                <ItemsControl ItemsSource="{Binding KnownCompanies}"
+                                              IsVisible="{Binding KnownCompanies.Count}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                      <TextBlock Text="{Binding}" FontSize="11" Foreground="#6A6A6A"
+                                                 Margin="4,1,0,1" TextTrimming="CharacterEllipsis"/>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                                 <TextBlock Text="{Binding TargetPath}" FontSize="11"
                                            FontFamily="Consolas,Menlo,monospace"
+                                           Foreground="#6A6A6A"
                                            TextTrimming="CharacterEllipsis"
                                            ToolTip.Tip="{Binding TargetPath}"/>
+                                <!-- REPLACE vs CREATE, said out loud. These are not the same act and must not
+                                     share a caption. -->
+                                <TextBlock Text="{Binding TargetEffectNote}" FontSize="11.5"
+                                           Foreground="{StaticResource BrandNavy}" TextWrapping="Wrap"/>
 
                                 <Button Content="Examine backup (Ctrl+E)" Padding="14,6"
                                         HorizontalAlignment="Left"

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.ObjectModel;
 using System.IO;
 using Apex.Desktop.Services;
 using Apex.Ledger.Domain;
@@ -73,18 +74,82 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
     /// <summary>The examined archive's data-format (schema) version, or 0 before Examine.</summary>
     [ObservableProperty] private int _backupDataFormatVersion;
 
-    /// <summary>Shell ctor: target the open company and notify the shell when the restore lands.</summary>
+    /// <summary>
+    /// The companies already on this machine, offered as restore targets. Empty on a fresh install — which is
+    /// the case this panel exists for, and why the target is a free-text name rather than a pick from this list.
+    /// </summary>
+    public ObservableCollection<string> KnownCompanies { get; } = new();
+
+    /// <summary>
+    /// Whether <see cref="TargetCompanyName"/> names a book that is already on disk. Drives the panel's one-line
+    /// warning, so the operator is told which of the two very different things is about to happen.
+    ///
+    /// <para><b>Vendor grounding.</b> The reference product asks the same question at the same moment:
+    /// <i>"If a file with the same name already exists in the destination, you will see options to Skip or
+    /// Replace"</i>, where <i>"Replace"</i> means <i>"overwrite the existing folder with the backup"</i>
+    /// (<c>help.tallysolutions.com/restore-company-data/</c>). Our Skip is simply not pressing Restore.</para>
+    /// </summary>
+    public bool TargetExists =>
+        !string.IsNullOrWhiteSpace(TargetCompanyName) && _storage.Exists(TargetCompanyName);
+
+    /// <summary>
+    /// The one line that tells the operator which of the two operations the Restore button will perform.
+    /// 🔴 <b>REPLACE and CREATE are not the same act</b> and must not share a caption: one destroys a book that
+    /// is on this disk, the other brings back a book that is not.
+    /// </summary>
+    public string TargetEffectNote =>
+        string.IsNullOrWhiteSpace(TargetCompanyName)
+            ? "Name the company to restore into. It need not already exist on this machine."
+            : TargetExists
+                ? $"'{TargetCompanyName}' already exists on this machine and will be REPLACED. This cannot be undone."
+                : $"'{TargetCompanyName}' does not exist on this machine and will be CREATED from the backup.";
+
+    /// <summary>
+    /// Shell ctor: target the open company and notify the shell when the restore lands.
+    /// </summary>
     public RestoreCompanyViewModel(Company company, CompanyStorage storage, Action<Company>? onRestored)
+        : this(storage, onRestored)
+    {
+        TargetCompanyName = company?.Name ?? string.Empty;
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE DISASTER-RECOVERY CTOR — restore with NO company open, which is the case backup exists for.</b>
+    ///
+    /// <para>Census row 13.2 recorded that this panel <i>"can only ever restore into the company already
+    /// open"</i>, behind two independent locks: the opener returned early on a null company, and the Data menu
+    /// bounced to Company Select, <i>"so on a machine with zero companies there is no route in at all"</i>
+    /// (= <c>T1-7</c>, widened by <c>T1-20</c>). Both were real and both are now gone; this ctor is the half
+    /// that lives here. The engine never needed changing —
+    /// <see cref="CompanyBackup.Restore(string, string)"/> takes any target path, creates the directory if it
+    /// is missing, and stages the swap beside the target — so the capability was always present and merely
+    /// unreachable, which is the shape this project has filed against itself repeatedly.</para>
+    ///
+    /// <para><b>The target starts EMPTY, deliberately.</b> There is no open company to default to, and
+    /// defaulting to the first name in <see cref="KnownCompanies"/> would arm a destructive replace over a book
+    /// the operator never chose. <see cref="Apply"/> already refuses a blank target.</para>
+    /// </summary>
+    public RestoreCompanyViewModel(CompanyStorage storage, Action<Company>? onRestored)
     {
         _storage = storage ?? throw new ArgumentNullException(nameof(storage));
         _onRestored = onRestored;
-        TargetCompanyName = company?.Name ?? string.Empty;
+
+        foreach (var entry in _storage.ListCompanies())
+            KnownCompanies.Add(entry.Name);
     }
 
     partial void OnTargetCompanyNameChanged(string value)
     {
         OnPropertyChanged(nameof(DocumentTitle));
         OnPropertyChanged(nameof(TargetPath));
+        OnPropertyChanged(nameof(TargetExists));
+        OnPropertyChanged(nameof(TargetEffectNote));
+
+        // 🔴 Re-pointing the target DISARMS the confirmation. The tick means "I accept that THIS book is
+        // replaced"; carrying it across a change of target would let an operator who confirmed over "Demo Co",
+        // then re-pointed at "Robert Transport", press Restore and destroy a book he never confirmed. The same
+        // reasoning is already applied to a change of SOURCE on OnFilePathChanged.
+        Confirmed = false;
     }
 
     partial void OnFilePathChanged(string value)
@@ -186,6 +251,10 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
         //     floor) is KEPT — refusing to restore it would deny disaster recovery to the exact book that
         //     needs it — and reported, so the operator learns it must be corrected before the next save
         //     rather than meeting it as an exception on an unrelated screen.
+        // Captured BEFORE the swap: afterwards the file exists either way, so asking then would always answer
+        // "replaced" and the operator would never be told a book had been created.
+        var replacedAnExistingBook = File.Exists(TargetPath);
+
         var safety = TargetPath + ".apex-prerestore";
         SafeDelete(safety);
         var haveSafety = false;
@@ -226,9 +295,27 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
                 return false;
             }
 
+            // 🔴 THE RESTORED BOOK IS PUT ON THE COMPANY REGISTER, AND WITHOUT THIS THE WHOLE FRESH-INSTALL
+            // CASE IS A DEAD END. CompanyStorage.ListCompanies reads the registry, NOT the directory, and
+            // CompanyStorage.Load does not register anything — only Save does. So a restore that CREATED a book
+            // this machine never had would write a perfectly good .db that Company Select never lists: the
+            // operator would recover his data and have no way to open it again after closing the app. That is
+            // precisely the "complete, correct, unreachable" shape this project has filed three times
+            // (CompanyStorage.Rename, CostReports.BuildLedgerBreakup, MultiAccountPrintViewModel), and it would
+            // have been invisible to any test that asserted on the restored aggregate rather than on the next
+            // Company Select.
+            //
+            // RegisterPlain is an upsert keyed on the FILE name, so re-registering a book that was already
+            // there is a no-op that refreshes its display name — which is the right behaviour when an archive
+            // is restored over an existing company under a name that differs only in case or punctuation.
+            _storage.Registry.RegisterPlain(TargetCompanyName, Path.GetFileName(TargetPath));
+
             Succeeded = true;
             Status = $"Restored '{manifest.CompanyName}' (taken {BackupTakenAt}, data format " +
-                     $"v{manifest.SchemaVersion}) over '{TargetCompanyName}'.";
+                     $"v{manifest.SchemaVersion}) "
+                   + (replacedAnExistingBook
+                        ? $"over '{TargetCompanyName}', replacing it."
+                        : $"as a new company, '{TargetCompanyName}'.");
 
             // The company opened, but it may still carry a header value CompanyStorage.Save refuses. Say so
             // here rather than letting the next save on any screen throw.

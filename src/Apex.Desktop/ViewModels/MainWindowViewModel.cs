@@ -1217,6 +1217,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
 
         Menu.Add(new MenuItemViewModel("Create Company", ShowCreateCompany, "F3"));
+
+        // 🔴 THE FRESH-INSTALL DOOR TO RESTORE — census row 13.2, the headline of T1-7: "Restore is unreachable
+        // on a fresh install … the exact disaster-recovery case backup exists for is the one case it cannot
+        // serve." A machine that has just lost its only company lands HERE, on a screen that offered Create and
+        // a demo, and the operator holding the backup had nowhere to go. Removing the two locks on the Data
+        // menu makes the panel reachable once something is open; this row is what makes it reachable when
+        // NOTHING is. It is listed on every visit, not only when the list above is empty: a second machine that
+        // already has one book still needs to restore a different one onto it.
+        Menu.Add(new MenuItemViewModel("Restore Company", OpenRestoreCompany, "Restore"));
+
         Menu.Add(new MenuItemViewModel("Load Robert Demo", LoadRobertDemo, "Demo"));
 
         SetMenuSelected(0);
@@ -1908,7 +1918,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var col = new GatewayColumn("Backup / Restore");
         col.Add(MenuItemViewModel.Header("Backup / Restore"));
-        col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // 🔴 BACKUP IS OFFERED ONLY WITH A COMPANY OPEN; RESTORE IS OFFERED ALWAYS. The two are not symmetric
+        // and this column used to treat them as if they were. Backup copies the OPEN book, so with nothing open
+        // there is nothing to copy and the row would be a door onto a no-op. Restore is the opposite: the case
+        // it exists for is precisely the machine that has no company — a new install, or a disk that lost one.
+        // Census 13.2 (= T1-7, widened by T1-20): "the exact disaster-recovery case backup exists for is the
+        // one case it cannot serve."
+        if (Company is not null)
+            col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
         col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
@@ -5799,7 +5818,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void ShowDataMenu()
     {
-        if (Company is null) { ShowCompanySelect(); return; }
+        // 🔴 NO LONGER BOUNCES TO COMPANY SELECT WHEN NOTHING IS OPEN — census row 13.2 / T1-7 / T1-20.
+        // This early return was one of the two locks that made Restore unreachable on a fresh install: with
+        // zero companies on the machine, Company Select offers Create and the demo and nothing else, so an
+        // operator holding a backup of his only book had NO route to it at all. The vendor puts restore on this
+        // very menu — "Press Alt+Y (Data) > Backup & Restore > Restore"
+        // (help.tallysolutions.com/restore-company-data/) — and says nothing anywhere about needing a company
+        // open first. BuildDataColumn now decides what the column OFFERS; this method only opens it.
         SelectRootItem("Backup / Restore");
         OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data,
             "Gateway of Apex Solutions — Backup / Restore");
@@ -5813,9 +5838,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenRestoreCompany()
     {
         if (RestoreCompanyPanel is not null) return;
-        if (Company is null) return;
 
-        var panel = new RestoreCompanyViewModel(Company, _storage, onRestored: ReopenRestoredCompany);
+        // 🔴 THE SECOND LOCK, REMOVED — census 13.2 / T1-7 / T1-20. This method used to read
+        // `if (Company is null) return;`, so even once the Data menu let an operator through, the panel refused
+        // to open on a machine with no company. With nothing open the panel takes the disaster-recovery ctor:
+        // the operator names the target himself and the restore CREATES it. The engine always allowed this
+        // (CompanyBackup.Restore takes any target path); only the screen forbade it.
+        var panel = Company is { } open
+            ? new RestoreCompanyViewModel(open, _storage, onRestored: ReopenRestoredCompany)
+            : new RestoreCompanyViewModel(_storage, onRestored: ReopenRestoredCompany);
         RestoreCompanyPanel = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
