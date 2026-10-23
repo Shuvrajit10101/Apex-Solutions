@@ -3266,6 +3266,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void SelectRootItem(string label)
     {
         if (Columns.Count == 0 || !Columns[0].IsMenu) ShowGateway();
+
+        // 🔴 ShowGateway() BOUNCES TO COMPANY SELECT WHEN NO COMPANY IS OPEN, and that path can leave the
+        // cascade with no menu column at all — so Columns[0] is NOT safe to index here. Census 13.2 made this
+        // reachable for the first time: ShowDataMenu() now runs with nothing open (that was the whole point of
+        // removing its early return), and before this guard it threw ArgumentOutOfRangeException from
+        // List<T>.get_Item instead of opening the Restore route the row is about. There is simply no Gateway
+        // root to highlight in that state; the caller's OpenSubmenuColumn appends its column regardless.
+        if (Columns.Count == 0) return;
+
         TrimColumnsAfter(0);
         var root = Columns[0];
         for (var i = 0; i < root.Items.Count; i++)

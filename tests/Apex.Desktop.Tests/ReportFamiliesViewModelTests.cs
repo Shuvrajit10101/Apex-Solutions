@@ -438,13 +438,15 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
         vm.ShowStatementsOfAccountsMenu();
 
         var items = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
-        // W2-32 (census 12.6) appended "Multi-Account Printing" to this hub. The assertion stays an exact
-        // ORDERED list — it is not weakened to a Contains — so it still fails if a leaf is dropped or reordered.
+        // W2-32 (census 12.6) appended "Multi-Account Printing" to this hub, and the multi-VOUCHER half of the
+        // same census row appended "Multi-Voucher Printing" beside it. The assertion stays an exact ORDERED
+        // list — it is not weakened to a Contains — so it still fails if a leaf is dropped or reordered, and it
+        // is what told the multi-voucher slice it had added a row to a hub three other suites also assert on.
         Assert.Equal(
             new[]
             {
                 "Outstandings", "Cost Centres", "Budgets", "Interest Calculation", "Forex Gain/Loss",
-                "Statistics", "Multi-Account Printing",
+                "Statistics", "Multi-Account Printing", "Multi-Voucher Printing",
             },
             items);
 
