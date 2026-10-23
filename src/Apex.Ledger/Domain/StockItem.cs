@@ -36,10 +36,13 @@ public sealed class StockItem
     /// Census 3.6 — the item's optional <b>Alternate Unit</b> (schema v60). <c>null</c> ⇒ the item is measured in
     /// its base unit alone, which is what every pre-v60 item is (ER-13).
     ///
-    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/manage-stock-item-tally/</c>: the base unit is
-    /// picked in the <i>Units</i> field ("any simple or compound unit"), then "<i>The <b>Alternate units</b>
-    /// field appears</i>", and the operator "<i>provide[s] the conversion factor between the simple or compound
-    /// units and alternative units</i>".</para>
+    /// <para><b>R7 — ATTESTED, PAGE CORRECTED 2026-10-23 (IV-173).</b>
+    /// <c>help.tallysolutions.com/units-of-measurement/</c>, opened BY CONTENT: "<i>where: Provide the conversion
+    /// factor between the simple or compound unit and the alternate unit.</i>", and "<i>The alternate unit gets
+    /// saved for the stock item that you can use in transactions.</i>"
+    /// ⚠️ The page cited here before, <c>help.tallysolutions.com/manage-stock-item-tally/</c>, does NOT carry
+    /// either sentence — re-opened by content 2026-10-23, it says only "<i>You can also provide alternate units,
+    /// if applicable in your business.</i>"</para>
     ///
     /// <para>🔴 <b>THE BASE UNIT IS STORED; THE ALTERNATE IS ALWAYS DERIVED. NOTHING IN THIS BUILD EVER STORES A
     /// QUANTITY IN THE ALTERNATE UNIT.</b> That is the whole reason this pair of fields is safe to add to a

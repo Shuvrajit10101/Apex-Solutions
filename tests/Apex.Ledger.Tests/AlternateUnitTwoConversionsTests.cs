@@ -27,9 +27,13 @@ namespace Apex.Ledger.Tests;
 /// ordinary save was enough.</para>
 ///
 /// <para><b>FIDELITY (R7, ruling 14).</b> The vendor attests the FEATURE and its field —
-/// <i>"The <b>Alternate units</b> field appears"</i> and the operator <i>"provide[s] the conversion factor
-/// between the simple or compound units and alternative units"</i>
-/// [<c>help.tallysolutions.com/manage-stock-item-tally/</c>, the citation row 3.6 already carries]. ⚠️ It does
+/// <i>"where: Provide the conversion factor between the simple or compound unit and the alternate unit."</i>
+/// [<c>help.tallysolutions.com/units-of-measurement/</c>, opened BY CONTENT 2026-10-23].
+/// ⚠️ <b>CITATION CORRECTED (IV-173):</b> this comment previously cited
+/// <c>…/manage-stock-item-tally/</c> — "the citation row 3.6 already carries" — for a conversion-factor
+/// sentence that is <b>not on that page</b>. Re-opened by content, that page says only <i>"You can also
+/// provide alternate units, if applicable in your business."</i> The capability was never in doubt; the page
+/// reference was. ⚠️ No page opened does
 /// NOT say what happens when the alternate unit is a compound of the item's own base unit, so the REFUSAL below
 /// is <b>OURS</b> and is labelled ours. It is the narrowest rule that removes the contradiction: refuse only
 /// when the unit is compound, reduces to THIS item's base unit (i.e. exactly when a voucher line would also

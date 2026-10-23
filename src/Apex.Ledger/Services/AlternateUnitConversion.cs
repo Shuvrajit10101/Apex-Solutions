@@ -7,9 +7,18 @@ namespace Apex.Ledger.Services;
 /// Census 3.6 — the ONE place that turns a stored base-unit quantity into its <b>Alternate Unit</b> expression,
 /// and back (schema v60).
 ///
-/// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/manage-stock-item-tally/</c>: the stock item takes a base
-/// unit in <i>Units</i>, then "<i>The <b>Alternate units</b> field appears</i>" and the operator "<i>provide[s] the
-/// conversion factor between the simple or compound units and alternative units</i>".</para>
+/// <para><b>R7 — ATTESTED, AND THE PAGE WAS CORRECTED 2026-10-23 (IV-173).</b> The sentence this class rests on
+/// is on <c>help.tallysolutions.com/units-of-measurement/</c>, opened BY CONTENT: "<i>where: Provide the
+/// conversion factor between the simple or compound unit and the alternate unit.</i>" The same page attests that
+/// the alternate unit is usable on a transaction — "<i>The alternate unit gets saved for the stock item that you
+/// can use in transactions.</i>"
+/// <para>⚠️ <b>This file previously cited <c>help.tallysolutions.com/manage-stock-item-tally/</c> for a
+/// conversion-factor sentence that is NOT on that page.</b> That page was re-opened by content on 2026-10-23 and
+/// says only "<i>You can also provide alternate units, if applicable in your business.</i>" — it carries neither
+/// "The Alternate units field appears" nor any conversion-factor wording. The CAPABILITY was never in doubt; the
+/// page reference was wrong and the quoted wording was loose ("alternate unit", not "alternative units"). Struck
+/// rather than silently swapped, because a quotation nobody re-opened is this project's recorded defect
+/// pattern.</para></para>
 ///
 /// <para>🔴 <b>WHY THIS IS A SERVICE AND NOT A COUPLE OF INLINE MULTIPLICATIONS.</b> The brief for this row named
 /// the exact hazard: once an item has two units, every quantity in the product has two possible expressions and a

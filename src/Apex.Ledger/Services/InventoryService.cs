@@ -497,9 +497,11 @@ public sealed class InventoryService
     /// Census 3.6 — sets (or clears) a stock item's <b>Alternate Unit</b> and its conversion factor, as one
     /// operation, and refuses every half-state (schema v60).
     ///
-    /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/manage-stock-item-tally/</c>: after the base unit is
-    /// chosen "<i>The <b>Alternate units</b> field appears</i>" and the operator "<i>provide[s] the conversion
-    /// factor between the simple or compound units and alternative units</i>".</para>
+    /// <para><b>R7 — ATTESTED, PAGE CORRECTED 2026-10-23 (IV-173).</b>
+    /// <c>help.tallysolutions.com/units-of-measurement/</c>, opened BY CONTENT: "<i>where: Provide the conversion
+    /// factor between the simple or compound unit and the alternate unit.</i>"
+    /// ⚠️ The page cited here before, <c>…/manage-stock-item-tally/</c>, carries neither that sentence nor "The
+    /// Alternate units field appears" — re-opened by content 2026-10-23.</para>
     ///
     /// <para>🔴 <b>THIS IS THE CHOKE POINT, AND IT EXISTS BECAUSE EVERY REFUSAL BELOW IS A WRONG-QUANTITY BUG IF
     /// IT LANDS INSTEAD IN A SCREEN.</b> Each of the four states it rejects would otherwise persist and read back
