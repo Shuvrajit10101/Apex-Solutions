@@ -4,11 +4,13 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Apex.Desktop.Services;
 using Apex.Desktop.ViewModels;
 using Apex.Desktop.Views;
@@ -251,9 +253,9 @@ public sealed class DeliveryChallanRouteTests
         finally { Close(window, dir); }
     }
 
-    private static IEnumerable<Avalonia.Visual> Descendants(Avalonia.Visual v)
+    private static IEnumerable<Visual> Descendants(Visual v)
     {
-        foreach (var c in Avalonia.VisualTree.VisualExtensions.GetVisualChildren(v))
+        foreach (var c in v.GetVisualChildren())
         {
             yield return c;
             foreach (var g in Descendants(c)) yield return g;
