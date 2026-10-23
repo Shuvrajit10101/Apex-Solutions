@@ -343,6 +343,53 @@ public sealed class DeliveryChallanDocumentTests
     }
 
     /// <summary>
+    /// 🔴 <b>A RESIDUAL, PINNED RATHER THAN HIDDEN: on a compound-unit line whose per-base rate does not land
+    /// on a round paisa, the printed Quantity × printed Rate does NOT equal the printed Amount.</b>
+    ///
+    /// <para>2 Doz @ ₹10.00 per Doz is ₹20.00. Normalised to the base unit that is 24 Nos at ₹0.41666…/Nos, and
+    /// the Rate CELL can only show two decimals — so the challan prints <c>24 · 0.42 · 20.00</c>, and a
+    /// consignee multiplying the two visible figures gets ₹10.08. The AMOUNT is right (it is computed from the
+    /// unrounded per-base rate and rounded once, so it equals the 2 × 120 the books hold); only the Rate cell is
+    /// a rounded view of a derived intermediate.</para>
+    ///
+    /// <para><b>It is inherited, not introduced.</b> <see cref="InventoryVoucherDetailViewModel"/> has shown
+    /// exactly these three figures since it shipped, and the challan is deliberately locked to that pane — so
+    /// curing it here would make the printed document disagree with the screen the operator printed it from,
+    /// which is a worse defect than the one it fixes. <b>The cure is to print the line in the unit it was STATED
+    /// in</b> (2 · Doz · 120.00 · 240.00), which is a change to the PANE as well and belongs to the pane's own
+    /// census row. Recorded in <c>docs/invented-vs-cloned.md</c> IV-159 and asserted here so it cannot be
+    /// changed silently in either direction.</para>
+    /// </summary>
+    [Fact]
+    public void A_compound_line_with_a_non_round_per_base_rate_prints_a_rate_that_does_not_multiply_out()
+    {
+        var k = Seed();
+        var masters = new InventoryService(k.C);
+        var dz = masters.CreateSimpleUnit("Dz", "Dozen");
+        var dozen = masters.CreateCompoundUnit("Doz", "Dozen of 12 Nos", dz.Id, k.NosId, 12);
+        var party = Party(k, "Riverside Trading Co");
+        var item = Item(k, "Candle");
+        // 2 Doz @ Rs.10.00 per Doz = Rs.20.00. Per Nos that is Rs.0.41666..., which no two-decimal cell holds.
+        var v = Post(k, VoucherBaseType.DeliveryNote, party.Id,
+            Outward(item, k.GodownId, 2m, 10m, tracking: "TRK-R", unitId: dozen.Id));
+
+        var document = DeliveryChallanPrintProjector.Project(k.C, v).Document!;
+        var pane = new InventoryVoucherDetailViewModel(k.C, v);
+        var paneRow = pane.Rows.Single();
+        var goods = document.Rows.Single(r => r.Cells.Count > 2 && r.Cells[2] == "TRK-R");
+
+        // The AMOUNT is correct: 2 x 120... no — 2 Doz x Rs.10/Doz = Rs.20.00, and that is what is printed.
+        Assert.Equal("20.00", goods.Cells[5]);
+        // The RATE cell is the rounded per-base view, and 24 x 0.42 is NOT 20.00. This is the residual.
+        Assert.Equal("24", goods.Cells[3]);
+        Assert.Equal("0.42", goods.Cells[4]);
+        // ... and the challan says exactly what the pane says, which is the property that must not break.
+        Assert.Equal(paneRow.Col3, goods.Cells[3]);
+        Assert.Equal(paneRow.Col4, goods.Cells[4]);
+        Assert.Equal(paneRow.Col5, goods.Cells[5]);
+    }
+
+    /// <summary>
     /// The quantity column is deliberately NOT totalled — lines may be stated in different stock units and a
     /// sum of Nos and Kg is a number that means nothing. The VALUE column is totalled, paisa-exact across
     /// lines. Asserted on the emitted page so the total is proved to have been drawn, not merely computed.

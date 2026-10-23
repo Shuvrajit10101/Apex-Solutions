@@ -219,6 +219,8 @@ public sealed class DeliveryChallanRouteTests
 
             Assert.Equal(Screen.InventoryVoucherDetail, vm.CurrentScreen);
             Assert.Null(vm.PrintPreview);
+            Assert.Equal(DeliveryChallanPrintProjector.NotAChallan, vm.Notice);
+            // ... and REALISED into the visual tree, not merely set on a property.
             Assert.Contains(
                 RenderedText(window),
                 t => t.Contains(DeliveryChallanPrintProjector.NotAChallan, StringComparison.Ordinal));
@@ -246,6 +248,7 @@ public sealed class DeliveryChallanRouteTests
             Pump(window);
 
             Assert.Null(vm.PrintPreview);
+            Assert.Equal(DeliveryChallanPrintProjector.NoParty, vm.Notice);
             Assert.Contains(
                 RenderedText(window),
                 t => t.Contains(DeliveryChallanPrintProjector.NoParty, StringComparison.Ordinal));
