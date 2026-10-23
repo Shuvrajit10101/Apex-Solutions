@@ -154,6 +154,18 @@ public sealed partial class MultiAccountExportViewModel : ViewModelBase
             return false;
         }
 
+        // 🔴 A BLANK FOLDER IS REFUSED RATHER THAN RESOLVED, and this is the one place in the export surface
+        // where that matters most. Path.Combine("", name) collapses to a BARE FILE NAME, so the files land in
+        // the process working directory — findable by nobody, and here that means a pile of letters naming
+        // counterparties sitting somewhere the operator will not think to clear. The shell always seeds Folder
+        // from ExportFolderDefault.Resolve() (the W2-03 one-seam fix), but the panel's folder is an editable
+        // TextBox and an operator can empty it, which no seam upstream can prevent.
+        if (string.IsNullOrWhiteSpace(Folder))
+        {
+            Status = "Choose a folder to export into.";
+            return false;
+        }
+
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         int written = 0;
         long bytesWritten = 0;

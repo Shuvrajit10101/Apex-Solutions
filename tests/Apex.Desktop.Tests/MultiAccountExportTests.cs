@@ -342,6 +342,40 @@ public sealed class MultiAccountExportTests
     }
 
     /// <summary>
+    /// 🔴 A BLANK FOLDER WRITES NOTHING. <c>Path.Combine("", name)</c> collapses to a bare file name, so without
+    /// this guard a cleared folder box scatters letters naming counterparties into the process working
+    /// directory, where the operator will never think to clear them.
+    ///
+    /// <para><b>MUTATION THAT REDDENS IT:</b> delete the <c>string.IsNullOrWhiteSpace(Folder)</c> guard from
+    /// <c>Apply</c>. It then returns true and the seam receives a bare "Reminder Letter - Acme Traders.pdf"
+    /// with no directory at all.</para>
+    /// </summary>
+    [Fact]
+    public void A_blank_folder_is_refused_rather_than_writing_bare_names_into_the_working_directory()
+    {
+        var c = Books();
+        PostBill(c, Debtor(c, "Acme Traders"), "INV-ACME-7", 11_111m);
+
+        var panel = new MultiAccountPrintViewModel(c, FyStart, AsOf)
+        {
+            DocumentKind = MultiAccountDocumentKind.ReminderLetter,
+        };
+        panel.SelectAll();
+        var documents = panel.BuildExportJob();
+        Assert.NotEmpty(documents);
+
+        var written = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var export = new MultiAccountExportViewModel(
+            panel.JobTitle, () => documents, folder: "   ",
+            now: new DateTime(2026, 10, 23, 14, 30, 0),
+            writeBytes: (path, bytes) => written[path] = bytes);
+
+        Assert.False(export.Apply());
+        Assert.Empty(written);
+        Assert.Contains("folder", export.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// The timestamp toggle reaches the FILE NAME, and the panel's preview list says so before Apply runs. The
     /// preview and the write share <c>FileNameFor</c>, so they cannot promise one name and write another.
     /// </summary>
