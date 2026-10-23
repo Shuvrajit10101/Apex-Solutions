@@ -548,8 +548,58 @@ public sealed class InventoryService
                 "The conversion factor must be greater than zero — it is how many base units make one alternate "
                 + "unit, so zero or a negative figure cannot describe any real quantity.");
 
+        // 🔴 THE FIFTH REFUSAL, FOUND BY MEASUREMENT 2026-10-23 WHILE READING CENSUS 3.6's VOUCHER-SIDE CLAUSE,
+        // AND IT IS THE ONE THAT MAKES THAT ROW'S OWN LOAD-BEARING CLAIM TRUE.
+        //
+        // Row 3.6 records the design as "a report and an invoice disagree is impossible BY CONSTRUCTION rather
+        // than by test", on the ground that no second quantity is stored. That is sound about STORAGE and was
+        // silent about CONVERSIONS — and there was a second conversion. A COMPOUND unit carries its own exact
+        // factor (Unit.QuantityInBaseMeasure: "1 Box-Nos = 20 Nos"), and InventoryVoucherLineViewModel offers
+        // every compound unit whose BaseMeasureUnitId is the item's base unit as a LINE unit. So an item based in
+        // Nos whose Alternate Unit was set to the compound "Box-Nos" WITH A DIFFERENT FACTOR had two live, both
+        // reachable conversions for the very same (item, unit) pair:
+        //
+        //   · a voucher line keyed "2 Box-Nos" posted 2 x 20 = 40 Nos (the UNIT's factor); while
+        //   · every alternate-unit display of those 40 Nos read "4 Box-Nos" (the ITEM's factor of 10).
+        //
+        // Nothing refused it, nothing warned, and the alternate-unit picker on the Stock Item master offers
+        // EVERY unit in the company — compound ones included — so it was one ordinary save away. Both numbers
+        // look like quantities, which is exactly why this has to be refused at the choke point rather than
+        // explained in a doc comment.
+        //
+        // THE RULE IS AS NARROW AS THE DEFECT. It fires only when the alternate unit is compound AND reduces to
+        // this item's own base unit — i.e. precisely when the voucher line would also offer it — and only when
+        // the two factors DISAGREE. An agreeing factor is allowed (there is then one conversion, not two), and a
+        // compound unit that reduces to some OTHER measure is untouched: the line never offers it, so no second
+        // conversion for this item can exist. Both cases are pinned by tests.
+        if (alternate.IsCompound && alternate.BaseMeasureUnitId == item.BaseUnitId)
+        {
+            var unitsOwnFactor = alternate.QuantityInBaseMeasure(1m);
+            if (unitsOwnFactor != factor)
+            {
+                var baseSymbol = _company.FindUnit(item.BaseUnitId)?.Symbol ?? "base units";
+                throw new InvalidOperationException(
+                    $"'{alternate.Symbol}' is a compound unit that already converts to {baseSymbol} at "
+                    + $"{TrimQty(unitsOwnFactor)}, and a voucher line can be keyed in it directly. A "
+                    + $"factor of {TrimQty(factor)} would give this item TWO different conversions for "
+                    + $"the same unit — an invoice would post {TrimQty(unitsOwnFactor)} {baseSymbol} per "
+                    + $"'{alternate.Symbol}' while every report would read it back at "
+                    + $"{TrimQty(factor)}. Use {TrimQty(unitsOwnFactor)}, or pick a unit that is "
+                    + "not a compound of this item's base unit.");
+            }
+        }
+
         item.AlternateUnitId = altId;
         item.AlternateUnitConversion = factor;
+    }
+
+    /// <summary>Renders an exact quantity for a refusal MESSAGE without trailing zeros and without a culture's
+    /// decimal comma — "20" not "20.000000" and never "20,0". The gate also runs on ubuntu and macos, where the
+    /// ambient culture would otherwise print a factor the operator cannot retype into the box.</summary>
+    private static string TrimQty(decimal value)
+    {
+        var s = value.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+        return s.Length == 0 ? "0" : s;
     }
 
     /// <summary>
