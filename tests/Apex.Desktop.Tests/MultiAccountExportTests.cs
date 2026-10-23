@@ -498,6 +498,17 @@ public sealed class MultiAccountExportTests
             Assert.True(button is not null,
                 "no realised Export button over the export panel — the column is unreachable by mouse.");
 
+            // 🔴 The PDF-only disclosure is on screen and is THE CONSTANT, not a retyped copy of it. The Alt+E
+            // menu's own disclosure was measurably false this wave because the menu changed and its string did
+            // not; a second hand-typed copy of this one would rot the same way. Reading it off the realised
+            // control is what proves the binding resolved — a broken {x:Static} renders empty, not red.
+            var disclosures = window.GetVisualDescendants()
+                                    .OfType<TextBlock>()
+                                    .Where(t => t.DataContext is MultiAccountExportViewModel)
+                                    .Select(t => t.Text ?? string.Empty)
+                                    .ToArray();
+            Assert.Contains(MultiAccountExportViewModel.FormatDisclosure, disclosures);
+
             // Write into the temp folder through the REAL path (no seam), then prove the files exist on disk.
             export.Folder = dir;
             window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);

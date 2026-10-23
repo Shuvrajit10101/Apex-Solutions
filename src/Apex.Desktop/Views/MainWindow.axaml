@@ -20403,9 +20403,13 @@
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10,6" Margin="0,2">
                               <Grid ColumnDefinitions="*,Auto">
+                                <!-- Bound to the CONSTANT, never retyped. A second copy of a user-visible
+                                     disclosure is a copy that drifts: the Alt+E menu's own disclosure was
+                                     measurably false this very wave because the menu changed and the string
+                                     did not. One source, so this cannot happen here. -->
                                 <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="11.5"
                                            Foreground="#6A6A6A" TextWrapping="Wrap"
-                                           Text="PDF only - a letter is not a table, so no CSV/XLSX for this job"/>
+                                           Text="{x:Static vm:MultiAccountExportViewModel.FormatDisclosure}"/>
                                 <Button Grid.Column="1" Content="Export (Ctrl+A)" Padding="12,5"
                                         Background="{StaticResource BrandNavy}" Foreground="White"
                                         Click="OnApplyMultiAccountExportClick"/>
