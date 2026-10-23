@@ -123,8 +123,19 @@ public sealed class DeliveryChallanDocumentTests
         Assert.Contains("Tracking No.", s, StringComparison.Ordinal);  // ... and its caption
         Assert.Contains("250.00", s, StringComparison.Ordinal);
         Assert.Contains("3,500.00", s, StringComparison.Ordinal);
-        // It is NOT a tax invoice and must never head itself as one (T0-11).
-        Assert.DoesNotContain("TAX INVOICE", s, StringComparison.OrdinalIgnoreCase);
+        // 🔴 It is NOT a tax invoice and must never HEAD itself as one (T0-11, CGST s31(1): the entitlement to
+        // issue one sits with the SUPPLIER of the supply the document evidences, and a challan evidences none).
+        //
+        // ⚠️ THIS ASSERTION WAS `OrdinalIgnoreCase` AND IT FAILED — ON THE SENTENCE THAT IMPLEMENTS THE VERY
+        // PROPERTY IT GUARDS. The challan's own body reads "This challan is not a tax invoice and demands no
+        // payment", so a case-insensitive ban on the phrase forbids the disclaimer as well as the heading. The
+        // document is right; the test was wrong, and it is corrected rather than the document weakened.
+        //
+        // What the property actually is: InvoicePdf heads a document with the UPPERCASE title, so the thing
+        // that must never appear is the heading form. Both directions are pinned, so this cannot be "fixed"
+        // next time by deleting the disclaimer.
+        Assert.DoesNotContain("TAX INVOICE", s, StringComparison.Ordinal);
+        Assert.Contains("is not a tax invoice", s, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -346,11 +357,19 @@ public sealed class DeliveryChallanDocumentTests
     /// 🔴 <b>A RESIDUAL, PINNED RATHER THAN HIDDEN: on a compound-unit line whose per-base rate does not land
     /// on a round paisa, the printed Quantity × printed Rate does NOT equal the printed Amount.</b>
     ///
-    /// <para>2 Doz @ ₹10.00 per Doz is ₹20.00. Normalised to the base unit that is 24 Nos at ₹0.41666…/Nos, and
-    /// the Rate CELL can only show two decimals — so the challan prints <c>24 · 0.42 · 20.00</c>, and a
-    /// consignee multiplying the two visible figures gets ₹10.08. The AMOUNT is right (it is computed from the
-    /// unrounded per-base rate and rounded once, so it equals the 2 × 120 the books hold); only the Rate cell is
-    /// a rounded view of a derived intermediate.</para>
+    /// <para>2 Doz @ ₹10.00 per Doz is ₹20.00. Normalised to the base unit that is 24 Nos at ₹0.8333…/Nos, and
+    /// the Rate CELL can only show two decimals — so the challan prints <c>24 · 0.83 · 20.00</c>, and a
+    /// consignee multiplying the two visible figures gets ₹19.92, two paisa short. The AMOUNT is right (it is
+    /// computed from the unrounded per-base rate and rounded once, so it equals the 2 × 10 the books hold);
+    /// only the Rate cell is a rounded view of a derived intermediate.</para>
+    ///
+    /// <para>⚠️ <b>THIS TEST SHIPPED RED, PINNING A WRONG ANSWER, AND IS CORRECTED HERE.</b> It expected
+    /// <c>0.42</c>, which is <c>10 ÷ 24</c> — the STATED rate divided by the base quantity. The per-base rate is
+    /// the AMOUNT divided by the base quantity, <c>20 ÷ 24 = 0.8333…</c>, and <c>0.83</c> is what the projector
+    /// and the pane both actually produce. The residual the test exists to pin is real and is unchanged; only
+    /// the arithmetic in the expectation was wrong. <b>A test that pins a wrong answer is the failure mode this
+    /// project has hit four times, and it is worse than no test, because the next reader "fixes" the code to
+    /// match it.</b></para>
     ///
     /// <para><b>It is inherited, not introduced.</b> <see cref="InventoryVoucherDetailViewModel"/> has shown
     /// exactly these three figures since it shipped, and the challan is deliberately locked to that pane — so
@@ -380,9 +399,9 @@ public sealed class DeliveryChallanDocumentTests
 
         // The AMOUNT is correct: 2 x 120... no — 2 Doz x Rs.10/Doz = Rs.20.00, and that is what is printed.
         Assert.Equal("20.00", goods.Cells[5]);
-        // The RATE cell is the rounded per-base view, and 24 x 0.42 is NOT 20.00. This is the residual.
+        // The RATE cell is the rounded per-base view, and 24 x 0.83 = 19.92 is NOT 20.00. This is the residual.
         Assert.Equal("24", goods.Cells[3]);
-        Assert.Equal("0.42", goods.Cells[4]);
+        Assert.Equal("0.83", goods.Cells[4]);
         // ... and the challan says exactly what the pane says, which is the property that must not break.
         Assert.Equal(paneRow.Col3, goods.Cells[3]);
         Assert.Equal(paneRow.Col4, goods.Cells[4]);
