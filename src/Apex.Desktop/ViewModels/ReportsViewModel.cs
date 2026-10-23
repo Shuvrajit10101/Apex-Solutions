@@ -2680,6 +2680,24 @@ public sealed partial class ReportsViewModel : ViewModelBase
                     DrillToInventoryVoucherRequested?.Invoke(row.DrillInventoryVoucherId);
                 break;
 
+            // ---- Census 9.8 / 4.13 / 4.14 — BILLS PENDING. Enter drills to the document that made the row
+            // pending: a "Goods Recd. but Bills not Recd." row to its NOTE (an InventoryVoucher), a "Bills
+            // Recd. but Goods not Recd." row to its BILL (an accounting Voucher). Unlike the four job-work
+            // registers above, this report carries BOTH shapes — on different rows — so both branches exist
+            // and each row populates exactly one slot (see AddBillsPendingSection).
+            //
+            // 🔴 THIS ARM IS WHY THE DRILL IS REACHABLE RATHER THAN MERELY PRESENT, and it is written because
+            // the job-work comment immediately above records the identical trap biting once already: this
+            // switch has NO default, so carrying a drill id on a kind with no case here enables Ctrl+Enter,
+            // Alt+X and Alt+D (which resolve through the shell) while leaving Enter a SILENT NO-OP.
+            case ReportKind.PurchaseBillsPending:
+            case ReportKind.SalesBillsPending:
+                if (row.DrillInventoryVoucherId != Guid.Empty)
+                    DrillToInventoryVoucherRequested?.Invoke(row.DrillInventoryVoucherId);
+                else if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
             // ---- W2-12 (census 11.6): a register drills month → voucher-wise → the voucher itself. ----
             case ReportKind.SalesRegister:
             case ReportKind.PurchaseRegister:

@@ -245,6 +245,24 @@ public sealed partial class InventoryVoucherLineViewModel : ViewModelBase
     {
         ArgumentNullException.ThrowIfNull(choices);
 
+        // 🔴 NO OPEN NOTE ⇒ NO LIST AT ALL, not a list holding "New Number" by itself. The vendor's New Number
+        // entry means "key one of your own", and the free-text box beside the picker already does exactly
+        // that — so a one-entry picker would be a control whose only option is the control next to it. This
+        // is also what keeps ShowTrackingNumberPicker false on the note side and under an F11 toggle-off.
+        if (choices.Count == 0)
+        {
+            if (TrackingNumberChoices.Count == 0) return;
+            _syncingTrackingChoice = true;
+            try
+            {
+                TrackingNumberChoices.Clear();
+                SelectedTrackingNumberChoice = null;
+            }
+            finally { _syncingTrackingChoice = false; }
+            OnPropertyChanged(nameof(ShowTrackingNumberPicker));
+            return;
+        }
+
         // Rebuild only when the offered numbers actually changed. An unconditional Clear()/re-Add on every
         // keystroke would reset SelectedTrackingNumberChoice to null and make the combo box look like it
         // forgot the operator's pick.

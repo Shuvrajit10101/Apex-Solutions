@@ -264,6 +264,41 @@ public sealed class TrackingNumberPickerTests : IDisposable
         Assert.False(entry.InventoryLines[0].ShowTrackingNumberPicker);
     }
 
+    // ---------------------------------------------------------------- the drill
+
+    /// <summary>
+    /// 🔴 <b>PRESSING <c>Enter</c> ON A PENDING ROW ACTUALLY RAISES A DRILL, AND THIS IS THE ASSERTION THAT
+    /// WOULD HAVE CAUGHT A DEAD FIELD.</b> <c>ReportsViewModel.Drill</c> is a switch with <b>no default</b>, so
+    /// a kind that carries drill ids but has no case falls straight out and the keystroke does nothing — the
+    /// exact trap its own comment records biting the four job-work registers, where the ids were already set
+    /// and <c>Enter</c> was a silent no-op anyway. Asserting <c>row.DrillInventoryVoucherId != Guid.Empty</c>
+    /// would pass on that build. This asserts the EVENT.
+    /// </summary>
+    [Fact]
+    public void Enter_on_a_pending_row_drills_to_the_note_that_received_the_goods()
+    {
+        var k = NewKit("Trk Drill Co");
+        PostReceiptNote(k, 40m);
+
+        k.Vm.OpenReport(ReportKind.PurchaseBillsPending);
+        var report = k.Vm.Reports!;
+
+        var row = Assert.Single(report.Rows, r => !r.IsHeader && !r.IsTotal
+                                                  && r.DrillInventoryVoucherId != Guid.Empty);
+
+        Guid? drilled = null;
+        report.DrillToInventoryVoucherRequested += id => drilled = id;
+        report.Drill(row);
+
+        Assert.NotNull(drilled);
+        Assert.Equal(row.DrillInventoryVoucherId, drilled!.Value);
+
+        // And the id it handed over really is a Receipt Note in the saved book, not just a non-empty Guid.
+        var reloaded = Reload(k.CompanyName);
+        var noteType = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.ReceiptNote);
+        Assert.Equal(noteType.Id, reloaded.InventoryVouchers.Single(v => v.Id == drilled.Value).TypeId);
+    }
+
     /// <summary>
     /// 🔴 <b>REACHABILITY, NOT PRESENCE — THE CONTROL IS REALISED AND VISIBLE IN A LAID-OUT WINDOW.</b> Every
     /// assertion above runs against the view model, and a view model property bound to nothing would satisfy
