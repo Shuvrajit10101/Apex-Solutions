@@ -30,14 +30,26 @@ namespace Apex.Desktop.Tests;
 /// <para>🔴 <b>THE STRUCK LIST ABOVE WAS TRUE WHEN WRITTEN AND IS NOW FALSE — CORRECTED 2026-10-12 (wave 46)
 /// BY A12, struck rather than deleted so a reader can see what moved.</b> It went SIX → FIVE when the price
 /// list gained its alter verb (PR #142, census 3.11) and FIVE → <b>THREE</b> when budget and scenario gained
-/// theirs (PR #156, census 2.9 / 2.10, this wave). <b>The live list is BATCH, BOM and the REORDER
+/// theirs (PR #156, census 2.9 / 2.10, this wave). ~~<b>The live list is BATCH, BOM and the REORDER
 /// DEFINITION</b> — the three that still hard-code <c>IsAltering =&gt; false</c> with no <c>ForAlter</c>, which
 /// is why their unbranched <c>Create()</c> is currently CORRECT. The reorder page still 404s, so inventing its
-/// alter shape remains refused. <b>This sentence is the governing comment for the whole withholding
+/// alter shape remains refused.~~
+/// <para>🔴 <b>STRUCK AGAIN 2026-10-23 (wave 6, track cd) — THREE → <b>TWO</b>, AND THE 404 SENTENCE IS DEAD.</b>
+/// The REORDER DEFINITION now has its alter verb (census 3.12): <c>ReorderLevelsViewModel.IsAltering</c> is no
+/// longer the constant <c>false</c>, <c>ForAlter</c> exists, <c>ReorderLevelsService.Alter</c> keeps the
+/// ORIGINAL id, and <b>both</b> accept routes branch — so an unbranched <c>Create()</c> on the reorder screen
+/// is now <b>WRONG</b>, not correct. <b>The live list is BATCH and BOM.</b> The reorder page does not 404: it
+/// was MOVED, and the live slug
+/// <c>help.tallysolutions.com/tally-prime/inventory/reorder-stock-items-reorder-status-and-reorder-quantity/</c>
+/// was opened BY CONTENT on 2026-10-23 and publishes the alter route itself — <i>"Press Alt+G (Go To) &gt;
+/// Alter Master &gt; type or select Reorder Level (Stock Item) and press Enter."</i> Nothing was invented.
+/// 🔴 <b>This comment's own warning is why it is corrected in the same commit as the verb</b> — it says a wrong
+/// list here is how a later slice re-withholds a verb that already exists, and it had become that list.</para>
+/// <para><b>This sentence is the governing comment for the whole withholding
 /// discipline, so a wrong list here is how a later slice re-withholds a verb that already exists</b> — the
 /// reviewer that caught it declined to edit it only because doing so would have dirtied the tree against the
 /// SHA it had reported, and routed it to A12 instead. ⚠️ <b>This corrects the sentence ONLY; it does not close
-/// <c>T2-101</c>, whose item (i) remains open.</b></para>
+/// <c>T2-101</c>, whose item (i) remains open.</b></para></para>
 ///
 /// <para><b>FIDELITY (R7 / ruling 14) — CITED, AND EVERY URL WAS OPENED AND READ ON 2026-09-25.</b>
 /// <list type="bullet">
