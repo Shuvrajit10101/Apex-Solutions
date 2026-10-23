@@ -328,6 +328,16 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted W2-32 "Multi-Account Printing" panel (non-null only for that census-12.6 column).</summary>
     public MultiAccountPrintViewModel? MultiAccountPrint => Page as MultiAccountPrintViewModel;
 
+    /// <summary>
+    /// The hosted multi-account "Export" panel (non-null only for census 12.7's export-arm column).
+    ///
+    /// <para>The markup binds THIS and not <c>MainWindowViewModel.MultiAccountExportPanel</c>, for the reason the
+    /// shell's own column-resolver records about the printer column: the shell property is nulled by
+    /// <c>ClearSubScreens</c> while the column itself survives in <c>Columns</c>, so a template bound to the shell
+    /// would blank a column that is still on screen.</para>
+    /// </summary>
+    public MultiAccountExportViewModel? MultiAccountExportPanel => Page as MultiAccountExportViewModel;
+
     /// <summary>The hosted E / Alt+E "Export" panel (non-null only for that RQ-14 column).</summary>
     public ExportViewModel? ExportPanel => Page as ExportViewModel;
 

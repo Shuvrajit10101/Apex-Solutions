@@ -74,12 +74,19 @@ public sealed partial class MultiAccountRowViewModel : ViewModelBase
 ///   <item><b>12.6's multi-VOUCHER (range) printing.</b> This panel iterates ACCOUNTS. Nothing in the product
 ///     iterates a set of vouchers into one job — "print vouchers 10 to 25" has no route. (W2-31's F10 page range
 ///     is row 12.4's range of SHEETS and is not this.)</item>
-///   <item><b>12.7's DELIVERY CHALLAN</b> — the Delivery Note voucher printed — and the <c>Alt+P</c> / <c>Alt+E</c>
-///     bulk menus the reference product reaches the reminder letter and the confirmation of accounts from
-///     (<c>T2-20</c>, the shared menu shell upstream of nine rows). This panel prints; it has no export arm.</item>
+///   <item>~~<b>12.7's DELIVERY CHALLAN</b> — the Delivery Note voucher printed — and the <c>Alt+P</c> /
+///     <c>Alt+E</c> bulk menus the reference product reaches the reminder letter and the confirmation of
+///     accounts from (<c>T2-20</c>). This panel prints; it has no export arm.~~ 🟢 <b>ALL THREE PARTS OF THIS
+///     BULLET ARE CLOSED AND IT IS STRUCK RATHER THAN DELETED, because it is the status claim a reader would
+///     otherwise still believe.</b> The challan ships as <c>DeliveryChallanPrintProjector</c> (wave 6, track
+///     cc); <c>Alt+P</c> → <b>Others</b> reaches this panel through <c>ReportPrintMenu.OthersVerb</c>; and
+///     <c>Alt+E</c> → <b>Others</b> now reaches <see cref="MultiAccountExportViewModel"/> through
+///     <see cref="BuildExportJob"/>, which is the vendor's own export route
+///     (<c>help.tallysolutions.com/printing-multi-account-reports</c>: <i>"For Export: <b>Alt+E</b> (Export)
+///     &gt; <b>Others</b> &gt; select a report from the List of Reports."</i>).</item>
 /// </list>
-/// Two of 12.7's three documents now have a route, and 12.6's account half is done. Both rows are
-/// <b>PARTIAL</b>.</para>
+/// 12.6's account half is done; its multi-VOUCHER (range) half is still absent, so <b>12.6 stays PARTIAL</b>.
+/// Row 12.7's three documents all now have a route and both an output arm.</para>
 ///
 /// <para>No clock: the "as at" date is supplied by the shell, so the panel stays deterministic in tests.</para>
 /// </summary>
@@ -296,6 +303,49 @@ public sealed partial class MultiAccountPrintViewModel : ViewModelBase
         Status = documents.Count == 1
             ? "1 account ready to print."
             : $"{documents.Count:#,0} accounts ready to print.";
+        return documents;
+    }
+
+    /// <summary>
+    /// Builds the EXPORT job (census 12.7's export arm): the same documents <see cref="BuildJob"/> projects, each
+    /// PAIRED WITH THE ACCOUNT IT IS ADDRESSED TO, so the export panel can write one file per account and name
+    /// each after its own party.
+    ///
+    /// <para>🔴 <b>WHY THIS PROJECTS ONE ACCOUNT AT A TIME INSTEAD OF ZIPPING <see cref="BuildJob"/>'s LIST
+    /// AGAINST <see cref="SelectedLedgerIds"/>.</b> The zip is the obvious implementation and it is WRONG, for a
+    /// reason that only shows up on the second account: <c>MultiAccountPrintProjector.Project</c> does not
+    /// promise one document per id. It <c>continue</c>s past an id no ledger matches and past an account
+    /// <c>MayProduce</c> refuses, so its output can be SHORTER than the id list — and a zip of a 10-name list
+    /// against a 9-document list mis-addresses every document after the skip. On these two documents that is not
+    /// a cosmetic slip: it writes "Reminder Letter - Acme Traders.pdf" containing the letter addressed to, and
+    /// the open bills of, <b>Bharat Heavy Electricals</b>, and the operator mails it to Acme. Asking the
+    /// projector for ONE id at a time makes the pairing true by construction rather than by an assumption about
+    /// the projector's skip behaviour that a later edit to <c>MayProduce</c> could quietly falsify.</para>
+    ///
+    /// <para>The eligibility rule is still asked only once per account, and still by the projector — this method
+    /// adds no second copy of it. An account the projector refuses simply contributes no document and no file.</para>
+    /// </summary>
+    public IReadOnlyList<MultiAccountExportDocument> BuildExportJob()
+    {
+        var documents = new List<MultiAccountExportDocument>();
+        foreach (var row in Accounts)
+        {
+            if (!row.IsSelected) continue;
+
+            // ONE id, so the document that comes back can only be this row's. See the remarks above.
+            var one = MultiAccountPrintProjector.Project(
+                _company, new[] { row.LedgerId }, DocumentKind, _from, _asOf);
+            if (one.Count != 1) continue;
+
+            documents.Add(new MultiAccountExportDocument(row.Name, one[0]));
+        }
+
+        Status = documents.Count switch
+        {
+            0 => HasOfferedAccounts ? "Select at least one account to export." : OfferedAccountsNote,
+            1 => "1 account ready to export.",
+            _ => $"{documents.Count:#,0} accounts ready to export.",
+        };
         return documents;
     }
 }

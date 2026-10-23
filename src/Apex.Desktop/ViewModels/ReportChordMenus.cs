@@ -215,34 +215,59 @@ public static class ReportExportMenu
     /// (help.tallysolutions.com/export-data-in-tally/) — the chord this row carries as its hint.</summary>
     public const string CurrentVerb = "Current";
 
-    /// <summary>The verbs this menu offers. Read by the shell tests.</summary>
-    public static readonly IReadOnlyList<string> OfferedVerbs = new[] { CurrentVerb };
+    /// <summary>
+    /// Vendor row label, verbatim (<c>help.tallysolutions.com/printing-multi-account-reports</c>, under
+    /// <i>Configure multi-account reports</i>): <i>"For Export: <b>Alt+E</b> (Export) &gt; <b>Others</b> &gt;
+    /// select a report from the List of Reports."</i> — the export twin of
+    /// <see cref="ReportPrintMenu.OthersVerb"/>, and the row census 12.7's export arm was missing.
+    ///
+    /// <para>🔴 <b>The claim this row rests on is the EXPORT sentence, not the print one.</b> The print menu's
+    /// <b>Others</b> is attested by a different page (<c>help.tallysolutions.com/print-invoices-reports/</c>:
+    /// <i>"Press <b>Alt+P</b> (Print) &gt; <b>Others</b>."</i>), and reasoning "print has Others, so export must
+    /// too" would be exactly the inference this project has had to withdraw twelve times. The export sentence
+    /// was opened by content and quoted above; it stands on its own.</para>
+    /// </summary>
+    public const string OthersVerb = "Others";
+
+    /// <summary>The verbs this menu offers, in order. Read by the shell tests.</summary>
+    public static readonly IReadOnlyList<string> OfferedVerbs = new[] { CurrentVerb, OthersVerb };
 
     /// <summary>
-    /// 🔴 THE HONEST DISCLOSURE, and it is the whole reason this menu is one row long. It names THREE withheld
-    /// rows, because the vendor's export menu has four and this build has one —
-    /// help.tallysolutions.com/export-data-in-tally/ was re-opened by content for this correction and shows all
-    /// three beside the <b>Current</b> row we do have: <i>"Press <b>Alt+E</b> (Export) &gt; select
-    /// <b>Masters</b> or <b>Transactions</b>"</i> (the two bulk families) and <i>"Press <b>Alt+E</b> (Export)
-    /// &gt; <b>Others</b> &gt; and select any of the report listed above"</i> (a report picker that does not
-    /// require standing on the report). This build exports only what is ON SCREEN: <c>BuildExportPanel</c> reads
-    /// the top cascade column or the live report and nothing else, so none of the three has anything to route
-    /// to. Census row 13.5 keeps the gap; a row that opened an empty picker would hide it.
+    /// 🔴 THE HONEST DISCLOSURE. It names the TWO rows still withheld, because the vendor's export menu has four
+    /// and this build now has two — help.tallysolutions.com/export-data-in-tally/ shows the two bulk families we
+    /// do not have: <i>"Press <b>Alt+E</b> (Export) &gt; select <b>Masters</b> or <b>Transactions</b>"</i>. This
+    /// build's <b>Current</b> row exports only what is ON SCREEN (<c>BuildExportPanel</c> reads the top cascade
+    /// column or the live report and nothing else), so neither bulk family has anything to route to. Census row
+    /// 13.5 keeps that gap; a row that opened an empty picker would hide it.
     ///
-    /// <para>🔴 <b>The string previously named only the master half</b> ("Bulk master export is not on this
-    /// build") — accurate as far as it went, and therefore the more dangerous kind of disclosure: a reader
-    /// checking the menu against the vendor page would have concluded the other two rows were considered and
+    /// <para>🔴 <b>THIS STRING SAID "or Others" UNTIL 2026-10-23 AND NOW MUST NOT, because <see cref="OthersVerb"/>
+    /// SHIPPED</b> (census 12.7's export arm — it reaches the multi-account panel's
+    /// <see cref="MultiAccountExportViewModel"/>). A disclosure that keeps naming a row the menu now offers is
+    /// not a harmless leftover: it is a FALSE statement in a shipped user-visible string, and it is the precise
+    /// mirror of the over-claim this project guards against — an UNDER-claim a reader would check against the
+    /// menu, find contradicted, and then stop trusting the other disclosures that are still true.</para>
+    ///
+    /// <para>🔴 <b>Earlier history, kept.</b> The string once named only the master half ("Bulk master export is
+    /// not on this build") — accurate as far as it went, and therefore the more dangerous kind of disclosure: a
+    /// reader checking the menu against the vendor page would have concluded the other rows were considered and
     /// found present. They were not considered. Two-line budget as for every cascade header.</para>
     /// </summary>
-    public const string Disclosure = "No bulk Masters, Transactions or Others";
+    public const string Disclosure = "No bulk Masters or Transactions export";
 
-    /// <summary>Builds the Alt+E column.</summary>
-    public static GatewayColumn BuildColumn(Action current)
+    /// <summary>
+    /// Builds the Alt+E column: <b>Current</b> (the on-screen object) and <b>Others</b> (the multi-account
+    /// report list), which is the pair the vendor's export sentence names.
+    /// </summary>
+    public static GatewayColumn BuildColumn(Action current, Action others)
     {
         if (current is null) throw new ArgumentNullException(nameof(current));
+        if (others is null) throw new ArgumentNullException(nameof(others));
 
         var column = new GatewayColumn(ColumnTitle);
         column.Add(new MenuItemViewModel(CurrentVerb, current, "Ctrl+E", kind: MenuItemKind.Action));
+        // No chord hint: the vendor documents Ctrl+E for Current and gives Others no chord of its own, exactly as
+        // ReportPrintMenu leaves its Others hint empty. An invented hint here would read as attested.
+        column.Add(new MenuItemViewModel(OthersVerb, others, string.Empty, kind: MenuItemKind.Action));
         column.Add(MenuItemViewModel.Header(Disclosure));
         return column;
     }
