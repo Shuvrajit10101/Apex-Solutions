@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Avalonia;
@@ -33,8 +34,31 @@ namespace Apex.Desktop.Tests;
 /// read the realised control rather than the markup, so they also bite the refactor's own failure mode: a
 /// control that renders but is bound to nothing.</para>
 /// </summary>
-public sealed class RestoreAndRangeRealisedReachabilityTests
+public sealed class RestoreAndRangeRealisedReachabilityTests : IDisposable
 {
+    /// <summary>
+    /// Every temp directory this class hands out, so <see cref="Dispose"/> can take them all away again.
+    ///
+    /// <para>🔴 <b>WHY THIS EXISTS: the first version of this file leaked one directory per test, and that is
+    /// measurably not harmless here.</b> A sweep of <c>%TEMP%</c> during this slice found <b>3,716</b>
+    /// leftover <c>Apex*</c> fixture directories on a disk at <b>92% full</b> — <c>ApexServiceKeys</c> 1,584,
+    /// <c>ApexMultiParty</c> 1,110 and <c>ApexMultiPrint</c> 900 — and 18 of them were this file's. The
+    /// precedent this file follows, <c>MultiAccountPrintRealisedReachabilityTests</c>, deletes its directory
+    /// in a <c>finally</c>; copying its idiom and not its cleanup was an oversight, not a decision.</para>
+    /// </summary>
+    private readonly List<string> _temps = new();
+
+    /// <summary>Removes every fixture directory this class created. Never fails a test over cleanup.</summary>
+    public void Dispose()
+    {
+        foreach (var d in _temps)
+        {
+            try { if (Directory.Exists(d)) Directory.Delete(d, recursive: true); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     /// <summary>Flushes bindings and forces a layout pass so the panel's DataTemplate is realised.</summary>
     private static void Pump(Window window)
     {
@@ -44,8 +68,12 @@ public sealed class RestoreAndRangeRealisedReachabilityTests
         Dispatcher.UIThread.RunJobs();
     }
 
-    private static string TempDir() =>
-        Path.Combine(Path.GetTempPath(), "ApexRestoreRangeRealised_" + Guid.NewGuid().ToString("N"));
+    private string TempDir()
+    {
+        var d = Path.Combine(Path.GetTempPath(), "ApexRestoreRangeRealised_" + Guid.NewGuid().ToString("N"));
+        _temps.Add(d);
+        return d;
+    }
 
     /// <summary>The one realised TextBox bound to the restore panel's editable target name.</summary>
     private static TextBox[] RealisedTargetNameBoxes(Window window)
