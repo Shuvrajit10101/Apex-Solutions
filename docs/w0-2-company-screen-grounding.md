@@ -412,22 +412,22 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1186-1192` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1194-1200` `SellerBlock`:
 
-- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:1136-1137` — MailingName falling back to Name,
+- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:1144-1145` — MailingName falling back to Name,
   **matching Tally's convention exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:1189`) — **changed by W0-2a.**
-  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1207-1210`) returns `null` unless `company.Address` is
-  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1308-1315`),
+  (`VoucherPrintProjector.cs:1197`) — **changed by W0-2a.**
+  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1215-1218`) returns `null` unless `company.Address` is
+  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1316-1323`),
   which appends Country then `"PIN: " + Pin`, each skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:1191`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:1199`) — **unchanged; still never `company.State`.**
 
 Called from `VoucherPrintProjector.cs:538` on the item pass,
 and from `VoucherPrintProjector.cs:822` on the service pass.
-`SplitAddress` (`VoucherPrintProjector.cs:1341-1343`) returns `Array.Empty` on null/whitespace.
+`SplitAddress` (`VoucherPrintProjector.cs:1349-1351`) returns `Array.Empty` on null/whitespace.
 
 **[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:908` declares `DrawPartyBlock`;
 it is called at `InvoicePdf.cs:584` with the caption `"Supplier:"`.
@@ -460,9 +460,9 @@ The address `foreach` (`InvoicePdf.cs:914`) never executes when the list is empt
 
 **(i) `Company.State` is never printed on an invoice — and as of W0-2a, `Company.Pin` and `Company.Country`
 ARE.** `SellerBlock` takes its State from `company.Gst?.HomeStateCode`
-(`VoucherPrintProjector.cs:1191`), **not** from `company.State`.
+(`VoucherPrintProjector.cs:1199`), **not** from `company.State`.
 The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAddressText`
-(`VoucherPrintProjector.cs:1282-1286`) routes through the shared `PostalAddressText`
+(`VoucherPrintProjector.cs:1290-1294`) routes through the shared `PostalAddressText`
 (`VoucherPrintProjector.cs:1089-1097`).
 
 > 🔴 **HALF OF THIS SECTION WAS MADE FALSE BY W0-2a, AND IS REWRITTEN HERE (2026-08-15).** It previously read
@@ -653,7 +653,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:1191`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:1199`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
