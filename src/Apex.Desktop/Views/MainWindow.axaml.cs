@@ -516,6 +516,10 @@ public partial class MainWindow : Window
             // the same accept-shortcut every other panel in this switch uses for its own primary action.
             else if (vm.CurrentScreen == Screen.MultiAccountPrint)
                 vm.PrintMultiAccountJob();
+            // Census 12.6 (multi-voucher half): Ctrl+A on the Multi-Voucher Printing panel prints the chosen
+            // RANGE of vouchers — the same accept-shortcut every other panel in this switch uses.
+            else if (vm.CurrentScreen == Screen.MultiVoucherPrint)
+                vm.PrintMultiVoucherJob();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             // Ctrl+A on the WhatsApp share column writes the document — step ONE of the two-step share. Alt+O
@@ -3054,6 +3058,14 @@ public partial class MainWindow : Window
     // print logic can rot behind the button. Say that, and not more.
     private void OnPrintMultiAccountClick(object? sender, RoutedEventArgs e)
         => Vm?.PrintMultiAccountJob();
+
+    // Census 12.6 (multi-voucher half) — the Print button calls the SAME Vm.PrintMultiVoucherJob() the Ctrl+A
+    // arm reaches, so no second copy of the print logic can rot behind the button. As with the multi-account
+    // twin above, that is NOT the same as "button and accelerator can never diverge": this handler has no
+    // screen test and the Ctrl+A arm fires only under `vm.CurrentScreen == Screen.MultiVoucherPrint`, so they
+    // agree on WHAT is printed and not on WHEN.
+    private void OnPrintMultiVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.PrintMultiVoucherJob();
 
     private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
         => Vm?.MultiAccountPrint?.SelectAll();

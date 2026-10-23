@@ -1133,7 +1133,15 @@ public static class VoucherPrintProjector
         return s + "%";
     }
 
-    private static string CompanyDisplayName(Company company) =>
+    /// <summary>
+    /// The company name a printed voucher carries: the <b>Mailing Name</b> falling back to the company name.
+    ///
+    /// <para><b>Public so the BATCH path cannot disagree with the single-voucher path.</b>
+    /// <see cref="MultiVoucherPrintProjector"/> (census 12.6) prints the same vouchers in a collated job, and a
+    /// second copy of this fallback there would let one voucher print under the mailing name alone and the same
+    /// voucher print under the registered name in a batch. One rule, one home.</para>
+    /// </summary>
+    public static string CompanyDisplayName(Company company) =>
         string.IsNullOrWhiteSpace(company.MailingName) ? company.Name : company.MailingName;
 
     /// <summary>

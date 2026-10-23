@@ -20346,6 +20346,124 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: Reports -> Statements of Accounts -> "Multi-Voucher Printing" (census 12.6, the
+                         multi-VOUCHER half). Selects a RANGE of vouchers by voucher type, party and period and
+                         prints them as one collated job through the same PrintKind.ReportSet path the
+                         multi-ACCOUNT panel uses. The three selectors are real, bound controls — two ComboBoxes
+                         and two TextBoxes — because a filter the view model holds and no control exposes is not
+                         a feature (the dead-field shape filed as T2-40 against this very row). The match list
+                         below them is what WILL print, shown before it prints. -->
+                    <ContentControl IsVisible="{Binding MultiVoucherPrint, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MultiVoucherPrint}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MultiVoucherPrintViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,12,0,8"/>
+
+                            <!-- The three vendor-attested selection axes: voucher type, party and period. -->
+                            <Border Grid.Row="1" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,8" Margin="0,0,0,6">
+                              <Grid ColumnDefinitions="Auto,*,Auto,*" RowDefinitions="Auto,Auto,Auto">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Voucher Type"
+                                           FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding VoucherTypes}"
+                                          SelectedItem="{Binding SelectedVoucherType, Mode=TwoWay}"
+                                          DisplayMemberBinding="{Binding Name}"/>
+
+                                <TextBlock Grid.Row="0" Grid.Column="2" Text="Party"
+                                           FontWeight="Bold" VerticalAlignment="Center" Margin="12,0,8,0"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <ComboBox Grid.Row="0" Grid.Column="3" HorizontalAlignment="Stretch"
+                                          ItemsSource="{Binding Parties}"
+                                          SelectedItem="{Binding SelectedParty, Mode=TwoWay}"
+                                          DisplayMemberBinding="{Binding Name}"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="From"
+                                           FontWeight="Bold" VerticalAlignment="Center" Margin="0,8,8,0"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBox Grid.Row="1" Grid.Column="1" Margin="0,8,0,0"
+                                         Text="{Binding PeriodFromText, Mode=TwoWay}"
+                                         FontFamily="Consolas,Menlo,monospace"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="To"
+                                           FontWeight="Bold" VerticalAlignment="Center" Margin="12,8,8,0"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBox Grid.Row="1" Grid.Column="3" Margin="0,8,0,0"
+                                         Text="{Binding PeriodToText, Mode=TwoWay}"
+                                         FontFamily="Consolas,Menlo,monospace"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="4"
+                                           Text="Every voucher in this range prints on its own sheet, as one job."
+                                           FontSize="11.5" Foreground="#6A6A6A"
+                                           TextWrapping="Wrap" Margin="0,8,0,0"/>
+                              </Grid>
+                            </Border>
+
+                            <!-- Column header band (navy) -->
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}">
+                              <Grid ColumnDefinitions="110,150,*,90">
+                                <TextBlock Grid.Column="0" Text="Date" Classes="colHdr"/>
+                                <TextBlock Grid.Column="1" Text="Number" Classes="colHdr"/>
+                                <TextBlock Grid.Column="2" Text="Party" Classes="colHdr"/>
+                                <TextBlock Grid.Column="3" Text="Type" Classes="colHdr"/>
+                              </Grid>
+                            </Border>
+
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <ItemsControl ItemsSource="{Binding Matches}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate x:DataType="vm:MultiVoucherRowViewModel">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                      <Grid ColumnDefinitions="110,150,*,90" Height="24">
+                                        <TextBlock Grid.Column="0" Text="{Binding DateText}" Margin="6,0,0,0"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Number}"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding Number}"/>
+                                        <TextBlock Grid.Column="2" Text="{Binding PartyName}"
+                                                   VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding PartyName}"/>
+                                        <TextBlock Grid.Column="3" Text="{Binding VoucherTypeName}"
+                                                   VerticalAlignment="Center" FontSize="11" Foreground="#6A6A6A"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTip.Tip="{Binding VoucherTypeName}"/>
+                                      </Grid>
+                                    </Border>
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </ScrollViewer>
+
+                            <Border Grid.Row="4" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,2">
+                              <Grid ColumnDefinitions="Auto,*,Auto">
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold"
+                                           Text="{Binding MatchCount, StringFormat='{}{0} voucher(s) in range'}"/>
+                                <Button Grid.Column="2" Content="Print (Ctrl+A)" Padding="12,5"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        IsEnabled="{Binding HasMatches}"
+                                        Click="OnPrintMultiVoucherClick"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="5" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,4,0,0" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: E / Alt+E "Export" panel (RQ-14/16 — CSV / XLSX / PDF export of the open report) -->
                     <ContentControl IsVisible="{Binding ExportPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding ExportPanel}">

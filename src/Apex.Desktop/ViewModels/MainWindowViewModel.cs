@@ -143,6 +143,11 @@ public enum Screen
     /// <summary>W2-32 (census 12.6): Reports → Statements of Accounts → Multi-Account Printing — the panel that
     /// selects a SET of accounts and prints them as one collated job.</summary>
     MultiAccountPrint,
+
+    /// <summary>Census 12.6 (the multi-VOUCHER half): Reports → Statements of Accounts → Multi-Voucher Printing
+    /// — the panel that selects a RANGE of vouchers (type, party, period) and prints them as one collated
+    /// job.</summary>
+    MultiVoucherPrint,
     Export,
     ExportData,
     ImportData,
@@ -856,6 +861,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// open. It is what makes <see cref="MultiAccountPrintViewModel"/> reachable at all.</summary>
     [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
 
+    /// <summary>The "Multi-Voucher Printing" panel (census 12.6, the multi-VOUCHER half), non-null only while
+    /// that page column is open. It is what makes <see cref="MultiVoucherPrintViewModel"/> reachable at all —
+    /// the half of row 12.6 that the multi-account panel's own remarks have recorded as absent since PR #56.
+    /// </summary>
+    [ObservableProperty] private MultiVoucherPrintViewModel? _multiVoucherPrint;
+
     /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
     [ObservableProperty] private ExportViewModel? _exportPanel;
 
@@ -1084,6 +1095,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrinterPanelChanged(PrinterSelectionViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiVoucherPrintChanged(MultiVoucherPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2111,6 +2123,36 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // this shape were found in the record two passes ago — this was the eighth, and the "12.6 closed" line
         // would have been the ninth.)
         col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Census 12.6, the MULTI-VOUCHER half — the row's other named capability, and the gap the block above
+        // has recorded since PR #56 ("NOTHING here iterates vouchers — there is no way to say 'print vouchers
+        // 10 to 25 as one job'"). This entry is that way. It selects a RANGE of vouchers by voucher type, party
+        // and period and prints them as one collated job through the SAME PrintKind.ReportSet path.
+        //
+        // 🔴 THE PAGE RANGE IS STILL NOT THIS ROW'S RANGE, and that distinction is kept exactly as the block
+        // above draws it: F10 selects SHEETS within a job (row 12.4); this selects VOUCHERS (row 12.6). The two
+        // compose and neither is the other.
+        //
+        // Vendor grounding is quoted in full on MultiVoucherPrintViewModel: the reference product reaches this
+        // from Alt+P > Others > Multi-Voucher and configures it by Voucher Type, and its release notes attest
+        // the party and period axes.
+        //
+        // 🔴 IT IS NESTED HERE AND IS *NOT* ON Alt+P > Others, AND THAT IS A DIVERGENCE THIS COMMENT STATES
+        // PLAINLY RATHER THAN EXPLAINING AWAY. An earlier draft of this very comment justified the placement by
+        // saying "the Alt+P print menu is unbound across the whole product (T2-20)". THAT CLAIM IS FALSE AT THIS
+        // HEAD and was struck before it shipped: MainWindowViewModel.OpenPrintMenu binds Alt+P and
+        // ReportPrintMenu.BuildColumn gives it a two-row column, whose "Others" row already runs
+        // OpenMultiAccountPrint. T2-20 recorded a real measurement in 2026-09-04 and the shell landed since.
+        // (Justifying a design with a stale defect register is the same shape as justifying one with a
+        // quotation nobody re-opened — which this project has now caught twelve times.)
+        //
+        // So the honest statement is: the vendor's Others row leads to a LIST of reports and ours leads
+        // straight to the multi-ACCOUNT panel, so there is no second entry to hang Multi-Voucher on without
+        // reshaping that shared column — which pins row 13.5's fidelity test (ReportChordFidelityTests asserts
+        // Alt+P > Others lands on Screen.MultiAccountPrint) and is not this slice's to re-cut. Nesting here
+        // keeps the panel reachable by the ordinary arrows-and-Enter cascade, which the UI contract requires of
+        // every screen anyway. When the Others list is built, this panel gains a second door and does not move.
+        col.Add(new MenuItemViewModel("Multi-Voucher Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -5080,6 +5122,68 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PrintConfigPanel = null;                       // an F12 config column over the old preview went with it
 
         var preview = new PrintPreviewViewModel(documents, panel.JobTitle);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    // =============================================================== screen: Multi-Voucher Printing (12.6)
+
+    /// <summary>
+    /// Opens the <b>Multi-Voucher Printing</b> panel (census 12.6, the multi-VOUCHER half) as a page column
+    /// under Reports → Statements of Accounts: a voucher type, a party and a period, and every voucher in that
+    /// RANGE printed as one collated job.
+    ///
+    /// <para>🔴 <b>This method is the other half of what row 12.6 was missing.</b> The multi-ACCOUNT panel
+    /// closed the account half in PR #56 and its own remarks have said ever since that nothing iterates
+    /// VOUCHERS into one job. This is that route. Vendor grounding is quoted on
+    /// <see cref="MultiVoucherPrintViewModel"/>.</para>
+    ///
+    /// <para><b>No clock (ER-12).</b> The opening period is the company's own books-begin date through
+    /// <see cref="AccountBooksAsOf"/> — the same bound every Account Book uses — so the panel is deterministic
+    /// in tests and opens on the range the on-screen registers already cover. The operator may type any other
+    /// period over it.</para>
+    /// </summary>
+    public void OpenMultiVoucherPrint()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+
+        var vm = new MultiVoucherPrintViewModel(Company, Company.BooksBeginFrom, AccountBooksAsOf());
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.MultiVoucherPrint, vm.Title,
+            () => MultiVoucherPrint = vm);
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Print button on the Multi-Voucher Printing panel: projects the chosen RANGE of vouchers
+    /// into a document SET and opens the ordinary <see cref="PrintPreviewViewModel"/> over the whole job, so
+    /// the F12 config, the F10 page range and the Ctrl+A Save-PDF arm all work on it exactly as they do on one
+    /// report.
+    ///
+    /// <para>An empty range opens NOTHING — the panel's own <c>BuildJob</c> returns an empty list and its
+    /// status line already says why. Previewing a blank sheet would present a mistake as output.</para>
+    ///
+    /// <para>🔴 <b>Replace, never stack</b> — the same rule, and for the same measured reason, as
+    /// <see cref="PrintMultiAccountJob"/>: that method shipped with a bare <c>Columns.Add</c> and three presses
+    /// of its Print button left three preview columns, each needing its own Escape. The trim is on the column
+    /// index rather than on <c>PrintPreview</c> being non-null, because the column is the thing that stacks and
+    /// the shell member is only its shadow.</para>
+    /// </summary>
+    public void PrintMultiVoucherJob()
+    {
+        if (MultiVoucherPrint is not { } panel) return;
+
+        var documents = panel.BuildJob();
+        if (documents.Count == 0) return;              // panel.Status already says why
+
+        var panelIndex = IndexOfColumnHosting(panel);
+        if (panelIndex >= 0) TrimColumnsAfter(panelIndex);
+        PrintConfigPanel = null;                       // an F12 config column over the old preview went with it
+
+        var preview = new PrintPreviewViewModel(documents, MultiVoucherPrintProjector.JobTitle);
         PrintPreview = preview;
         Columns.Add(new GatewayColumn(preview.Title, preview));
         ActiveColumnIndex = Columns.Count - 1;
@@ -13575,6 +13679,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Statistics": OpenReport(ReportKind.Statistics); break;
             // W2-32 (census 12.6) — Reports → Statements of Accounts → Multi-Account Printing.
             case "Multi-Account Printing": OpenMultiAccountPrint(); break;
+            // Census 12.6 (multi-voucher half) — Reports → Statements of Accounts → Multi-Voucher Printing.
+            case "Multi-Voucher Printing": OpenMultiVoucherPrint(); break;
             // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
             case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
             case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
@@ -13898,6 +14004,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case MultiAccountPrintViewModel map:
                 MultiAccountPrint = map;
                 return Screen.MultiAccountPrint;
+            // Census 12.6 (multi-voucher half) — the same survival rule, for the same reason: Escape out of the
+            // preview and the operator is back on his type/party/period selection, so pressing Print again
+            // reprints that range instead of finding a null panel and doing nothing.
+            case MultiVoucherPrintViewModel mvp:
+                MultiVoucherPrint = mvp;
+                return Screen.MultiVoucherPrint;
             // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
             // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
             // come back with every line, party and amount intact instead of as a fresh blank entry.
