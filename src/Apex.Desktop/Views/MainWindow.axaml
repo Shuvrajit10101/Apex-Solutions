@@ -21952,8 +21952,13 @@
                                            PlaceholderText="dd-MMM-yyyy"/>
                                 </Grid>
 
-                                <!-- Scenario -->
-                                <Grid>
+                                <!-- Scenario. The picker is WITHHELD on a scenario-blind kind rather than
+                                     offered and then refused: Cash Flow and Funds Flow are built from
+                                     unscenarioed movements, AddComparisonColumn declines a scenario column on
+                                     them, and a field the panel will not honour is a field that should not be
+                                     on the panel. Before this the picker was offered on both of them and the
+                                     refusal came back as a status line. -->
+                                <Grid IsVisible="{Binding SupportsScenarioColumns}">
                                   <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" SharedSizeGroup="AccL"/>
                                     <ColumnDefinition Width="*"/>
@@ -21970,6 +21975,10 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <TextBlock Text="This report is built from actual movements only — it has no scenario view."
+                                           IsVisible="{Binding !SupportsScenarioColumns}"
+                                           FontSize="11" Foreground="#8A8A8A"
+                                           TextWrapping="Wrap"/>
 
                                 <Grid ColumnDefinitions="*,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Status}"
@@ -22012,9 +22021,25 @@
                                            Foreground="{StaticResource BrandNavy}"/>
 
                                 <RadioButton GroupName="AutoColumnAxis"
-                                             Content="By month (one column per calendar month of the period)"
-                                             IsChecked="{Binding ByMonth, Mode=TwoWay}"
+                                             Content="By period (one column per bucket of the period)"
+                                             IsChecked="{Binding ByPeriod, Mode=TwoWay}"
                                              Foreground="{StaticResource BrandNavy}"/>
+                                <!-- The periodicity list is the vendor's own (daily / weekly / fortnightly /
+                                     monthly / quarterly, plus yearly); Monthly is preselected, so the
+                                     long-standing "open Alt+N, Generate" gesture is unchanged. -->
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="24,0,0,0"
+                                            IsEnabled="{Binding ByPeriod}">
+                                  <TextBlock Text="Periodicity" VerticalAlignment="Center"
+                                             FontSize="12" Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- No ItemTemplate on purpose. PeriodicityOption.ToString() IS the caption,
+                                       and the six captions are short enough that the 150px box never clips the
+                                       longest ("Fortnightly"). A templated TextBlock here would sit inside this
+                                       horizontal StackPanel, which measures children at infinite width — so a
+                                       TextTrimming on it could never engage and would overflow onto its
+                                       neighbour instead (XamlLayoutInvariantTests). -->
+                                  <ComboBox ItemsSource="{Binding Periodicities}" MinWidth="150"
+                                            SelectedItem="{Binding SelectedPeriodicity, Mode=TwoWay}"/>
+                                </StackPanel>
                                 <RadioButton GroupName="AutoColumnAxis"
                                              Content="By scenario (one column per defined scenario)"
                                              IsChecked="{Binding ByScenario, Mode=TwoWay}"
@@ -22023,6 +22048,12 @@
                                 <TextBlock Text="No scenarios are defined for this company."
                                            IsVisible="{Binding !HasScenarios}"
                                            FontSize="11" Foreground="#8A8A8A" Margin="24,0,0,0"/>
+                                <!-- Cash Flow / Funds Flow are built from unscenarioed movements, so the axis is
+                                     withheld rather than generating columns that reproduce the actual books. -->
+                                <TextBlock Text="This report is built from actual movements only — it has no scenario view."
+                                           IsVisible="{Binding !SupportsScenarioColumns}"
+                                           FontSize="11" Foreground="#8A8A8A" Margin="24,0,0,0"
+                                           TextWrapping="Wrap"/>
 
                                 <Grid ColumnDefinitions="*,Auto,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Status}"

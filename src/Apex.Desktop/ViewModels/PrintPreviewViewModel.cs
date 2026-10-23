@@ -576,11 +576,17 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         {
             bool turned = false;
             foreach (var document in _previewDocuments)
-            {
-                var (page, documentSheets) = ReportPdf.LayOut(document, _config);
-                if (page.Orientation == PageOrientation.Landscape) turned = true;
-                foreach (var rows in documentSheets) sheets.Add((document, new List<PrintRow>(rows)));
-            }
+                // 🔴 THE COLUMN SPLIT IS ASKED OF THE RENDERER TOO, FOR THE SAME REASON THE ROW PAGINATION IS.
+                // ReportPdf.Render splits a document wider than any sheet into column groups; a pane that
+                // paginated the UNSPLIT document would show one sheet of ellipses where the paper carries three
+                // readable ones, and its "Pages: N" readout — which an operator sets an F10 range off — would be
+                // wrong by the split factor. Asking the renderer is the only answer that cannot drift.
+                foreach (var slice in ReportPdf.SplitWideColumns(document, _config))
+                {
+                    var (page, documentSheets) = ReportPdf.LayOut(slice, _config);
+                    if (page.Orientation == PageOrientation.Landscape) turned = true;
+                    foreach (var rows in documentSheets) sheets.Add((slice, new List<PrintRow>(rows)));
+                }
             _landscapeRealised = turned;
             return sheets;
         }

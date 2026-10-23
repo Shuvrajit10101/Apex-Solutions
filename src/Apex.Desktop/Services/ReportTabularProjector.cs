@@ -39,6 +39,13 @@ public static class ReportTabularProjector
         if (vm.IsPayrollMatrix) return ProjectPayrollMatrix(vm);
         if (vm.IsPayslipReport) return ProjectPayslip(vm);
 
+        // 🔴 THE COMPARATIVE GRID COMES BEFORE EVERYTHING, BECAUSE WHEN IT IS SHOWING IT IS THE REPORT.
+        // Before this branch existed, a report in comparative mode exported `vm.Rows` — the SINGLE-COLUMN rows,
+        // which the view model keeps intact underneath so a switch back is instant. The operator added five
+        // period columns, saw five on screen, exported, and got ONE, with nothing anywhere saying so. Nothing
+        // threw and nothing was blank; the file was simply a different report wearing the same title.
+        if (vm.IsComparative) return ProjectComparative(vm);
+
         // 🔴 THE DECLARED COLUMN BAND COMES FIRST. When the kind declares one (ReportColumnBands), it is the
         // single source both this projector and ReportPrintProjector caption from, and it names the CELL each
         // column reads — which is the only way to export a report that skips Col4 (CST forms) or keeps its
@@ -54,6 +61,54 @@ public static class ReportTabularProjector
         // 🔴 RULING 18: carry the producer's provenance flag into the export model, do not re-decide it here — the
         // view model built the heading and is the only party that knows whether a master name is inside it. One
         // flag then decides HTML, XML, JSON and XLSX identically (TabularExport.TitleText).
+        return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
+    }
+
+    /// <summary>
+    /// Projects the comparative (Alt+C / Alt+N) grid: a Particulars column, then one column per comparison
+    /// column, captioned exactly as the screen captions it.
+    ///
+    /// <para>The per-column TOTAL line is exported as a leading total row rather than being folded into the
+    /// caption. On screen it sits under the heading as a second line of the header cell; a spreadsheet column
+    /// has one caption, so appending it there would produce a header like "Apr 2024 Open 1,00,000 · Net …" and
+    /// a column nobody can filter on. As its own row it stays readable and stays a figure.</para>
+    ///
+    /// <para>Cells carry the sign-bearing suffix the grid shows (Dr/Cr, In/Out, Src/App), so they are exported
+    /// as Text, not Number. Stripping the suffix to win a numeric cell would export an outflow as a positive
+    /// number indistinguishable from an inflow — the figure would be wrong in the file while right on screen.
+    /// A blank cell stays blank: the key is ABSENT in that column, which is not a zero.</para>
+    /// </summary>
+    private static TabularExport ProjectComparative(ReportsViewModel vm)
+    {
+        var columns = new List<TabularColumn>(vm.ComparativeColumns.Count + 1)
+        {
+            new("Particulars", CellType.Text),
+        };
+        foreach (var c in vm.ComparativeColumns)
+            columns.Add(new TabularColumn(c.Label, CellType.Text));
+
+        var rows = new List<TabularRow>(vm.ComparativeRows.Count + 1);
+
+        // The per-column totals, as the first row, flagged as a total so every writer styles it like one.
+        var totalCells = new TabularCell[columns.Count];
+        totalCells[0] = TabularCell.Text("Column totals");
+        for (int i = 0; i < vm.ComparativeColumns.Count; i++)
+            totalCells[i + 1] = TabularCell.Text(vm.ComparativeColumns[i].TotalText);
+        rows.Add(new TabularRow(totalCells, isHeader: false, isTotal: true));
+
+        foreach (var r in vm.ComparativeRows)
+        {
+            var cells = new TabularCell[columns.Count];
+            // The group qualifies the label on screen as a second, smaller run of text; in a single export cell
+            // it has to be written out, or two same-named ledgers in different groups become one ambiguous row.
+            cells[0] = TabularCell.Text(
+                string.IsNullOrEmpty(r.GroupName) ? r.Label : $"{r.Label} ({r.GroupName})");
+            for (int i = 0; i < vm.ComparativeColumns.Count; i++)
+                cells[i + 1] = TabularCell.Text(i < r.Cells.Count ? r.Cells[i] : string.Empty);
+            rows.Add(new TabularRow(cells, isHeader: false, isTotal: false));
+        }
+
+        // 🔴 RULING 18: carry the producer's provenance flag, do not re-decide it here.
         return new TabularExport(vm.Title, columns, rows, vm.TitleCarriesMasterName);
     }
 
