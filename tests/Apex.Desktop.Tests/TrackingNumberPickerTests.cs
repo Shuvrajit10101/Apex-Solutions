@@ -2,7 +2,10 @@ using System;
 using System.IO;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
@@ -336,5 +339,72 @@ public sealed class TrackingNumberPickerTests : IDisposable
         // "Passed! - Failed: 0, Passed: 199" rather than as a failure. Every realised-window test in this
         // suite closes its window (see ReportBandOnScreenAgreementTests.Cleanup); this one must too.
         finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE REAL <c>Enter</c> KEY, ON A SHOWN WINDOW — AND THE GESTURE IS THE VENDOR'S, NOT OURS.</b>
+    /// Re-measured by content 2026-10-23 inside the <i>Know your Purchase Bills Pending</i> section of
+    /// <c>help.tallysolutions.com/purchase-order-tally/</c>, and word for word in <i>Know your Sales Bills
+    /// Pending</i> on <c>help.tallysolutions.com/sales-order-tally/</c>:
+    /// <i>"To drill down to the voucher level, place the cursor on the voucher detail line and press
+    /// Enter."</i>
+    ///
+    /// <para>🔴 <b>THIS CORRECTS THIS TRACK'S OWN EARLIER CLAIM.</b> An earlier pass of this branch searched
+    /// both pages, found no drill-down sentence, and wrote the target up as unattested. The sentence is on
+    /// both pages — it simply sits in the Bills Pending section rather than beside the tracking-number text —
+    /// so the drill's <b>existence and its key are the vendor's</b> and only the <b>target</b> remains ours.
+    /// See <c>docs/invented-vs-cloned.md</c> IV-150, corrected rather than deleted.</para>
+    ///
+    /// <para><b>Why this exists when <c>Enter_on_a_pending_row_drills_to_the_note_that_received_the_goods</c>
+    /// already asserts the event:</b> that test calls <c>Reports.Drill(row)</c> itself, so it would stay green
+    /// on a tree where the window never routes <c>Enter</c> into the drill at all. <b>Mutation:</b> delete the
+    /// two <c>case</c> labels this track added to <c>ReportsViewModel.Drill</c> and this reddens on
+    /// <c>Assert.Equal(Screen.InventoryVoucherDetail, …)</c> — the keystroke leaves the report standing.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_real_Enter_key_on_a_pending_row_opens_the_note_in_the_shell()
+    {
+        var k = NewKit("Trk Enter Key Co");
+        PostReceiptNote(k, 40m);
+
+        var window = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        window.Show();
+        try
+        {
+            Pump(window);
+            k.Vm.OpenReport(ReportKind.PurchaseBillsPending);
+            Pump(window);
+            Assert.Equal(Screen.Report, k.Vm.CurrentScreen);
+
+            var row = Assert.Single(k.Vm.Reports!.Rows.Where(
+                r => !r.IsHeader && !r.IsTotal && r.DrillInventoryVoucherId != Guid.Empty));
+            Assert.True(row.IsDrillable);
+
+            k.Vm.Reports!.SelectedRow = row;
+            Pump(window);
+
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);   // the vendor's own key
+            Pump(window);
+
+            Assert.Equal(Screen.InventoryVoucherDetail, k.Vm.CurrentScreen);
+            Assert.NotNull(k.Vm.InventoryVoucherDetail);
+            Assert.Equal(row.DrillInventoryVoucherId, k.Vm.InventoryVoucherDetail!.VoucherId);
+
+            // And what it opened is a Receipt Note in the SAVED book, not merely a pane with a non-empty id.
+            var reloaded = Reload(k.CompanyName);
+            var noteType = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.ReceiptNote);
+            Assert.Equal(noteType.Id,
+                reloaded.InventoryVouchers.Single(v => v.Id == k.Vm.InventoryVoucherDetail!.VoucherId).TypeId);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Lays the window out and drains the dispatcher, so a keystroke is handled before the assert.
+    /// Same body as <c>CstFormsDrillTests.Pump</c>.</summary>
+    private static void Pump(MainWindow w)
+    {
+        w.UpdateLayout();
+        Dispatcher.UIThread.RunJobs();
+        w.UpdateLayout();
     }
 }
