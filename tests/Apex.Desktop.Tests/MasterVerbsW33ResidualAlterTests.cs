@@ -639,12 +639,22 @@ public sealed class MasterVerbsW33ResidualAlterTests
     /// (help.tallysolutions.com/tally-prime/budgets-and-scenario/budgets-tally/) and <i>"Alter Master &gt;
     /// Scenario" … "accept the Scenario Alteration screen"</i>
     /// (help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/). Their positive tests live in
-    /// <c>BudgetScenarioAlterAndExcludeTests</c>. <b>Batch, BOM and the reorder definition stay here</b>; the
-    /// reorder page still 404s, so inventing its alter shape remains refused.</para></summary>
+    /// <c>BudgetScenarioAlterAndExcludeTests</c>. ~~<b>Batch, BOM and the reorder definition stay here</b>; the
+    /// reorder page still 404s, so inventing its alter shape remains refused.~~
+    ///
+    /// <para>🔴 <b>AND IT IS NOW TWO — THE REORDER DEFINITION LEFT THIS LIST AT CENSUS 3.12.</b> The claim struck
+    /// above ("the reorder page still 404s") was true of the OLD slug and false of the product: the page was
+    /// MOVED, not withdrawn. It was opened and read BY CONTENT on 2026-10-23 at
+    /// <c>help.tallysolutions.com/tally-prime/inventory/reorder-stock-items-reorder-status-and-reorder-quantity/</c>,
+    /// where the vendor's own route to the reorder level IS an alteration route — <i>"Press Alt+G (Go To) &gt;
+    /// Alter Master &gt; type or select Reorder Level (Stock Item) and press Enter."</i> — and the field set is
+    /// attested (<i>"Period: Select the consumption for various periods – Days, Weeks, Months, or Years."</i>, a
+    /// <i>Criteria</i> of Higher or Lower, <i>"Minimum Order Quantity: Enter the minimum quantity you want to
+    /// order."</i>). Its positive tests live in <c>ReorderLevelAlterTests</c>. <b>Batch and BOM stay here.</b>
+    /// </para></summary>
     [AvaloniaTheory]
     [InlineData("Batch", Screen.BatchMaster)]
     [InlineData("Bill of Materials", Screen.BomMaster)]
-    [InlineData("Reorder Levels", Screen.ReorderLevelsMaster)]
     public void The_masters_without_a_vendor_documented_alter_are_delete_only(string label, Screen screen)
     {
         var (window, vm, dir) = NewWindow("W33 Alter Absent Co");
