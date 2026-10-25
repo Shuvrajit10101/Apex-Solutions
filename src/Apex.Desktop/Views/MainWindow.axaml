@@ -20348,8 +20348,8 @@
 
                     <!-- PAGE: Reports -> Statements of Accounts -> "Multi-Voucher Printing" (census 12.6, the
                          multi-VOUCHER half). Selects a RANGE of vouchers by voucher type, party and period and
-                         prints them as one collated job through the same PrintKind.ReportSet path the
-                         multi-ACCOUNT panel uses. The three selectors are real, bound controls — two ComboBoxes
+                         prints them as one collated job (PrintKind.VoucherSet), each voucher drawn by the
+                         renderer that prints it alone (A12 review w6, F2). The three selectors are real, bound controls — two ComboBoxes
                          and two TextBoxes — because a filter the view model holds and no control exposes is not
                          a feature (the dead-field shape filed as T2-40 against this very row). The match list
                          below them is what WILL print, shown before it prints. -->

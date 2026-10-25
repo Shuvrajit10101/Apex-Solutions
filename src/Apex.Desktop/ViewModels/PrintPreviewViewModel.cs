@@ -30,7 +30,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// a SET of reports printed as one collated job (W2-32 / census 12.6),
     /// or a <b>cheque</b> inked onto a pre-printed bank leaf (census row 8.4).
     /// The document mode selects the Io renderer and the F12 config knobs that apply.</summary>
-    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip, ReportSet, Cheque, PaymentAdviceLetter }
+    public enum PrintKind { Report, Voucher, Invoice, Receipt, Payslip, ReportSet, Cheque, PaymentAdviceLetter, VoucherSet }
 
     // Exactly one of these is set per instance (by the chosen ctor); it drives the render + preview.
     private readonly PrintReport? _report;
@@ -38,6 +38,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>The document SET a <see cref="PrintKind.ReportSet"/> preview prints (W2-32). Null on every other
     /// kind.</summary>
     private readonly IReadOnlyList<PrintReport>? _documents;
+
+    /// <summary>The vouchers a <see cref="PrintKind.VoucherSet"/> preview prints (census 12.6, multi-voucher), each
+    /// in the print model its own single print uses. Null on every other kind.</summary>
+    private readonly IReadOnlyList<VoucherSetDocument>? _voucherSet;
     private readonly VoucherPrintData? _voucher;
     private readonly InvoicePrintData? _invoice;
     private readonly PosReceiptData? _receipt;
@@ -99,7 +103,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// have been the wrong fix — it would have put a narration checkbox and three statutory copy-marking radios
     /// on a Trial Balance's F12 panel, i.e. three controls the report renderer cannot honour, which is the
     /// dead-knob defect <c>PrintConfigViewModel</c>'s own predicates exist to forbid.</para></summary>
-    public bool SupportsPrintConfig => Kind is PrintKind.Voucher or PrintKind.Invoice;
+    public bool SupportsPrintConfig => Kind is PrintKind.Voucher or PrintKind.Invoice or PrintKind.VoucherSet;
 
     /// <summary>
     /// Census 12.3 — true for a report preview (single or multi-document job), where the F12 <b>title and
@@ -346,6 +350,28 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         Render();
     }
 
+    /// <summary>
+    /// Preview a RANGE of vouchers as ONE collated job (census 12.6, multi-voucher printing) via
+    /// <see cref="VoucherSetPdf"/>: every voucher is drawn by the renderer that prints it ALONE — an item invoice
+    /// through <c>InvoicePdf</c>, anything else through <c>VoucherPdf</c> — so a voucher cannot print one way alone
+    /// and another way in a batch. The F12 document knobs apply to every voucher, as they apply to one; F10 selects
+    /// the job's sheets and F5 repeats the whole job.
+    /// </summary>
+    /// <param name="vouchers">The job, in print order. Each voucher starts a fresh sheet.</param>
+    /// <param name="reportTitle">The heading the preview column carries for the job as a whole.</param>
+    public PrintPreviewViewModel(IReadOnlyList<VoucherSetDocument> vouchers, string reportTitle)
+    {
+        ArgumentNullException.ThrowIfNull(vouchers);
+        // The same structural refusal as the report-set ctor: an empty job is a mistake, not a blank sheet.
+        if (vouchers.Count == 0)
+            throw new ArgumentException("a print job must contain at least one voucher", nameof(vouchers));
+        _voucherSet = vouchers;
+        Kind = PrintKind.VoucherSet;
+        ReportTitle = reportTitle ?? string.Empty;
+        _config = BuildConfig();
+        Render();
+    }
+
     /// <summary>Preview a plain voucher (RQ-10) via <c>VoucherPdf</c>; the F12 knobs apply.</summary>
     public PrintPreviewViewModel(VoucherPrintData voucher)
     {
@@ -452,6 +478,8 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             // Census 12.3: both report paths now carry the F12 print config, so the operator's title and
             // sub-title override reaches the paper. With neither override set the bytes are unmoved.
             PrintKind.ReportSet => ReportPdf.Render(_documents!, _config, BuildPrintConfig()),
+            // Census 12.6 — each voucher through its OWN single-print renderer, onto one job.
+            PrintKind.VoucherSet => VoucherSetPdf.Render(_voucherSet!, BuildPrintConfig(), _config, ReportTitle),
             _ => ReportPdf.Render(_report!, _config, BuildPrintConfig()),
         };
         OnPropertyChanged(nameof(PdfBytes));
@@ -470,11 +498,16 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             // document would show the operator one heading and print another, which is the preview-lies-about-
             // the-paper defect this pane exists to prevent.
             PrintKind.ReportSet => _documents![0].WithHeaderOverride(BuildPrintConfig()),
+            PrintKind.VoucherSet => BuildVoucherSetPreviewReport(_voucherSet![0]),
             _ => _report!.WithHeaderOverride(BuildPrintConfig()),
         };
-        _previewDocuments = Kind == PrintKind.ReportSet
-            ? _documents!.Select(d => d.WithHeaderOverride(BuildPrintConfig())).ToList()
-            : new[] { _previewReport };
+        _previewDocuments = Kind switch
+        {
+            PrintKind.ReportSet => _documents!.Select(d => d.WithHeaderOverride(BuildPrintConfig())).ToList(),
+            // Each voucher of the job mirrored by the SAME mirror its single preview shows.
+            PrintKind.VoucherSet => _voucherSet!.Select(BuildVoucherSetPreviewReport).ToList(),
+            _ => new[] { _previewReport },
+        };
 
         Pages.Clear();
         int pageNo = 0;
@@ -705,9 +738,17 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
 
     // ---- voucher / invoice preview projections (presentation-only text mirror of the PDF) ----
 
-    private PrintReport BuildVoucherPreviewReport()
+    private PrintReport BuildVoucherPreviewReport() => BuildVoucherPreviewReport(_voucher!);
+
+    /// <summary>One voucher of a <see cref="PrintKind.VoucherSet"/> job, mirrored exactly as its single preview
+    /// mirrors it — the invoice mirror for an invoice, the voucher mirror otherwise.</summary>
+    private PrintReport BuildVoucherSetPreviewReport(VoucherSetDocument document) =>
+        document.Invoice is { } invoice
+            ? BuildInvoicePreviewReport(invoice)
+            : BuildVoucherPreviewReport(document.Voucher!);
+
+    private PrintReport BuildVoucherPreviewReport(VoucherPrintData v)
     {
-        var v = _voucher!;
         var cfg = BuildPrintConfig();
         var rows = new List<PrintRow>();
         if (!string.IsNullOrEmpty(cfg.CopyMarkingLabel))
@@ -742,9 +783,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         };
     }
 
-    private PrintReport BuildInvoicePreviewReport()
+    private PrintReport BuildInvoicePreviewReport() => BuildInvoicePreviewReport(_invoice!);
+
+    private PrintReport BuildInvoicePreviewReport(InvoicePrintData inv)
     {
-        var inv = _invoice!;
         var cfg = BuildPrintConfig();
         var rows = new List<PrintRow>();
         // T0-11 review C3/L1-03 — the CGST Rule 48(1) copy marking is an issuer particular, and the mirror drops it

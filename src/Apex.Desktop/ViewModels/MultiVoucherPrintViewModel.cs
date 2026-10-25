@@ -51,8 +51,8 @@ public sealed class MultiVoucherChoice
 /// other, and counting the page range for this row would be a false close.</para>
 ///
 /// <para><b>It holds no print logic</b> (ER-12): it picks a type, a party and a period, and hands the chosen
-/// set to <see cref="MultiVoucherPrintProjector"/>, whose documents go to the ordinary
-/// <c>PrintKind.ReportSet</c> preview that multi-account printing already uses.</para>
+/// set to <see cref="MultiVoucherPrintProjector"/>, whose documents — each in its voucher's own single-print
+/// model — go to the <c>PrintKind.VoucherSet</c> preview, so every voucher prints exactly as it prints alone.</para>
 ///
 /// <para><b>No clock.</b> The opening period is supplied by the shell, so the panel is deterministic in
 /// tests.</para>
@@ -193,14 +193,14 @@ public sealed partial class MultiVoucherPrintViewModel : ViewModelBase
     /// Returns an EMPTY list (and leaves <see cref="Status"/> saying why) when the range holds nothing, so the
     /// caller never opens a preview over a blank sheet.
     /// </summary>
-    public IReadOnlyList<PrintReport> BuildJob()
+    public IReadOnlyList<VoucherSetDocument> BuildJob()
     {
         if (!ApexDate.TryParse(PeriodFromText, out var from) ||
             !ApexDate.TryParse(PeriodToText, out var to) ||
             to < from)
         {
             // Status already carries the parse/ordering refusal from Refresh.
-            return Array.Empty<PrintReport>();
+            return Array.Empty<VoucherSetDocument>();
         }
 
         var chosen = MultiVoucherPrintProjector.Select(
@@ -209,7 +209,7 @@ public sealed partial class MultiVoucherPrintViewModel : ViewModelBase
         if (chosen.Count == 0)
         {
             Status = "No vouchers in this range. Nothing to print.";
-            return Array.Empty<PrintReport>();
+            return Array.Empty<VoucherSetDocument>();
         }
 
         return MultiVoucherPrintProjector.Project(_company, chosen);

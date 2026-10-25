@@ -20,9 +20,38 @@ public static class VoucherPdf
     /// <summary>Renders the voucher to PDF bytes.</summary>
     public static byte[] Render(VoucherPrintData data, PrintConfig config, PageConfig page)
     {
+        var writer = Compose(data, config, page, into: null);
+
+        // W2-31 (census 12.4) F5: collated copies of the whole voucher. One copy repeats nothing, so the shipped
+        // byte stream is untouched (ER-13).
+        writer.RepeatAllPages(page.EffectiveCopies);
+        return writer.Build();
+    }
+
+    /// <summary>
+    /// Draws EVERY sheet of the voucher onto a JOB writer, exactly as <see cref="Render"/> draws them for the
+    /// voucher printed alone — the same header band, rows, closing block and "Page N of M" footer, numbered from 1
+    /// within this voucher (census 12.6, multi-voucher printing; see <see cref="VoucherSetPdf"/>). The job, not this
+    /// method, applies the F10 page range and the F5 copies, so neither is read here.
+    /// </summary>
+    public static void RenderInto(PdfWriter writer, VoucherPrintData data, PrintConfig config, PageConfig page)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        Compose(data, config, page, into: writer);
+    }
+
+    /// <summary>
+    /// The one body behind <see cref="Render"/> and <see cref="RenderInto"/>, so a voucher cannot draw one way
+    /// alone and another way in a job. With <paramref name="into"/> null it is the single-voucher render — its own
+    /// writer, the F10 range and start number honoured, a blank sheet for an empty selection — byte-for-byte what
+    /// shipped. With a job writer it draws the whole voucher, numbered from 1.
+    /// </summary>
+    private static PdfWriter Compose(VoucherPrintData data, PrintConfig config, PageConfig page, PdfWriter? into)
+    {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(page);
+        bool wholeDocument = into is not null;
 
         string title = string.IsNullOrWhiteSpace(config.TitleOverride)
             ? DefaultTitle(data.VoucherTypeName)
@@ -73,14 +102,14 @@ public static class VoucherPdf
         // printed. StartPageNumber RENUMBERS sheet one (a continuation voucher reads "Page 7 of 9"); the range
         // SELECTS which sheets are drawn and never renumbers them, because the operator is holding sheet 3 of a
         // 4-sheet voucher. Defaults reproduce the shipped bytes exactly (ER-13).
-        int firstNumber = page.StartPageNumber < 1 ? 1 : page.StartPageNumber;
+        int firstNumber = wholeDocument ? 1 : (page.StartPageNumber < 1 ? 1 : page.StartPageNumber);
         int lastNumber = firstNumber + total - 1;
 
-        var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
+        var writer = into ?? new PdfWriter { DocumentTitle = SafeTitle(title) };
         int drawn = 0;
         for (int p = 0; p < pages.Count; p++)
         {
-            if (!page.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn at all
+            if (!wholeDocument && !page.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn at all
             writer.BeginPage(page.PageWidth, page.PageHeight);
             // A selected sheet keeps the band it would have carried in the full document: sheet 1 is still the
             // first page even when the range starts at 2 and sheet 1 is not drawn. Deriving "is first" from the
@@ -99,7 +128,7 @@ public static class VoucherPdf
             drawn++;
         }
 
-        if (closingOnNewPage && page.IncludesPage(total))
+        if (closingOnNewPage && (wholeDocument || page.IncludesPage(total)))
         {
             writer.BeginPage(page.PageWidth, page.PageHeight);
             double yy = DrawHeaderBand(writer, data, config, page, title, left, right, isFirstPage: false);
@@ -116,10 +145,7 @@ public static class VoucherPdf
         if (drawn == 0)
             writer.BeginPage(page.PageWidth, page.PageHeight);
 
-        // W2-31 (census 12.4) F5: collated copies of the whole voucher. One copy repeats nothing, so the shipped
-        // byte stream is untouched (ER-13).
-        writer.RepeatAllPages(page.EffectiveCopies);
-        return writer.Build();
+        return writer;
     }
 
     // ---- band-height estimates (kept in sync with the drawing methods) ----

@@ -117,7 +117,164 @@ public sealed class MultiVoucherPrintTests : IDisposable
     {
         var chosen = MultiVoucherPrintProjector.Select(c, typeId, partyId, from, to);
         var docs = MultiVoucherPrintProjector.Project(c, chosen);
-        return AsLatin1(ReportPdf.Render(docs, new PageConfig()));
+        return AsLatin1(RenderJob(docs, new PageConfig()));
+    }
+
+    /// <summary>The job exactly as the shell's preview renders it (no F12 knob touched).</summary>
+    private static byte[] RenderJob(System.Collections.Generic.IReadOnlyList<VoucherSetDocument> docs, PageConfig page)
+        => VoucherSetPdf.Render(docs, new PrintConfig(), page, MultiVoucherPrintProjector.JobTitle);
+
+    /// <summary>Every page content stream in a PDF, in order — what is actually drawn on each sheet.</summary>
+    private static string[] ContentStreams(byte[] pdf)
+        => System.Text.RegularExpressions.Regex
+            .Matches(AsLatin1(pdf), "/Length \\d+ >>\nstream\n(.*?)endstream",
+                System.Text.RegularExpressions.RegexOptions.Singleline)
+            .Select(m => m.Groups[1].Value)
+            .Where(c => c.Contains(" Tf", StringComparison.Ordinal))   // page text streams, not image samples
+            .ToArray();
+
+    /// <summary>
+    /// 🔴 <b>"PRINTS EXACTLY AS IT PRINTS ALONE", ASSERTED ON THE BYTES.</b> Every sheet the voucher's single print
+    /// draws must appear, verbatim, as a sheet of the batch — same header, same rows, same footer.
+    /// </summary>
+    private static void AssertEverySheetOfTheSinglePrintIsInTheBatch(byte[] single, byte[] batch)
+    {
+        var alone = ContentStreams(single);
+        var inBatch = ContentStreams(batch);
+        Assert.NotEmpty(alone);
+        foreach (var sheet in alone)
+            Assert.True(inBatch.Contains(sheet),
+                "a sheet of the voucher's single print is not in the batch byte-for-byte — the batch prints it "
+              + "differently. First 300 chars of the missing sheet: " + sheet[..Math.Min(300, sheet.Length)]);
+    }
+
+    /// <summary>
+    /// A company with one GST item Sales invoice (item "Zqwidget", HSN 847130, buyer GSTIN 27AAPFU0939F1ZV) and one
+    /// plain Journal — the A12 review's probe P2 shape — saved and opened through the shell, so both prints go
+    /// through the routes an operator uses.
+    /// </summary>
+    private (MainWindowViewModel Shell, Voucher Sale, Voucher Journal) InvoiceCompanyOnTheShell()
+    {
+        var c = CompanyFactory.CreateSeeded("Inv Co", FyStart);
+        var gst = new Apex.Ledger.Services.GstService(c);
+        gst.EnableGst(new GstConfig
+        {
+            HomeStateCode = "27", Gstin = "27AAPFU0939F1ZV", RegistrationType = GstRegistrationType.Regular,
+            ApplicableFrom = FyStart, Periodicity = GstReturnPeriodicity.Monthly,
+        });
+        var inv = new InventoryService(c);
+        var grp = inv.CreateStockGroup("Goods");
+        var nos = inv.CreateSimpleUnit("Nos", "Numbers", unitQuantityCode: "NOS");
+        var main = c.MainLocation!.Id;
+        var widget = inv.CreateStockItem("Zqwidget", grp.Id, nos.Id);
+        widget.Gst = new StockItemGstDetails { HsnSac = "847130", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        inv.AddOpeningBalance(widget.Id, main, 1000m, Money.FromRupees(40000m));
+        var sales = new Domain.Ledger(Guid.NewGuid(), "Sales", c.FindGroupByName("Sales Accounts")!.Id, Money.Zero, false);
+        c.AddLedger(sales);
+        var debtor = new Domain.Ledger(Guid.NewGuid(), "Local Debtor", c.FindGroupByName("Sundry Debtors")!.Id, Money.Zero, true);
+        c.AddLedger(debtor);
+        debtor.PartyGst = new PartyGstDetails
+        {
+            RegistrationType = GstRegistrationType.Regular, Gstin = "27AAPFU0939F1ZV", StateCode = "27",
+        };
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new Apex.Ledger.Services.GstService.TaxableLine(Money.FromRupees(50000m), 1800) },
+            interState: false, GstTaxDirection.Output);
+        var lines = new System.Collections.Generic.List<EntryLine>
+        {
+            new(debtor.Id, Money.FromRupees(59000m), DrCr.Debit),
+            new(sales.Id, Money.FromRupees(50000m), DrCr.Credit),
+        };
+        lines.AddRange(tax.TaxLines);
+        var salesType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales);
+        var svc = new LedgerService(c);
+        svc.Post(new Voucher(Guid.NewGuid(), salesType.Id, new DateOnly(2025, 4, 10), lines, partyId: debtor.Id,
+            inventoryLines: new[] { new VoucherInventoryLine(widget.Id, main, 1m, Money.FromRupees(50000m)) }));
+        svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, new DateOnly(2025, 4, 12), new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(777.77m), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(777.77m), DrCr.Credit),
+        }));
+
+        var storage = new CompanyStorage(System.IO.Path.Combine(_tempDir, "Companies"));
+        storage.Save(c);
+        var shell = new MainWindowViewModel(storage);
+        shell.ShowCompanySelect();
+        shell.Menu.Single(m => m.Label == "Inv Co").Activate();
+        var company = shell.Company!;
+        var sale = company.Vouchers.Single(v => v.TypeId == salesType.Id);
+        var journal = company.Vouchers.Single(v => v.TypeId != salesType.Id);
+        return (shell, sale, journal);
+    }
+
+    /// <summary>The batch the operator prints: the shell's panel, all vouchers, PrintMultiVoucherJob.</summary>
+    private static byte[] PrintEverythingThroughTheShell(MainWindowViewModel shell)
+    {
+        shell.OpenMultiVoucherPrint();
+        Assert.Equal(2, shell.MultiVoucherPrint!.MatchCount);
+        shell.PrintMultiVoucherJob();
+        return shell.PrintPreview!.PdfBytes;
+    }
+
+    /// <summary>
+    /// 🔴 <b>F2 (A12 review w6): an item Sales INVOICE prints in a batch EXACTLY as it prints alone.</b> The vendor
+    /// page this row cites uses Multi-Voucher Printing to print sales invoices. Printed alone (the voucher-detail
+    /// route, <c>VoucherDetailViewModel.BuildPrintPreview</c>) it carries its item, HSN and GSTIN; the first cut of
+    /// the batch printed it as a bare Particulars/Debit/Credit list with none of them. Asserted on the emitted
+    /// bytes twice over: the three particulars by name, and every sheet of the single print found verbatim among
+    /// the batch's sheets.
+    /// </summary>
+    [Fact]
+    public void An_item_invoice_prints_in_the_batch_exactly_as_it_prints_alone()
+    {
+        var (shell, sale, _) = InvoiceCompanyOnTheShell();
+        var single = new VoucherDetailViewModel(shell.Company!, sale).BuildPrintPreview().PdfBytes;
+        var batch = PrintEverythingThroughTheShell(shell);
+
+        var b = AsLatin1(batch);
+        Assert.Contains("Zqwidget", b, StringComparison.Ordinal);
+        Assert.Contains("847130", b, StringComparison.Ordinal);
+        Assert.Contains("27AAPFU0939F1ZV", b, StringComparison.Ordinal);
+        AssertEverySheetOfTheSinglePrintIsInTheBatch(single, batch);
+    }
+
+    /// <summary>
+    /// The same promise for a PLAIN voucher in the same job: the Journal's single print (VoucherPdf, with its
+    /// amount in words and its own footer) is in the batch sheet for sheet. A batch that printed the invoice right
+    /// and every other voucher as a report-shaped list would pass the test above alone.
+    /// </summary>
+    [Fact]
+    public void A_plain_voucher_prints_in_the_batch_exactly_as_it_prints_alone()
+    {
+        var (shell, _, journal) = InvoiceCompanyOnTheShell();
+        var single = new VoucherDetailViewModel(shell.Company!, journal).BuildPrintPreview().PdfBytes;
+        var batch = PrintEverythingThroughTheShell(shell);
+
+        Assert.Contains("777.77", AsLatin1(batch), StringComparison.Ordinal);
+        AssertEverySheetOfTheSinglePrintIsInTheBatch(single, batch);
+    }
+
+    /// <summary>
+    /// The JOB's knobs are the job's: F10 selects the job's own sheets (sheets 2 to 3 of a five-voucher job are
+    /// the 20-Apr payment and the 10-May receipt, and nothing else), and F5 repeats the whole job collated.
+    /// Read off the emitted page objects and figures.
+    /// </summary>
+    [Fact]
+    public void The_page_range_selects_the_jobs_sheets_and_copies_repeat_the_whole_job()
+    {
+        var (c, _, _, _, _) = Books();
+        var docs = MultiVoucherPrintProjector.Project(c, MultiVoucherPrintProjector.Select(c, null, null, FyStart, FyEnd));
+        Assert.Equal(5, docs.Count);
+
+        string ranged = AsLatin1(RenderJob(docs, new PageConfig { FirstPage = 2, LastPage = 3 }));
+        Assert.Equal(2, CountOccurrences(ranged, "/Type /Page "));
+        Assert.Contains("44,444.44", ranged, StringComparison.Ordinal);   // 20-Apr payment: sheet 2
+        Assert.Contains("22,222.22", ranged, StringComparison.Ordinal);   // 10-May receipt: sheet 3
+        Assert.DoesNotContain("11,111.11", ranged, StringComparison.Ordinal);
+        Assert.DoesNotContain("33,333.33", ranged, StringComparison.Ordinal);
+
+        string twice = AsLatin1(RenderJob(docs, new PageConfig { Copies = 2 }));
+        Assert.Equal(10, CountOccurrences(twice, "/Type /Page "));
     }
 
     // ------------------------------------------------------------------ the range itself
@@ -275,7 +432,7 @@ public sealed class MultiVoucherPrintTests : IDisposable
         var docs = MultiVoucherPrintProjector.Project(c, chosen);
         Assert.Equal(5, docs.Count);
 
-        string s = AsLatin1(ReportPdf.Render(docs, new PageConfig()));
+        string s = AsLatin1(RenderJob(docs, new PageConfig()));
 
         // Read the page count off the emitted PDF structure, not off docs.Count.
         int pageObjects = CountOccurrences(s, "/Type /Page\n") + CountOccurrences(s, "/Type /Page ");
@@ -303,31 +460,6 @@ public sealed class MultiVoucherPrintTests : IDisposable
         Assert.True(april >= 0 && may >= 0 && june >= 0, "all three receipts must be on the paper");
         Assert.True(april < may, "the April receipt must precede the May one in the emitted stream");
         Assert.True(may < june, "the May receipt must precede the June one in the emitted stream");
-    }
-
-    /// <summary>
-    /// 🔴 <b>THE EGRESS BAND — the invariant <c>MatrixSecondBandEgressTests</c> exists to hold.</b> No row of
-    /// any document this projector builds may be wider than the column band that carries it, because
-    /// <c>ReportPdf</c> clamps with <c>Math.Min(Columns.Count, row.Cells.Count)</c> and the overflow is deleted
-    /// in silence. Checked per document over the whole range, so a single odd voucher cannot slip through.
-    /// </summary>
-    [Fact]
-    public void No_document_carries_a_row_wider_than_its_column_band()
-    {
-        var (c, _, _, _, _) = Books();
-
-        var chosen = MultiVoucherPrintProjector.Select(c, null, null, FyStart, FyEnd);
-        var docs = MultiVoucherPrintProjector.Project(c, chosen);
-        Assert.NotEmpty(docs);
-
-        foreach (var d in docs)
-        {
-            Assert.NotEmpty(d.Columns);
-            foreach (var row in d.Rows)
-                Assert.True(row.Cells.Count <= d.Columns.Count,
-                    $"'{d.Title}' has a row of {row.Cells.Count} cells under a band of {d.Columns.Count} — "
-                  + "ReportPdf would delete the overflow without a word.");
-        }
     }
 
     /// <summary>
@@ -396,7 +528,7 @@ public sealed class MultiVoucherPrintTests : IDisposable
         vm.PeriodToText = "31-05-2025";
 
         Assert.Equal(1, vm.MatchCount);
-        string s = AsLatin1(ReportPdf.Render(vm.BuildJob(), new PageConfig()));
+        string s = AsLatin1(RenderJob(vm.BuildJob(), new PageConfig()));
         Assert.Contains("22,222.22", s, StringComparison.Ordinal);
         Assert.DoesNotContain("11,111.11", s, StringComparison.Ordinal);
     }

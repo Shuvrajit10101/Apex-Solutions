@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
+using Apex.Ledger.Reports;
 
 namespace Apex.Desktop.Services;
 
@@ -26,16 +25,17 @@ namespace Apex.Desktop.Services;
 /// party and period are each quoted above. Nothing else is offered, because nothing else is attested — a
 /// sorting knob or a "skip cancelled" toggle would be ours, not the reference product's.</para>
 ///
-/// <para><b>One <see cref="PrintReport"/> per voucher, handed to the EXISTING
-/// <c>PrintKind.ReportSet</c> path</b> that multi-ACCOUNT printing already uses. That is deliberate reuse, not
-/// a parallel engine: <c>ReportPdf.Render(documents, …)</c> already starts each document on a fresh sheet and
-/// runs the page numbering across the whole job, and the F10 page range already applies to it. A second
-/// renderer would be a second set of pagination bugs.</para>
-///
-/// <para>🔴 <b>The per-voucher document is the SAME projection the single-voucher preview draws</b>
-/// (<c>PrintPreviewViewModel.BuildVoucherPreviewReport</c>): the same three columns, the same header rows, the
-/// same cancelled marking. A voucher must not print one way alone and another way in a batch — that is the
-/// preview/paper drift this project has already filed against the invoice mirror.</para>
+/// <para>🔴 <b>Each voucher prints EXACTLY AS IT PRINTS ALONE.</b> A voucher is carried in the print model its
+/// single print uses — the routing is the one <c>VoucherDetailViewModel.BuildPrintPreview</c> applies: an item
+/// invoice (<see cref="PrintedDocumentClass.RendersItemDetail"/>) through
+/// <see cref="VoucherPrintProjector.ProjectInvoice"/>, anything else through
+/// <see cref="VoucherPrintProjector.ProjectVoucher"/> — and <c>VoucherSetPdf</c> draws each through the SAME
+/// renderer body (<c>InvoicePdf</c> / <c>VoucherPdf</c>) onto one job. The first cut of this class built its own
+/// three-column Dr/Cr <see cref="PrintReport"/> per voucher and claimed it "mirrors the single-voucher preview
+/// cell for cell"; an item Sales invoice then printed alone with its item, HSN and GSTINs and in the batch with
+/// none of them (A12 review w6, F2). The one divergence from the single print: a payment drawn by cheque prints
+/// its VOUCHER here, not the cheque leaf its single print routes to — a batch of payment vouchers onto cheque
+/// stationery is not a thing anyone asks for, and cheque printing has its own register.</para>
 ///
 /// <para><b>No clock.</b> The period is supplied by the caller (ER-12), so the projection is deterministic in
 /// tests and cannot disagree with the books about what "this year" means.</para>
@@ -44,14 +44,6 @@ public static class MultiVoucherPrintProjector
 {
     /// <summary>The heading the preview column carries for a multi-voucher job.</summary>
     public const string JobTitle = "Multi-Voucher Printing";
-
-    /// <summary>
-    /// Invariant-culture day formatting. 🔴 <b>Deliberately invariant</b>, for the reason spelled out on
-    /// <c>MultiAccountPrintProjector.Day</c>: a bare <c>ToString("dd-MM-yyyy")</c> reads the ambient calendar and
-    /// printed <c>01-04-2563</c> on a Thai machine, so the paper disagreed with the books.
-    /// </summary>
-    private static string Day(DateOnly date) =>
-        date.ToString("dd-MM-yyyy", CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The vouchers a job would cover, in print order (date, then voucher number, then id) — the RANGE this row
@@ -116,89 +108,19 @@ public static class MultiVoucherPrintProjector
     }
 
     /// <summary>
-    /// Projects the chosen vouchers into the document SET a <c>PrintKind.ReportSet</c> preview prints — one
-    /// document per voucher, each starting a fresh sheet.
+    /// Projects the chosen vouchers into the job a <c>PrintKind.VoucherSet</c> preview prints — one document per
+    /// voucher, in the voucher's own single-print model, each starting a fresh sheet.
     /// </summary>
-    public static IReadOnlyList<PrintReport> Project(Company company, IReadOnlyList<Voucher> vouchers)
+    public static IReadOnlyList<VoucherSetDocument> Project(Company company, IReadOnlyList<Voucher> vouchers)
     {
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(vouchers);
 
-        var documents = new List<PrintReport>(vouchers.Count);
+        var documents = new List<VoucherSetDocument>(vouchers.Count);
         foreach (var v in vouchers)
-            documents.Add(Document(company, v));
+            documents.Add(GstReportSupport.ClassifyPrintedDocument(company, v).RendersItemDetail
+                ? VoucherSetDocument.Of(VoucherPrintProjector.ProjectInvoice(company, v))
+                : VoucherSetDocument.Of(VoucherPrintProjector.ProjectVoucher(company, v)));
         return documents;
-    }
-
-    /// <summary>
-    /// One voucher as one printable document. Mirrors the single-voucher preview projection cell for cell.
-    ///
-    /// <para>🔴 <b>Three cells on every row, against three columns — the egress-band invariant.</b>
-    /// <c>PrintReport</c> carries ONE column band and <c>ReportPdf</c> clamps with
-    /// <c>Math.Min(Columns.Count, row.Cells.Count)</c>, so a row wider than the band is silently amputated on
-    /// paper. That is the defect <c>MatrixSecondBandEgressTests</c> exists to prevent (a filed annual return
-    /// printed with its money deleted). Every row built below emits exactly three cells.</para>
-    /// </summary>
-    private static PrintReport Document(Company company, Voucher voucher)
-    {
-        var type = company.FindVoucherType(voucher.TypeId);
-        var party = voucher.PartyId is Guid pid ? company.FindLedger(pid)?.Name : null;
-        var number = company.FormatVoucherNumber(voucher);
-
-        var rows = new List<PrintRow>
-        {
-            PrintRow.Header(
-                string.IsNullOrEmpty(number) ? "No. -" : "No. " + number,
-                "Date",
-                Day(voucher.Date)),
-        };
-
-        // 🔴 A CANCELLED voucher is marked on the paper, exactly as the single-voucher path marks it
-        // (VoucherPrintProjector sets IsCancelled and VoucherPdf over-prints it). A batch that printed a
-        // cancelled voucher indistinguishable from a live one would put a withdrawn document in a counterparty's
-        // hands. It is NOT dropped from the range: its number was spent and the vendor's own cheque-register
-        // treatment keeps cancelled instruments visible rather than hiding them.
-        if (voucher.Cancelled)
-            rows.Add(PrintRow.Header("** CANCELLED **", string.Empty, string.Empty));
-
-        if (!string.IsNullOrWhiteSpace(party))
-            rows.Add(PrintRow.Header("Party: " + ReportPrintProjector.Ascii(party), string.Empty, string.Empty));
-
-        decimal totalDebit = 0m, totalCredit = 0m;
-        foreach (var l in voucher.Lines)
-        {
-            var isDebit = l.Side == DrCr.Debit;
-            if (isDebit) totalDebit += l.Amount.Amount; else totalCredit += l.Amount.Amount;
-            rows.Add(new PrintRow(
-                ReportPrintProjector.Ascii(company.FindLedger(l.LedgerId)?.Name ?? "(unknown)"),
-                isDebit ? IndianFormat.Amount(l.Amount) : string.Empty,
-                isDebit ? string.Empty : IndianFormat.Amount(l.Amount)));
-        }
-
-        rows.Add(PrintRow.Total(
-            "Total",
-            IndianFormat.AmountAlways(totalDebit),
-            IndianFormat.AmountAlways(totalCredit)));
-
-        if (!string.IsNullOrWhiteSpace(voucher.Narration))
-            rows.Add(PrintRow.Header(
-                "Narration: " + ReportPrintProjector.Ascii(voucher.Narration!), string.Empty, string.Empty));
-
-        return new PrintReport
-        {
-            // The voucher TYPE name is a master the user typed (a company may rename "Sales" or add its own
-            // type), so the heading is flagged under ruling 18 — otherwise the renderer's ER-11 guard would
-            // strip a vendor token out of a real, operator-chosen type name on every sheet of the batch.
-            Title = ReportPrintProjector.Ascii(type?.Name ?? "Voucher"),
-            TitleCarriesMasterName = true,
-            Subtitle = ReportPrintProjector.Ascii(VoucherPrintProjector.CompanyDisplayName(company)),
-            Columns = new[]
-            {
-                new PrintColumn("Particulars", 3, CellAlign.Left),
-                new PrintColumn("Debit", 1.5, CellAlign.Right),
-                new PrintColumn("Credit", 1.5, CellAlign.Right),
-            },
-            Rows = rows,
-        };
     }
 }

@@ -2146,7 +2146,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Census 12.6, the MULTI-VOUCHER half — the row's other named capability, and the gap the block above
         // has recorded since PR #56 ("NOTHING here iterates vouchers — there is no way to say 'print vouchers
         // 10 to 25 as one job'"). This entry is that way. It selects a RANGE of vouchers by voucher type, party
-        // and period and prints them as one collated job through the SAME PrintKind.ReportSet path.
+        // and period and prints them as one collated job (PrintKind.VoucherSet), each voucher drawn by the renderer
+        // that prints it alone.
         //
         // 🔴 THE PAGE RANGE IS STILL NOT THIS ROW'S RANGE, and that distinction is kept exactly as the block
         // above draws it: F10 selects SHEETS within a job (row 12.4); this selects VOUCHERS (row 12.6). The two
@@ -5187,9 +5188,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>
     /// Ctrl+A / the Print button on the Multi-Voucher Printing panel: projects the chosen RANGE of vouchers
-    /// into a document SET and opens the ordinary <see cref="PrintPreviewViewModel"/> over the whole job, so
-    /// the F12 config, the F10 page range and the Ctrl+A Save-PDF arm all work on it exactly as they do on one
-    /// report.
+    /// into a job — each voucher in its own single-print model — and opens the ordinary
+    /// <see cref="PrintPreviewViewModel"/> over the whole job, so the F12 document knobs apply to every voucher
+    /// as they apply to one, and the F10 page range and the Ctrl+A Save-PDF arm work on the job.
     ///
     /// <para>An empty range opens NOTHING — the panel's own <c>BuildJob</c> returns an empty list and its
     /// status line already says why. Previewing a blank sheet would present a mistake as output.</para>
