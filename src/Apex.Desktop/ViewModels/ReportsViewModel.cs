@@ -3596,19 +3596,28 @@ public sealed partial class ReportsViewModel : ViewModelBase
             return;
         }
 
-        // 🔴 R7 — THE TWO SIDES ARE NOT EQUALLY ATTESTED, AND THE DIFFERENCE IS RECORDED RATHER THAN HIDDEN.
-        // The PURCHASE captions are the vendor's, VERBATIM: help.tallysolutions.com/purchase-order-tally/ prints
-        // "Goods Recd. but Bills not Recd.:" and "Bills Recd. but Goods not Recd.:" as the two section headings.
-        // The SALES page (help.tallysolutions.com/sales-order-tally/) attests the report NAME "Sales Bills
-        // Pending" verbatim but describes its two sections in PROSE ("goods may have been delivered but not
-        // invoiced"; "invoices raised but against which goods have not been delivered") and never gives a caption
-        // pair. So the two sales captions below are OURS, written to mirror the attested purchase pair over the
-        // outward document names. That is a documented divergence, not a quotation — if the vendor caption is
-        // later found, these two strings are what to change.
+        // 🔴 R7 — ALL FOUR CAPTIONS ARE THE VENDOR'S, VERBATIM. THE SALES PAIR WAS *OURS* UNTIL 2026-10-23 AND
+        // THE REASON IT WAS OURS WAS A FAILED SEARCH, NOT A SILENT VENDOR.
+        // PURCHASE — help.tallysolutions.com/purchase-order-tally/ prints "Goods Recd. but Bills not Recd.:" and
+        // "Bills Recd. but Goods not Recd.:" as the two section headings.
+        // SALES — the struck comment here used to say the sales page "never gives a caption pair", on the
+        // strength of two PROSE sentences it did quote correctly ("goods may have been delivered but not
+        // invoiced"; "invoices raised but against which goods have not been delivered"). 🔴 THAT NEGATIVE WAS
+        // FALSE AND IT HAD SHIPPED: the same page's F12 (Configure) table for the Sales Bills Pending report
+        // names BOTH sections outright — "Display the Goods Delivered but Bills not Made section with
+        // transaction details." and "Display the Bills Made but Goods not Delivered section with transaction
+        // details." The report's own summary sentence agrees ("This report lists transactions of Goods Delivered
+        // but bills not Made ..."), as does a third appearance elsewhere on the page ("appears as Bills made but
+        // goods not delivered in the Sales Bill Pending report"). Two of three appearances agree word for word
+        // and the F12 rows say "section" explicitly, so the pair IS derivable; only the loose "Sales bills to
+        // make" is the outlier. Opened BY CONTENT twice, 2026-10-23, by the wave-6 review.
+        // 🔴 SO WE SHIPPED "Raised" WHERE THE VENDOR SAYS "Made" — on a CLONE — and the register entry that
+        // recorded the divergence (IV-152) justified it with "no single caption can be derived from it". A
+        // negative is not a ground. Corrected here; IV-152 is retracted rather than deleted.
         AddBillsPendingSection(rows, BillsPendingSection.GoodsNotBilled,
-            purchase ? "Goods Recd. but Bills not Recd." : "Goods Delivered but Bills not Raised");
+            purchase ? "Goods Recd. but Bills not Recd." : "Goods Delivered but Bills not Made");
         AddBillsPendingSection(rows, BillsPendingSection.BilledNotReceived,
-            purchase ? "Bills Recd. but Goods not Recd." : "Bills Raised but Goods not Delivered");
+            purchase ? "Bills Recd. but Goods not Recd." : "Bills Made but Goods not Delivered");
     }
 
     private void AddBillsPendingSection(
