@@ -6113,6 +6113,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Company = restored;
         StatusCompany = restored.Name;
         StatusDate = ApexDate.Format(restored.FinancialYearStart);
+        // The ruling-26 banner describes the book on screen, and OpenCompany is its only other setter: without this
+        // a restore redirected off the open book left that book's closing-stock warning up over the restored one
+        // (A12 verify of d930b00).
+        ValuationRemediationWarning = ValuationRemediationNotice.For(restored);
         Message = $"Restored '{restored.Name}' from backup.";
         BuildButtonBar();
     }

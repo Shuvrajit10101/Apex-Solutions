@@ -253,4 +253,41 @@ public sealed class RestoreOpenBookSessionTests : IDisposable
         Assert.Contains(("Beta Co", 2, true), books);      // the vault holds Beta Co alone
         Assert.Equal(2, books.Length);
     }
+
+    /// <summary>
+    /// 🔴 <b>The ruling-26 banner belongs to the book on screen</b> (A12 verify of d930b00). Beta Co carries a
+    /// stock item migrated off Last Sale Cost, so opening it raises the closing-stock warning naming that item. The
+    /// operator then restores Alpha Co's archive onto Alpha Co, which holds no stock at all. The banner is set only
+    /// by OpenCompany, so before the fix it stayed up over Alpha Co, telling him Alpha Co's Balance Sheet had moved
+    /// because of an item Alpha Co does not have.
+    /// </summary>
+    [Fact]
+    public void A_restore_redirected_off_the_open_book_does_not_keep_its_valuation_warning()
+    {
+        var storage = new CompanyStorage(_companiesDir);
+        var archive = AlphaArchive(storage);
+        var beta = Book("Beta Co", 2);
+        var masters = new InventoryService(beta);
+        var item = masters.CreateStockItem("Widget", masters.CreateStockGroup("Goods").Id,
+            masters.CreateSimpleUnit("Nos", "Numbers").Id, valuationMethod: StockValuationMethod.LastPurchaseCost);
+        item.ValuationRemediatedFrom = StockValuationMethod.LastSaleCost;
+        storage.Save(beta);
+        SqliteConnection.ClearAllPools();
+
+        var vm = new MainWindowViewModel(storage);
+        vm.ShowCompanySelect();
+        vm.Menu.Single(m => m.Label == "Beta Co").Activate();
+        Assert.Contains("Widget", vm.ValuationRemediationWarning, StringComparison.Ordinal);
+
+        vm.OpenRestoreCompany();
+        var panel = vm.RestoreCompanyPanel!;
+        panel.FilePath = archive;
+        panel.TargetCompanyName = "Alpha Co";
+        Assert.True(panel.Examine(), panel.Status);
+        panel.Confirmed = true;
+        Assert.True(vm.ApplyRestore(), panel.Status);
+        Assert.Equal("Alpha Co", vm.Company!.Name);
+
+        Assert.Equal(string.Empty, vm.ValuationRemediationWarning);
+    }
 }
