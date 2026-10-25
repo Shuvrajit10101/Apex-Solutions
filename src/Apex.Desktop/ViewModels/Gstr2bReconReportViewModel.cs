@@ -118,10 +118,9 @@ public sealed partial class Gstr2bReconReportViewModel : ViewModelBase, IMasterL
         var (from, to) = GstAdvancedSnapshots.Window(snap.ReturnPeriod, _company.FinancialYearStart);
         // 🔴 v61 (census 6.23) made the reconciler REFUSE an unscoped run on a multi-registration company, because a
         // books register folded over two GSTINs cannot be matched against one registration's 2B — and this screen
-        // used to call it unscoped, so on every book with a branch the whole page was that refusal. A GSTR-2B is
-        // issued to ONE registered person (CGST Rules, rule 60(7)) and since schema v66 the imported statement
-        // carries the registration it was imported for (Gstr2bSnapshot.OwningRegistrationId, never null: the
-        // primary when unanchored). So the reconciliation is scoped to the SELECTED STATEMENT'S OWN registration:
+        // used to call it unscoped, so on every book with a branch the whole page was that refusal. Since schema
+        // v66 every imported statement carries the ONE registration it was imported for
+        // (Gstr2bSnapshot.OwningRegistrationId, never null: the primary when unanchored). So the reconciliation is scoped to the SELECTED STATEMENT'S OWN registration:
         // its books side is exactly the registration whose portal statement it is being matched against. On a
         // single-registration book that id is the primary, which every voucher already attributes to (ER-13).
         // The vendor's own default differs and is recorded as ours in docs/invented-vs-cloned.md (IV-175).
