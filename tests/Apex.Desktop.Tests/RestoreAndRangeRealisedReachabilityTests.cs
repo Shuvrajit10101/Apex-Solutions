@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Apex.Desktop.Services;
@@ -81,15 +83,18 @@ public sealed class RestoreAndRangeRealisedReachabilityTests : IDisposable
                  .OfType<TextBox>()
                  .Where(t => t.DataContext is RestoreCompanyViewModel
                              && t.GetValue(TextBox.TextProperty) is not null
-                             && IsBoundTo(t, nameof(RestoreCompanyViewModel.TargetCompanyName)))
+                             && TracksTargetCompanyName(t))
                  .ToArray();
 
     /// <summary>
-    /// Whether the control's <c>Text</c> really tracks that view-model property, established by MOVING the
-    /// property and seeing the realised control follow. A control bound to nothing, or bound to a different
-    /// property, fails this — which is the point.
+    /// Whether the control's <c>Text</c> really tracks <see cref="RestoreCompanyViewModel.TargetCompanyName"/>,
+    /// established by MOVING the property and seeing the realised control follow. A control bound to nothing, or
+    /// bound to a different property, fails this — which is the point.
+    ///
+    /// <para>(It used to be <c>IsBoundTo(TextBox, string _)</c>, which took a property name and ignored it — the
+    /// probe only ever moves this one property, so the name now says so. A12 review w6, F9.)</para>
     /// </summary>
-    private static bool IsBoundTo(TextBox box, string _)
+    private static bool TracksTargetCompanyName(TextBox box)
     {
         if (box.DataContext is not RestoreCompanyViewModel vm) return false;
         var original = vm.TargetCompanyName;
@@ -153,6 +158,107 @@ public sealed class RestoreAndRangeRealisedReachabilityTests : IDisposable
         Assert.Equal("Recovered Books", vm.RestoreCompanyPanel!.TargetCompanyName);
         Assert.False(vm.RestoreCompanyPanel.TargetExists);
         Assert.Contains("CREATED", vm.RestoreCompanyPanel.TargetEffectNote, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F4 (A12 review w6): THE VENDOR'S OWN ROUTE, WITH NO COMPANY OPEN, THROUGH THE REAL KEY HANDLER.</b>
+    /// <i>"Press Alt+Y (Data) &gt; Backup &amp; Restore &gt; Restore"</i>
+    /// (<c>help.tallysolutions.com/restore-company-data/</c>). A realised <see cref="MainWindow"/> on Company
+    /// Select with nothing on the machine; Alt+Y is PRESSED, then the ordinary arrows and Enter. The key arm used
+    /// to require an open company and the Alt+Y badge was built disabled without one, so on exactly this screen
+    /// the route did nothing — restore was reachable only through the invented Company Select row (IV-140). The
+    /// previous test of this called <c>ShowDataMenu()</c> directly, which no key could reach.
+    /// </summary>
+    [AvaloniaFact]
+    public void Alt_Y_with_no_company_open_reaches_restore_by_the_keyboard()
+    {
+        var dir = TempDir();
+        var vm = new MainWindowViewModel(new CompanyStorage(Path.Combine(dir, "Companies")));
+        vm.ShowCompanySelect();
+        var window = new MainWindow { DataContext = vm };
+        window.Show();
+        try
+        {
+            Pump(window);
+            Assert.Null(vm.Company);
+            Assert.True(vm.ButtonBar.Single(b => b.Key == "Alt+Y").Enabled,
+                "the Alt+Y badge is greyed on Company Select, so the vendor's route is not offered there");
+
+            window.KeyPressQwerty(PhysicalKey.Y, RawInputModifiers.Alt);
+            Pump(window);
+            Assert.NotEqual(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.Contains(vm.Columns, c => c.Title == "Backup / Restore");
+
+            for (var i = 0; i < 8 && vm.RestoreCompanyPanel is null; i++)
+            {
+                var selected = vm.Menu.FirstOrDefault(m => m.IsSelected)?.Label;
+                window.KeyPressQwerty(
+                    selected == "Restore Company" ? PhysicalKey.Enter : PhysicalKey.ArrowDown, RawInputModifiers.None);
+                Pump(window);
+            }
+
+            Assert.NotNull(vm.RestoreCompanyPanel);
+            Assert.Equal(Screen.RestoreCompany, vm.CurrentScreen);
+            AssertRestorePanelIsDrawn(window);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE FRESH-INSTALL DOOR, DRAWN.</b> Company Select with nothing on the machine; the operator arrows to
+    /// the "Restore Company" row (IV-140) and presses Enter on the realised window — and the panel must be ON
+    /// SCREEN, its target box realised and editable. Found while fixing F4: the row set
+    /// <c>RestoreCompanyPanel</c> (every earlier test, and the reviewer's own probe P6, stopped there) but the
+    /// shell was still in pre-company menu mode, where the cascade that draws panel columns is hidden and
+    /// <c>IsMenuScreen</c> hid the menu too, so the operator saw an empty work area.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_company_select_restore_row_draws_the_panel_with_no_company_open()
+    {
+        var dir = TempDir();
+        var vm = new MainWindowViewModel(new CompanyStorage(Path.Combine(dir, "Companies")));
+        vm.ShowCompanySelect();
+        var window = new MainWindow { DataContext = vm };
+        window.Show();
+        try
+        {
+            Pump(window);
+            for (var i = 0; i < 12 && vm.RestoreCompanyPanel is null; i++)
+            {
+                var selected = vm.Menu.FirstOrDefault(m => m.IsSelected)?.Label;
+                window.KeyPressQwerty(
+                    selected == "Restore Company" ? PhysicalKey.Enter : PhysicalKey.ArrowDown, RawInputModifiers.None);
+                Pump(window);
+            }
+
+            Assert.NotNull(vm.RestoreCompanyPanel);
+            AssertRestorePanelIsDrawn(window);
+
+            // Esc leaves it again, back to Company Select — not stranded on an empty cascade.
+            window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
+            Pump(window);
+            Assert.Equal(Screen.CompanySelect, vm.CurrentScreen);
+            Assert.Contains(vm.Menu, m => m.Label == "Restore Company");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>The restore panel's target box is realised, VISIBLE and editable on the window — the panel is on
+    /// screen, not merely constructed.</summary>
+    private static void AssertRestorePanelIsDrawn(Window window)
+    {
+        var boxes = RealisedTargetNameBoxes(window).Where(b => b.IsEffectivelyVisible).ToArray();
+        Assert.True(boxes.Length >= 1,
+            "The restore panel is open in the view model but no visible target box is realised on the window — "
+          + "the operator is looking at an empty work area.");
+        Assert.False(boxes[0].IsReadOnly);
+        Assert.True(boxes[0].IsEffectivelyEnabled);
     }
 
     // ------------------------------------------------------------------ 12.6

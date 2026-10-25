@@ -1727,10 +1727,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Alt+Y (Data → Backup / Restore; the R-7 carve-out) opens the data-safety submenu column from anywhere a
-        // company is open. This MUST be tested BEFORE the bare-Y Export-Data branch below, which only excludes
-        // Ctrl — an Alt+Y would otherwise fall into it and open the wrong screen.
-        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is not null && !IsTyping(e))
+        // Alt+Y (Data → Backup / Restore; the R-7 carve-out) opens the data-safety submenu column from anywhere,
+        // INCLUDING with no company open. This MUST be tested BEFORE the bare-Y Export-Data branch below, which only
+        // excludes Ctrl — an Alt+Y would otherwise fall into it and open the wrong screen.
+        // 🔴 A12 review w6, F4: this arm used to require `vm.Company is not null`, so with nothing open the
+        // vendor's own route — "Press Alt+Y (Data) > Backup & Restore > Restore"
+        // (help.tallysolutions.com/restore-company-data/) — did nothing, and restore was reachable only through the
+        // invented Company Select row (IV-140). ShowDataMenu stopped bouncing to Company Select on this branch, and
+        // BuildDataColumn offers only Restore when nothing is open, so the guard protected nothing any more.
+        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
         {
             vm.ShowDataMenu();
             e.Handled = true;

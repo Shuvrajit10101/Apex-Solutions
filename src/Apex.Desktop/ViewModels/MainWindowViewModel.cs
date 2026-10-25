@@ -5834,6 +5834,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // very menu — "Press Alt+Y (Data) > Backup & Restore > Restore"
         // (help.tallysolutions.com/restore-company-data/) — and says nothing anywhere about needing a company
         // open first. BuildDataColumn now decides what the column OFFERS; this method only opens it.
+        //
+        // 🔴 WITH NO COMPANY THE DATA COLUMN IS THE ROOT OF A CASCADE, AND IT MUST BE A CASCADE TO BE SEEN.
+        // There is no Gateway to hang it off, and the first cut of this branch appended it to an EMPTY column
+        // list while the shell was still in the pre-company centred-menu mode (IsGatewayCascade false). The view
+        // model then reported the column open — the tests that called this method directly passed — while the
+        // realised window drew the centred menu (now holding the column's rows as dead Action-less items) and
+        // Enter on "Restore Company" did nothing. Measured through the real key handler (A12 review w6, F4).
+        // Esc from this root column returns to Company Select (BackFromPage's one-column rule).
+        if (Company is null)
+        {
+            LeaveCascade();
+            EnterCascade();
+            OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data, "Backup / Restore");
+            return;
+        }
+
         SelectRootItem("Backup / Restore");
         OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data,
             "Gateway of Apex Solutions — Backup / Restore");
@@ -5856,6 +5872,19 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var panel = Company is { } open
             ? new RestoreCompanyViewModel(open, _storage, onRestored: ReopenRestoredCompany)
             : new RestoreCompanyViewModel(_storage, onRestored: ReopenRestoredCompany);
+
+        // 🔴 A PANEL COLUMN IS ONLY DRAWN INSIDE THE CASCADE. Opened from Company Select (the IV-140 row) the shell
+        // is still in its pre-company centred-menu mode, so this column was added to a list the window does not
+        // show and IsMenuScreen hid the centred menu as well: the operator who chose "Restore Company" on a machine
+        // with no books was left looking at an EMPTY work area. Every test of that route asserted on
+        // RestoreCompanyPanel, which was set, and none on the realised window. Entering the cascade here makes the
+        // panel the root column; Esc returns to Company Select.
+        if (!IsGatewayCascade)
+        {
+            LeaveCascade();
+            EnterCascade();
+        }
+
         RestoreCompanyPanel = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -14737,7 +14766,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Alt+Y — Data (Backup / Restore; the R-7 carve-out). A quick door to the data-safety menu from anywhere,
         // alongside the Gateway → Data cascade. Bare Y is already Export Data on the Gateway root, so this one is
         // Alt-modified and the badge says so.
-        ButtonBar.Add(new ButtonBarItem("Alt+Y", "Data", ShowDataMenu, hasCompany));
+        // 🔴 ENABLED WITH NO COMPANY OPEN (A12 review w6, F4). It was gated on hasCompany, which left the badge
+        // greyed on exactly the screen a machine that has lost its only book lands on — while the column it opens
+        // offers Restore there (BuildDataColumn), and restore with nothing open is the case backup exists for.
+        ButtonBar.Add(new ButtonBarItem("Alt+Y", "Data", ShowDataMenu, true));
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));
