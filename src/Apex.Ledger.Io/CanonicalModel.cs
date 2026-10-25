@@ -1863,6 +1863,30 @@ public sealed record VoucherInventoryLineDto
     [System.Text.Json.Serialization.JsonIgnore(
         Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public Guid? UnitId { get; init; }
+
+    /// <summary>
+    /// 🔴 <b>The Tracking No. (census 9.8; schema v58) — ADDED 2026-10-23 BECAUSE IT WAS NOT HERE, AND A
+    /// DATUM THAT IS NOT HERE DOES NOT SURVIVE AN EXPORT.</b> This is the string that links a bill to the
+    /// Receipt/Delivery Note whose goods it accounts for; <c>BillsPending</c> nets Received − Billed on it and
+    /// the bill-side picker offers it. It is persisted on <c>voucher_inventory_lines</c> and has been since
+    /// v58, but it reached neither the JSON nor the XML transport, so a company exported and re-imported came
+    /// back with every tracking link erased and both Bills Pending reports empty.
+    /// <para><b>ER-13:</b> <c>WhenWritingNull</c>, exactly like <see cref="UnitId"/> — the canonical JSON
+    /// options set <c>DefaultIgnoreCondition = Never</c>, so without the attribute every item line in every
+    /// existing export would gain a <c>"trackingNumber": null</c>. XML gets it free (<c>Opt</c> emits no
+    /// attribute for null).</para>
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TrackingNumber { get; init; }
+
+    /// <summary>The Cost Tracking Number (census 9.7; schema v58), carried for the same reason and under the
+    /// same ER-13 rule as <see cref="TrackingNumber"/>. It is fixed alongside rather than left behind: the two
+    /// are one pair on one table, they were dropped by the same omission, and repairing one of them would
+    /// leave a reader to assume the other was deliberate.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CostTrackingNumber { get; init; }
 }
 
 // ----------------------------------------------------------------- inventory / order vouchers (catalog §10)
@@ -1946,6 +1970,19 @@ public sealed record InventoryAllocationDto
     public long? RatePaisa { get; init; }               // optional per-unit rate
     public string? BatchLabel { get; init; }
     public Guid? UnitId { get; init; }                  // null = item base unit
+
+    /// <summary>🔴 The NOTE side of the same pair as <see cref="VoucherInventoryLineDto.TrackingNumber"/>,
+    /// added in the same commit and for the same reason — an allocation's Tracking No. is what a Receipt or
+    /// Delivery Note contributes to Bills Pending, and without it here the goods side of every pending row
+    /// vanished on an export/import cycle too. ER-13: <c>WhenWritingNull</c>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TrackingNumber { get; init; }
+
+    /// <summary>The Cost Tracking Number on the note side (census 9.7), under the same rule.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? CostTrackingNumber { get; init; }
 }
 
 public sealed record OrderLineDto

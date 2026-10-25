@@ -861,7 +861,10 @@ public static class CanonicalXml
         OptDec("billedQuantity", l.BilledQuantity),
         // WI-10 Gap 2: the line unit. OptId emits nothing when null, so a base-unit line's element is
         // byte-identical to a pre-v46 export (ER-13).
-        OptId("unitId", l.UnitId));
+        OptId("unitId", l.UnitId),
+        // Census 9.8 / 9.7. Opt emits nothing when null, so an untracked line is byte-identical to a
+        // pre-fix export (ER-13).
+        Opt("trackingNumber", l.TrackingNumber), Opt("costTrackingNumber", l.CostTrackingNumber));
 
     private static XElement BuildInventoryVoucher(InventoryVoucherDto v)
     {
@@ -907,7 +910,9 @@ public static class CanonicalXml
     private static XElement BuildInventoryAllocation(InventoryAllocationDto a) => new("allocation",
         Attr("stockItemId", a.StockItemId), Attr("godownId", a.GodownId), Attr("quantity", Dec(a.Quantity)),
         Attr("direction", a.Direction), OptLong("ratePaisa", a.RatePaisa), Opt("batchLabel", a.BatchLabel),
-        OptId("unitId", a.UnitId));
+        OptId("unitId", a.UnitId),
+        // Census 9.8 / 9.7 — the note side. See BuildVoucherInventoryLine.
+        Opt("trackingNumber", a.TrackingNumber), Opt("costTrackingNumber", a.CostTrackingNumber));
 
     private static XElement BuildOrderLine(OrderLineDto l) => new("orderLine",
         Attr("stockItemId", l.StockItemId), Attr("godownId", l.GodownId), Attr("quantity", Dec(l.Quantity)),
@@ -1930,6 +1935,8 @@ public static class CanonicalXml
         RatePaisa = Long(e, "ratePaisa"), Direction = Str(e, "direction")!, BatchLabel = Str(e, "batchLabel"),
         BilledQuantity = OptDec(e, "billedQuantity"),
         UnitId = OptGuid(e, "unitId"),   // WI-10 Gap 2; absent ⇒ null ⇒ the item's base unit
+        // Census 9.8 / 9.7; absent ⇒ null ⇒ an untracked line, which is what every pre-fix export holds.
+        TrackingNumber = Str(e, "trackingNumber"), CostTrackingNumber = Str(e, "costTrackingNumber"),
     };
 
     private static InventoryVoucherDto ReadInventoryVoucher(XElement e) => new()
@@ -1976,6 +1983,8 @@ public static class CanonicalXml
         StockItemId = Guid(e, "stockItemId"), GodownId = Guid(e, "godownId"), Quantity = DecReq(e, "quantity"),
         Direction = Str(e, "direction")!, RatePaisa = OptLong(e, "ratePaisa"),
         BatchLabel = Str(e, "batchLabel"), UnitId = OptGuid(e, "unitId"),
+        // Census 9.8 / 9.7 — the note side. See ReadVoucherInventoryLine.
+        TrackingNumber = Str(e, "trackingNumber"), CostTrackingNumber = Str(e, "costTrackingNumber"),
     };
 
     private static OrderLineDto ReadOrderLine(XElement e) => new()
