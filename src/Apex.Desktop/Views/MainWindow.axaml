@@ -3799,6 +3799,27 @@
                                                        Text="{Binding TrackingNumber, Mode=TwoWay}"
                                                        ToolTip.Tip="The Receipt/Delivery Note this bill accounts for (Purchase/Sales Bills Pending)"
                                                        PlaceholderText="—"/>
+                                              <!-- Census 9.8 — the vendor's tracking-number SELECTION on the
+                                                   bill: "You can select the tracking number of the receipt
+                                                   note to track the received goods in the purchase invoice."
+                                                   (help.tallysolutions.com/purchase-order-tally/), with the
+                                                   attested "New Number" entry appended by the view model.
+                                                   It sits BESIDE the box rather than replacing it because
+                                                   New Number means "key one of your own" — removing the box
+                                                   would make that entry unusable. Hidden entirely when no
+                                                   note is open, so it is never a control that does nothing. -->
+                                              <ComboBox Width="230" FontSize="11.5" Classes="gridCombo"
+                                                        IsVisible="{Binding ShowTrackingNumberPicker}"
+                                                        ItemsSource="{Binding TrackingNumberChoices}"
+                                                        SelectedItem="{Binding SelectedTrackingNumberChoice, Mode=TwoWay}"
+                                                        ToolTip.Tip="Select the Receipt/Delivery Note this bill accounts for"
+                                                        PlaceholderText="Select note…">
+                                                <ComboBox.ItemTemplate>
+                                                  <DataTemplate x:DataType="vm:TrackingNumberChoice">
+                                                    <TextBlock Text="{Binding Label}"/>
+                                                  </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                              </ComboBox>
                                             </StackPanel>
                                             <StackPanel Orientation="Horizontal" Spacing="4"
                                                         IsVisible="{Binding ShowCostTrackingNumber}">

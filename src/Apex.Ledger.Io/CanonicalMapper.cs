@@ -1024,6 +1024,9 @@ public static class CanonicalMapper
         // WI-10 Gap 2: the line unit, verbatim. null ⇒ the item's base unit ⇒ the key/attribute is omitted
         // entirely, so a company with no unit-carrying item line exports byte-identically (ER-13).
         UnitId = l.UnitId,
+        // Census 9.8 / 9.7: the two operator-entered tracking data, verbatim. The domain already normalises
+        // blank to null, so an untracked line emits neither key nor attribute (ER-13).
+        TrackingNumber = l.TrackingNumber, CostTrackingNumber = l.CostTrackingNumber,
     };
 
     // ------------------------------------------------------------- inventory / order vouchers
@@ -1067,6 +1070,8 @@ public static class CanonicalMapper
         StockItemId = a.StockItemId, GodownId = a.GodownId, Quantity = a.Quantity,
         Direction = a.Direction.ToString(), RatePaisa = MoneyCodec.ToPaisa(a.Rate),
         BatchLabel = a.BatchLabel, UnitId = a.UnitId,
+        // Census 9.8 / 9.7 — the note side of the same pair. See VoucherInventoryLineDto.TrackingNumber.
+        TrackingNumber = a.TrackingNumber, CostTrackingNumber = a.CostTrackingNumber,
     };
 
     private static OrderLineDto MapOrderLine(OrderLine l) => new()
