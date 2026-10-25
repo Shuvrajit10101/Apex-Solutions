@@ -3738,9 +3738,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// (<see cref="IsExportablePage"/> / <see cref="IsPrintablePage"/> / <see cref="IsShareablePage"/> each carry
     /// an explicit arm for it), and the report shortcuts are inert on it, as they are on the other two drill
     /// columns. <c>DrilledVoucherEgressTests</c> asserts it on the written file and the composed <c>.eml</c>.</para>
+    ///
+    /// <para>🔴 <b>THE SAME SHAPE, COUNTED ACROSS EVERY DRILL COLUMN — AND THREE MORE SCREENS CARRIED IT.</b>
+    /// <c>OpenDrillColumn</c> is the one helper that appends a column WITHOUT clearing <see cref="Reports"/>, and
+    /// it has nine call sites. Two raise <see cref="Screen.Report"/> itself (the report-to-report drills, where
+    /// this property is meant to be true). The other seven raise <see cref="Screen.LedgerVouchers"/>,
+    /// <see cref="Screen.VoucherDetail"/>, <see cref="Screen.InventoryVoucherDetail"/>, and the voucher-alteration
+    /// family — <see cref="Screen.VoucherEntry"/> (Ctrl+Enter alteration AND Alt+2 duplicate),
+    /// <see cref="Screen.InventoryVoucherEntry"/> (stock-voucher alteration) and <see cref="Screen.PosBilling"/>
+    /// (POS bill alteration). Only the first two were on this list. MEASURED, not inferred: Ctrl+Enter on a Day
+    /// Book Delivery Note opened its alteration screen with focus on no text field, and Ctrl+E then opened Export
+    /// for <b>"Day Book"</b> over the voucher being altered — the T2-159 leak from a second door. The voucher-entry
+    /// screens own their own F2 (date), Alt+C (create master) and Ctrl+P; none of the report verbs belongs there.
+    /// So all three voucher-entry drill screens are excluded too, which makes this list equal to the set of
+    /// non-report screens <c>OpenDrillColumn</c> can raise.</para>
     /// </summary>
     public bool IsReportContext => Reports is not null
-        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail or Screen.InventoryVoucherDetail)
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail or Screen.InventoryVoucherDetail
+            or Screen.VoucherEntry or Screen.InventoryVoucherEntry or Screen.PosBilling)
         && !IsActionMenuColumn;
 
     /// <summary>

@@ -428,6 +428,91 @@ public sealed class DrilledVoucherEgressTests
         finally { Close(window, dir); }
     }
 
+
+    /// <summary>
+    /// 🔴 <b>THE SAME SHAPE FROM A SECOND DOOR: THE ALTERATION SCREENS DRILLED FROM THE DAY BOOK.</b> Ctrl+Enter
+    /// on a Day Book row opens the voucher's alteration screen through the same <c>OpenDrillColumn</c> helper,
+    /// so the register stays bound beneath it — and <c>IsReportContext</c> was TRUE there too. Measured before
+    /// the fix (probe, this branch): on the stock-voucher alteration, focus on no text field, Ctrl+E opened
+    /// Export titled <b>"Day Book"</b>. Asserted here on the stock-voucher alteration, the accounting-voucher
+    /// alteration and the Alt+2 duplicate: none of Ctrl+E, Alt+E, Alt+M, Ctrl+M or W produces anything built
+    /// from the register.
+    ///
+    /// <para><b>Mutation (run):</b> removing <c>VoucherEntry</c> / <c>InventoryVoucherEntry</c> /
+    /// <c>PosBilling</c> from <c>IsReportContext</c>'s exclusion — Ctrl+E opens the Day Book export: fails.</para>
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("inventory-alter")]
+    [InlineData("accounting-alter")]
+    [InlineData("accounting-duplicate")]
+    public void Egress_keys_on_an_alteration_drilled_from_the_day_book_never_build_the_register(string door)
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            var k = Seed(vm, "Egress Alter Co " + door);
+            var mine = TwoConsigneeBook(vm, k);
+
+            // One accounting voucher, so the accounting doors have a row to open.
+            vm.OpenVoucher(VoucherBaseType.Receipt);
+            var entry = vm.VoucherEntry!;
+            var cash = vm.Company!.FindLedgerByName("Cash")!;
+            var ours = vm.Company!.FindLedger(k.OursId)!;
+            entry.Lines[0].SelectedLedger = cash;
+            entry.Lines[0].Side = DrCr.Debit;
+            entry.Lines[0].AmountText = "100";
+            entry.Lines[1].SelectedLedger = ours;
+            entry.Lines[1].Side = DrCr.Credit;
+            entry.Lines[1].AmountText = "100";
+            Assert.True(entry.Accept(), entry.Message);
+            var receiptId = vm.Company!.Vouchers.Single().Id;
+
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(window);
+            vm.Reports!.SelectedRow = door == "inventory-alter"
+                ? vm.Reports!.Rows.Single(r => r.DrillInventoryVoucherId == mine.Id)
+                : vm.Reports!.Rows.Single(r => r.DrillVoucherId == receiptId);
+            Pump(window);
+
+            if (door == "accounting-duplicate")
+                window.KeyPressQwerty(PhysicalKey.Digit2, RawInputModifiers.Alt);
+            else
+                window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
+            Pump(window);
+
+            var entryScreen = door == "inventory-alter" ? Screen.InventoryVoucherEntry : Screen.VoucherEntry;
+            Assert.Equal(entryScreen, vm.CurrentScreen);
+            Assert.NotNull(vm.Reports);           // the register IS still bound beneath — the precondition
+
+            // Take focus off any text field, as the probe found it, so the keys reach the shell's arms.
+            window.Focus();
+            Pump(window);
+
+            foreach (var (key, mods) in new[]
+            {
+                (PhysicalKey.E, RawInputModifiers.Control),
+                (PhysicalKey.E, RawInputModifiers.Alt),
+                (PhysicalKey.M, RawInputModifiers.Alt),
+                (PhysicalKey.M, RawInputModifiers.Control),
+                (PhysicalKey.W, RawInputModifiers.None),
+            })
+            {
+                window.KeyPressQwerty(key, mods);
+                Pump(window);
+                Assert.True(vm.ExportPanel is null || vm.ExportPanel.DocumentTitle != "Day Book",
+                    $"{door} {mods}+{key}: exported the Day Book");
+                Assert.True(vm.EmailCompose is null || vm.EmailCompose.DocumentTitle != "Day Book",
+                    $"{door} {mods}+{key}: e-mailed the Day Book");
+                Assert.True(vm.WhatsAppShare is null || vm.WhatsAppShare.DocumentTitle != "Day Book",
+                    $"{door} {mods}+{key}: shared the Day Book");
+                Assert.NotEqual(Screen.ExportMenu, vm.CurrentScreen);
+                Assert.NotEqual(Screen.ShareMenu, vm.CurrentScreen);
+            }
+            Assert.False(vm.IsReportContext);
+        }
+        finally { Close(window, dir); }
+    }
+
     private static IEnumerable<Visual> Descendants(Visual v)
     {
         foreach (var c in v.GetVisualChildren())
