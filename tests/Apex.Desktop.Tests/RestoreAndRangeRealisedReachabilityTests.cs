@@ -309,6 +309,99 @@ public sealed class RestoreAndRangeRealisedReachabilityTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>F6 (A12 review w6): the panel's PRINT action, through the real key and the real button.</b> No test
+    /// touched <c>PrintMultiVoucherJob</c> or the Ctrl+A arm that calls it, so deleting either left the suite
+    /// green. Ctrl+A is pressed on the realised window and the Print button is clicked; each must open the print
+    /// preview over the panel's range, and the job's PDF must carry one sheet per voucher at least.
+    /// </summary>
+    [AvaloniaFact]
+    public void Ctrl_A_and_the_print_button_print_the_panels_range()
+    {
+        var dir = TempDir();
+        Directory.CreateDirectory(dir);
+        var vm = new MainWindowViewModel(new CompanyStorage(dir));
+        vm.LoadRobertDemo();
+        vm.OpenMultiVoucherPrint();
+        var panel = vm.MultiVoucherPrint!;
+        Assert.True(panel.MatchCount > 1, "the demo company must have several vouchers in its period");
+
+        var window = new MainWindow { DataContext = vm };
+        window.Show();
+        try
+        {
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(window);
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotNull(vm.PrintPreview);
+            var pages = CountOccurrences(System.Text.Encoding.Latin1.GetString(vm.PrintPreview!.PdfBytes), "/Type /Page ");
+            Assert.True(pages >= panel.MatchCount, $"{panel.MatchCount} vouchers printed onto {pages} sheets");
+
+            // Back to the panel, and the BUTTON this time.
+            vm.Back();
+            Pump(window);
+            Assert.Equal(Screen.MultiVoucherPrint, vm.CurrentScreen);
+            var printButton = window.GetVisualDescendants().OfType<Button>()
+                .Single(b => b.DataContext is MultiVoucherPrintViewModel && (b.Content as string) == "Print (Ctrl+A)");
+            Assert.True(printButton.IsEffectivelyEnabled);
+            var before = vm.PrintPreview;
+            printButton.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            Pump(window);
+            Assert.Equal(Screen.PrintPreview, vm.CurrentScreen);
+            Assert.NotNull(vm.PrintPreview);
+            Assert.NotSame(before, vm.PrintPreview);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// <b>F7 (A12 review w6): a CANCELLED voucher is marked in the realised match list</b>, not only on the paper.
+    /// The row template bound only the date, number, party and type, so the list the operator reads before printing
+    /// showed a withdrawn voucher looking live.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_cancelled_voucher_is_marked_in_the_realised_match_list()
+    {
+        var dir = TempDir();
+        Directory.CreateDirectory(dir);
+        var vm = new MainWindowViewModel(new CompanyStorage(dir));
+        vm.LoadRobertDemo();
+        var company = vm.Company!;
+        var target = company.Vouchers.OrderBy(v => v.Date).First();
+        new Apex.Ledger.Services.LedgerService(company).Cancel(target.Id);
+        vm.OpenMultiVoucherPrint();
+
+        var window = new MainWindow { DataContext = vm };
+        window.Show();
+        try
+        {
+            Pump(window);
+            var rowTexts = window.GetVisualDescendants().OfType<TextBlock>()
+                .Where(t => t.DataContext is MultiVoucherRowViewModel && t.IsEffectivelyVisible)
+                .Select(t => t.Text ?? string.Empty)
+                .ToArray();
+            Assert.NotEmpty(rowTexts);
+            Assert.Single(rowTexts, t => t.StartsWith("(Cancelled)", StringComparison.Ordinal));
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int n = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            n++;
+        return n;
+    }
+
+    /// <summary>
     /// The panel is reachable the way the operator reaches it — by the hub row, not by calling the opener. The
     /// label is the vendor's own screen name, <i>"Multi-Voucher Printing"</i>
     /// (<c>help.tallysolutions.com/gcc-sales-and-print-fta-tally/</c>).

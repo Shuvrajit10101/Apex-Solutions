@@ -20420,15 +20420,21 @@
                                   <DataTemplate x:DataType="vm:MultiVoucherRowViewModel">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="110,150,*,90" Height="24">
+                                        <!-- A12 review w6, F7: a CANCELLED voucher is marked in the list as on the
+                                             paper - "(Cancelled)" in the number cell (the Day Book's wording) and
+                                             the Day Book's muted ink on the row. -->
                                         <TextBlock Grid.Column="0" Text="{Binding DateText}" Margin="6,0,0,0"
                                                    VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                    TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Grid.Column="1" Text="{Binding Number}"
+                                        <TextBlock Grid.Column="1" Text="{Binding NumberText}"
                                                    VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                    TextTrimming="CharacterEllipsis"
-                                                   ToolTip.Tip="{Binding Number}"/>
+                                                   ToolTip.Tip="{Binding NumberText}"/>
                                         <TextBlock Grid.Column="2" Text="{Binding PartyName}"
                                                    VerticalAlignment="Center" FontSize="12.5"
+                                                   Foreground="{Binding IsCancelled, Converter={StaticResource CancelledRowBrush}}"
                                                    TextTrimming="CharacterEllipsis"
                                                    ToolTip.Tip="{Binding PartyName}"/>
                                         <TextBlock Grid.Column="3" Text="{Binding VoucherTypeName}"

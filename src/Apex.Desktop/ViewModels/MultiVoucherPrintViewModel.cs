@@ -225,6 +225,14 @@ public sealed class MultiVoucherRowViewModel
     public string PartyName { get; }
     public bool IsCancelled { get; }
 
+    /// <summary>
+    /// The number as the match list shows it: prefixed "(Cancelled) " on a cancelled voucher, the Day Book's own
+    /// wording (<c>ReportsViewModel</c>). The paper has always marked a cancelled voucher; the list the operator
+    /// reads BEFORE printing did not, so a withdrawn voucher looked live right up to the sheet (A12 review w6,
+    /// F7). Text, not only the muted ink the row also takes — colour alone is not a marking.
+    /// </summary>
+    public string NumberText => IsCancelled ? "(Cancelled) " + Number : Number;
+
     public MultiVoucherRowViewModel(
         string number, string voucherTypeName, string dateText, string partyName, bool isCancelled)
     {
