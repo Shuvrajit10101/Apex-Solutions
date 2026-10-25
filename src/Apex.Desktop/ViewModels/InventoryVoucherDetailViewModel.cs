@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
@@ -39,7 +40,14 @@ namespace Apex.Desktop.ViewModels;
 /// (with a notice) for every other pure-stock kind, because refusing is what the note above actually
 /// asked for.</para>
 ///
-/// <para><b>Still deliberately absent: the e-mail route.</b></para>
+/// <para>🔴 <b>EXPORT AND SHARE NOW ACT ON THIS VOUCHER TOO (T2-159) — AND UNTIL THEY DID, THEY ACTED ON THE
+/// REGISTER BEHIND IT.</b> The note here used to say the e-mail route was "deliberately absent". It was not
+/// absent: <c>MainWindowViewModel.IsReportContext</c> excluded the two accounting drill screens by id but not
+/// this one, so with a register still bound beneath the pane, Ctrl+E exported <b>the whole Day Book</b> and
+/// Alt+M &gt; E-Mail attached it — every other consignee's movements, to whichever address the operator typed.
+/// The shell now routes all three verbs here: <see cref="BuildExportPanel"/> exports THIS voucher's lines (the
+/// challan as its PDF when it has one), and the share channels attach the same challan Print produces or refuse
+/// with <see cref="DeliveryChallanProjection.Refusal"/> — never the register.</para>
 /// </summary>
 public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
 {
@@ -72,6 +80,10 @@ public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
     /// headers where a voucher has two sides.</summary>
     public ObservableCollection<ReportRow> Rows { get; } = new();
 
+    /// <summary>The same lines as <see cref="Rows"/>, typed for export (rate and value as exact Number cells),
+    /// built in the same pass so the exported file cannot disagree with the pane.</summary>
+    private readonly List<TabularRow> _exportRows = new();
+
     /// <summary>
     /// 🔴 <b>Census 12.7 — the delivery challan this voucher prints, or why it prints none.</b> Read off the
     /// voucher this pane is CURRENTLY pointed at (<see cref="Refresh"/> re-points it), so an altered Delivery
@@ -96,6 +108,56 @@ public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
         if (ChallanProjection.Document is not { } challan) return null;
         return new PrintPreviewViewModel(challan, DeliveryChallanPrintProjector.Title);
     }
+
+    /// <summary>
+    /// 🔴 <b>T2-159 — Ctrl+E on this pane exports THIS voucher, and nothing else.</b> The vendor's Ctrl+E is
+    /// <i>"To export the current voucher or report"</i>
+    /// (<c>help.tallysolutions.com/tally-prime/keyboard-shortcuts/keyboard-shortcuts-tally-prime/</c>). Every
+    /// tabular format carries the pane's own lines under a heading naming the voucher; PDF is the delivery
+    /// challan when this voucher prints one (so Export &gt; PDF and Print are the same document), and otherwise
+    /// the same lines laid out by <see cref="ExportViewModel.TabularToPrint"/>.
+    /// </summary>
+    public ExportViewModel BuildExportPanel(string folder, DateTime now, Action<string, byte[]>? writeBytes = null)
+    {
+        Func<PrintReport>? challan = ChallanProjection.Document is null
+            ? null
+            : () => ChallanProjection.Document ?? ExportViewModel.TabularToPrint(ProjectTabular());
+        return new ExportViewModel(ExportTitle, ProjectTabular, challan, folder, now, writeBytes);
+    }
+
+    /// <summary>The document title the export and share panels carry: the voucher type and its number.</summary>
+    public string ExportTitle => $"{Title} No. {_company.FormatVoucherNumber(_voucher)}";
+
+    /// <summary>This voucher's lines as a <see cref="TabularExport"/> — the pane, typed.</summary>
+    public TabularExport ProjectTabular()
+    {
+        var rows = new List<TabularRow>(_exportRows.Count + 1)
+        {
+            TabularRow.Header(TabularCell.Text(Title + "  —  " + Subtitle)),
+        };
+        rows.AddRange(_exportRows);
+        return new TabularExport(
+            ExportTitle,
+            new[]
+            {
+                new TabularColumn("Particulars"),
+                new TabularColumn("Direction"),
+                new TabularColumn("Quantity"),
+                new TabularColumn("Rate", CellType.Number),
+                new TabularColumn("Value", CellType.Number),
+            },
+            rows);
+    }
+
+    /// <summary>
+    /// The PDF the share channels (Alt+M &gt; E-Mail / WhatsApp, M, Ctrl+M, W) attach: the SAME bytes Print
+    /// renders for the challan, or <c>null</c> when this voucher prints none — the caller then refuses with
+    /// <see cref="DeliveryChallanProjection.Refusal"/>, never falling back to anything else.
+    /// </summary>
+    public byte[]? RenderSharedDocument() => BuildPrintPreview()?.PdfBytes;
+
+    /// <summary>Why <see cref="RenderSharedDocument"/> returned <c>null</c> — the sentence the shell shows.</summary>
+    public string ShareRefusal => ChallanProjection.Refusal ?? DeliveryChallanPrintProjector.NotAChallan;
 
     public InventoryVoucherDetailViewModel(Company company, InventoryVoucher voucher)
     {
@@ -140,6 +202,7 @@ public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
         Subtitle = parts;
 
         Rows.Clear();
+        _exportRows.Clear();
 
         // A Stock Journal / Material movement carries BOTH sides and they mean different things, so each side
         // gets a named heading. A one-sided movement (Receipt, Delivery, Rejection) gets none: a single
@@ -147,71 +210,81 @@ public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
         // (whose one list is INWARD) as a source.
         var twoSided = _voucher.Allocations.Count > 0 && _voucher.DestinationAllocations.Count > 0;
 
-        if (twoSided) Rows.Add(Header("Source (consumed / transferred out)"));
-        foreach (var a in _voucher.Allocations) Rows.Add(AllocationRow(a));
+        if (twoSided) AddHeader("Source (consumed / transferred out)");
+        foreach (var a in _voucher.Allocations) AllocationRow(a);
 
-        if (twoSided) Rows.Add(Header("Destination (produced / transferred in)"));
-        foreach (var a in _voucher.DestinationAllocations) Rows.Add(AllocationRow(a));
+        if (twoSided) AddHeader("Destination (produced / transferred in)");
+        foreach (var a in _voucher.DestinationAllocations) AllocationRow(a);
 
-        foreach (var line in _voucher.OrderLines) Rows.Add(OrderRow(line));
+        foreach (var line in _voucher.OrderLines) OrderRow(line);
 
-        foreach (var line in _voucher.PhysicalLines) Rows.Add(PhysicalRow(line));
+        foreach (var line in _voucher.PhysicalLines) PhysicalRow(line);
 
         if (Rows.Count == 0)
-            Rows.Add(Header("This voucher carries no stock lines."));
+            AddHeader("This voucher carries no stock lines.");
     }
 
-    private static ReportRow Header(string text) => new() { Col1 = text, Particulars = text, IsHeader = true };
-
-    private ReportRow AllocationRow(InventoryAllocation a)
+    private void AddHeader(string text)
     {
-        // Base-unit normalisation, exactly as InventoryRegisters and DayBook perform it: a line's rate is per
-        // the unit the LINE is stated in, so quantity and rate must be converted by the same factor or the
-        // Value column stops equalling Quantity x Rate — the one arithmetic a reader checks by eye.
-        var quantity = a.Quantity;
-        var rate = a.Rate?.Amount;
-        if (a.UnitId is { } unitId && _company.FindUnit(unitId) is { } unit)
-        {
-            quantity = unit.QuantityInBaseMeasure(a.Quantity);
-            if (rate is { } r) rate = unit.RateInBaseMeasure(r);
-        }
-
-        var value = rate is { } perUnit ? Money.ForexBase(new Money(perUnit), quantity) : Money.Zero;
-
-        return new ReportRow
-        {
-            Col1 = Describe(a.StockItemId, a.GodownId, a.BatchLabel),
-            Col2 = a.Direction == StockDirection.Inward ? "Inward" : "Outward",
-            Col3 = IndianFormat.Quantity(quantity),
-            Col4 = rate is { } pr ? IndianFormat.Amount(new Money(pr)) : string.Empty,
-            Col5 = rate is null ? string.Empty : IndianFormat.Amount(value),
-            Particulars = Describe(a.StockItemId, a.GodownId, a.BatchLabel),
-        };
+        Rows.Add(new ReportRow { Col1 = text, Particulars = text, IsHeader = true });
+        _exportRows.Add(TabularRow.Header(TabularCell.Text(text)));
     }
 
-    private ReportRow OrderRow(OrderLine line) => new()
+    /// <summary>Adds one line to the pane AND to the export rows, from the same figures.</summary>
+    private void AddLine(string particulars, string direction, string quantity, decimal? rate, Money? value)
     {
-        Col1 = Describe(line.StockItemId, line.GodownId, batch: null),
-        // An order moves NOTHING — neither stock nor accounts — so it has no direction to state. The word
-        // "Ordered" is stated rather than the cell left blank, so a reader cannot mistake an order line for a
-        // movement whose direction we failed to compute.
-        Col2 = "Ordered",
-        Col3 = IndianFormat.Quantity(line.Quantity),
-        Col4 = line.Rate is { } r ? IndianFormat.Amount(r) : string.Empty,
-        Col5 = line.Rate is { } rate ? IndianFormat.Amount(Money.ForexBase(rate, line.Quantity)) : string.Empty,
-        Particulars = Describe(line.StockItemId, line.GodownId, batch: null),
-    };
+        Rows.Add(new ReportRow
+        {
+            Col1 = particulars,
+            Col2 = direction,
+            Col3 = quantity,
+            Col4 = rate is { } r ? IndianFormat.Amount(new Money(r)) : string.Empty,
+            Col5 = value is { } v ? IndianFormat.Amount(v) : string.Empty,
+            Particulars = particulars,
+        });
+        _exportRows.Add(TabularRow.Of(
+            TabularCell.Text(particulars),
+            TabularCell.Text(direction),
+            TabularCell.Text(quantity),
+            rate is { } nr ? TabularCell.Number(nr) : TabularCell.Empty,
+            value is { } nv ? TabularCell.Money(nv) : TabularCell.Empty));
+    }
 
-    private ReportRow PhysicalRow(PhysicalStockLine line) => new()
+    private void AllocationRow(InventoryAllocation a)
     {
-        Col1 = Describe(line.StockItemId, line.GodownId, line.BatchLabel),
-        // A physical count is a statement about the shelf (DP-3): it asserts a quantity, it does not move one,
-        // and it carries no rate. The Rate and Value cells stay EMPTY rather than showing 0.00 — a zero there
-        // would read as "this stock is worth nothing", which is a different and false claim.
-        Col2 = "Counted",
-        Col3 = IndianFormat.Quantity(line.CountedQuantity),
-        Particulars = Describe(line.StockItemId, line.GodownId, line.BatchLabel),
-    };
+        // 🔴 T2-160 — STATED UNIT, WITH THE UNIT. This normalised quantity AND rate to the item's base unit, which
+        // kept Value right and broke the arithmetic a reader checks by eye: "2 Doz @ 10.00" showed 24 · 0.83 ·
+        // 20.00, and 24 x 0.83 is 19.92. It also showed "24" with no unit at all. The line is now shown as it was
+        // ENTERED — "2 Doz" · 10.00 · 20.00 — through the one helper the delivery challan prints with, so the pane
+        // and the document printed from it cannot disagree.
+        var line = DeliveryChallanPrintProjector.StatedLine(_company, a);
+        AddLine(
+            Describe(a.StockItemId, a.GodownId, a.BatchLabel),
+            a.Direction == StockDirection.Inward ? "Inward" : "Outward",
+            line.QuantityText,
+            line.Rate,
+            line.Rate is null ? null : line.Value);
+    }
+
+    // An order moves NOTHING — neither stock nor accounts — so it has no direction to state. The word "Ordered" is
+    // stated rather than the cell left blank, so a reader cannot mistake an order line for a movement whose
+    // direction we failed to compute. An order line carries no unit of its own: it is in the item's base unit.
+    private void OrderRow(OrderLine line) => AddLine(
+        Describe(line.StockItemId, line.GodownId, batch: null),
+        "Ordered",
+        DeliveryChallanPrintProjector.QuantityWithUnit(_company, line.StockItemId, null, line.Quantity),
+        line.Rate?.Amount,
+        line.Rate is { } rate ? Money.ForexBase(rate, line.Quantity) : null);
+
+    // A physical count is a statement about the shelf (DP-3): it asserts a quantity, it does not move one, and it
+    // carries no rate. The Rate and Value cells stay EMPTY rather than showing 0.00 — a zero there would read as
+    // "this stock is worth nothing", which is a different and false claim.
+    private void PhysicalRow(PhysicalStockLine line) => AddLine(
+        Describe(line.StockItemId, line.GodownId, line.BatchLabel),
+        "Counted",
+        DeliveryChallanPrintProjector.QuantityWithUnit(_company, line.StockItemId, null, line.CountedQuantity),
+        null,
+        null);
 
     private string Describe(Guid stockItemId, Guid godownId, string? batch)
     {
