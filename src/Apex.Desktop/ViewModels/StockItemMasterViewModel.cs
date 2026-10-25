@@ -908,6 +908,12 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         }
 
         StockItem item;
+        // 🔴 T2-158 item 2 — the item THIS accept created, so a refusal further down can take it back out.
+        // CreateStockItem adds the item to the open company BEFORE SetAlternateUnit (and the VAT and opening
+        // steps) can refuse; without the roll-back below, a refused alternate unit left an UNSAVED PHANTOM in the
+        // company — the retry its own message advises then failed "A stock item named ... already exists", and
+        // any later save persisted the phantom WITHOUT its alternate unit (probe P3).
+        StockItem? createdThisAccept = null;
         try
         {
             var service = new InventoryService(_company);
@@ -939,6 +945,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             {
                 item = service.CreateStockItem(name, SelectedGroup.Id, SelectedUnit.Id, categoryId, alias,
                     valuation, hsn, isTaxableFlag, reorderLevel, minimumOrderQty, standardCost);
+                createdThisAccept = item;
             }
 
             // 🔴 Census 3.4 / user ruling 26 — the MARKET VALUATION dimension, written on BOTH paths so create and
@@ -1056,6 +1063,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
+            if (createdThisAccept is { } phantom)
+            {
+                // Take back everything this accept added for the new item: its opening allocations (added last,
+                // so normally none) and the item itself. Nothing else references an item created a moment ago.
+                foreach (var ob in _company.StockOpeningBalances.Where(b => b.StockItemId == phantom.Id).ToList())
+                    _company.RemoveStockOpeningBalance(ob);
+                _company.RemoveStockItem(phantom);
+            }
             Message = ex.Message;
             return false;
         }
