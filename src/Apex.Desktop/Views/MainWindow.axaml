@@ -3389,6 +3389,14 @@
                                                      PlaceholderText="0.00"/>
                                           </Grid>
 
+                                          <!-- Census 5.11 (v68): the per-ledger narration under each particular (the Single Entry
+                                               layout Payment/Receipt/Contra open in); same binding and Tab position as the Dr/Cr grid. -->
+                                          <TextBox Name="LineNarrationBox"
+                                                   IsVisible="{Binding ShowLineNarration}"
+                                                   Text="{Binding LineNarration, Mode=TwoWay}"
+                                                   Margin="18,3,46,1" FontSize="11.5" FontStyle="Italic"
+                                                   TextWrapping="Wrap" AcceptsReturn="False"
+                                                   PlaceholderText="Narration for this ledger…"/>
                                           <!-- Bill-wise Details — the sub-screen the corpus places on Single-Entry
                                                Payment/Receipt (SG p.91). Same line view model, same rows, same
                                                exact-sum rule as the Dr/Cr grid. -->
