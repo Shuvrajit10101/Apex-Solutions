@@ -2722,6 +2722,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | `ReorderLevelsService.CreateOrUpdate` **upserts** — one definition per (scope, target), RQ-32, so creating over an existing pair replaces it, which is the shipped and attested-enough create behaviour. `ReorderLevelsService.Alter` does **not**: re-pointing the definition being altered onto a pair that ANOTHER definition owns throws *"Another reorder definition already covers this {scope}. Alter or delete that one instead."* Re-accepting over its OWN pair is of course allowed. |
 | **Why the two verbs differ** | A create acts on the pair the operator just picked, and replacing that pair's definition is the whole meaning of an upsert. An alteration acts on **a record the operator opened**, and letting it consume a different, unrelated record as a side effect is the opposite of a correction — the operator would lose a definition they were not looking at, from a screen whose caption says *Alteration*. Making Alter route through the upsert would also have minted a new `Guid`, which is the defect class this area has been demoted for three times. |
 | **Fix** | None owed. If a vendor page is found that describes an alteration absorbing another definition, the change is one `if` in `ReorderLevelsService.Alter` and one test. |
+| **🔴 Superseded in part 2026-10-25 (wave 7, track dm) — see IV-187** | ~~`ReorderLevelsService.CreateOrUpdate` **upserts** … which is the shipped and attested-enough create behaviour.~~ The CREATE screen no longer upserts: it calls `ReorderLevelsService.Create`, which refuses an occupied (scope, target) by name, and the screen loads the saved definition for alteration. `CreateOrUpdate` survives only for seeding and tests. The Alter refusal described above is unchanged. |
 
 ### IV-173 · 🔴 **MIS-CITED VENDOR PAGE IN `src/`, FOUND AND FIXED — the alternate-unit conversion sentence is NOT on `manage-stock-item-tally/`**
 
@@ -2745,6 +2746,46 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **The two honest routes, neither of them small** | **(a)** Thread the `StockItem` into all 46 sites so the item's factor can be applied — a change across the valuation core, which is the area this project has already taken three demotions and *"three DIFFERENT unbounded Balance-Sheet errors"* in. **(b)** Convert at ENTRY so the stored line is always in base units with `UnitId` left null — far smaller and it matches row 3.6's own stated design (*"the base unit is stored and the alternate is ALWAYS derived… there is no second stored number to drift"*), **but** it breaks round-tripping: `InventoryVoucherLineViewModel.RehydrateUnitId` and the two `if (UnitId != posted.UnitId)` arms exist to reopen a voucher in the unit it was keyed in, and the rate is *per the unit the line is stated in* (WI-10 slice C), so the rate would need dividing too and the voucher would reopen reading "20 Nos" where the operator typed "2 Box". |
 | **🔴 The decision, and who owns it** | **NOT BUILT THIS WAVE. Row 3.6 stays `PARTIAL` with its one clause open.** Shipping half of route (a) would have put a 10× quantity error into the reporting surface behind a green suite — this repo's single most-repeated failure mode. The clause is now *sourced* (`units-of-measurement/`: *"The alternate unit gets saved for the stock item that you can use in transactions."*), so it is buildable; it is **not** a seam-follow and should be scoped as its own slice with the route decided up front. |
 | **Fix** | Pick (a) or (b) deliberately. If (b), decide first what a reopened voucher shows and what happens to the rate — both are operator-visible. Either way the proof demanded by the brief stands: the posted line must read back off the **reloaded** book in both units, and a later conversion-factor change must not restate posted quantities. **(b) satisfies that second property for free; (a) does not, and would need it pinned.** |
+
+### IV-185 · **Showing "Alter Components (BOM)" only while the company's BOM feature is on is ours**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: VISIBILITY GATE.** No figure can be wrong under it. |
+| **What TallyPrime does** | **The option is ATTESTED.** `help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/`, opened BY CONTENT 2026-10-25: *"In the Stock Item Alteration screen, enable the option Alter Components (BOM)"*. ⚠️ **The page does not tie that option to an F11 or F12 switch.** The only visibility condition it states is on the CREATION-side option: *"The Set Components (BOM) option will not displayed in Stock Item master"* when the unit of measure is not selected. Bounded to that one page. |
+| **What we ship** | `StockItemMasterViewModel.ShowAlterComponentsBom => IsAltering && ShowBomSwitch`, i.e. the tick is realised only on the **Alteration** screen and only while `Company.SetComponentsBom` is on — the same gate the product already applies to the item's *Set Components (BOM)* switch, the BOM master and the Manufacturing Journal. `SaveMaster` also re-checks the gate before honouring a tick, so a tick left over from before the feature was switched off opens nothing. |
+| **Why** | Every BOM surface in this product is hidden while the feature is off; an option that opened a hidden screen would be a dead end. The gate is ours and is labelled ours. |
+| **Fix** | None owed. If a vendor page shows the option independent of any feature switch, drop `&& ShowBomSwitch` and the re-check, and update the gate test. |
+
+### IV-186 · **"Alter Components (BOM)" opens the item's FIRST BOM by name directly — the vendor's BOM-name list step is ours to skip**
+
+| | |
+|---|---|
+| **Severity** | **LOW-MEDIUM. Class: NAVIGATION SHAPE.** An item with several BOMs reaches its other BOMs by a different route than the vendor's. |
+| **What TallyPrime does** | Same page, same date: after enabling the option the vendor shows a BOM-name list first — *"In the Stock Item Multi Components (M BOM) screen, enter the name of the new BOM and press Enter."* — and only then the components screen (*"Stock Item Components (BOM) screen"*). The page does **not** say whether existing components are shown when an existing BOM's name is picked; its worked example is ADDING a BOM. |
+| **What we ship** | `MainWindowViewModel.ShowComponentsBomForItem` opens `BomMasterViewModel.ForAlter` over the item's **first BOM by name (case-insensitive)**, every line pre-filled; saving goes through `BomService.AlterBom`, which keeps the BOM's id and swaps it at its own index. An item with **no** BOM gets the BOM creation screen with the item already chosen as the finished good. **There is no M-BOM list screen**, so a second or third BOM of the same item cannot be reached from this option. |
+| **Why** | The defect this row was demoted for three times is an "alter" that is really create-and-append; the in-place alter of the item's BOM is the load-bearing part and is what ships. A BOM-name picker is a separate screen with no vendor sentence describing its alter behaviour. |
+| **Fix** | Build the M-BOM name list between the tick and the components screen: pick an existing name → `ForAlter` over that BOM; type a new name → creation with the item preset. Report owed: this is recorded as NOT DONE in the track report. |
+
+### IV-187 · **CREATE over an occupied reorder (scope, target) refuses by name and loads the saved definition — nothing is merged or saved — is ours**
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM (the defect it replaces). Class: DATA LOSS prevented.** |
+| **What TallyPrime does** | ⚠️ **SILENT on this case, and no sentence is claimed.** `help.tallysolutions.com/tally-prime/inventory/reorder-stock-items-reorder-status-and-reorder-quantity/`, re-opened BY CONTENT 2026-10-25, reaches the reorder level through *"Press Alt+G (Go To) > Alter Master > type or select Reorder Level (Stock Item) and press Enter."* and *"Press Ctrl+A to save."*; it contains no sentence about an item that already has a reorder level. Bounded to that page. |
+| **What we ship** | `ReorderLevelsViewModel.Create` checks the picked (scope, target) first. If a definition exists it **saves nothing**, says *"A reorder level already exists for item 'X' — nothing was saved. Its saved figures are loaded for alteration; correct them and press Ctrl+A to save in place."*, and loads every saved figure through the same `LoadForAlteration` path `ForAlter` uses. The next Ctrl+A (or click) runs `Alter`, which keeps the id. Moving the scope or target away from the loaded definition returns the screen to Creation with blank figures, so the routed alteration can never silently RE-POINT the loaded definition at another target. The engine half is `ReorderLevelsService.Create`, which refuses the same case by name. **The figures keyed before the refusal are discarded, not merged.** |
+| **Why** | The old upsert minted a new id and wiped every figure not re-keyed (reviewer probe P1c: 100 / 25 → Create, key 150, Ctrl+A → new id, minimum NULL, notice "saved"). Merging the half-typed form over the stored figures would silently combine values nobody chose together; showing the stored figures and requiring a second accept is the smaller invention. |
+| **Fix** | None owed. If a vendor page describes creating over an existing level, align the message and the merge rule to it. |
+
+### IV-188 · **The standalone "Bill of Materials" master on the Create menu is ours**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: EXTRA ROUTE.** It reaches the same BOM records the item-side route does. |
+| **What TallyPrime does** | On the one page opened (`…/manage-inventory-in-manufacturing-tally/`, BY CONTENT 2026-10-25) BOMs are defined from the stock item — *"In the Stock Item Creation screen, set the option Set Components (BOM) to Yes and press Enter."* — and altered from it (IV-186). That page describes no separate BOM master. This is a bounded statement about one page, recorded as silence, not as a prohibition — the same treatment IV-77 gives batches. |
+| **What we ship** | Masters → Create → Bill of Materials (`BomMasterViewModel`, create + Alt+D delete). It stays **create-only**: Ctrl+Enter on its existing-list has no alter arm, and `MasterVerbsW33ResidualAlterTests.The_masters_without_a_vendor_documented_alter_are_delete_only` still pins `IsAltering == false` for it. Altering goes only through the item-side tick. |
+| **Why** | It shipped in Phase 6 and is the only place a BOM's carve-out lines were enterable before the item-side route existed. Removing it is a scope decision for the user. |
+| **Fix** | User decision: keep as a labelled extra route, or fold BOM creation into the Stock Item Creation screen's *Set Components (BOM)* flow and remove the menu entry. |
 
 ## 3. Grouped by area
 
