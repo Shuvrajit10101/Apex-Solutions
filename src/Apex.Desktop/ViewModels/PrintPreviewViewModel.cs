@@ -134,6 +134,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     /// <summary>The rendered PDF bytes for the current config — non-empty, de-branded, deterministic.</summary>
     public byte[] PdfBytes { get; private set; } = Array.Empty<byte>();
 
+    /// <summary>The id of the voucher this preview documents when the shell opened it FOR one voucher (the
+    /// census-5.11 print-after-saving doors, the POS receipt); <c>null</c> for a report or a set.</summary>
+    public Guid? SourceVoucherId { get; set; }
+
     /// <summary>The paginated preview pages (each a header/subtitle band + laid-out text lines) shown on screen.</summary>
     public ObservableCollection<PreviewPage> Pages { get; } = new();
 
@@ -412,6 +416,7 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
     public PrintPreviewViewModel(PosReceiptData receipt)
     {
         _receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
+        if (receipt.VoucherId != Guid.Empty) SourceVoucherId = receipt.VoucherId;
         Kind = PrintKind.Receipt;
         // W0-1 follow-up (review findings #2/#5) — the SAME principle the invoice ctor above applies: the heading
         // names the document the operator is actually looking at, and a bill of supply must not be announced as

@@ -67,6 +67,10 @@ public sealed class PosReceiptData
     /// preference (the same rule <c>InvoicePdf</c> applies to the F12 title override).</para></summary>
     public string Title { get; init; } = string.Empty;
 
+    /// <summary>The id of the posted POS bill this receipt documents (census 5.11) — never printed; it lets the
+    /// shell and its tests say WHICH voucher an automatically opened receipt is for.</summary>
+    public Guid VoucherId { get; init; }
+
     /// <summary>
     /// <b>W0-1b.</b> True iff this over-the-counter sale must be documented as a <b>bill of supply</b> rather than a
     /// retail (tax) invoice — CGST Act §31(3)(c) requires one "instead of a tax invoice" from a registered person

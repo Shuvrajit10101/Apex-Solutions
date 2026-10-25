@@ -917,7 +917,13 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             SavedNumber = posted.Number;
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
 
-            if (PrintAfterSave)
+            // 🔴 CENSUS 5.11 — the voucher TYPE's "Print voucher after saving" now prints the bill too. Before this
+            // line only the POS config's own print-after-save did, so ticking the attested Voucher Type option on a
+            // POS type printed nothing (help.tallysolutions.com/voucher-types-tally/: "Enable Print voucher after
+            // saving to automatically open the Voucher Printing screen for the voucher, once it is saved."). The
+            // document a POS bill prints is its retail receipt, so that is the screen opened. Creation only, as on
+            // every other door (IV-117).
+            if (PrintAfterSave || _type.PrintAfterSaving)
                 PrintReceiptRequested?.Invoke(BuildReceipt(posted, tenders, taxable, invoiceTax, interState, change));
 
             _onSaved();
@@ -1485,6 +1491,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         var billOfSupply = VoucherPrintProjector.IsBillOfSupply(_company, posted);
         return new PosReceiptData
         {
+            VoucherId = posted.Id,
             Title = _type.PosConfig?.DefaultTitle ?? "Retail Invoice",
             IsBillOfSupply = billOfSupply,
             TopDeclaration = billOfSupply
