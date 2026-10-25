@@ -208,6 +208,60 @@ public sealed class PriceListService
     }
 
     /// <summary>
+    /// <b>Withdraws the WHOLE price list for a (level, item) pair</b> — every dated version of it — and returns
+    /// how many versions were removed. Census 3.11's last open clause: <see cref="DeleteList"/> withdraws ONE
+    /// dated version, and until this method existed <b>no route removed a price list</b>, only a revision of one.
+    ///
+    /// <para>🔴 <b>WHY THAT WAS A REAL GAP AND NOT A TIDINESS ONE.</b> A (level, item) pair with any surviving
+    /// version is PRICED: <c>PriceResolver</c> picks the latest version whose <c>ApplicableFrom</c> is ≤ the
+    /// voucher date and offers its slab rate on the next invoice. Deleting versions one at a time left the
+    /// operator one slip away from the wrong outcome — withdraw the newest three of four and the pair silently
+    /// falls back to the OLDEST surviving price, which is live again for every invoice from that date on. There
+    /// was no single act meaning <i>"this level does not price this item at all"</i>, which is the state in which
+    /// the item's own rate applies. This is that act, and it is all-or-nothing so no intermediate price can be
+    /// left standing by accident.</para>
+    ///
+    /// <para>⚠️ <b>FIDELITY (R7, ruling 14): THIS IS <u>OURS</u>, AND IT IS LABELLED OURS RATHER THAN SOURCED.</b>
+    /// <c>help.tallysolutions.com/tally-prime/sales-purchase-voucher-entry/selling-buying-prices/</c> was opened
+    /// and read BY CONTENT on 2026-10-23: it documents creating a price list, revising one
+    /// (<i>"Press Alt+G (Go To) &gt; Alter Master &gt; Price List (Stock Group or Stock Category) &gt; press
+    /// Alt+R (Revise Price)."</i>) and altering one (<i>"You can alter a price list by overwriting the details
+    /// entered in the Price List screen."</i>), and it <b>never mentions deleting a price list at all</b>. 🔴
+    /// That silence is recorded as silence, NOT as permission and NOT as prohibition — the page does not say a
+    /// price list cannot be removed either. The verb therefore ships as a <b>documented divergence</b> on the
+    /// same footing as the existing per-version <see cref="DeleteList"/>, whose own Alt+D route is likewise ours.
+    /// <b>No vendor sentence is claimed for it.</b></para>
+    ///
+    /// <para><b>No referential guard is owed, for exactly the reason <see cref="DeleteList"/> records</b> — the
+    /// only foreign key into <c>price_lists(id)</c> is <c>price_list_lines.price_list_id</c>, written from the
+    /// parent's own <see cref="PriceList.Slabs"/>, so slabs leave with their parent and can never orphan; and a
+    /// posted voucher line carries the rate it was resolved to at ENTRY time, so <b>nothing already on the books
+    /// is re-priced</b>. The consequence is forward-looking only: the next invoice for this (level, item) falls
+    /// back to the stock item's own rate.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The level or the item does not exist, or the pair has no price list to withdraw — a destructive verb that
+    /// silently succeeds against nothing is indistinguishable from one that is broken.
+    /// </exception>
+    public int DeleteAllListsFor(Guid levelId, Guid itemId)
+    {
+        var level = _company.FindPriceLevel(levelId)
+            ?? throw new InvalidOperationException($"Price level {levelId} not found.");
+        var item = _company.FindStockItem(itemId)
+            ?? throw new InvalidOperationException($"Stock item {itemId} not found.");
+
+        var versions = _company.PriceLists
+            .Where(pl => pl.PriceLevelId == levelId && pl.StockItemId == itemId)
+            .ToList();
+        if (versions.Count == 0)
+            throw new InvalidOperationException(
+                $"Price level '{level.Name}' has no price list for '{item.Name}'.");
+
+        foreach (var version in versions) _company.RemovePriceList(version);
+        return versions.Count;
+    }
+
+    /// <summary>
     /// Validates a slab set (RQ-27/RQ-28): non-empty; each FromQty ≥ 0 and to 6-dp precision; each closed slab
     /// FromQty &lt; ToQty; contiguous + ascending (each slab's FromQty == the previous slab's ToQty); at most one
     /// open-ended (NULL ToQty) slab, and if present it must be the LAST; each rate ≥ 0 and paisa-exact; each

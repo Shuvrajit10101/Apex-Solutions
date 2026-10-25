@@ -1491,7 +1491,13 @@ internal sealed class ImportPlan
                 billedQuantity: il.BilledQuantity,
                 // WI-10 Gap 2: the line unit, re-mapped onto the TARGET company's unit (the same resolver the
                 // pure-stock allocations use). null ⇒ the item's base unit ⇒ byte-identical (ER-13).
-                unitId: il.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null)).ToList();
+                unitId: il.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null,
+                // Census 9.8 / 9.7 — the two tracking strings, verbatim and NOT re-mapped. They are
+                // deliberately not foreign keys (see InventoryAllocation.TrackingNumber), so there is no id
+                // to resolve; re-mapping them would invent a link the operator never typed. Without this the
+                // import silently erased every bill-to-note link in the exported company.
+                trackingNumber: il.TrackingNumber,
+                costTrackingNumber: il.CostTrackingNumber)).ToList();
 
         // Phase 6 slice 7: POS payment tenders (empty for every non-POS voucher). The tender ledgers resolve by name.
         var posTenders = v.PosTenders.Count == 0
@@ -1604,7 +1610,9 @@ internal sealed class ImportPlan
             ResolveStockItemId(a.StockItemId, stockItemId, t), ResolveGodownId(a.GodownId, godownId, t),
             a.Quantity, ParseEnum<StockDirection>(a.Direction),
             a.RatePaisa is { } rp ? MoneyCodec.FromPaisa(rp) : null, a.BatchLabel,
-            a.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null);
+            a.UnitId is { } uid ? ResolveUnitId(uid, unitId, t) : null,
+            // Census 9.8 / 9.7 — the note side, verbatim. See the item-line comment above.
+            a.TrackingNumber, a.CostTrackingNumber);
 
         // Reconstruct EVERY part verbatim (Phase 6: additional-cost lines, Job Work order payload, order links) and
         // rehydrate through FromStorage, then post through the engine (InventoryPostingService validates the

@@ -9713,7 +9713,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// the paragraph above — which exists precisely to stop members being lost — would have been the one a tool
     /// dropped.)</para>
     /// </summary>
-    private enum DeletionTarget { None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company, InventoryVoucher }
+    private enum DeletionTarget
+    {
+        None, Voucher, Ledger, Group, StockItem, PayrollMaster, Company, InventoryVoucher,
+
+        /// <summary>Census 3.11 — EVERY dated version of the price list for one (level, item) pair, as against
+        /// <see cref="PayrollMaster"/>, which on that screen withdraws the ONE highlighted version. The two are
+        /// different acts on the same screen and must be different armed kinds, or the confirmation the operator
+        /// reads would not match the act that runs.</summary>
+        WholePriceList,
+    }
 
     /// <summary>
     /// The armed deletion — ONE slot, on the ONE confirmation channel, exactly as S3's
@@ -9725,6 +9734,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private DeletionTarget _pendingDeleteKind;
     private Guid _pendingDeleteId;
+
+    /// <summary>
+    /// Census 3.11 — the SECOND half of the armed key for <see cref="DeletionTarget.WholePriceList"/>, whose
+    /// subject is a (price level, stock item) PAIR rather than a single master id. <see cref="_pendingDeleteId"/>
+    /// holds the level; this holds the item. Unused — and cleared — by every other kind.
+    ///
+    /// <para>🔴 <b>Both halves are re-checked against the live pickers when the operator answers Y</b>, exactly as
+    /// the master arm re-checks the highlighted row's id. The pickers on that screen are free to move while a
+    /// confirmation is up, and a question read over "Wholesale / Widget" must never execute against "Retail /
+    /// Hinge".</para>
+    /// </summary>
+    private Guid _pendingDeletePriceListItemId;
 
     /// <summary>
     /// The five surfaces Alt+D is offered on (design §6.4 item 6): the live report page (the Day Book carries the
@@ -10192,7 +10213,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// row, so the book on screen is AHEAD of the file. That is reported as a named failure telling the operator to
     /// re-open the company; it is not silently swallowed, and it is not claimed to be handled.</para>
     /// </summary>
-    private void PerformPendingDeletion(DeletionTarget kind, Guid id)
+    private void PerformPendingDeletion(DeletionTarget kind, Guid id, Guid priceListItemId = default)
     {
         if (Company is null) return;
 
@@ -10281,6 +10302,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     if (list.HighlightedMasterRow is not { } row || row.MasterId != id) return;
                     what = $"{Capitalise(list.MasterKindLabel)} '{row.MasterName}'";
                     list.DeleteMaster(id);
+                    break;
+                }
+
+                // 🔴 Census 3.11 — EVERY dated version of one (level, item) price list, which is a DIFFERENT act
+                // from the arm above on the same screen (that one withdraws the highlighted version). The pair is
+                // re-resolved from the live pickers and compared against BOTH halves of the armed key, exactly as
+                // the arm above re-checks the highlighted row: the pickers can move while the question is up, and
+                // a confirmation read over "Wholesale / Widget" must never execute against "Retail / Hinge".
+                case DeletionTarget.WholePriceList:
+                {
+                    if (PriceLists is not { } lists) return;
+                    if (lists.ScopedPair is not { } pair) return;
+                    if (pair.LevelId != id || pair.ItemId != priceListItemId) return;
+                    what = $"Price list '{lists.ScopedPairLabel}' ({lists.DeleteWholeList(id, priceListItemId)} "
+                         + "version(s))";
                     break;
                 }
 
@@ -10411,6 +10447,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 StockItemMaster?.ReloadExistingItems();
                 break;
             case DeletionTarget.PayrollMaster:
+            // Census 3.11 — the version history is rebuilt from the company, so the pair the operator is still
+            // looking at goes empty in place rather than listing versions that are gone.
+            case DeletionTarget.WholePriceList:
                 MasterListScreen?.ReloadExisting();
                 break;
         }
@@ -11111,6 +11150,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var pendingCancelStock = _pendingCancelInventoryVoucherId;
         var pendingDeleteKind = _pendingDeleteKind;
         var pendingDeleteId = _pendingDeleteId;
+        // Census 3.11 — the armed key's SECOND half for a whole-price-list delete, read here with the first
+        // because ResetMasterAcceptPrompt below clears both before the action runs.
+        var pendingDeletePriceListItem = _pendingDeletePriceListItemId;
         // Census 4.17 — the third armed action, read with the other two and torn down with them below.
         var pendingConvert = _pendingConvertMemorandumId;
         ResetMasterAcceptPrompt();
@@ -11134,7 +11176,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         if (pendingDeleteKind != DeletionTarget.None)
         {
-            PerformPendingDeletion(pendingDeleteKind, pendingDeleteId);
+            PerformPendingDeletion(pendingDeleteKind, pendingDeleteId, pendingDeletePriceListItem);
             return true;
         }
 
@@ -11210,6 +11252,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // asymmetry the next reader would trip over. This is a different category from the dead clause the comment
         // above describes: that one CLAIMED a mechanism it could not deliver.
         _pendingDeleteId = Guid.Empty;
+        // Census 3.11 — the pair's second half, cleared with the first for the same paired-state hygiene.
+        _pendingDeletePriceListItemId = Guid.Empty;
         // Census 4.17 — and so is the armed CONVERSION, for the reason the two lines above give with a destructive
         // verb behind them. An armed conversion that outlived its prompt would let a plain "Y" on the next
         // unrelated Accept confirmation, anywhere in the app, post a memorandum onto the real books.
@@ -12253,8 +12297,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // help.tallysolutions.com/create-alter-or-delete-currencies/), both read 2026-09-25. 🔴 The "other six"
             // this comment named are now FIVE — the price list left the list at census 3.11, on its own vendor
             // page; see the arm below. 🔴 AND THAT FIVE IS NOW **THREE**: budget and scenario left the list in
-            // W46 / track AF, each on its own vendor page (see the two arms at the END of this switch). Only
-            // BATCH, BOM and REORDER keep create+delete only and their
+            // W46 / track AF, each on its own vendor page (see the two arms at the END of this switch).
+            // 🔴 AND THAT THREE IS NOW **TWO**: REORDER left the list at census 3.12 — its page was not missing,
+            // only MOVED, and the new slug was opened and read BY CONTENT on 2026-10-23 (see the reorder arm at
+            // the END of this switch for the slug and the attested sentences). Only
+            // BATCH and BOM keep create+delete only and their
             // census rows stay PARTIAL. Inventing an alter shape for a master no source describes is how this
             // project has previously shipped a verb nobody asked for.
             case Screen.PriceLevelsMaster:
@@ -12272,9 +12319,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // "You can alter a price list by overwriting the details entered in the Price List screen", reached via
             // "Press Alt+G (Go To) > Alter Master > Price List"
             // [help.tallysolutions.com/selling-buying-prices/, opened and read by content 2026-10-04]. The list in
-            // that block was then FIVE (batch, BOM, budget, scenario, reorder) and is now THREE (batch, BOM,
-            // reorder) — budget and scenario left it in W46 / track AF; the reorder page 404s, so reorder
-            // alter stays withheld rather than invented.
+            // that block was then FIVE (batch, BOM, budget, scenario, reorder) and is now ~~THREE (batch, BOM,
+            // reorder)~~ **TWO (batch, BOM)** — budget and scenario left it in W46 / track AF; ~~the reorder page
+            // 404s, so reorder alter stays withheld rather than invented~~ 🔴 THE REORDER PAGE WAS MOVED, NOT
+            // DELETED: census 3.12 opened it by content at its new slug on 2026-10-23 and the reorder alter is
+            // built on it (see the reorder arm at the END of this switch).
             //
             // The row the arrows walk here is the dated VERSION history, so Ctrl+Enter opens one version for
             // correction — see PriceListService.AlterList for why overwriting a version is not a breach of the
@@ -12322,8 +12371,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             //     alter from the List of Scenarios" … "Modify the details as required and, as always, accept
             //     the Scenario Alteration screen"
             //     [help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/].
-            // That list is now THREE (batch, BOM, reorder). The reorder page still 404s, so reorder alter stays
-            // withheld rather than invented. The ROUTE here (arrows + Ctrl+Enter on the existing-list) is OURS,
+            // That list is now ~~THREE (batch, BOM, reorder)~~ **TWO (batch, BOM)**. ~~The reorder page still
+            // 404s, so reorder alter stays withheld rather than invented.~~ 🔴 IT WAS MOVED, NOT DELETED — see
+            // the reorder arm at the END of this switch. The ROUTE here (arrows + Ctrl+Enter on the existing-list) is OURS,
             // as it is for every other arm in this switch.
             case Screen.BudgetMaster:
             {
@@ -12339,6 +12389,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     is not { } m) return false;
                 OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.ScenarioMaster, m.Caption,
                     () => ScenarioMaster = m);
+                return true;
+            }
+
+            // ───────────────────────────────────── census 3.12: the REORDER LEVEL alter arm
+            //
+            // 🔴 EVERY BLOCK ABOVE NAMES REORDER AMONG THE MASTERS THAT KEEP CREATE+DELETE ONLY, ON THE EXPLICIT
+            // GROUND THAT ITS VENDOR PAGE 404s. THAT GROUND IS GONE and the stale sentences above are struck
+            // where they say so. The page lives at a new slug and was opened and read BY CONTENT on 2026-10-23:
+            //   help.tallysolutions.com/tally-prime/inventory/reorder-stock-items-reorder-status-and-reorder-quantity/
+            // The vendor's own route to the reorder level IS an alteration route — "Press Alt+G (Go To) > Alter
+            // Master > type or select Reorder Level (Stock Item) and press Enter." — and the page attests the
+            // field set the screen shows ("Period: Select the consumption for various periods – Days, Weeks,
+            // Months, or Years.", a Criteria of Higher or Lower, "Minimum Order Quantity: Enter the minimum
+            // quantity you want to order.") and the two Advanced toggles Alt+S / Alt+V this screen already binds.
+            //
+            // That list of create+delete-only masters is now TWO: batch and BOM.
+            //
+            // The ROUTE here (arrows + Ctrl+Enter on the existing-definitions list) is OURS, as it is for every
+            // other arm in this switch; only the screen and its fields are attested.
+            case Screen.ReorderLevelsMaster:
+            {
+                if (ReorderLevelsViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.ReorderLevelsMaster, m.Caption,
+                    () => ReorderLevels = m);
                 return true;
             }
 
@@ -12475,6 +12550,45 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         return Arm(DeletionTarget.PayrollMaster, row.MasterId,
             $"Delete {list.MasterKindLabel} '{row.MasterName}'? This cannot be undone. (Y/N)");
+    }
+
+    /// <summary>
+    /// <b>Alt+Shift+D on the Price List master — withdraws the WHOLE price list for the (level, item) pair the
+    /// screen is scoped to</b>, every dated version of it. Census 3.11's last open clause. Returns <c>true</c>
+    /// when the question went up.
+    ///
+    /// <para>🔴 <b>WHY A SECOND CHORD RATHER THAN WIDENING Alt+D.</b> Alt+D on this screen already means
+    /// something precise and useful — withdraw the ONE highlighted dated version — and it is tested as such.
+    /// Overloading it would make one key mean "remove one price" or "remove every price" depending on state the
+    /// operator cannot see, with money on the other side of the difference. Alt+Shift+D is genuinely free: the
+    /// window's Alt+D arm matches <c>e.KeyModifiers == KeyModifiers.Alt</c> EXACTLY (not <c>HasFlag</c>) and its
+    /// own comment already names Alt+Shift+D as a different chord it deliberately excludes, so nothing is
+    /// displaced and no existing binding changes meaning.</para>
+    ///
+    /// <para>⚠️ <b>THE CHORD IS OURS AND SO IS THE VERB.</b> The vendor page documents creating, revising and
+    /// altering a price list and never mentions deleting one — see
+    /// <c>PriceListService.DeleteAllListsFor</c> for the citation and for why that silence is recorded as
+    /// silence rather than spent as permission or as prohibition.</para>
+    ///
+    /// <para><b>The gates mirror the master arm's.</b> No company, a confirmation already up, the screen
+    /// mid-ALTERATION (correcting a version is not the moment to remove all of them), no pair picked, or a pair
+    /// with no versions at all — each is inert, and the last is a quiet no-op rather than a question about
+    /// nothing.</para>
+    /// </summary>
+    public bool RequestDeleteWholePriceList()
+    {
+        if (Company is null) return false;
+        if (IsAcceptPromptOpen) return false;
+        if (CurrentScreen != Screen.PriceListsMaster) return false;
+        if (PriceLists is not { IsAltering: false } lists) return false;
+        if (lists.ScopedPair is not { } pair) return false;
+        if (lists.ScopedVersionCount == 0) return false;
+
+        _pendingDeletePriceListItemId = pair.ItemId;
+        return Arm(DeletionTarget.WholePriceList, pair.LevelId,
+            $"Delete the WHOLE price list '{lists.ScopedPairLabel}'? All {lists.ScopedVersionCount} dated "
+            + "version(s) go, and this pair is then priced by the stock item's own rate. Vouchers already "
+            + "posted keep the rate they were entered with. This cannot be undone. (Y/N)");
     }
 
     /// <summary>Spacebar on the Outstandings page: toggle the highlighted bill's multi-select flag.</summary>
@@ -12888,7 +13002,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 else PriceLists?.Save();
                 return;
             case Screen.ReorderLevelsMaster:
-                ReorderLevels?.Create();
+                // Census 3.12: the same screen now serves Create (an upsert over a (scope, target)) and Alter
+                // (rewrite the definition it was opened over, THROUGH ITS OWN ID). Without this branch a Reorder
+                // Level Alteration screen's Ctrl+A would run Create(), which mints a fresh Guid and discards the
+                // row the operator opened — the correction would land as a DIFFERENT record while the screen
+                // reported success, and the arrow highlight (restored by id) would point at nothing.
+                if (ReorderLevels is { IsAltering: true }) ReorderLevels.Alter();
+                else ReorderLevels?.Create();
                 return;
             case Screen.EmployeeCategoryMaster:
                 EmployeeCategoryMaster?.Create();

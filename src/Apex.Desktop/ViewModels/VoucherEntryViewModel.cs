@@ -5939,6 +5939,49 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// touches it. See <c>InventoryVoucherEntryViewModel.ShowCostTrackingNumber</c>.</summary>
     public bool ShowItemCostTrackingNumber => _company.EnableCostTracking && CanBeItemInvoice;
 
+    /// <summary>
+    /// Pushes the still-open Receipt/Delivery Notes onto every item line's tracking-number picker (census
+    /// 9.8) — the vendor's <i>"You can select the tracking number of the receipt note to track the received
+    /// goods in the purchase invoice."</i>
+    /// </summary>
+    /// <remarks>
+    /// <para>🔴 <b>THE LIST IS COMPUTED ONCE AND SHARED BY EVERY LINE, AND THE LINES ARE NOT FILTERED BY THEIR
+    /// OWN STOCK ITEM.</b> A note commonly carries several items under one tracking number, and the operator
+    /// keys the bill line's item AFTER picking the note it bills; filtering by the item already on the line
+    /// would make the correct number invisible on a blank line, which is the state every line starts in.</para>
+    /// <para><b>The as-of date is the voucher's OWN date, not today.</b> A bill dated 05-Apr cannot be raised
+    /// against a note dated 10-Apr, and <see cref="BillsPending"/> applies exactly that bound, so passing
+    /// <see cref="Date"/> is what keeps the picker and the report answering the same question.</para>
+    /// <para><b>Nothing is offered when the column is off</b> — the early return leaves every line's list
+    /// empty, so <c>ShowTrackingNumberPicker</c> is false and no stale option survives an F11 toggle.</para>
+    /// </remarks>
+    private void RefreshTrackingNumberChoices()
+    {
+        if (!ShowItemTrackingNumber)
+        {
+            foreach (var l in InventoryLines) l.SetTrackingNumberChoices(Array.Empty<TrackingNumberChoice>());
+            return;
+        }
+
+        var purchase = _type.BaseType == VoucherBaseType.Purchase;
+        var open = Report.BuildOpenTrackingNumbers(_company, Date, purchase);
+
+        var choices = new List<TrackingNumberChoice>(open.Count);
+        foreach (var o in open)
+        {
+            // The label is OURS — the vendor does not describe the columns of its list. It names the number
+            // first because that is what the pick WRITES; everything after the dash is there to tell two
+            // free-text numbers apart.
+            var items = string.Join(", ", o.PendingItemNames);
+            var party = string.IsNullOrWhiteSpace(o.PartyName) ? string.Empty : $" · {o.PartyName}";
+            choices.Add(new TrackingNumberChoice(
+                $"{o.TrackingNumber} — {ApexDate.Format(o.Date)}{party} · {items}",
+                o.TrackingNumber));
+        }
+
+        foreach (var l in InventoryLines) l.SetTrackingNumberChoices(choices);
+    }
+
     /// <summary>Adds a blank item-invoice inventory line (Movement kind: Item / Godown / Qty / Rate / Batch).</summary>
     public InventoryVoucherLineViewModel AddInventoryLine()
     {
@@ -6863,6 +6906,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             l.ShowTrackingNumber = ShowItemTrackingNumber;
             l.ShowCostTrackingNumber = ShowItemCostTrackingNumber;
         }
+
+        // Census 9.8 — refresh the bill-side tracking-number selection on the same pass and for the same
+        // reason: the offered notes depend on the voucher's DATE and on the F11 gate, both of which the
+        // operator can change after the lines were built.
+        RefreshTrackingNumberChoices();
 
         var total = ItemsTotal;
         ItemsTotalText = IndianFormat.AmountAlways(total);

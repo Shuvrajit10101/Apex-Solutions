@@ -34,6 +34,12 @@ public enum BillsPendingSection
 /// <param name="ReceivedQuantity">Total quantity MOVED under this tracking number, in the item's base unit.</param>
 /// <param name="BilledQuantity">Total quantity BILLED under this tracking number, in the item's base unit.</param>
 /// <param name="PendingQuantity">The shortfall — always &gt; 0, and always the section's own direction.</param>
+/// <param name="GoodsVoucherId">The <see cref="InventoryVoucher"/> id of the EARLIEST note that moved goods
+/// under this tracking number, or <c>null</c> when no note did. It is the earliest rather than the latest for
+/// the same reason <paramref name="Date"/> is: the row is aged from the document that opened the exposure, so
+/// the row's date and the voucher the row drills to are always the SAME document.</param>
+/// <param name="BillVoucherId">The accounting <see cref="Voucher"/> id of the EARLIEST bill that quoted this
+/// tracking number, or <c>null</c> when no bill did.</param>
 public sealed record BillsPendingRow(
     BillsPendingSection Section,
     string TrackingNumber,
@@ -44,6 +50,41 @@ public sealed record BillsPendingRow(
     DateOnly Date,
     decimal ReceivedQuantity,
     decimal BilledQuantity,
+    decimal PendingQuantity,
+    Guid? GoodsVoucherId = null,
+    Guid? BillVoucherId = null);
+
+/// <summary>
+/// One entry of the vendor's <b>tracking-number selection</b> on a Purchase or Sales item-invoice (census 9.8)
+/// — a Receipt/Delivery Note whose goods no bill has yet accounted for in full.
+/// </summary>
+/// <remarks>
+/// <para>🔴 <b>R7 — WHAT IS ATTESTED AND WHAT IS OURS.</b> The SELECTION is the vendor's, quoted by content
+/// from <c>help.tallysolutions.com/purchase-order-tally/</c> — <i>"You can select the tracking number of the
+/// receipt note to track the received goods in the purchase invoice."</i> — and from
+/// <c>help.tallysolutions.com/sales-order-tally/</c> — <i>"You can select the tracking number of the delivery
+/// note to track the delivery of goods in the sales invoice."</i> So is the <b>New Number</b> escape:
+/// <i>"Select New Number for the Tracking No."</i></para>
+/// <para>🔴 <b>THE NAME "List of Tracking Numbers" IS NOT THE VENDOR'S AND IS NOT USED HERE.</b> Both pages
+/// were searched for that exact phrase and <b>neither carries it</b> — it is the census's own wording for the
+/// gap. The vendor names <i>"List of Orders"</i> for the ORDER picker and never names the tracking list. The
+/// shipped caption is therefore <b>ours</b>; see <c>docs/invented-vs-cloned.md</c> IV-149.</para>
+/// <para><b>What each entry carries beyond the number is OURS</b> — the vendor does not describe the columns of
+/// its list. Date, party and the pending items are shown because a bare list of free-text strings is not
+/// selectable in practice.</para>
+/// </remarks>
+/// <param name="TrackingNumber">The operator-entered Tracking No. to write onto the bill line.</param>
+/// <param name="Date">The earliest note date carrying this number — what the operator ages it from.</param>
+/// <param name="PartyId">The party on the earliest voucher carrying this number, when there is one.</param>
+/// <param name="PartyName">That party's display name, or <c>null</c>.</param>
+/// <param name="PendingItemNames">The still-unbilled items under this number, ordinally ordered.</param>
+/// <param name="PendingQuantity">Σ of the still-unbilled quantities, in each item's own base unit.</param>
+public sealed record PendingTrackingNumber(
+    string TrackingNumber,
+    DateOnly Date,
+    Guid? PartyId,
+    string? PartyName,
+    IReadOnlyList<string> PendingItemNames,
     decimal PendingQuantity);
 
 /// <summary>
@@ -120,6 +161,81 @@ public static class BillsPending
     public static IReadOnlyList<BillsPendingRow> BuildSales(Company company, DateOnly asOf)
         => Build(company, asOf, VoucherBaseType.DeliveryNote, VoucherBaseType.Sales);
 
+    /// <summary>
+    /// The tracking numbers a Purchase or Sales item-invoice may be raised AGAINST as at
+    /// <paramref name="asOf"/> (census 9.8) — the vendor's tracking-number selection on the bill.
+    /// </summary>
+    /// <param name="company">The book to read.</param>
+    /// <param name="asOf">The bill's own date; a note dated after it is not yet selectable.</param>
+    /// <param name="purchase"><c>true</c> for a Purchase invoice (Receipt Notes), <c>false</c> for a Sales
+    /// invoice (Delivery Notes).</param>
+    /// <remarks>
+    /// <para>🔴 <b>IT IS DERIVED FROM <see cref="BuildPurchase"/> / <see cref="BuildSales"/> RATHER THAN FROM A
+    /// SECOND WALK OF THE BOOK, AND THAT IS THE POINT.</b> The picker and the Bills Pending report then answer
+    /// the same question by construction: this method can never offer a number the report does not show as
+    /// pending, and can never withhold one it does. A hand-rolled second query would be free to drift from the
+    /// report — which is exactly how this project's print and export projectors diverged
+    /// (<c>ReportColumnBands</c>'s own remarks) before one shared declaration replaced them.</para>
+    /// <para><b>Only <see cref="BillsPendingSection.GoodsNotBilled"/> is offered.</b> The other section is goods
+    /// a bill has ALREADY over-claimed; offering those numbers would invite a second bill against the same
+    /// movement, which is the double-billing hazard <c>VoucherEntryViewModel.ShowItemTrackingNumber</c> states
+    /// in its own words.</para>
+    /// <para><b>One entry per distinct tracking number</b>, not per (number, item) pair: the vendor's list is a
+    /// list of tracking numbers, and one note covering three items carries ONE number.</para>
+    /// <para>🔴 <b>THIS DOES NOT AUTO-FILL QUANTITY OR RATE, DELIBERATELY.</b> The vendor page says the
+    /// quantity and rate <i>"appear automatically"</i> only after selecting a <b>sales ORDER number</b>, and
+    /// for the tracking number says merely <i>"Change the stock item's Quantity and Rate on the Stock Item
+    /// Allocations screen, if required."</i> Nothing on either page states that selecting a tracking number
+    /// populates a bill line, so this product does not — see <c>docs/invented-vs-cloned.md</c> IV-149.</para>
+    /// </remarks>
+    public static IReadOnlyList<PendingTrackingNumber> OpenTrackingNumbers(
+        Company company, DateOnly asOf, bool purchase)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+
+        var rows = purchase ? BuildPurchase(company, asOf) : BuildSales(company, asOf);
+
+        // Ordinal throughout, for the same reason Build's own comparer is: a culture-sensitive compare orders
+        // the same two numbers differently on the ubuntu, macos and windows legs of the gate.
+        var byNumber = new Dictionary<string, (DateOnly Date, Guid? PartyId, string? PartyName,
+            SortedSet<string> Items, decimal Pending)>(StringComparer.Ordinal);
+
+        foreach (var r in rows)
+        {
+            if (r.Section != BillsPendingSection.GoodsNotBilled) continue;
+
+            if (!byNumber.TryGetValue(r.TrackingNumber, out var acc))
+            {
+                acc = (r.Date, r.PartyId, r.PartyName, new SortedSet<string>(StringComparer.Ordinal), 0m);
+            }
+            else if (r.Date < acc.Date)
+            {
+                // Keep the EARLIEST date and the party that goes with it, so the picker ages a number exactly
+                // as the report's own earliest row does.
+                acc = (r.Date, r.PartyId, r.PartyName, acc.Items, acc.Pending);
+            }
+
+            acc.Items.Add(r.ItemName);
+            acc.Pending += r.PendingQuantity;
+            byNumber[r.TrackingNumber] = acc;
+        }
+
+        var options = new List<PendingTrackingNumber>(byNumber.Count);
+        foreach (var (number, acc) in byNumber)
+        {
+            options.Add(new PendingTrackingNumber(
+                number, acc.Date, acc.PartyId, acc.PartyName, acc.Items.ToArray(), acc.Pending));
+        }
+
+        // Oldest first — the operator bills the longest-outstanding receipt first — then ordinally by number.
+        options.Sort(static (a, b) =>
+        {
+            var byDate = a.Date.CompareTo(b.Date);
+            return byDate != 0 ? byDate : string.CompareOrdinal(a.TrackingNumber, b.TrackingNumber);
+        });
+        return options;
+    }
+
     /// <summary>The accumulator for one (tracking number, stock item) pair.</summary>
     private sealed class Pair
     {
@@ -129,6 +245,15 @@ public static class BillsPending
         public DateOnly? BillDate;
         public Guid? PartyId;
         public DateOnly? PartyDate;
+
+        /// <summary>The earliest note voucher that moved goods under this pair — what a GoodsNotBilled row
+        /// drills to. Tracked alongside <see cref="GoodsDate"/> so the drill target and the displayed date can
+        /// never disagree.</summary>
+        public Guid? GoodsVoucherId;
+
+        /// <summary>The earliest bill voucher that quoted this pair — what a BilledNotReceived row drills
+        /// to.</summary>
+        public Guid? BillVoucherId;
     }
 
     private static IReadOnlyList<BillsPendingRow> Build(
@@ -159,7 +284,11 @@ public static class BillsPending
                 if (a.TrackingNumber is not { } tracking) continue;
                 var p = Slot(pairs, tracking, a.StockItemId);
                 p.Received += BaseQuantity(company, a.StockItemId, a.UnitId, a.Quantity);
-                if (p.GoodsDate is null || v.Date < p.GoodsDate) p.GoodsDate = v.Date;
+                if (p.GoodsDate is null || v.Date < p.GoodsDate)
+                {
+                    p.GoodsDate = v.Date;
+                    p.GoodsVoucherId = v.Id;
+                }
                 NotePartyIfEarliest(p, v.Date, v.PartyId);
             }
         }
@@ -183,7 +312,11 @@ public static class BillsPending
                 // BilledQuantity, not Quantity — see the class remarks. A zero-billed free-goods line adds
                 // nothing here, leaving its received goods correctly pending.
                 p.Billed += BaseQuantity(company, line.StockItemId, line.UnitId, line.BilledQuantity);
-                if (p.BillDate is null || v.Date < p.BillDate) p.BillDate = v.Date;
+                if (p.BillDate is null || v.Date < p.BillDate)
+                {
+                    p.BillDate = v.Date;
+                    p.BillVoucherId = v.Id;
+                }
                 NotePartyIfEarliest(p, v.Date, v.PartyId);
             }
         }
@@ -217,7 +350,9 @@ public static class BillsPending
                 date ?? asOf,
                 p.Received,
                 p.Billed,
-                net > 0m ? net : -net));
+                net > 0m ? net : -net,
+                p.GoodsVoucherId,
+                p.BillVoucherId));
         }
 
         // Deterministic total order across every platform: section, then date, then tracking number, then item

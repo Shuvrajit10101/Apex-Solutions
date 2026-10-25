@@ -113,6 +113,37 @@ public sealed partial class PriceListsViewModel : ViewModelBase, IMasterListScre
     /// consequence (the preceding version's date range widens).</remarks>
     public void DeleteMaster(Guid id) => new PriceListService(_company).DeleteList(id);
 
+    // ───────────────────────────── census 3.11, the LAST open clause: withdraw the WHOLE list for a pair
+    //
+    // 🔴 THE ROW'S OWN FIRST GAP SENTENCE — "no route deletes a list or a version" — WAS ONLY EVER HALF CLOSED.
+    // Alt+D above withdraws ONE dated VERSION. Nothing withdrew the LIST, i.e. every version this (level, item)
+    // pair carries, and the difference is not cosmetic: deleting versions one at a time silently falls the pair
+    // back onto the OLDEST surviving price, which PriceResolver then offers on the next invoice. See
+    // PriceListService.DeleteAllListsFor for the full derivation and for the honest R7 label — the vendor page
+    // documents create, revise and alter and says NOTHING about deleting a price list, so this verb is OURS.
+
+    /// <summary>The (level, item) pair the history list is currently scoped to, or <c>null</c> when either
+    /// picker is empty. The shell arms the whole-list delete against exactly this pair and re-checks it when the
+    /// operator answers Y, so a pair changed while the question was up cannot be the one that is deleted.</summary>
+    public (Guid LevelId, Guid ItemId)? ScopedPair =>
+        SelectedLevel is { } level && SelectedItem is { } item ? (level.Id, item.Id) : null;
+
+    /// <summary>How many dated versions the scoped pair carries — what the confirmation must say out loud,
+    /// because "delete the price list" reads as one record and may be four.</summary>
+    public int ScopedVersionCount => History.Count;
+
+    /// <summary>"Wholesale / Widget" — the pair named in the confirmation and in the deleted notice.</summary>
+    public string ScopedPairLabel =>
+        $"{SelectedLevel?.Name ?? "—"} / {SelectedItem?.Name ?? "—"}";
+
+    /// <summary>
+    /// Withdraws EVERY dated version for the given (level, item) pair through the engine, which owns the
+    /// refusals. Engine-only — the shell saves and reloads after this returns, exactly as
+    /// <see cref="DeleteMaster"/> does.
+    /// </summary>
+    public int DeleteWholeList(Guid levelId, Guid itemId) =>
+        new PriceListService(_company).DeleteAllListsFor(levelId, itemId);
+
     private PayrollMasterHighlight<PriceListVersionRow>? _highlight;
 
     private PayrollMasterHighlight<PriceListVersionRow> Highlight =>
