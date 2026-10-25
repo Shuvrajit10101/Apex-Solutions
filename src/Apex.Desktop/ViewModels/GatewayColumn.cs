@@ -328,6 +328,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted W2-32 "Multi-Account Printing" panel (non-null only for that census-12.6 column).</summary>
     public MultiAccountPrintViewModel? MultiAccountPrint => Page as MultiAccountPrintViewModel;
 
+    /// <summary>The hosted "Multi-Voucher Printing" panel (non-null only for that census-12.6 column).</summary>
+    public MultiVoucherPrintViewModel? MultiVoucherPrint => Page as MultiVoucherPrintViewModel;
+
     /// <summary>
     /// The hosted multi-account "Export" panel (non-null only for census 12.7's export-arm column).
     ///

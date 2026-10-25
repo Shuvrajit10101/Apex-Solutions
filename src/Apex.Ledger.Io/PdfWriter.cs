@@ -114,6 +114,23 @@ public sealed class PdfWriter
     public int PageCount => _pages.Count;
 
     /// <summary>
+    /// Keeps only the pages whose 1-based position satisfies <paramref name="keep"/>, in order — how a JOB of
+    /// several documents drawn onto one writer applies the F10 page range to the job's own sheets (census 12.6,
+    /// <see cref="VoucherSetPdf"/>). Call it after the last page is drawn and before
+    /// <see cref="RepeatAllPages"/>. Image XObjects stay registered; an unreferenced one costs bytes, not
+    /// correctness.
+    /// </summary>
+    public void RetainPages(Func<int, bool> keep)
+    {
+        ArgumentNullException.ThrowIfNull(keep);
+        var kept = new List<PageBuffer>(_pages.Count);
+        for (int i = 0; i < _pages.Count; i++)
+            if (keep(i + 1)) kept.Add(_pages[i]);
+        _pages.Clear();
+        _pages.AddRange(kept);
+    }
+
+    /// <summary>
     /// Repeats every page drawn so far, so the document carries <paramref name="copies"/> COLLATED copies of
     /// itself (W2-31 / census 12.4, the F5 number-of-copies knob). A two-page document at two copies emits
     /// 1,2,1,2 — a set an operator can hand over intact — never 1,1,2,2.

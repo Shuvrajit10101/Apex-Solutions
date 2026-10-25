@@ -33,9 +33,39 @@ public static class InvoicePdf
     /// <summary>Renders the tax invoice to PDF bytes.</summary>
     public static byte[] Render(InvoicePrintData data, PrintConfig config, PageConfig page)
     {
+        var writer = Compose(data, config, page, into: null);
+
+        // W2-31 (census 12.4) F5: collated copies of the whole invoice — the case the knob exists for, since
+        // CGST Rule 48(1) prepares a goods invoice in triplicate. The COPY MARKING is a separate knob
+        // (<see cref="PrintConfig.CopyMarking"/>): this repeats the document, it does not re-label each set.
+        // One copy repeats nothing, so the shipped byte stream is untouched (ER-13).
+        writer.RepeatAllPages(page.EffectiveCopies);
+        return writer.Build();
+    }
+
+    /// <summary>
+    /// Draws EVERY sheet of the invoice onto a JOB writer, exactly as <see cref="Render"/> draws them for the
+    /// invoice printed alone — party blocks, GSTINs, item table with HSN, tax breakup, closing block and footer,
+    /// numbered from 1 within this invoice (census 12.6, multi-voucher printing; see <see cref="VoucherSetPdf"/>).
+    /// The job, not this method, applies the F10 page range and the F5 copies.
+    /// </summary>
+    public static void RenderInto(PdfWriter writer, InvoicePrintData data, PrintConfig config, PageConfig page)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
+        Compose(data, config, page, into: writer);
+    }
+
+    /// <summary>
+    /// The one body behind <see cref="Render"/> and <see cref="RenderInto"/>, so an invoice cannot draw one way
+    /// alone and another way in a job. With <paramref name="into"/> null it is the single-invoice render,
+    /// byte-for-byte what shipped; with a job writer it draws the whole invoice, numbered from 1.
+    /// </summary>
+    private static PdfWriter Compose(InvoicePrintData data, PrintConfig config, PageConfig page, PdfWriter? into)
+    {
         ArgumentNullException.ThrowIfNull(data);
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(page);
+        bool wholeDocument = into is not null;
 
         // W0-1 (T0-7): the title states which document this IS in law, and on a bill of supply that is not negotiable.
         // The F12 title override exists so an operator can print e.g. "PROFORMA INVOICE"; letting it apply to a bill of
@@ -144,18 +174,18 @@ public static class InvoicePdf
         bool closingOnNewPage = y - page.RowHeight - closing.Height < bottom;
         int total = pages.Count + (closingOnNewPage ? 1 : 0);
 
-        var writer = new PdfWriter { DocumentTitle = SafeTitle(title) };
+        var writer = into ?? new PdfWriter { DocumentTitle = SafeTitle(title) };
 
         // W2-31 (census 12.4) F10 — the SAME rule ReportPdf and VoucherPdf apply. StartPageNumber RENUMBERS sheet
         // one; the range SELECTS which sheets are drawn and never renumbers them. Defaults reproduce the shipped
-        // bytes exactly (ER-13).
-        int firstNumber = page.StartPageNumber < 1 ? 1 : page.StartPageNumber;
+        // bytes exactly (ER-13). In a job (wholeDocument) the job applies the range, so every sheet is drawn here.
+        int firstNumber = wholeDocument ? 1 : (page.StartPageNumber < 1 ? 1 : page.StartPageNumber);
         int lastNumber = firstNumber + total - 1;
         int drawn = 0;
 
         for (int p = 0; p < pages.Count; p++)
         {
-            if (!page.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn at all
+            if (!wholeDocument && !page.IncludesPage(p + 1)) continue;   // outside the F10 range — not drawn
             writer.BeginPage(page.PageWidth, page.PageHeight);
             // 🔴 "First" is the sheet's place in the DOCUMENT, not in the selection. DrawFirstHeader is what carries
             // the Rule 46(a) party blocks, the Rule 48(1) copy marking and the Rule 5(1)(f) declaration; deriving it
@@ -177,7 +207,7 @@ public static class InvoicePdf
             drawn++;
         }
 
-        if (closingOnNewPage && page.IncludesPage(total))
+        if (closingOnNewPage && (wholeDocument || page.IncludesPage(total)))
         {
             writer.BeginPage(page.PageWidth, page.PageHeight);
             double yy = DrawContinuationHeader(writer, data, page, title, left, right);
@@ -192,12 +222,7 @@ public static class InvoicePdf
         if (drawn == 0)
             writer.BeginPage(page.PageWidth, page.PageHeight);
 
-        // W2-31 (census 12.4) F5: collated copies of the whole invoice — the case the knob exists for, since
-        // CGST Rule 48(1) prepares a goods invoice in triplicate. The COPY MARKING is a separate knob
-        // (<see cref="PrintConfig.CopyMarking"/>): this repeats the document, it does not re-label each set.
-        // One copy repeats nothing, so the shipped byte stream is untouched (ER-13).
-        writer.RepeatAllPages(page.EffectiveCopies);
-        return writer.Build();
+        return writer;
     }
 
     // ================================================================ geometry

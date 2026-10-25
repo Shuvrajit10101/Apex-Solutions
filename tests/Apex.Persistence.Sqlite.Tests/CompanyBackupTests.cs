@@ -372,6 +372,103 @@ public sealed class CompanyBackupTests : IDisposable
         Assert.Equal("Keeper Co", store.Load(keeper.Id)!.Name);
     }
 
+    /// <summary>
+    /// 🔴 <b>THE CASE AN OPERATOR ACTUALLY RESTORES FOR: a backup taken BEFORE N vouchers puts the book back
+    /// exactly as it was before those N vouchers, read back through a FRESH store handle.</b>
+    ///
+    /// <para><b>Why this is not covered by the tests above, which is the reason it exists.</b>
+    /// <see cref="Destroyed_company_file_is_restored_byte_for_byte_and_still_reconciles_to_the_paisa"/> destroys
+    /// the file with garbage and restores it, and
+    /// <see cref="Restoring_over_a_different_company_replaces_it_wholesale"/> writes one company over a
+    /// different one. Neither posts VALID work after the backup and then rolls it back — and that is the only
+    /// shape in which a restore can silently keep post-backup rows: a swap that merged, or that reused a
+    /// pooled connection still holding the newer pages, would leave the seven vouchers visible while every
+    /// byte-digest assertion above still passed, because those assertions compare the file to the ARCHIVE
+    /// rather than to the book the operator expects to get back.</para>
+    ///
+    /// <para><b>The read-back is deliberately through a brand-new <see cref="SqliteCompanyStore"/> after
+    /// <c>ClearAllPools</c>.</b> Asserting on the in-memory aggregate, or on a store handle opened before the
+    /// swap, would be asserting on something this test itself had in hand — the "never assert on an internal
+    /// you just set" rule. The question is what the NEXT process to open this file sees.</para>
+    ///
+    /// <para>It also pins the current-version round trip the schema guard is there to allow: the archive is
+    /// stamped <see cref="Schema.CurrentVersion"/> and restores into a book of that same version without
+    /// complaint, which is the positive half of the refusal pinned by
+    /// <see cref="Restore_refuses_a_backup_stamped_with_a_newer_schema_version_and_changes_nothing"/>.</para>
+    /// </summary>
+    [Fact]
+    public void A_backup_taken_before_N_vouchers_restores_the_book_to_exactly_its_pre_N_state()
+    {
+        var company = OddPaisaCompany("Rollback Co");
+        var dbPath = SaveFixture(company);
+
+        // ---- The PRE-N book, as the next process would read it. ----
+        Company preN;
+        using (var store = new SqliteCompanyStore(dbPath)) preN = store.Load(company.Id)!;
+        var preNVoucherCount = preN.Vouchers.Count;
+        var preNTb = TrialBalance.Build(preN, AsOf);
+        Assert.Equal(115_305.59m, preNTb.TotalDebit.Amount);
+        Assert.Equal(115_305.59m, preNTb.TotalCredit.Amount);
+        SqliteConnection.ClearAllPools();
+
+        // ---- Back up at that point. The stamp is this build's own version. ----
+        var archive = Path_("pre-n" + CompanyBackup.ArchiveExtension);
+        var manifest = CompanyBackup.Create(dbPath, archive, TakenAt);
+        Assert.Equal(Schema.CurrentVersion, manifest.SchemaVersion);
+        SqliteConnection.ClearAllPools();
+
+        // ---- Post N = 7 further vouchers and SAVE them, so they are genuinely committed work. ----
+        const int N = 7;
+        Company working;
+        using (var store = new SqliteCompanyStore(dbPath)) working = store.Load(company.Id)!;
+        var cash = working.FindLedgerByName("Cash")!;
+        var sales = working.FindLedgerByName("Sales")!;
+        var receipt = working.FindVoucherTypeByName("Receipt")!;
+        var svcAfter = new LedgerService(working);
+        for (int i = 1; i <= N; i++)
+            svcAfter.Post(new Voucher(Guid.NewGuid(), receipt.Id, new DateOnly(2025, 5, i), new[]
+            {
+                new EntryLine(cash.Id, Money.FromRupees(1_000m + i), DrCr.Debit),
+                new EntryLine(sales.Id, Money.FromRupees(1_000m + i), DrCr.Credit),
+            }));
+        using (var store = new SqliteCompanyStore(dbPath)) store.Save(working);
+        SqliteConnection.ClearAllPools();
+
+        // The post-N book really is different — without this the restore could be a no-op and still pass.
+        Company postN;
+        using (var store = new SqliteCompanyStore(dbPath)) postN = store.Load(company.Id)!;
+        Assert.Equal(preNVoucherCount + N, postN.Vouchers.Count);
+        var postNTb = TrialBalance.Build(postN, AsOf);
+        Assert.NotEqual(preNTb.TotalDebit.Amount, postNTb.TotalDebit.Amount);
+        SqliteConnection.ClearAllPools();
+
+        // ---- Act: restore the pre-N archive over the live book. ----
+        var restored = CompanyBackup.Restore(archive, dbPath);
+        Assert.Equal(manifest.DatabaseSha256, restored.DatabaseSha256);
+
+        // ---- Assert: a FRESH handle on the file sees exactly the pre-N book. ----
+        SqliteConnection.ClearAllPools();
+        Company after;
+        using (var store = new SqliteCompanyStore(dbPath)) after = store.Load(company.Id)!;
+
+        Assert.Equal(preNVoucherCount, after.Vouchers.Count);
+        Assert.Equal(preN.Vouchers.Sum(v => v.Lines.Count), after.Vouchers.Sum(v => v.Lines.Count));
+
+        var afterTb = TrialBalance.Build(after, AsOf);
+        Assert.Equal(115_305.59m, afterTb.TotalDebit.Amount);
+        Assert.Equal(115_305.59m, afterTb.TotalCredit.Amount);
+        Assert.True(afterTb.Balanced);
+
+        // Not one of the seven survived — asserted on the DATES they were posted on, so a restore that kept
+        // them under renumbered ids could not hide behind a count that happened to match.
+        Assert.DoesNotContain(after.Vouchers, v => v.Date.Month == 5);
+
+        // And the pre-N bill-wise detail is back to the paisa (MT/001 33,102.91 - 19,447.33).
+        var outstanding = Outstandings.Build(after, AsOf);
+        Assert.Equal(13_655.58m, outstanding.Receivables.Single(b => b.Reference == "MT/001").Pending.Amount);
+        Assert.Equal(16_752.53m, outstanding.Payables.Single(b => b.Reference == "KS/77").Pending.Amount);
+    }
+
     [Fact]
     public void Backup_of_a_restored_backup_carries_the_identical_payload()
     {
@@ -828,6 +925,60 @@ public sealed class CompanyBackupTests : IDisposable
         Assert.Equal(before, Sha256OfFile(target));
 
         Assert.Throws<CompanyBackupException>(() => CompanyBackup.ReadManifest(junk));
+    }
+
+    /// <summary>
+    /// 🔴 <b>A TRUNCATED archive — the half-finished download, the USB stick pulled mid-copy — is refused, and the
+    /// book the operator still has is left exactly as it was.</b>
+    ///
+    /// <para><b>Why this is not already covered, which is the only reason it exists.</b>
+    /// <see cref="Restore_refuses_a_payload_whose_digest_does_not_match_and_changes_nothing"/> flips bytes
+    /// <i>inside</i> a structurally valid zip of the right length, and
+    /// <see cref="Restore_refuses_a_file_that_is_not_a_backup_archive_and_changes_nothing"/> feeds a file that was
+    /// never a zip. Truncation is a third shape and the likeliest of the three in real life: the central directory
+    /// at the END of the zip is what goes missing, so the failure happens at container OPEN, before any manifest or
+    /// digest check can run. A restore that opened the payload streamwise and copied what it could read would pass
+    /// both tests above and still hand the operator a short, silently incomplete database.</para>
+    ///
+    /// <para>The target is asserted twice over: byte-identical by digest, <b>and still loadable through a fresh
+    /// <see cref="SqliteCompanyStore"/> that reconciles to the paisa</b>. The digest alone would not catch a
+    /// refusal that left a stale hot journal or a lock beside the file, which is what actually makes a book
+    /// unopenable after a failed restore.</para>
+    /// </summary>
+    [Fact]
+    public void Restore_refuses_a_truncated_archive_and_leaves_the_existing_book_openable()
+    {
+        var company = OddPaisaCompany("Truncation Co");
+        var dbPath = SaveFixture(company);
+        var archive = Path_("truncated" + CompanyBackup.ArchiveExtension);
+        CompanyBackup.Create(dbPath, archive, TakenAt);
+        SqliteConnection.ClearAllPools();
+
+        // Cut the archive off mid-payload: keep a third of it, so the zip central directory is gone entirely.
+        var whole = File.ReadAllBytes(archive);
+        Assert.True(whole.Length > 60, "the fixture archive is too small for truncation to be meaningful");
+        var cut = whole.Length / 3;
+        File.WriteAllBytes(archive, whole.Take(cut).ToArray());
+        Assert.Equal(cut, new FileInfo(archive).Length);
+
+        var target = Path_("truncated-target.db");
+        File.Copy(dbPath, target);
+        var before = Sha256OfFile(target);
+
+        var ex = Assert.Throws<CompanyBackupException>(() => CompanyBackup.Restore(archive, target));
+        Assert.False(string.IsNullOrWhiteSpace(ex.Message));
+
+        // Untouched, byte for byte.
+        Assert.Equal(before, Sha256OfFile(target));
+
+        // And still a working book: a fresh handle opens it and it still reconciles.
+        SqliteConnection.ClearAllPools();
+        Company reopened;
+        using (var store = new SqliteCompanyStore(target)) reopened = store.Load(company.Id)!;
+        var tb = TrialBalance.Build(reopened, AsOf);
+        Assert.Equal(115_305.59m, tb.TotalDebit.Amount);
+        Assert.Equal(115_305.59m, tb.TotalCredit.Amount);
+        Assert.True(tb.Balanced);
     }
 
     [Fact]

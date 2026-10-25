@@ -422,6 +422,11 @@ public sealed class BackupRestoreViewModelTests : IDisposable
         var archive = Path.Combine(_outDir, name.Replace(' ', '-') + ".apexbak");
         CompanyBackup.Create(_storage.PathForName(name), archive, new DateTimeOffset(Now));
         SqliteConnection.ClearAllPools();
+
+        // The damaged book is removed once archived, so the caller can open a HEALTHY book of the same name to
+        // restore over. (A second aggregate saved into the same file would be a second company row, which the
+        // loader rightly refuses.)
+        File.Delete(_storage.PathForName(name));
         return archive;
     }
 
@@ -439,7 +444,10 @@ public sealed class BackupRestoreViewModelTests : IDisposable
     [Fact]
     public void A_restore_of_an_archive_this_build_cannot_open_is_rolled_back()
     {
-        var archive = ArchiveOfADamagedCompany("Unopenable Source Co",
+        // The archive is of the SAME book the restore lands on, re-saved healthy afterwards. (It used to be a
+        // different company restored over the open one — the cross-name restore A12 review w6 F1 found destroys
+        // a third book on the next save, and which Apply now refuses before anything is touched.)
+        var archive = ArchiveOfADamagedCompany("Rollback Target Co",
             c => c.BooksBeginFrom = c.FinancialYearStart.AddDays(-1));
 
         var vm = ShellWith(OddPaisaCompany("Rollback Target Co"));
@@ -477,7 +485,8 @@ public sealed class BackupRestoreViewModelTests : IDisposable
     [Fact]
     public void A_restore_of_an_archive_the_save_floor_would_refuse_is_kept_and_reported()
     {
-        var archive = ArchiveOfADamagedCompany("Bad Pin Source Co", c => c.Pin = "70003");
+        // Same book, re-saved healthy after the damaged archive was taken (see the test above for why).
+        var archive = ArchiveOfADamagedCompany("Warned Target Co", c => c.Pin = "70003");
 
         var vm = ShellWith(OddPaisaCompany("Warned Target Co"));
         SqliteConnection.ClearAllPools();

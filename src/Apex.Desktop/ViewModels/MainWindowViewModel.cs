@@ -144,6 +144,11 @@ public enum Screen
     /// selects a SET of accounts and prints them as one collated job.</summary>
     MultiAccountPrint,
 
+    /// <summary>Census 12.6 (the multi-VOUCHER half): Reports → Statements of Accounts → Multi-Voucher Printing
+    /// — the panel that selects a RANGE of vouchers (type, party, period) and prints them as one collated
+    /// job.</summary>
+    MultiVoucherPrint,
+
     /// <summary>Census 12.7's EXPORT ARM: the Alt+E &gt; Others column that writes a multi-account job to
     /// one file per account. Its own screen rather than <see cref="Export"/> because the panel is a different
     /// type with a different Apply: <see cref="MainWindowViewModel.ApplyExport"/> dereferences
@@ -862,6 +867,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// open. It is what makes <see cref="MultiAccountPrintViewModel"/> reachable at all.</summary>
     [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
 
+    /// <summary>The "Multi-Voucher Printing" panel (census 12.6, the multi-VOUCHER half), non-null only while
+    /// that page column is open. It is what makes <see cref="MultiVoucherPrintViewModel"/> reachable at all —
+    /// the half of row 12.6 that the multi-account panel's own remarks have recorded as absent since PR #56.
+    /// </summary>
+    [ObservableProperty] private MultiVoucherPrintViewModel? _multiVoucherPrint;
+
     /// <summary>The multi-account "Export" panel (census 12.7's export arm), non-null only while that column
     /// is open. It is what makes <see cref="MultiAccountExportViewModel"/> reachable at all - the same thing
     /// <see cref="MultiAccountPrint"/> is for the print panel, and the lesson T2-40 was filed for.</summary>
@@ -1095,6 +1106,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrinterPanelChanged(PrinterSelectionViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiVoucherPrintChanged(MultiVoucherPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMultiAccountExportPanelChanged(MultiAccountExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -1217,6 +1229,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         }
 
         Menu.Add(new MenuItemViewModel("Create Company", ShowCreateCompany, "F3"));
+
+        // 🔴 THE FRESH-INSTALL DOOR TO RESTORE — census row 13.2, the headline of T1-7: "Restore is unreachable
+        // on a fresh install … the exact disaster-recovery case backup exists for is the one case it cannot
+        // serve." A machine that has just lost its only company lands HERE, on a screen that offered Create and
+        // a demo, and the operator holding the backup had nowhere to go. Removing the two locks on the Data
+        // menu makes the panel reachable once something is open; this row is what makes it reachable when
+        // NOTHING is. It is listed on every visit, not only when the list above is empty: a second machine that
+        // already has one book still needs to restore a different one onto it.
+        Menu.Add(new MenuItemViewModel("Restore Company", OpenRestoreCompany, "Restore"));
+
         Menu.Add(new MenuItemViewModel("Load Robert Demo", LoadRobertDemo, "Demo"));
 
         SetMenuSelected(0);
@@ -1908,7 +1930,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     {
         var col = new GatewayColumn("Backup / Restore");
         col.Add(MenuItemViewModel.Header("Backup / Restore"));
-        col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // 🔴 BACKUP IS OFFERED ONLY WITH A COMPANY OPEN; RESTORE IS OFFERED ALWAYS. The two are not symmetric
+        // and this column used to treat them as if they were. Backup copies the OPEN book, so with nothing open
+        // there is nothing to copy and the row would be a door onto a no-op. Restore is the opposite: the case
+        // it exists for is precisely the machine that has no company — a new install, or a disk that lost one.
+        // Census 13.2 (= T1-7, widened by T1-20): "the exact disaster-recovery case backup exists for is the
+        // one case it cannot serve."
+        if (Company is not null)
+            col.Add(new MenuItemViewModel("Backup Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
         col.Add(new MenuItemViewModel("Restore Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
@@ -2123,6 +2154,37 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // this shape were found in the record two passes ago — this was the eighth, and the "12.6 closed" line
         // would have been the ninth.)
         col.Add(new MenuItemViewModel("Multi-Account Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+
+        // Census 12.6, the MULTI-VOUCHER half — the row's other named capability, and the gap the block above
+        // has recorded since PR #56 ("NOTHING here iterates vouchers — there is no way to say 'print vouchers
+        // 10 to 25 as one job'"). This entry is that way. It selects a RANGE of vouchers by voucher type, party
+        // and period and prints them as one collated job (PrintKind.VoucherSet), each voucher drawn by the renderer
+        // that prints it alone.
+        //
+        // 🔴 THE PAGE RANGE IS STILL NOT THIS ROW'S RANGE, and that distinction is kept exactly as the block
+        // above draws it: F10 selects SHEETS within a job (row 12.4); this selects VOUCHERS (row 12.6). The two
+        // compose and neither is the other.
+        //
+        // Vendor grounding is quoted in full on MultiVoucherPrintViewModel: the reference product reaches this
+        // from Alt+P > Others > Multi-Voucher and configures it by Voucher Type, and its release notes attest
+        // the party and period axes.
+        //
+        // 🔴 IT IS NESTED HERE AND IS *NOT* ON Alt+P > Others, AND THAT IS A DIVERGENCE THIS COMMENT STATES
+        // PLAINLY RATHER THAN EXPLAINING AWAY. An earlier draft of this very comment justified the placement by
+        // saying "the Alt+P print menu is unbound across the whole product (T2-20)". THAT CLAIM IS FALSE AT THIS
+        // HEAD and was struck before it shipped: MainWindowViewModel.OpenPrintMenu binds Alt+P and
+        // ReportPrintMenu.BuildColumn gives it a two-row column, whose "Others" row already runs
+        // OpenMultiAccountPrint. T2-20 recorded a real measurement in 2026-09-04 and the shell landed since.
+        // (Justifying a design with a stale defect register is the same shape as justifying one with a
+        // quotation nobody re-opened — which this project has now caught twelve times.)
+        //
+        // So the honest statement is: the vendor's Others row leads to a LIST of reports and ours leads
+        // straight to the multi-ACCOUNT panel, so there is no second entry to hang Multi-Voucher on without
+        // reshaping that shared column — which pins row 13.5's fidelity test (ReportChordFidelityTests asserts
+        // Alt+P > Others lands on Screen.MultiAccountPrint) and is not this slice's to re-cut. Nesting here
+        // keeps the panel reachable by the ordinary arrows-and-Enter cascade, which the UI contract requires of
+        // every screen anyway. When the Others list is built, this panel gains a second door and does not move.
+        col.Add(new MenuItemViewModel("Multi-Voucher Printing", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -3217,6 +3279,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private void SelectRootItem(string label)
     {
         if (Columns.Count == 0 || !Columns[0].IsMenu) ShowGateway();
+
+        // 🔴 ShowGateway() BOUNCES TO COMPANY SELECT WHEN NO COMPANY IS OPEN, and that path can leave the
+        // cascade with no menu column at all — so Columns[0] is NOT safe to index here. Census 13.2 made this
+        // reachable for the first time: ShowDataMenu() now runs with nothing open (that was the whole point of
+        // removing its early return), and before this guard it threw ArgumentOutOfRangeException from
+        // List<T>.get_Item instead of opening the Restore route the row is about. There is simply no Gateway
+        // root to highlight in that state; the caller's OpenSubmenuColumn appends its column regardless.
+        if (Columns.Count == 0) return;
+
         TrimColumnsAfter(0);
         var root = Columns[0];
         for (var i = 0; i < root.Items.Count; i++)
@@ -5126,6 +5197,68 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BuildButtonBar();
     }
 
+    // =============================================================== screen: Multi-Voucher Printing (12.6)
+
+    /// <summary>
+    /// Opens the <b>Multi-Voucher Printing</b> panel (census 12.6, the multi-VOUCHER half) as a page column
+    /// under Reports → Statements of Accounts: a voucher type, a party and a period, and every voucher in that
+    /// RANGE printed as one collated job.
+    ///
+    /// <para>🔴 <b>This method is the other half of what row 12.6 was missing.</b> The multi-ACCOUNT panel
+    /// closed the account half in PR #56 and its own remarks have said ever since that nothing iterates
+    /// VOUCHERS into one job. This is that route. Vendor grounding is quoted on
+    /// <see cref="MultiVoucherPrintViewModel"/>.</para>
+    ///
+    /// <para><b>No clock (ER-12).</b> The opening period is the company's own books-begin date through
+    /// <see cref="AccountBooksAsOf"/> — the same bound every Account Book uses — so the panel is deterministic
+    /// in tests and opens on the range the on-screen registers already cover. The operator may type any other
+    /// period over it.</para>
+    /// </summary>
+    public void OpenMultiVoucherPrint()
+    {
+        if (Company is null) { ShowCompanySelect(); return; }
+
+        var vm = new MultiVoucherPrintViewModel(Company, Company.BooksBeginFrom, AccountBooksAsOf());
+        OpenPageColumn(new GatewayColumn(vm.Title, vm), Screen.MultiVoucherPrint, vm.Title,
+            () => MultiVoucherPrint = vm);
+    }
+
+    /// <summary>
+    /// Ctrl+A / the Print button on the Multi-Voucher Printing panel: projects the chosen RANGE of vouchers
+    /// into a job — each voucher in its own single-print model — and opens the ordinary
+    /// <see cref="PrintPreviewViewModel"/> over the whole job, so the F12 document knobs apply to every voucher
+    /// as they apply to one, and the F10 page range and the Ctrl+A Save-PDF arm work on the job.
+    ///
+    /// <para>An empty range opens NOTHING — the panel's own <c>BuildJob</c> returns an empty list and its
+    /// status line already says why. Previewing a blank sheet would present a mistake as output.</para>
+    ///
+    /// <para>🔴 <b>Replace, never stack</b> — the same rule, and for the same measured reason, as
+    /// <see cref="PrintMultiAccountJob"/>: that method shipped with a bare <c>Columns.Add</c> and three presses
+    /// of its Print button left three preview columns, each needing its own Escape. The trim is on the column
+    /// index rather than on <c>PrintPreview</c> being non-null, because the column is the thing that stacks and
+    /// the shell member is only its shadow.</para>
+    /// </summary>
+    public void PrintMultiVoucherJob()
+    {
+        if (MultiVoucherPrint is not { } panel) return;
+
+        var documents = panel.BuildJob();
+        if (documents.Count == 0) return;              // panel.Status already says why
+
+        var panelIndex = IndexOfColumnHosting(panel);
+        if (panelIndex >= 0) TrimColumnsAfter(panelIndex);
+        PrintConfigPanel = null;                       // an F12 config column over the old preview went with it
+
+        var preview = new PrintPreviewViewModel(documents, MultiVoucherPrintProjector.JobTitle);
+        PrintPreview = preview;
+        Columns.Add(new GatewayColumn(preview.Title, preview));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.PrintPreview;
+        ScreenTitle = preview.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
     /// <summary>
     /// <b>Ctrl+E / the Export button on the Multi-Account Printing panel</b> - census row 12.7's EXPORT ARM.
     /// Projects the selected accounts into one document PER ACCOUNT and opens
@@ -5785,7 +5918,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void ShowDataMenu()
     {
-        if (Company is null) { ShowCompanySelect(); return; }
+        // 🔴 NO LONGER BOUNCES TO COMPANY SELECT WHEN NOTHING IS OPEN — census row 13.2 / T1-7 / T1-20.
+        // This early return was one of the two locks that made Restore unreachable on a fresh install: with
+        // zero companies on the machine, Company Select offers Create and the demo and nothing else, so an
+        // operator holding a backup of his only book had NO route to it at all. The vendor puts restore on this
+        // very menu — "Press Alt+Y (Data) > Backup & Restore > Restore"
+        // (help.tallysolutions.com/restore-company-data/) — and says nothing anywhere about needing a company
+        // open first. BuildDataColumn now decides what the column OFFERS; this method only opens it.
+        //
+        // 🔴 WITH NO COMPANY THE DATA COLUMN IS THE ROOT OF A CASCADE, AND IT MUST BE A CASCADE TO BE SEEN.
+        // There is no Gateway to hang it off, and the first cut of this branch appended it to an EMPTY column
+        // list while the shell was still in the pre-company centred-menu mode (IsGatewayCascade false). The view
+        // model then reported the column open — the tests that called this method directly passed — while the
+        // realised window drew the centred menu (now holding the column's rows as dead Action-less items) and
+        // Enter on "Restore Company" did nothing. Measured through the real key handler (A12 review w6, F4).
+        // Esc from this root column returns to Company Select (BackFromPage's one-column rule).
+        if (Company is null)
+        {
+            LeaveCascade();
+            EnterCascade();
+            OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data, "Backup / Restore");
+            return;
+        }
+
         SelectRootItem("Backup / Restore");
         OpenSubmenuColumn(BuildDataColumn(), GatewayMenu.Data,
             "Gateway of Apex Solutions — Backup / Restore");
@@ -5799,9 +5954,28 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenRestoreCompany()
     {
         if (RestoreCompanyPanel is not null) return;
-        if (Company is null) return;
 
-        var panel = new RestoreCompanyViewModel(Company, _storage, onRestored: ReopenRestoredCompany);
+        // 🔴 THE SECOND LOCK, REMOVED — census 13.2 / T1-7 / T1-20. This method used to read
+        // `if (Company is null) return;`, so even once the Data menu let an operator through, the panel refused
+        // to open on a machine with no company. With nothing open the panel takes the disaster-recovery ctor:
+        // the operator names the target himself and the restore CREATES it. The engine always allowed this
+        // (CompanyBackup.Restore takes any target path); only the screen forbade it.
+        var panel = Company is { } open
+            ? new RestoreCompanyViewModel(open, _storage, onRestored: ReopenRestoredCompany)
+            : new RestoreCompanyViewModel(_storage, onRestored: ReopenRestoredCompany);
+
+        // 🔴 A PANEL COLUMN IS ONLY DRAWN INSIDE THE CASCADE. Opened from Company Select (the IV-140 row) the shell
+        // is still in its pre-company centred-menu mode, so this column was added to a list the window does not
+        // show and IsMenuScreen hid the centred menu as well: the operator who chose "Restore Company" on a machine
+        // with no books was left looking at an EMPTY work area. Every test of that route asserted on
+        // RestoreCompanyPanel, which was set, and none on the realised window. Entering the cascade here makes the
+        // panel the root column; Esc returns to Company Select.
+        if (!IsGatewayCascade)
+        {
+            LeaveCascade();
+            EnterCascade();
+        }
+
         RestoreCompanyPanel = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
@@ -6022,9 +6196,24 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void ReopenRestoredCompany(Company restored)
     {
+        // 🔴 A12 re-review w6, N1 — THE OPEN ENTRY AND THE VAULT SESSION MOVE WITH THE BOOK. The panel can now
+        // restore onto a book OTHER than the one open (IV-139: the target is redirected from the open book onto the
+        // archive's own), so the book on screen after this call need not be the file OpenEntry names. Leaving the
+        // old entry here meant Alt+K > Data Vault on the restored, displayed book vaulted the PREVIOUSLY open book
+        // instead, and the next save wrote the displayed company into that vault beside it — measured: the other
+        // book's vault then held two company rows and could no longer be opened at all. The restore lands as a
+        // PLAIN book at its name-derived file (Apply's post-load check proves that), so the entry is derived exactly
+        // as OpenCompany derives it for a plain book, and a held vault passphrase is forgotten exactly as
+        // ReleaseOpenCompany forgets it: it belongs to a book that is no longer open.
+        _storage.CloseVault();
+        OpenEntry = new CompanyEntry(restored.Name, _storage.PathForName(restored.Name));
         Company = restored;
         StatusCompany = restored.Name;
         StatusDate = ApexDate.Format(restored.FinancialYearStart);
+        // The ruling-26 banner describes the book on screen, and OpenCompany is its only other setter: without this
+        // a restore redirected off the open book left that book's closing-stock warning up over the restored one
+        // (A12 verify of d930b00).
+        ValuationRemediationWarning = ValuationRemediationNotice.For(restored);
         Message = $"Restored '{restored.Name}' from backup.";
         BuildButtonBar();
     }
@@ -13793,6 +13982,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Statistics": OpenReport(ReportKind.Statistics); break;
             // W2-32 (census 12.6) — Reports → Statements of Accounts → Multi-Account Printing.
             case "Multi-Account Printing": OpenMultiAccountPrint(); break;
+            // Census 12.6 (multi-voucher half) — Reports → Statements of Accounts → Multi-Voucher Printing.
+            case "Multi-Voucher Printing": OpenMultiVoucherPrint(); break;
             // Statutory TDS/TCS exception & outstanding reports (Phase 7 slice 8) — under Reports → Statutory Reports.
             case "TDS Outstandings": OpenReport(ReportKind.TdsOutstanding); break;
             case "TDS Not Deducted": OpenReport(ReportKind.TdsNotDeducted); break;
@@ -14116,6 +14307,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case MultiAccountPrintViewModel map:
                 MultiAccountPrint = map;
                 return Screen.MultiAccountPrint;
+            // Census 12.6 (multi-voucher half) — the same survival rule, for the same reason: Escape out of the
+            // preview and the operator is back on his type/party/period selection, so pressing Print again
+            // reprints that range instead of finding a null panel and doing nothing.
+            case MultiVoucherPrintViewModel mvp:
+                MultiVoucherPrint = mvp;
+                return Screen.MultiVoucherPrint;
             // Census 12.7's export arm, for the same reason as the print panel above it: Escape out of a
             // column opened over the export panel and the operator is back on their file list, so Ctrl+A has
             // to find the panel rather than a null and do nothing.
@@ -14809,7 +15006,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Alt+Y — Data (Backup / Restore; the R-7 carve-out). A quick door to the data-safety menu from anywhere,
         // alongside the Gateway → Data cascade. Bare Y is already Export Data on the Gateway root, so this one is
         // Alt-modified and the badge says so.
-        ButtonBar.Add(new ButtonBarItem("Alt+Y", "Data", ShowDataMenu, hasCompany));
+        // 🔴 ENABLED WITH NO COMPANY OPEN (A12 review w6, F4). It was gated on hasCompany, which left the badge
+        // greyed on exactly the screen a machine that has lost its only book lands on — while the column it opens
+        // offers Restore there (BuildDataColumn), and restore with nothing open is the case backup exists for.
+        ButtonBar.Add(new ButtonBarItem("Alt+Y", "Data", ShowDataMenu, true));
 
         // F11 Features → the company GST (Statutory) configuration page (slice 4c).
         ButtonBar.Add(new ButtonBarItem("F11", "Features", ShowGstConfig, hasCompany));

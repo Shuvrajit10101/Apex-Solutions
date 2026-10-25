@@ -516,6 +516,10 @@ public partial class MainWindow : Window
             // the same accept-shortcut every other panel in this switch uses for its own primary action.
             else if (vm.CurrentScreen == Screen.MultiAccountPrint)
                 vm.PrintMultiAccountJob();
+            // Census 12.6 (multi-voucher half): Ctrl+A on the Multi-Voucher Printing panel prints the chosen
+            // RANGE of vouchers — the same accept-shortcut every other panel in this switch uses.
+            else if (vm.CurrentScreen == Screen.MultiVoucherPrint)
+                vm.PrintMultiVoucherJob();
             // Census 12.7's export arm: Ctrl+A on the multi-account Export column WRITES the files. It needs
             // its own arm because ApplyExport() above dereferences ExportPanel, which is null on this screen -
             // sharing Screen.Export would have made Ctrl+A a silent no-op here.
@@ -1750,10 +1754,15 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Alt+Y (Data → Backup / Restore; the R-7 carve-out) opens the data-safety submenu column from anywhere a
-        // company is open. This MUST be tested BEFORE the bare-Y Export-Data branch below, which only excludes
-        // Ctrl — an Alt+Y would otherwise fall into it and open the wrong screen.
-        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && vm.Company is not null && !IsTyping(e))
+        // Alt+Y (Data → Backup / Restore; the R-7 carve-out) opens the data-safety submenu column from anywhere,
+        // INCLUDING with no company open. This MUST be tested BEFORE the bare-Y Export-Data branch below, which only
+        // excludes Ctrl — an Alt+Y would otherwise fall into it and open the wrong screen.
+        // 🔴 A12 review w6, F4: this arm used to require `vm.Company is not null`, so with nothing open the
+        // vendor's own route — "Press Alt+Y (Data) > Backup & Restore > Restore"
+        // (help.tallysolutions.com/restore-company-data/) — did nothing, and restore was reachable only through the
+        // invented Company Select row (IV-140). ShowDataMenu stopped bouncing to Company Select on this branch, and
+        // BuildDataColumn offers only Restore when nothing is open, so the guard protected nothing any more.
+        if (e.Key == Key.Y && e.KeyModifiers.HasFlag(KeyModifiers.Alt) && !IsTyping(e))
         {
             vm.ShowDataMenu();
             e.Handled = true;
@@ -3099,6 +3108,14 @@ public partial class MainWindow : Window
     // print logic can rot behind the button. Say that, and not more.
     private void OnPrintMultiAccountClick(object? sender, RoutedEventArgs e)
         => Vm?.PrintMultiAccountJob();
+
+    // Census 12.6 (multi-voucher half) — the Print button calls the SAME Vm.PrintMultiVoucherJob() the Ctrl+A
+    // arm reaches, so no second copy of the print logic can rot behind the button. As with the multi-account
+    // twin above, that is NOT the same as "button and accelerator can never diverge": this handler has no
+    // screen test and the Ctrl+A arm fires only under `vm.CurrentScreen == Screen.MultiVoucherPrint`, so they
+    // agree on WHAT is printed and not on WHEN.
+    private void OnPrintMultiVoucherClick(object? sender, RoutedEventArgs e)
+        => Vm?.PrintMultiVoucherJob();
 
     // Census 12.7's export arm. Same shape as OnPrintMultiAccountClick above, and the same caveat applies:
     // this handler shares the CALL with the Ctrl+A arm (so no second copy of the export logic can rot behind

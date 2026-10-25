@@ -274,6 +274,26 @@ public sealed class CompanyStorage
         return company;
     }
 
+    /// <summary>
+    /// Reads a PLAIN book WITHOUT touching this session's open-vault state — for a caller that must look inside a
+    /// file before deciding whether it becomes the open book.
+    ///
+    /// <para>🔴 A12 re-review w6, N2. <see cref="Load"/> is the OPEN verb: for a plain entry it forgets any held
+    /// vault passphrase, which is right only when the loaded book replaces the open one. The restore panel used it
+    /// to read the restored file back and then, when that file's company row named another book, REFUSED the
+    /// restore — leaving the shell on a vaulted company whose session had just been dropped, so the next save wrote
+    /// a PLAINTEXT copy of the vaulted book under its own name. The shell now forgets the session when it actually
+    /// switches books (<c>MainWindowViewModel.ReopenRestoredCompany</c>).</para>
+    /// </summary>
+    public Company Inspect(CompanyEntry entry)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        if (entry.IsVaulted)
+            throw new InvalidOperationException(
+                $"A company in the {CompanyVault.FeatureName} cannot be inspected without its passphrase.");
+        return LoadCore(entry, null);
+    }
+
     private Company LoadCore(CompanyEntry entry, string? passphrase)
     {
         using var store = new SqliteCompanyStore(entry.DatabasePath, passphrase);
