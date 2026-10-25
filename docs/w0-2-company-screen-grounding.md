@@ -412,27 +412,27 @@ comments and `EnsureValid` to `Company.cs`; see §7.7.)*
 > had drifted — first through `85f82dd`'s print rewrite, then through W0-2a's own edit. The **shape** of the
 > finding changed too: `AddressLines` is no longer `SplitAddress(company.Address)`.
 
-**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1194-1200` `SellerBlock`:
+**[V]** `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1186-1192` `SellerBlock`:
 
-- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:1144-1145` — MailingName falling back to Name,
+- `Name` = `CompanyDisplayName` (`VoucherPrintProjector.cs:1136-1137` — MailingName falling back to Name,
   **matching Tally's convention exactly**)
 - `AddressLines` = `SplitAddress(SupplierPostalAddressText(company))`
-  (`VoucherPrintProjector.cs:1197`) — **changed by W0-2a.**
-  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1215-1218`) returns `null` unless `company.Address` is
-  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1316-1323`),
+  (`VoucherPrintProjector.cs:1189`) — **changed by W0-2a.**
+  `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1207-1210`) returns `null` unless `company.Address` is
+  non-blank, and otherwise defers to the shared `PostalAddressText` (`VoucherPrintProjector.cs:1308-1315`),
   which appends Country then `"PIN: " + Pin`, each skipped when blank.
 - `Gstin` = `company.Gst?.Gstin ?? ""`
 - `StateText` = `StateText(company.Gst?.HomeStateCode)`
-  (`VoucherPrintProjector.cs:1199`) — **unchanged; still never `company.State`.**
+  (`VoucherPrintProjector.cs:1191`) — **unchanged; still never `company.State`.**
 
 Called from `VoucherPrintProjector.cs:538` on the item pass,
 and from `VoucherPrintProjector.cs:822` on the service pass.
-`SplitAddress` (`VoucherPrintProjector.cs:1349-1351`) returns `Array.Empty` on null/whitespace.
+`SplitAddress` (`VoucherPrintProjector.cs:1341-1343`) returns `Array.Empty` on null/whitespace.
 
-**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:908` declares `DrawPartyBlock`;
-it is called at `InvoicePdf.cs:584` with the caption `"Supplier:"`.
-The address `foreach` (`InvoicePdf.cs:914`) never executes when the list is empty, and the State line
-(`InvoicePdf.cs:920-924`) is skipped when `StateText` is blank.
+**[V]** `src/Apex.Ledger.Io/InvoicePdf.cs:933` declares `DrawPartyBlock`;
+it is called at `InvoicePdf.cs:609` with the caption `"Supplier:"`.
+The address `foreach` (`InvoicePdf.cs:939`) never executes when the list is empty, and the State line
+(`InvoicePdf.cs:945-949`) is skipped when `StateText` is blank.
 **So what a GST-off company prints today is:** `"Supplier:"` / `<company name>` / `"GSTIN: Unregistered"`
 — **the address emits nothing at all**: no placeholder, no blank line; the block silently collapses.
 
@@ -460,9 +460,9 @@ The address `foreach` (`InvoicePdf.cs:914`) never executes when the list is empt
 
 **(i) `Company.State` is never printed on an invoice — and as of W0-2a, `Company.Pin` and `Company.Country`
 ARE.** `SellerBlock` takes its State from `company.Gst?.HomeStateCode`
-(`VoucherPrintProjector.cs:1199`), **not** from `company.State`.
+(`VoucherPrintProjector.cs:1191`), **not** from `company.State`.
 The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAddressText`
-(`VoucherPrintProjector.cs:1290-1294`) routes through the shared `PostalAddressText`
+(`VoucherPrintProjector.cs:1282-1286`) routes through the shared `PostalAddressText`
 (`VoucherPrintProjector.cs:1089-1097`).
 
 > 🔴 **HALF OF THIS SECTION WAS MADE FALSE BY W0-2a, AND IS REWRITTEN HERE (2026-08-15).** It previously read
@@ -475,7 +475,7 @@ The **buyer** side has appended Country and PIN since WI-4 — **[V]** `BuyerAdd
 
 > ⚠️ **Corrected during the original write-down (still stands).** The A14 pass stated that populating
 > `Company.Address` alone "would still print a seller address with **NO State line** and NO PIN". The no-State
-> half is **too strong**: `InvoicePdf.cs:920-924` *does* draw a `"State: …"` line whenever `StateText` is
+> half is **too strong**: `InvoicePdf.cs:945-949` *does* draw a `"State: …"` line whenever `StateText` is
 > non-empty. The accurate statement is: **no State line derived from `Company.State` can ever print**. A
 > GST-enabled company prints its **GST home State**; a GST-off company prints no State line at all.
 
@@ -653,7 +653,7 @@ not add mailing_state`; it is cited by text, not line, per §7.7 — verbatim:
 
 **The company side already has the very duplication the party side forbids.** **[V]** A postal `companies.state`
 **and** a GST `companies.gst_home_state` (both in the `companies` DDL in `Schema.cs`; cited by text per §7.7),
-with the printer reading **only the latter** (`VoucherPrintProjector.cs:1199`).
+with the printer reading **only the latter** (`VoucherPrintProjector.cs:1191`).
 
 **A Company Alter screen that exposes `Company.State` as an editable field creates a second, divergent supplier
 State that no PRINT path reads** — the exact failure mode that comment was written to prevent, and worse than the
@@ -746,8 +746,8 @@ session inventing.*
 
 11. 🔴 **The printed ORDER of the postal components, and the "PIN: " label — UNVERIFIED AND CHOSEN AGAINST THE
     CORPUS.** W0-2a prints the supplier block as **Address → Country → PIN → State → GSTIN**, because
-    `InvoicePdf.DrawPartyBlock` (`InvoicePdf.cs:908`) draws every `AddressLines` entry (`InvoicePdf.cs:914`)
-    before the State line (`InvoicePdf.cs:920-924`).
+    `InvoicePdf.DrawPartyBlock` (`InvoicePdf.cs:933`) draws every `AddressLines` entry (`InvoicePdf.cs:939`)
+    before the State line (`InvoicePdf.cs:945-949`).
     **[V] The corpus consistently orders these Address → State → Country → Pin Code**, and labels
     the last one "Pin Code" / "Pincode" where we print `"PIN: "`:
     - `664311548-Tally-Prime-Book.pdf` PDF p.13 (extracted 2026-08-15): *Address · State · Country · Pin Code*.
@@ -979,7 +979,7 @@ Recorded rather than silently fixed, because a claim that **was** true and is no
 1. **"GST applicable from" listed as typeable today — FALSE.** See §7.4. The domain member and column exist; no
    UI exposes it.
 2. **"populating `Company.Address` alone would still print … NO State line" — too strong.** See §7.3(i).
-   `InvoicePdf.cs:920-924` draws a State line whenever `StateText` is non-empty; the accurate claim is that no
+   `InvoicePdf.cs:945-949` draws a State line whenever `StateText` is non-empty; the accurate claim is that no
    State line derived from `Company.State` can ever print.
 
 ### Sharpened by re-extraction
