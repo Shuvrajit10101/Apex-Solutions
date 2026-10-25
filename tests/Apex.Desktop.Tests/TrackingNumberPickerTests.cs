@@ -267,6 +267,40 @@ public sealed class TrackingNumberPickerTests : IDisposable
         Assert.False(entry.InventoryLines[0].ShowTrackingNumberPicker);
     }
 
+    // ---------------------------------------------------------------- the section captions
+
+    /// <summary>
+    /// 🔴 <b>ALL FOUR BILLS PENDING SECTION CAPTIONS ARE THE VENDOR'S, AND THIS PINS THEM ON THE EXPORTED
+    /// ARTEFACT.</b> Opened BY CONTENT 2026-10-25 (wave-6 review): <c>help.tallysolutions.com/sales-order-tally/</c>,
+    /// in the F12 (Configure) table of <i>Know your Sales Bills Pending</i>, reads <i>"Display the Goods Delivered
+    /// but Bills not Made section with transaction details."</i> and <i>"Display the Bills Made but Goods not
+    /// Delivered section with transaction details."</i>; <c>help.tallysolutions.com/purchase-order-tally/</c>
+    /// reads <i>"This report lists transactions of Goods Recd. but Bills not Recd.: and Bills Recd. but Goods not
+    /// Recd.:"</i>. The sales pair shipped as OUR "… Raised …" until the wave-6 review; this test is what stops
+    /// it drifting back. Asserted on the CSV bytes an operator exports, and on the on-screen heading rows.
+    /// </summary>
+    [Theory]
+    [InlineData(ReportKind.SalesBillsPending,
+        "Goods Delivered but Bills not Made", "Bills Made but Goods not Delivered")]
+    [InlineData(ReportKind.PurchaseBillsPending,
+        "Goods Recd. but Bills not Recd.", "Bills Recd. but Goods not Recd.")]
+    public void Both_section_captions_are_the_vendors_on_screen_and_in_the_export(
+        ReportKind kind, string goodsSection, string billsSection)
+    {
+        var k = NewKit("Trk Captions Co " + kind);
+        k.Vm.OpenReport(kind);
+        var report = k.Vm.Reports!;
+
+        var headings = report.Rows.Where(r => r.IsHeader).Select(r => r.Col1).ToArray();
+        Assert.Equal(new[] { goodsSection, billsSection }, headings);
+
+        var csv = System.Text.Encoding.UTF8.GetString(
+            Apex.Ledger.Io.CsvWriter.Write(ReportTabularProjector.Project(report)));
+        Assert.Contains(goodsSection, csv, StringComparison.Ordinal);
+        Assert.Contains(billsSection, csv, StringComparison.Ordinal);
+        Assert.DoesNotContain("Raised", csv, StringComparison.Ordinal);
+    }
+
     // ---------------------------------------------------------------- the drill
 
     /// <summary>
@@ -395,6 +429,63 @@ public sealed class TrackingNumberPickerTests : IDisposable
             var noteType = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.ReceiptNote);
             Assert.Equal(noteType.Id,
                 reloaded.InventoryVouchers.Single(v => v.Id == k.Vm.InventoryVoucherDetail!.VoucherId).TypeId);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE OTHER HALF OF THE DRILL — A <i>Bills Recd. but Goods not Recd.</i> ROW, THROUGH THE REAL
+    /// <c>Enter</c> KEY.</b> Added by the wave-6 review because the bill arm had NO test at this level: setting
+    /// <c>DrillVoucherId</c> to <see cref="Guid.Empty"/> in <c>AddBillsPendingSection</c>, or deleting the
+    /// <c>else if (row.DrillVoucherId …)</c> arm from <c>ReportsViewModel.Drill</c>, left every Desktop test green.
+    ///
+    /// <para>The fixture is chosen so the row's pair has BOTH a note and a bill — 40 received, 50 billed under
+    /// one number — because that is the only shape in which "exactly one slot per row" is load-bearing: a row
+    /// carrying the note's id as well would send <c>Enter</c> (and <c>Alt+X</c>) to the NOTE while the operator
+    /// stands on a row about the BILL.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void The_real_Enter_key_on_a_bills_recd_row_opens_the_bill_not_the_note()
+    {
+        var k = NewKit("Trk Bill Drill Co");
+        var tracking = PostReceiptNote(k, 40m);
+
+        var entry = OpenPurchaseInvoice(k);
+        var line = entry.InventoryLines[0];
+        line.SelectedTrackingNumberChoice =
+            Assert.Single(line.TrackingNumberChoices, c => c.Number == tracking);
+        line.SelectedItem = entry.StockItems.Single(i => i.Id == k.ItemId);
+        line.SelectedGodown = entry.Godowns.Single(g => g.Id == k.MainGodownId);
+        line.QuantityText = "50";
+        line.RateText = "100.00";
+        Assert.True(entry.Accept());
+
+        var window = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        window.Show();
+        try
+        {
+            Pump(window);
+            k.Vm.OpenReport(ReportKind.PurchaseBillsPending);
+            Pump(window);
+
+            var row = Assert.Single(k.Vm.Reports!.Rows.Where(
+                r => !r.IsHeader && !r.IsTotal && r.Col2 == tracking));
+            Assert.NotEqual(Guid.Empty, row.DrillVoucherId);
+            Assert.Equal(Guid.Empty, row.DrillInventoryVoucherId);
+
+            k.Vm.Reports!.SelectedRow = row;
+            Pump(window);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Pump(window);
+
+            Assert.Equal(Screen.VoucherDetail, k.Vm.CurrentScreen);
+            Assert.NotNull(k.Vm.VoucherDetail);
+
+            // What it opened is the PURCHASE in the saved book — the bill, not the Receipt Note.
+            var reloaded = Reload(k.CompanyName);
+            var purchaseType = reloaded.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.Purchase);
+            var bill = reloaded.Vouchers.Single(v => v.TypeId == purchaseType.Id);
+            Assert.Equal(bill.Id, k.Vm.VoucherDetail!.VoucherId);
         }
         finally { window.Close(); }
     }
