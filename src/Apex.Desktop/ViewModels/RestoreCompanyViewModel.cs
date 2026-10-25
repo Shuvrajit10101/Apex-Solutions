@@ -100,9 +100,50 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
     public string TargetEffectNote =>
         string.IsNullOrWhiteSpace(TargetCompanyName)
             ? "Name the company to restore into. It need not already exist on this machine."
-            : TargetExists
-                ? $"'{TargetCompanyName}' already exists on this machine and will be REPLACED. This cannot be undone."
-                : $"'{TargetCompanyName}' does not exist on this machine and will be CREATED from the backup.";
+            : !RestoresUnderItsOwnName
+                ? $"This backup holds '{BackupCompanyName}' and can only be restored as '{BackupCompanyName}'. "
+                  + $"It will NOT be restored as '{TargetCompanyName}'."
+                : TargetExists
+                    ? $"'{TargetCompanyName}' already exists on this machine and will be REPLACED. This cannot be undone."
+                    : $"'{TargetCompanyName}' does not exist on this machine and will be CREATED from the backup.";
+
+    /// <summary>
+    /// 🔴 <b>Whether the target names the SAME BOOK FILE as the company inside the examined archive.</b> True
+    /// before Examine (nothing is known yet) and whenever the two names land on one <c>.db</c>.
+    ///
+    /// <para><b>Why a restore cannot be redirected to another NAME.</b> Every desktop write derives its file from
+    /// the company's NAME (<see cref="CompanyStorage.PathForName"/>), and a restore is a file-level swap that does
+    /// not rename the company row inside the archive. So restoring "Alpha Co"'s archive into
+    /// "Alpha Co Copy.db" left a file holding a company called "Alpha Co"; the shell opened it, and the very next
+    /// save on any screen wrote "Alpha Co.db" — deleting and re-inserting over the ORIGINAL book, which the
+    /// operator never targeted and never confirmed. Measured (A12 review w6, probe P1): a book of 4 vouchers came
+    /// back with 1. The vendor's own restore keeps the company's identity and asks only WHERE it goes
+    /// (<i>"This is the location where your company data will be restored"</i>,
+    /// <c>help.tallysolutions.com/restore-company-data/</c>), so refusing the rename takes nothing the reference
+    /// product offers. Restoring as a differently-named COPY would need the restored company renamed, which is a
+    /// product decision and is not taken here.</para>
+    /// </summary>
+    public bool RestoresUnderItsOwnName =>
+        string.IsNullOrWhiteSpace(BackupCompanyName)
+        || string.IsNullOrWhiteSpace(TargetCompanyName)
+        || SameBookFile(BackupCompanyName, TargetCompanyName);
+
+    /// <summary>True when the two company names land on one <c>.db</c> under this platform's own file-name rules
+    /// (case-insensitive on Windows and default macOS, case-sensitive on Linux).</summary>
+    private bool SameBookFile(string a, string b)
+    {
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return string.Equals(
+            Path.GetFullPath(_storage.PathForName(a)), Path.GetFullPath(_storage.PathForName(b)), comparison);
+    }
+
+    partial void OnBackupCompanyNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(RestoresUnderItsOwnName));
+        OnPropertyChanged(nameof(TargetEffectNote));
+    }
 
     /// <summary>
     /// Shell ctor: target the open company and notify the shell when the restore lands.
@@ -143,6 +184,7 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
         OnPropertyChanged(nameof(DocumentTitle));
         OnPropertyChanged(nameof(TargetPath));
         OnPropertyChanged(nameof(TargetExists));
+        OnPropertyChanged(nameof(RestoresUnderItsOwnName));
         OnPropertyChanged(nameof(TargetEffectNote));
 
         // 🔴 Re-pointing the target DISARMS the confirmation. The tick means "I accept that THIS book is
@@ -198,7 +240,10 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
             CanRestore = true;
             Status = $"Backup of '{manifest.CompanyName}' taken {BackupTakenAt} " +
                      $"(data format v{manifest.SchemaVersion}, {manifest.DatabaseBytes:#,0} bytes). " +
-                     $"Restoring replaces '{TargetCompanyName}' — tick the confirmation to continue.";
+                     (RestoresUnderItsOwnName
+                        ? $"Restoring replaces '{TargetCompanyName}' — tick the confirmation to continue."
+                        : $"It restores as '{manifest.CompanyName}' only — set the company to restore into to " +
+                          $"'{manifest.CompanyName}'.");
             return true;
         }
         catch (CompanyBackupException ex)
@@ -236,6 +281,19 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
         if (string.IsNullOrWhiteSpace(TargetCompanyName))
         {
             Status = "No company was selected to restore into. Nothing has been changed.";
+            return false;
+        }
+
+        // 🔴 F1 (A12 review w6) — REFUSED BEFORE ANYTHING IS TOUCHED. A restore under a name that is not the
+        // archive's own writes a file whose company row names a DIFFERENT book, and the next save then lands on
+        // that other book. See RestoresUnderItsOwnName. Checked here, before the swap, so the target is never even
+        // copied; the row read back after the swap is checked again below, because the manifest's name is
+        // informational and only the row decides where the next save goes.
+        if (!RestoresUnderItsOwnName)
+        {
+            Status = $"This backup holds '{BackupCompanyName}' and a restore keeps that name, so it cannot be " +
+                     $"restored as '{TargetCompanyName}'. Restore it as '{BackupCompanyName}'. " +
+                     "Nothing has been changed.";
             return false;
         }
 
@@ -295,20 +353,31 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
                 return false;
             }
 
-            // 🔴 THE RESTORED BOOK IS PUT ON THE COMPANY REGISTER, AND WITHOUT THIS THE WHOLE FRESH-INSTALL
-            // CASE IS A DEAD END. CompanyStorage.ListCompanies reads the registry, NOT the directory, and
-            // CompanyStorage.Load does not register anything — only Save does. So a restore that CREATED a book
-            // this machine never had would write a perfectly good .db that Company Select never lists: the
-            // operator would recover his data and have no way to open it again after closing the app. That is
-            // precisely the "complete, correct, unreachable" shape this project has filed three times
-            // (CompanyStorage.Rename, CostReports.BuildLedgerBreakup, MultiAccountPrintViewModel), and it would
-            // have been invisible to any test that asserted on the restored aggregate rather than on the next
-            // Company Select.
-            //
-            // RegisterPlain is an upsert keyed on the FILE name, so re-registering a book that was already
-            // there is a no-op that refreshes its display name — which is the right behaviour when an archive
-            // is restored over an existing company under a name that differs only in case or punctuation.
-            _storage.Registry.RegisterPlain(TargetCompanyName, Path.GetFileName(TargetPath));
+            // 🔴 F1, the authoritative half. The manifest's company name is informational; the company ROW just
+            // loaded is what every later save derives its file from. If that row does not land on the file just
+            // written (an archive whose manifest disagrees with its own database), opening it would aim the next
+            // save at another book — so it is undone exactly as an unopenable archive is: the replaced book is put
+            // back, or the book this restore created is removed.
+            if (!SameBookFile(reloaded.Name, TargetCompanyName))
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                var undone = replacedAnExistingBook ? RollBack(safety, haveSafety) : SafeDeleteCreated();
+                Status = $"The company inside '{System.IO.Path.GetFileName(FilePath)}' is named '{reloaded.Name}', "
+                       + $"so it cannot be restored as '{TargetCompanyName}'. "
+                       + (undone
+                            ? (replacedAnExistingBook
+                                ? $"'{TargetCompanyName}' has been put back exactly as it was."
+                                : "Nothing has been created.")
+                            : $"⚠ '{TargetCompanyName}' could NOT be put back — do not open it; restore it again "
+                              + "from its own backup.");
+                return false;
+            }
+
+            // The restored book is put on the company register under the name it will be SAVED under — its own
+            // row's name, which the check above has just proved lands on this file. (Only the display name is at
+            // stake: CompanyRegistry.Load adopts any unregistered plain .db on its own, so the book would be
+            // listed without this call, under its sanitised file name.)
+            _storage.Registry.RegisterPlain(reloaded.Name, Path.GetFileName(TargetPath));
 
             Succeeded = true;
             Status = $"Restored '{manifest.CompanyName}' (taken {BackupTakenAt}, data format " +
@@ -363,6 +432,21 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             File.Move(safety, TargetPath, overwrite: true);
             return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Removes the book a refused restore CREATED (there was nothing at the target before it). True when
+    /// the file is gone.</summary>
+    private bool SafeDeleteCreated()
+    {
+        try
+        {
+            if (File.Exists(TargetPath)) File.Delete(TargetPath);
+            return !File.Exists(TargetPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

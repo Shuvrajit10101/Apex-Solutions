@@ -239,12 +239,17 @@ public sealed class RestoreOnFreshInstallTests : IDisposable
     // ------------------------------------------------------------------ the target is redirectable
 
     /// <summary>
-    /// 🔴 <b>T1-20: the target is REDIRECTABLE.</b> With a company open, the panel starts on it and can be
-    /// pointed at a DIFFERENT one — and the restore lands on the one the operator pointed at, asserted by
-    /// reading the book back off disk rather than off the status line.
+    /// 🔴 <b>T1-20: the target is REDIRECTABLE — away from the open book, onto the book the archive holds.</b>
+    /// With "Doomed Books" open the panel starts on it; holding Keeper's archive, the operator points it at
+    /// "Keeper Books", and the restore lands there and nowhere else, asserted by reading both books back off disk.
+    ///
+    /// <para>This test used to restore Keeper's archive INTO "Doomed Books" and stop there. That is the F1 path
+    /// (A12 review w6): the file it wrote held a company row named "Keeper Books", so the next save would have
+    /// landed on Keeper's own book. It never saved, so it pinned the hazard as a feature. The redirect it was
+    /// written to prove is kept; the destination is now the one a restore can honestly reach.</para>
     /// </summary>
     [Fact]
-    public void With_a_company_open_the_target_can_be_redirected_to_a_different_company()
+    public void With_a_company_open_the_target_can_be_redirected_to_the_archives_own_book()
     {
         var storage = new CompanyStorage(_companiesDir);
 
@@ -255,9 +260,12 @@ public sealed class RestoreOnFreshInstallTests : IDisposable
 
         var backup = new BackupCompanyViewModel(keeper, storage, _outDir, Now);
         Assert.True(backup.Apply(), backup.Status);
+
+        // Work done on Keeper AFTER the backup — the restore must take it away, which is how we see it landed.
+        PostJournal(keeper, 77.77m, new DateOnly(2025, 6, 1));
+        storage.Save(keeper);
         SqliteConnection.ClearAllPools();
 
-        // Open "Doomed Books", then point the restore at it while holding Keeper's archive.
         var vm = FreshShell(storage);
         vm.Menu.Single(m => m.Label == "Doomed Books").Activate();
         vm.OpenRestoreCompany();
@@ -265,27 +273,155 @@ public sealed class RestoreOnFreshInstallTests : IDisposable
         Assert.Equal("Doomed Books", panel.TargetCompanyName);   // defaults to the open book
 
         panel.FilePath = backup.FullPath;
-        panel.TargetCompanyName = "Doomed Books";
+        Assert.True(panel.Examine(), panel.Status);
+        Assert.False(panel.RestoresUnderItsOwnName, "the open book is not the archive's book");
+
+        panel.TargetCompanyName = "Keeper Books";
         Assert.True(panel.TargetExists, "this one IS on disk, so it is a REPLACE");
         Assert.Contains("REPLACED", panel.TargetEffectNote, StringComparison.Ordinal);
-
-        Assert.True(panel.Examine(), panel.Status);
         panel.Confirmed = true;
         Assert.True(panel.Apply(), panel.Status);
         Assert.Contains("replacing it", panel.Status, StringComparison.Ordinal);
+        Assert.Equal("Keeper Books", vm.Company!.Name);
 
-        // Read "Doomed Books" back off disk: it now holds Keeper's figures.
+        // The next save on any screen — then both books read back through a FRESH storage.
+        storage.Save(vm.Company!);
         SqliteConnection.ClearAllPools();
         var nextSession = new CompanyStorage(_companiesDir);
-        var entry = nextSession.ListCompanies().Single(e => e.Name == "Doomed Books");
-        var reloaded = nextSession.Load(entry);
-        var tb = TrialBalance.Build(reloaded, AsOf);
-        Assert.Equal(TrialBalance.Build(keeper, AsOf).TotalDebit.Amount, tb.TotalDebit.Amount);
-        Assert.Equal(keeper.Vouchers.Count, reloaded.Vouchers.Count);
+        var reloadedKeeper = nextSession.Load(nextSession.ListCompanies().Single(e => e.Name == "Keeper Books"));
+        Assert.Single(reloadedKeeper.Vouchers);   // the post-backup journal is gone: the restore landed here
+        Assert.Equal(31_241.37m, reloadedKeeper.Vouchers.Single().Lines.First().Amount.Amount);
 
-        // "Keeper Books" itself was NOT touched — a redirect must move only the target it names.
-        var keeperEntry = nextSession.ListCompanies().Single(e => e.Name == "Keeper Books");
-        Assert.Equal("Keeper Books", nextSession.Load(keeperEntry).Name);
+        var reloadedDoomed = nextSession.Load(nextSession.ListCompanies().Single(e => e.Name == "Doomed Books"));
+        Assert.Equal("Doomed Books", reloadedDoomed.Name);
+        Assert.Empty(reloadedDoomed.Vouchers);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F1 (A12 review w6, HIGH): a restore under a name that is not the archive's own is REFUSED before
+    /// anything is touched — and the ORIGINAL book survives the next save.</b>
+    ///
+    /// <para>The reviewer's P1 shape, entered through the shipped Company Select row. "Alpha Co" holds 4 vouchers;
+    /// the archive was taken after the first. Restored into "Alpha Co Restored Copy", the old code wrote a file
+    /// holding a company row named "Alpha Co", opened it, and the next save re-derived its path from that name and
+    /// replaced "Alpha Co.db": the book came back with 1 voucher, not 4. The assertion that matters is the last
+    /// one, read through a FRESH <see cref="CompanyStorage"/> after a save of whatever the shell has open.</para>
+    /// </summary>
+    [Fact]
+    public void Restoring_under_a_different_name_is_refused_and_the_original_book_keeps_every_voucher()
+    {
+        var storage = new CompanyStorage(_companiesDir);
+        var alpha = OddPaisaCompany("Alpha Co");               // voucher 1
+        storage.Save(alpha);
+        var backup = new BackupCompanyViewModel(alpha, storage, _outDir, Now);
+        Assert.True(backup.Apply(), backup.Status);
+        PostJournal(alpha, 202.02m, new DateOnly(2025, 5, 5)); // vouchers 2..4, after the backup
+        PostJournal(alpha, 303.03m, new DateOnly(2025, 6, 5));
+        PostJournal(alpha, 404.04m, new DateOnly(2025, 7, 5));
+        storage.Save(alpha);
+        SqliteConnection.ClearAllPools();
+        Assert.Equal(4, VouchersOnDisk("Alpha Co"));
+
+        var vm = FreshShell(storage);
+        vm.Menu.Single(m => m.Label == "Restore Company").Activate();
+        var panel = vm.RestoreCompanyPanel!;
+        panel.FilePath = backup.FullPath;
+        panel.TargetCompanyName = "Alpha Co Restored Copy";
+        Assert.True(panel.Examine(), panel.Status);
+
+        // The operator is TOLD before he confirms, not only refused after.
+        Assert.Contains("can only be restored as 'Alpha Co'", panel.TargetEffectNote, StringComparison.Ordinal);
+
+        panel.Confirmed = true;
+        Assert.False(panel.Apply(), panel.Status);
+        Assert.Contains("a restore keeps that name", panel.Status, StringComparison.Ordinal);
+        Assert.Contains("Nothing has been changed", panel.Status, StringComparison.Ordinal);
+
+        // The next save on any screen, of whatever the shell now has open.
+        if (vm.Company is { } open) storage.Save(open);
+
+        Assert.Equal(4, VouchersOnDisk("Alpha Co"));
+        Assert.False(storage.Exists("Alpha Co Restored Copy"), "a refused restore must create nothing");
+        Assert.Empty(Directory.GetFiles(_companiesDir, "*.apex-prerestore"));
+    }
+
+    /// <summary>
+    /// 🔴 <b>F1, the authoritative half: the company ROW decides, not the manifest.</b> The manifest's company name
+    /// is informational, so an archive whose manifest names the target while its database holds another company
+    /// passes the pre-swap check. The row read back after the swap is checked again, and the restore is UNDONE: the
+    /// replaced book is put back exactly as it was and still loads with its own vouchers, and "Alpha Co" survives
+    /// the next save.
+    /// </summary>
+    [Fact]
+    public void An_archive_whose_manifest_disagrees_with_its_own_company_row_is_undone_after_the_swap()
+    {
+        var storage = new CompanyStorage(_companiesDir);
+        var alpha = OddPaisaCompany("Alpha Co");
+        storage.Save(alpha);
+        var backup = new BackupCompanyViewModel(alpha, storage, _outDir, Now);
+        Assert.True(backup.Apply(), backup.Status);
+        PostJournal(alpha, 202.02m, new DateOnly(2025, 5, 5));
+        storage.Save(alpha);
+
+        var bystander = OddPaisaCompany("Bystander Co");
+        PostJournal(bystander, 55.55m, new DateOnly(2025, 8, 8));
+        storage.Save(bystander);
+        SqliteConnection.ClearAllPools();
+        var bystanderBytes = File.ReadAllBytes(storage.PathForName("Bystander Co"));
+
+        // A manifest that names "Bystander Co" over a database whose company row is "Alpha Co".
+        var forged = Path.Combine(_outDir, "forged" + CompanyBackup.ArchiveExtension);
+        File.Copy(backup.FullPath!, forged);
+        using (var zip = System.IO.Compression.ZipFile.Open(forged, System.IO.Compression.ZipArchiveMode.Update))
+        {
+            var entry = zip.GetEntry("manifest.json")!;
+            string json;
+            using (var r = new StreamReader(entry.Open())) json = r.ReadToEnd();
+            entry.Delete();
+            var renamed = json.Replace("\"Alpha Co\"", "\"Bystander Co\"", StringComparison.Ordinal);
+            Assert.NotEqual(json, renamed);
+            using var w = new StreamWriter(zip.CreateEntry("manifest.json").Open());
+            w.Write(renamed);
+        }
+
+        var vm = FreshShell(storage);
+        vm.Menu.Single(m => m.Label == "Restore Company").Activate();
+        var panel = vm.RestoreCompanyPanel!;
+        panel.FilePath = forged;
+        panel.TargetCompanyName = "Bystander Co";
+        Assert.True(panel.Examine(), panel.Status);
+        Assert.True(panel.RestoresUnderItsOwnName, "the manifest alone says the names agree");
+        panel.Confirmed = true;
+
+        Assert.False(panel.Apply(), panel.Status);
+        Assert.Contains("is named 'Alpha Co'", panel.Status, StringComparison.Ordinal);
+        Assert.Contains("put back exactly as it was", panel.Status, StringComparison.Ordinal);
+
+        if (vm.Company is { } open) storage.Save(open);
+        SqliteConnection.ClearAllPools();
+        Assert.Equal(bystanderBytes, File.ReadAllBytes(storage.PathForName("Bystander Co")));
+        Assert.Equal(2, VouchersOnDisk("Bystander Co"));
+        Assert.Equal(2, VouchersOnDisk("Alpha Co"));
+    }
+
+    private int VouchersOnDisk(string name)
+    {
+        SqliteConnection.ClearAllPools();
+        var fresh = new CompanyStorage(_companiesDir);
+        var n = fresh.Load(fresh.ListCompanies().Single(e => e.Name == name)).Vouchers.Count;
+        SqliteConnection.ClearAllPools();
+        return n;
+    }
+
+    private static void PostJournal(Company c, decimal amount, DateOnly date)
+    {
+        var debtor = c.FindLedgerByName("Varun Agencies")!;
+        var sales = c.FindLedgerByName("Sales")!;
+        new LedgerService(c).Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, date, new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(amount), DrCr.Debit),
+            new EntryLine(sales.Id, Money.FromRupees(amount), DrCr.Credit),
+        }));
     }
 
     /// <summary>
