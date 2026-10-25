@@ -56,7 +56,8 @@ public static class MultiVoucherPrintProjector
     /// <summary>
     /// The vouchers a job would cover, in print order (date, then voucher number, then id) — the RANGE this row
     /// is named for. A null <paramref name="typeId"/> means every voucher type; a null
-    /// <paramref name="partyId"/> means every party, including vouchers with no party at all.
+    /// <paramref name="partyId"/> means every party, including vouchers with no party at all. A party matches by
+    /// <see cref="InvolvesParty"/>.
     ///
     /// <para>🔴 <b>The bounds are INCLUSIVE at both ends</b>, because an operator who asks for 1-Apr to 30-Apr
     /// means April. An exclusive upper bound would silently drop the last day of every month-end run, and the
@@ -81,7 +82,7 @@ public static class MultiVoucherPrintProjector
         {
             if (v.Date < from || v.Date > to) continue;
             if (typeId is Guid t && v.TypeId != t) continue;
-            if (partyId is Guid p && v.PartyId != p) continue;
+            if (partyId is Guid p && !InvolvesParty(v, p)) continue;
             chosen.Add(v);
         }
 
@@ -95,6 +96,23 @@ public static class MultiVoucherPrintProjector
         });
 
         return chosen;
+    }
+
+    /// <summary>
+    /// 🔴 <b>Whether <paramref name="voucher"/> is one of <paramref name="partyId"/>'s vouchers: its recorded party,
+    /// OR any posting line on that party's ledger.</b> <see cref="Voucher.PartyId"/> alone is NOT enough, because
+    /// the plain accounting grid never sets it — a Receipt, Payment or Journal keyed there records its party only
+    /// as a posting line (<c>VoucherEntryViewModel</c>: <i>"never keyed on the plain grid"</i>). Matching on
+    /// <see cref="Voucher.PartyId"/> alone printed "No vouchers in this range" for a party's own receipts
+    /// (A12 review w6, F3). <see cref="Voucher.PartyId"/> is still honoured for the vouchers that do carry it.
+    /// </summary>
+    public static bool InvolvesParty(Voucher voucher, Guid partyId)
+    {
+        ArgumentNullException.ThrowIfNull(voucher);
+        if (voucher.PartyId == partyId) return true;
+        foreach (var line in voucher.Lines)
+            if (line.LedgerId == partyId) return true;
+        return false;
     }
 
     /// <summary>

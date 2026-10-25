@@ -156,7 +156,7 @@ public sealed partial class MultiVoucherPrintViewModel : ViewModelBase
                 _company.FormatVoucherNumber(v),
                 _company.FindVoucherType(v.TypeId)?.Name ?? string.Empty,
                 ApexDate.Format(v.Date),
-                v.PartyId is Guid pid ? _company.FindLedger(pid)?.Name ?? string.Empty : string.Empty,
+                PartyNameOf(v),
                 v.Cancelled));
 
         Status = Matches.Count == 0
@@ -164,6 +164,22 @@ public sealed partial class MultiVoucherPrintViewModel : ViewModelBase
             : $"{Matches.Count} voucher(s) from {ApexDate.Format(from)} to {ApexDate.Format(to)}.";
 
         NotifyCounts();
+    }
+
+    /// <summary>
+    /// The party a match-list row shows: the voucher's recorded party, else the party it was selected for, else
+    /// the first party account it posts to. A voucher keyed on the plain grid carries its party only as a posting
+    /// line (see <see cref="MultiVoucherPrintProjector.InvolvesParty"/>), so reading <c>PartyId</c> alone showed
+    /// a blank party against the very voucher the operator had filtered by party to find.
+    /// </summary>
+    private string PartyNameOf(Voucher v)
+    {
+        if (v.PartyId is Guid pid) return _company.FindLedger(pid)?.Name ?? string.Empty;
+        if (SelectedParty is { Id: not null } chosen) return chosen.Name;
+        foreach (var line in v.Lines)
+            if (_company.FindLedger(line.LedgerId) is { } l && MultiAccountPrintProjector.IsPartyAccount(_company, l))
+                return l.Name;
+        return string.Empty;
     }
 
     private void NotifyCounts()

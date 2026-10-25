@@ -29,8 +29,19 @@ namespace Apex.Desktop.Tests;
 /// <para>🔴 <b>PDF string literals escape <c>(</c> and <c>)</c></b>, so no assertion here looks for a
 /// parenthesis — a reviewer on this project once reported clipping that did not exist by forgetting it.</para>
 /// </summary>
-public sealed class MultiVoucherPrintTests
+public sealed class MultiVoucherPrintTests : IDisposable
 {
+    private readonly string _tempDir =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ApexMultiVoucher_" + Guid.NewGuid().ToString("N"));
+
+    public void Dispose()
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        try { if (System.IO.Directory.Exists(_tempDir)) System.IO.Directory.Delete(_tempDir, recursive: true); }
+        catch (System.IO.IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     private static readonly DateOnly FyStart = new(2025, 4, 1);
     private static readonly DateOnly FyEnd = new(2026, 3, 31);
 
@@ -39,6 +50,11 @@ public sealed class MultiVoucherPrintTests
     /// <summary>
     /// Three receipts from Northwind, two payments to Southgate, all inside the year. Distinct amounts, so a
     /// voucher that reached (or failed to reach) the paper can be identified by its own figure.
+    ///
+    /// <para>🔴 <b>No <c>PartyId</c> is set on any of them</b>, because the plain accounting grid never sets one
+    /// (A12 review w6, F3): the party is a posting line, exactly as a real Receipt or Payment records it. These
+    /// fixtures used to hand-set <c>PartyId</c>, which made the party filter look right while it found nothing
+    /// a user had actually keyed.</para>
     /// </summary>
     private static (Company C, Guid Northwind, Guid Southgate, Guid ReceiptType, Guid PaymentType) Books()
     {
@@ -76,8 +92,7 @@ public sealed class MultiVoucherPrintTests
             {
                 new EntryLine(cash.Id, Money.FromRupees(receiptAmounts[i]), DrCr.Debit),
                 new EntryLine(northwind.Id, Money.FromRupees(receiptAmounts[i]), DrCr.Credit),
-            })
-            { PartyId = northwind.Id };
+            });
             svc.Post(v);
         }
 
@@ -90,8 +105,7 @@ public sealed class MultiVoucherPrintTests
             {
                 new EntryLine(southgate.Id, Money.FromRupees(paymentAmounts[i]), DrCr.Debit),
                 new EntryLine(cash.Id, Money.FromRupees(paymentAmounts[i]), DrCr.Credit),
-            })
-            { PartyId = southgate.Id };
+            });
             svc.Post(v);
         }
 
@@ -174,6 +188,57 @@ public sealed class MultiVoucherPrintTests
         Assert.DoesNotContain("11,111.11", s, StringComparison.Ordinal);
         Assert.DoesNotContain("22,222.22", s, StringComparison.Ordinal);
         Assert.DoesNotContain("33,333.33", s, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>F3 (A12 review w6): a Receipt KEYED ON THE REAL ENTRY GRID is found by its party and reaches the
+    /// paper.</b> Entered through <see cref="VoucherEntryViewModel"/> — party Cr, Cash Dr — exactly as an
+    /// operator keys it, which records the party only as a posting line. Then the shipped route: the shell's
+    /// Multi-Voucher Printing panel, the party chosen, <c>PrintMultiVoucherJob</c>, and the assertion on the
+    /// previewed PDF bytes. Before the fix the panel said "No vouchers in this range. Nothing to print." and
+    /// opened no preview at all. The other party's job must NOT carry it.
+    /// </summary>
+    [Fact]
+    public void A_receipt_keyed_on_the_entry_grid_is_found_by_its_party_and_printed()
+    {
+        var (c, northwind, southgate, receiptType, _) = Books();
+        var storage = new CompanyStorage(System.IO.Path.Combine(_tempDir, "Companies"));
+        storage.Save(c);
+
+        var shell = new MainWindowViewModel(storage);
+        shell.ShowCompanySelect();
+        shell.Menu.Single(m => m.Label == "Range Print Co").Activate();
+        var company = shell.Company!;
+
+        var entry = new VoucherEntryViewModel(company, company.FindVoucherType(receiptType)!, storage,
+            onSaved: () => { }, onCancelled: () => { });
+        entry.Lines[0].SelectedLedger = company.FindLedger(northwind);
+        entry.Lines[0].Side = DrCr.Credit;
+        entry.Lines[0].AmountText = "1234.56";
+        entry.Lines[1].SelectedLedger = company.FindLedgerByName("Cash");
+        entry.Lines[1].Side = DrCr.Debit;
+        entry.Lines[1].AmountText = "1234.56";
+        entry.Recalculate();
+        Assert.True(entry.Accept(), entry.Message);
+
+        shell.OpenMultiVoucherPrint();
+        var panel = shell.MultiVoucherPrint!;
+        panel.SelectedParty = panel.Parties.Single(p => p.Id == northwind);
+        Assert.Equal(4, panel.MatchCount);   // three fixture receipts and the one just keyed
+        Assert.Contains(panel.Matches, r => r.PartyName == "Northwind Traders");
+
+        shell.PrintMultiVoucherJob();
+        var bytes = AsLatin1(shell.PrintPreview!.PdfBytes);
+        Assert.Contains("1,234.56", bytes, StringComparison.Ordinal);
+        Assert.Contains("33,333.33", bytes, StringComparison.Ordinal);
+        Assert.DoesNotContain("44,444.44", bytes, StringComparison.Ordinal);
+
+        // …and the OTHER party's job does not carry it.
+        panel.SelectedParty = panel.Parties.Single(p => p.Id == southgate);
+        shell.PrintMultiVoucherJob();
+        var other = AsLatin1(shell.PrintPreview!.PdfBytes);
+        Assert.DoesNotContain("1,234.56", other, StringComparison.Ordinal);
+        Assert.Contains("44,444.44", other, StringComparison.Ordinal);
     }
 
     /// <summary>
