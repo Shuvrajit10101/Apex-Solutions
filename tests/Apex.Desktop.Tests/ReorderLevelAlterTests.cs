@@ -393,8 +393,9 @@ public sealed class ReorderLevelAlterTests
     // ============================================================ 5. a fresh drill is still a CREATE screen
 
     /// <summary>
-    /// Re-drilling from the Gateway gives a create-mode screen again, and Ctrl+A on it still UPSERTS rather than
-    /// altering — so the new branch has not swallowed the create verb the screen always had.
+    /// Re-drilling from the Gateway gives a create-mode screen again, and Ctrl+A on it still CREATES over a free
+    /// target — so the new branch has not swallowed the create verb the screen always had. (Over an OCCUPIED
+    /// target Ctrl+A no longer upserts; see the P1c tests above.)
     /// </summary>
     [AvaloniaFact]
     public void A_fresh_drill_is_still_a_create_screen_and_CtrlA_still_creates()
