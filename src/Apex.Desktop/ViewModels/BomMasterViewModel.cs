@@ -153,10 +153,69 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     /// <inheritdoc/>
     public string MasterKindLabel => "BOM";
 
+    /// <summary>The BOM this screen was opened over for ALTERATION, or <see cref="Guid.Empty"/> when creating.
+    /// Set only by <see cref="ForAlter"/>.</summary>
+    private Guid _editingId = Guid.Empty;
+
     /// <inheritdoc/>
-    /// <remarks>Create-only screen — no <c>ForAlter</c> factory exists for a BOM — so it is never
-    /// mid-alteration.</remarks>
-    public bool IsAltering => false;
+    /// <remarks>~~Create-only screen — no <c>ForAlter</c> factory exists for a BOM — so it is never
+    /// mid-alteration.~~ 🔴 Census 3.9: derived now. The ONLY route that sets it is the item-side
+    /// <i>Alter Components (BOM)</i> tick on Stock Item Alteration (<see cref="ForAlter"/>); the standalone
+    /// "Bill of Materials" master opened from the Create menu is still a create screen, and Ctrl+Enter on its
+    /// existing-list still has no alter arm — the vendor reaches a BOM through its item, not through a BOM
+    /// master. While true, Alt+D is refused by the shell and Ctrl+A runs <see cref="Alter"/>.</remarks>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The page caption — names the verb Ctrl+A will run.</summary>
+    public string Caption => IsAltering ? "Stock Item Components (BOM) Alteration" : "Bill of Materials Creation";
+
+    /// <summary>The commit button's label, matching <see cref="Caption"/>.</summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
+    /// Opens this screen over an EXISTING BOM, every saved field loaded back — the name, the finished good (fixed:
+    /// a BOM belongs to its item), the unit of manufacture and every line with its item, godown, type, per-block
+    /// quantity and carve-out rate or percent. Returns <c>null</c> if the id does not resolve.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14).</b> <i>"In the Stock Item Alteration screen, enable the option Alter
+    /// Components (BOM)"</i> — help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-25. That page then shows a BOM-name list (<i>"Stock Item Multi Components
+    /// (M BOM)"</i>) before the components screen; we open the item's first BOM by name directly — labelled ours,
+    /// IV-186.</para>
+    /// </summary>
+    public static BomMasterViewModel? ForAlter(Company company, CompanyStorage storage, Guid bomId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindBillOfMaterials(bomId) is not { } bom) return null;
+
+        var vm = new BomMasterViewModel(company, storage, onChanged);
+        vm._editingId = bom.Id;
+        vm.Name = bom.Name;
+        vm.SelectedFinishedGood = vm.FinishedGoods.FirstOrDefault(i => i.Id == bom.StockItemId) ?? vm.SelectedFinishedGood;
+        vm.UnitOfManufactureText = bom.UnitOfManufacture.ToString("0.######", CultureInfo.InvariantCulture);
+
+        vm.Lines.Clear();
+        foreach (var line in bom.Lines)
+        {
+            var row = vm.AddBlankLine();
+            row.SelectedItem = row.ItemOptions.FirstOrDefault(i => i.Id == line.ComponentStockItemId);
+            row.SelectedGodown = row.GodownOptions.FirstOrDefault(g => g.Godown?.Id == line.GodownId)
+                ?? row.GodownOptions.FirstOrDefault();
+            row.SelectedType = row.TypeOptions.FirstOrDefault(t => t.Type == line.LineType)
+                ?? row.TypeOptions.FirstOrDefault();
+            row.QuantityText = line.QuantityPerBlock.ToString("0.######", CultureInfo.InvariantCulture);
+            row.CarveOutRateText = line.Rate is { } r ? r.Amount.ToString("0.00", CultureInfo.InvariantCulture) : string.Empty;
+            row.CarveOutPercentText = line.PercentOfFinishedGoodCost is { } p
+                ? p.ToString("0.######", CultureInfo.InvariantCulture)
+                : string.Empty;
+        }
+        vm.EnsureTrailingBlank();
+
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
+        return vm;
+    }
 
     /// <inheritdoc/>
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
@@ -300,7 +359,70 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     public bool Create()
     {
         Message = null;
-        var name = (Name ?? string.Empty).Trim();
+        if (!TryBuild(out var name, out var unitOfManufacture, out var domainLines)) return false;
+
+        try
+        {
+            var service = new BomService(_company);
+            service.CreateBom(SelectedFinishedGood!.Id, name, unitOfManufacture, domainLines);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshList();
+        Message = $"BOM '{name}' created for {SelectedFinishedGood!.Name}.";
+        Name = string.Empty;
+        UnitOfManufactureText = "1";
+        Lines.Clear();
+        AddBlankLine();
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b> (census 3.9): validates exactly as <see cref="Create"/> does, then rewrites the BOM this
+    /// screen was opened over THROUGH ITS OWN ID via <see cref="BomService.AlterBom"/> and persists. The form is
+    /// NOT cleared afterwards — the screen is still sitting over the same BOM.
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing BOM.";
+            return false;
+        }
+        if (!TryBuild(out var name, out var unitOfManufacture, out var domainLines)) return false;
+
+        BillOfMaterials altered;
+        try
+        {
+            altered = new BomService(_company).AlterBom(_editingId, name, unitOfManufacture, domainLines);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshList();
+        Message = $"BOM '{altered.Name}' altered for {_company.FindStockItem(altered.StockItemId)?.Name}.";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>The one validation + line-building path shared by <see cref="Create"/> and <see cref="Alter"/>,
+    /// so the two verbs cannot validate differently. Returns false with <see cref="Message"/> set.</summary>
+    private bool TryBuild(out string name, out decimal unitOfManufacture, out List<BomLine> domainLines)
+    {
+        name = (Name ?? string.Empty).Trim();
+        unitOfManufacture = 0m;
+        domainLines = new List<BomLine>();
 
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -314,7 +436,7 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
         }
         if (!decimal.TryParse((UnitOfManufactureText ?? string.Empty).Trim(),
                 NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands | NumberStyles.AllowLeadingSign,
-                CultureInfo.InvariantCulture, out var unitOfManufacture) || unitOfManufacture <= 0m)
+                CultureInfo.InvariantCulture, out unitOfManufacture) || unitOfManufacture <= 0m)
         {
             Message = "The unit of manufacture must be a number greater than zero (e.g. 1 or 10).";
             return false;
@@ -325,8 +447,9 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
             return false;
         }
 
-        // Per-item name uniqueness (RQ-9) — surface a friendly message before the engine guard fires.
-        if (_company.FindBomByName(SelectedFinishedGood.Id, name) is not null)
+        // Per-item name uniqueness (RQ-9) — surface a friendly message before the engine guard fires. On ALTER the
+        // BOM being altered may of course keep its own name; only ANOTHER BOM of the item is a clash.
+        if (_company.FindBomByName(SelectedFinishedGood.Id, name) is { } clash && clash.Id != _editingId)
         {
             Message = $"A BOM '{name}' already exists for item '{SelectedFinishedGood.Name}' " +
                       "(BOM names are unique per item).";
@@ -340,7 +463,6 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
             return false;
         }
 
-        var domainLines = new List<BomLine>();
         foreach (var l in active)
         {
             if (l.SelectedItem is null)
@@ -422,25 +544,6 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
             return false;
         }
 
-        try
-        {
-            var service = new BomService(_company);
-            service.CreateBom(SelectedFinishedGood.Id, name, unitOfManufacture, domainLines);
-            _storage.Save(_company);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
-        {
-            Message = ex.Message;
-            return false;
-        }
-
-        RefreshList();
-        Message = $"BOM '{name}' created for {SelectedFinishedGood.Name}.";
-        Name = string.Empty;
-        UnitOfManufactureText = "1";
-        Lines.Clear();
-        AddBlankLine();
-        _onChanged();
         return true;
     }
 

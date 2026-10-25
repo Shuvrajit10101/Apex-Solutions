@@ -292,6 +292,27 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
     /// </summary>
     public bool ShowBomSwitch => _company.SetComponentsBom;
 
+    /// <summary>
+    /// <b>Alter Components (BOM)</b> — census 3.9. When ticked on the ALTERATION screen, a successful accept
+    /// saves the item and then opens its Bill of Materials pre-filled for an IN-PLACE alteration (the
+    /// <see cref="OpenComponentsBom"/> callback the shell supplies). Never persisted: it is a navigation request,
+    /// not a property of the item, so it is cleared once honoured.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14): VENDOR-ATTESTED.</b> <i>"In the Stock Item Alteration screen, enable the
+    /// option Alter Components (BOM)"</i> — help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-25. Gating it on the company's BOM feature (<see cref="ShowBomSwitch"/>) is OURS
+    /// (IV-185): the page does not tie the option to an F11/F12 switch, but this product hides every BOM surface
+    /// while that feature is off, and an option that opens a hidden screen would be a dead end.</para>
+    /// </summary>
+    [ObservableProperty] private bool _alterComponentsBom;
+
+    /// <summary>True only on the ALTERATION screen of a company with the BOM feature on (census 3.9).</summary>
+    public bool ShowAlterComponentsBom => IsAltering && ShowBomSwitch;
+
+    /// <summary>Supplied by the shell: opens the BOM screen for the given item after an accept with
+    /// <see cref="AlterComponentsBom"/> ticked. Null in headless constructions that have no shell.</summary>
+    public Action<Guid>? OpenComponentsBom { get; set; }
+
     // ---- GST details (catalog §12; phase4 RQ-8) — only offered when GST is enabled ----
     [ObservableProperty] private GstTaxabilityOption? _taxability;
     [ObservableProperty] private GstRateOption? _gstRate;
@@ -504,6 +525,7 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(Caption));
         vm.OnPropertyChanged(nameof(CommitLabel));
+        vm.OnPropertyChanged(nameof(ShowAlterComponentsBom));
         return vm;
     }
 
@@ -1082,6 +1104,14 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         {
             Message = $"Stock item '{name}' altered — under {SelectedGroup.Name}.";
             _onChanged();
+            // Census 3.9: honour "Alter Components (BOM)" only AFTER the item itself saved, and only while the
+            // option is actually offered — a tick left over from a company whose BOM feature was since switched
+            // off must not open a screen the rest of the product hides.
+            if (AlterComponentsBom && ShowAlterComponentsBom)
+            {
+                AlterComponentsBom = false;
+                OpenComponentsBom?.Invoke(item.Id);
+            }
             return true;
         }
 

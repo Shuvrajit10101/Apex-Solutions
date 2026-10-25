@@ -7463,6 +7463,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         var master = StockItemMasterViewModel.ForAlter(Company, _storage, itemId, onChanged: () => { });
         if (master is null) return;
+        master.OpenComponentsBom = ShowComponentsBomForItem;   // census 3.9: "Alter Components (BOM)"
 
         OpenPageColumn(new GatewayColumn("Stock Item Alteration", master), Screen.StockItemMaster,
             "Stock Item Alteration", () => StockItemMaster = master);
@@ -7534,6 +7535,38 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var master = new BomMasterViewModel(Company, _storage, onChanged: () => { });
         OpenPageColumn(new GatewayColumn("Bill of Materials Creation", master), Screen.BomMaster,
             "Bill of Materials Creation", () => BomMaster = master);
+    }
+
+    /// <summary>
+    /// Census 3.9 — the target of the Stock Item Alteration screen's <i>Alter Components (BOM)</i> option. Opens
+    /// the item's BOM pre-filled for an IN-PLACE alteration (<see cref="BomMasterViewModel.ForAlter"/>, which keeps
+    /// the BOM's id). An item with several BOMs opens its FIRST BOM by name; an item with none opens the BOM
+    /// creation screen with the item already chosen as the finished good — the vendor's same option adds a BOM to
+    /// an item that has none. Both shapes are labelled OURS (IV-186). A no-op while the BOM feature is off.
+    /// </summary>
+    public void ShowComponentsBomForItem(Guid itemId)
+    {
+        if (Company is null) return;
+        if (!Company.SetComponentsBom) return;   // gated by the same F12 config as every BOM surface
+        if (Company.FindStockItem(itemId) is not { } item) return;
+
+        var first = Company.BomsFor(itemId)
+            .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        BomMasterViewModel master;
+        if (first is not null && BomMasterViewModel.ForAlter(Company, _storage, first.Id, onChanged: () => { }) is { } alter)
+        {
+            master = alter;
+        }
+        else
+        {
+            master = new BomMasterViewModel(Company, _storage, onChanged: () => { });
+            master.SelectedFinishedGood = master.FinishedGoods.FirstOrDefault(i => i.Id == item.Id)
+                ?? master.SelectedFinishedGood;
+        }
+
+        OpenPageColumn(new GatewayColumn(master.Caption, master), Screen.BomMaster, master.Caption,
+            () => BomMaster = master);
     }
 
     /// <summary>
@@ -13173,7 +13206,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 if (BatchAllocation?.Apply() == true) BackFromPage();
                 return;
             case Screen.BomMaster:
-                BomMaster?.Create();
+                // Census 3.9: the item-side "Alter Components (BOM)" route opens this screen over an EXISTING BOM,
+                // so Ctrl+A must run whichever verb it was opened for — the WI-3 branch shape. Without it the
+                // correction would run Create() and either append a second BOM or bounce off the name check.
+                if (BomMaster is { IsAltering: true }) BomMaster.Alter();
+                else BomMaster?.Create();
                 return;
             // W33 C3: the same screen now serves Create and Alter, so Ctrl+A must run whichever verb it was
             // opened for — the WI-3 branch shape. Without it, a Price Level Alteration screen's Ctrl+A would run
