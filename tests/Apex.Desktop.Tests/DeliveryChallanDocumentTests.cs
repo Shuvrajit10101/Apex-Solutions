@@ -461,15 +461,16 @@ public sealed class DeliveryChallanDocumentTests
         var v = Post(k, VoucherBaseType.DeliveryNote, party.Id,
             Outward(item, k.GodownId, 3m, 1_000m, tracking: "TRK-LONG"));
 
+        // The PAGE first: every word reaches it, and no drawn string carries the clipper's ellipsis.
+        string s = RenderChallan(k, v);
+        Assert.DoesNotContain("...) Tj", s, StringComparison.Ordinal);
+        foreach (var w in words)
+            Assert.Contains(w, s, StringComparison.Ordinal);
+
         var document = DeliveryChallanPrintProjector.Project(k.C, v).Document!;
         var descriptionRows = document.Rows.Where(r => r.FullWidth && r.Cells[0].Length > 0
             && words.Any(w => r.Cells[0].Contains(w, StringComparison.Ordinal))).ToList();
         Assert.True(descriptionRows.Count >= 2, "a description wider than the sheet must wrap onto more than one row");
-
-        string s = RenderChallan(k, v);
-        foreach (var w in words)
-            Assert.Contains(w, s, StringComparison.Ordinal);
-        Assert.DoesNotContain("...) Tj", s, StringComparison.Ordinal);
         // And it is ONE description: the wrapped rows, re-joined, are the item name prefixed with its line number.
         Assert.Equal("1. " + description, string.Join(" ", descriptionRows.Select(r => r.Cells[0])));
     }

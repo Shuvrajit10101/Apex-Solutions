@@ -194,12 +194,13 @@ public sealed class DrilledVoucherEgressTests
 
     private static void AssertOursOnly(string s, bool expectChallan)
     {
-        Assert.Contains(Ours, s, StringComparison.Ordinal);
-        Assert.Contains(OurItem, s, StringComparison.Ordinal);
-        if (expectChallan) Assert.Contains(DeliveryChallanPrintProjector.Title, s, StringComparison.Ordinal);
+        // The confidentiality half FIRST, so a regression fails naming the leaked consignee.
         Assert.DoesNotContain(Theirs, s, StringComparison.Ordinal);
         Assert.DoesNotContain(TheirItem, s, StringComparison.Ordinal);
         Assert.DoesNotContain("Day Book", s, StringComparison.Ordinal);
+        Assert.Contains(Ours, s, StringComparison.Ordinal);
+        Assert.Contains(OurItem, s, StringComparison.Ordinal);
+        if (expectChallan) Assert.Contains(DeliveryChallanPrintProjector.Title, s, StringComparison.Ordinal);
     }
 
     // ============================================================================================ Export
@@ -208,9 +209,9 @@ public sealed class DrilledVoucherEgressTests
     /// 🔴 <b>Ctrl+E on a drilled Delivery Note writes THAT voucher — CSV and PDF both — and not one character
     /// of the other consignee.</b>
     ///
-    /// <para><b>Mutation (run):</b> removing <c>Screen.InventoryVoucherDetail</c> from <c>IsReportContext</c>'s
-    /// exclusion AND deleting <c>BuildExportPanel</c>'s first arm (the shape on main) — the panel is the Day Book
-    /// again and the CSV contains <c>Himalayan Textiles Cooperative</c>: this test fails.</para>
+    /// <para><b>Mutations (run):</b> (1) <c>MainWindowViewModel.cs</c> restored to origin/main — the panel is the
+    /// Day Book and the CSV contains <c>Himalayan Textiles Cooperative</c> (DoesNotContain fails at the leaked name);
+    /// (2) only <c>BuildExportPanel</c>'s pane arm deleted — no Export panel opens: fails.</para>
     /// </summary>
     [AvaloniaFact]
     public void Ctrl_E_on_a_drilled_delivery_note_writes_that_voucher_and_no_other_consignee()
@@ -227,20 +228,21 @@ public sealed class DrilledVoucherEgressTests
 
             Assert.Equal(Screen.Export, vm.CurrentScreen);
             Assert.NotNull(vm.ExportPanel);
-            Assert.StartsWith("Delivery Note No. ", vm.ExportPanel!.DocumentTitle, StringComparison.Ordinal);
 
             var csv = ApplyExportAndRead(window, vm, Path.Combine(dir, "out"), ExportFormat.Csv);
             AssertOursOnly(csv, expectChallan: false);
 
             var pdf = ApplyExportAndRead(window, vm, Path.Combine(dir, "out"), ExportFormat.Pdf);
             AssertOursOnly(pdf, expectChallan: true);   // Export > PDF is the same document Print renders
+            Assert.StartsWith("Delivery Note No. ", vm.ExportPanel!.DocumentTitle, StringComparison.Ordinal);
         }
         finally { Close(window, dir); }
     }
 
     /// <summary>
     /// <b>Alt+E &gt; Current</b> — the vendor's export MENU route — reaches the same panel over the same voucher.
-    /// <para><b>Mutation (run):</b> the same as above; the menu's Current row then opens the Day Book export.</para>
+    /// <para><b>Mutations (run):</b> the same two as above; on (1) the menu's Current row writes the Day Book,
+    /// leaked consignee included.</para>
     /// </summary>
     [AvaloniaFact]
     public void Alt_E_then_Current_on_a_drilled_delivery_note_exports_that_voucher()
@@ -273,9 +275,8 @@ public sealed class DrilledVoucherEgressTests
     /// 🔴 <b>Alt+M &gt; E-Mail on a drilled Delivery Note attaches ITS challan, and the saved <c>.eml</c> — headers
     /// and every decoded MIME part — carries no trace of the other consignee.</b>
     ///
-    /// <para><b>Mutation (run):</b> deleting the <c>Screen.InventoryVoucherDetail</c> arm from
-    /// <c>OpenEmailCompose</c> and restoring the old <c>IsReportContext</c> — the draft attaches the Day Book and
-    /// the decoded attachment contains <c>Himalayan Textiles Cooperative</c>.</para>
+    /// <para><b>Mutation (run):</b> <c>MainWindowViewModel.cs</c> restored to origin/main — the draft attaches
+    /// <c>Day Book.pdf</c> and the decoded attachment contains <c>Himalayan Textiles Cooperative</c>.</para>
     /// </summary>
     [AvaloniaFact]
     public void Alt_M_then_E_Mail_on_a_drilled_delivery_note_attaches_its_challan_and_no_other_consignee()
@@ -313,8 +314,9 @@ public sealed class DrilledVoucherEgressTests
     /// <summary>
     /// The direct chords — Ctrl+M (e-mail) and W (WhatsApp) — obey the same rule as the menu: the drilled
     /// voucher's own challan, never the register. Asserted on the saved artefact of each channel.
-    /// <para><b>Mutation (run):</b> deleting the pane arm from <c>OpenWhatsAppShare</c> (with the old
-    /// <c>IsReportContext</c>) — the WhatsApp document is the Day Book and carries the other consignee.</para>
+    /// <para><b>Mutations (run):</b> origin/main's <c>MainWindowViewModel.cs</c> fails at the Ctrl+M draft;
+    /// keeping the e-mail arm but deleting only <c>OpenWhatsAppShare</c>'s pane arm (with the old
+    /// <c>IsReportContext</c>) fails at the W document, which is then the Day Book.</para>
     /// </summary>
     [AvaloniaFact]
     public void Ctrl_M_and_W_on_a_drilled_delivery_note_share_its_challan_and_no_other_consignee()
@@ -355,8 +357,9 @@ public sealed class DrilledVoucherEgressTests
     /// document), so Alt+M &gt; E-Mail opens no compose panel and the notice says why, realised on screen. Its
     /// Ctrl+E still exports the journal's OWN lines — data, not a printed document — and nothing of the Delivery
     /// Note posted to the other consignee.
-    /// <para><b>Mutation (run):</b> replacing the refusal's <c>return</c> in <c>OpenEmailCompose</c>'s pane arm
-    /// with a fall-through to the report arm (old <c>IsReportContext</c>) opens a compose panel: fails.</para>
+    /// <para><b>Mutations (run):</b> origin/main's <c>MainWindowViewModel.cs</c> opens a compose panel carrying
+    /// <c>Day Book.pdf</c>; replacing the refusal in <c>OpenEmailCompose</c>'s pane arm with an empty attachment
+    /// opens a compose panel; deleting <c>BuildExportPanel</c>'s pane arm opens no Export: each fails.</para>
     /// </summary>
     [AvaloniaFact]
     public void A_drilled_stock_journal_refuses_share_by_name_and_exports_only_its_own_lines()
