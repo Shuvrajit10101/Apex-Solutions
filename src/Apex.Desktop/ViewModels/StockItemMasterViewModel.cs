@@ -200,8 +200,11 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
 
     /// <summary>
     /// The optional <b>Alternate Unit</b> picker: "◦ (none)" plus every unit. Vendor
-    /// (<c>help.tallysolutions.com/manage-stock-item-tally/</c>): after the base unit is chosen "<i>The
-    /// <b>Alternate units</b> field appears</i>".
+    /// (<c>help.tallysolutions.com/units-of-measurement/</c>, opened BY CONTENT 2026-10-23): "<i>where: Provide
+    /// the conversion factor between the simple or compound unit and the alternate unit.</i>"
+    /// ⚠️ <b>Page corrected (IV-173):</b> the previously cited <c>…/manage-stock-item-tally/</c> does NOT say
+    /// "The Alternate units field appears"; it says only "<i>You can also provide alternate units, if applicable
+    /// in your business.</i>"
     /// </summary>
     public ObservableCollection<OptionalUnitOption> AlternateUnitOptions { get; } = new();
 

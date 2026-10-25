@@ -16,7 +16,9 @@ namespace Apex.Ledger.Tests;
 /// like a sub-ledger"</i>, <i>"Nett Debit/Credit Balances for Reporting"</i>, <i>"Used for calculation (for
 /// example: taxes, discounts)"</i>, <i>"Method to allocate when used in purchase invoice"</i> (Not Applicable /
 /// Appropriate by Qty / Appropriate by Value). The Alternate Unit is
-/// <c>help.tallysolutions.com/manage-stock-item-tally/</c>.</para>
+/// <c>help.tallysolutions.com/units-of-measurement/</c> — <i>"where: Provide the conversion factor between the
+/// simple or compound unit and the alternate unit."</i> (page corrected 2026-10-23, IV-173: the previously
+/// cited <c>…/manage-stock-item-tally/</c> carries no such sentence).</para>
 ///
 /// <para>🔴 <b>WHAT T1-31 WAS, AND WHY IT IS TESTED FIRST.</b> A new PRIMARY accounting group could not be
 /// created at all: <c>GroupService.CreateGroup</c> threw on a null parent, so the two vendor fields that appear

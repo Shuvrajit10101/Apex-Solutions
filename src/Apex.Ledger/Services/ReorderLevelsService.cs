@@ -56,6 +56,70 @@ public sealed class ReorderLevelsService
         return definition;
     }
 
+    /// <summary>
+    /// <b>Alters ONE existing reorder definition in place</b> — census 3.12. Keeps the definition's
+    /// <see cref="ReorderDefinition.Id"/> and replaces every other field, so a correction updates the row that
+    /// already exists instead of creating a second one.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14): VENDOR-ATTESTED ROUTE.</b> TallyPrime reaches the reorder level through
+    /// an ALTERATION route — <i>"Press Alt+G (Go To) &gt; Alter Master &gt; type or select Reorder Level (Stock
+    /// Item) and press Enter."</i> — and the field set it then shows is the one this signature carries:
+    /// <i>"Minimum Order Quantity: Enter the minimum quantity you want to order."</i>, <i>"Period: Select the
+    /// consumption for various periods – Days, Weeks, Months, or Years."</i> and a <i>Criteria</i> of Higher or
+    /// Lower [<c>help.tallysolutions.com/tally-prime/inventory/reorder-stock-items-reorder-status-and-reorder-quantity/</c>,
+    /// opened and read BY CONTENT 2026-10-23]. The page is silent on DELETING a definition, which is recorded as
+    /// silence rather than permission on <see cref="Delete"/>; it is not silent on altering one.</para>
+    ///
+    /// <para>🔴 <b>WHY THIS IS NOT <see cref="CreateOrUpdate"/> WITH EXTRA STEPS, and the difference is the whole
+    /// point of the method.</b> <see cref="CreateOrUpdate"/> mints a <c>Guid.NewGuid()</c> and discards the old
+    /// row, so the definition the operator opened is GONE and a different record stands in its place. Every
+    /// screen that holds the id it was opened over — the alteration screen itself, the arrow highlight that is
+    /// restored BY ID after a rebuild — is then pointing at a row that no longer exists. That is the exact defect
+    /// shape this area has been demoted for three times: an alteration path whose only button ran a bare
+    /// unconditional create, so the correction was lost or appended as a second version.</para>
+    ///
+    /// <para><b>The (scope, target) invariant is preserved rather than silently broken.</b> At most ONE definition
+    /// may exist per (scope, target) (RQ-32). Re-pointing a definition at a (scope, target) that ANOTHER
+    /// definition already occupies is refused by name — upserting over it here would delete a second,
+    /// unrelated definition the operator never named, which an alteration must never do. Re-accepting a
+    /// definition over its OWN (scope, target) is of course allowed.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// No definition with that id; the target does not exist; another definition already owns that
+    /// (scope, target); or the <see cref="ReorderDefinition"/> constructor refuses the figures.
+    /// </exception>
+    public ReorderDefinition Alter(
+        Guid definitionId,
+        ReorderScope scope,
+        Guid targetId,
+        bool reorderAdvanced = false,
+        decimal? reorderQuantity = null,
+        bool minQtyAdvanced = false,
+        decimal? minOrderQuantity = null,
+        int? periodCount = null,
+        ExpiryPeriodUnit? periodUnit = null,
+        ReorderCriteria? criteria = null)
+    {
+        var existing = _company.FindReorderDefinition(definitionId)
+            ?? throw new InvalidOperationException($"Reorder definition {definitionId} not found.");
+
+        if (!TargetExists(scope, targetId))
+            throw new InvalidOperationException($"{scope} {targetId} not found.");
+
+        if (_company.FindReorderDefinition(scope, targetId) is { } owner && owner.Id != definitionId)
+            throw new InvalidOperationException(
+                $"Another reorder definition already covers this {scope}. Alter or delete that one instead.");
+
+        // Build (and validate) BEFORE removing the old row, so a refusal leaves the company untouched (ER-12) —
+        // the same ordering CreateOrUpdate uses, for the same reason.
+        var altered = new ReorderDefinition(existing.Id, scope, targetId, reorderAdvanced, reorderQuantity,
+            minQtyAdvanced, minOrderQuantity, periodCount, periodUnit, criteria);
+
+        _company.RemoveReorderDefinition(existing);
+        _company.AddReorderDefinition(altered);
+        return altered;
+    }
+
     /// <summary>Deletes a reorder definition by id.</summary>
     public void Delete(Guid definitionId)
     {

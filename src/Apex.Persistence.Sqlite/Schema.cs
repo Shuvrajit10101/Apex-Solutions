@@ -5286,9 +5286,9 @@ public static class Schema
     /// <i>"Nett Debit/Credit Balances for Reporting"</i>, <i>"Used for calculation (for example: taxes,
     /// discounts)"</i>, and <i>"Method to allocate when used in purchase invoice"</i> with options <i>Not
     /// Applicable / Appropriate by Qty / Appropriate by Value</i>. The Alternate Unit is
-    /// <c>help.tallysolutions.com/manage-stock-item-tally/</c>: the base unit is picked in <i>Units</i>, then
-    /// "<i>The <b>Alternate units</b> field appears</i>" and the operator "<i>provide[s] the conversion factor
-    /// between the simple or compound units and alternative units</i>".</para>
+    /// <c>help.tallysolutions.com/units-of-measurement/</c> (page corrected 2026-10-23, IV-173 — the previously
+    /// cited <c>…/manage-stock-item-tally/</c> carries no conversion-factor sentence): "<i>where: Provide the
+    /// conversion factor between the simple or compound unit and the alternate unit.</i>"</para>
     ///
     /// <para>🔴 <b>"Nature of Group" ADDS NO COLUMN, AND THAT IS THE POINT.</b> <c>groups.nature</c> has existed
     /// since v1; what did not exist was any way for an operator to REACH it, because a new PRIMARY group could not

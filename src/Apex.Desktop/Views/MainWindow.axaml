@@ -10650,14 +10650,19 @@
                                   </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                               </ScrollViewer>
-                              <Grid ColumnDefinitions="*,Auto,Auto">
+                              <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                 <TextBlock Grid.Column="0" Text="{Binding Message}"
                                            IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                            Foreground="{StaticResource AlertRed}" FontSize="12"
                                            VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                <Button Grid.Column="1" Content="+ Add slab" Padding="12,6" Margin="0,0,8,0"
+                                <!-- census 3.11: the WHOLE price list for this (level, item) pair — every dated
+                                     version. Alt+D above it still withdraws only the highlighted version. -->
+                                <Button Grid.Column="1" Name="PriceListDeleteAllButton"
+                                        Content="Delete price list (Alt+Shift+D)" Padding="12,6" Margin="0,0,8,0"
+                                        Click="OnDeleteWholePriceListClick"/>
+                                <Button Grid.Column="2" Content="+ Add slab" Padding="12,6" Margin="0,0,8,0"
                                         Click="OnAddPriceListSlabClick"/>
-                                <Button Grid.Column="2" Content="Save (Ctrl+A)" Padding="14,6"
+                                <Button Grid.Column="3" Content="Save (Ctrl+A)" Padding="14,6"
                                         Background="{StaticResource BrandNavy}" Foreground="White"
                                         Click="OnSavePriceListClick"/>
                               </Grid>
@@ -10673,7 +10678,7 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:ReorderLevelsViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Reorder Levels"
+                            <TextBlock Grid.Row="0" Name="ReorderLevelMasterCaption" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,8"/>
 
@@ -10776,7 +10781,8 @@
                                                IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                                Foreground="{StaticResource AlertRed}" FontSize="12"
                                                VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                    <Button Grid.Column="1" Content="Save (Ctrl+A)" Padding="14,6"
+                                    <Button Grid.Column="1" Name="ReorderLevelCommitButton"
+                                            Content="Save (Ctrl+A)" Padding="14,6"
                                             Background="{StaticResource BrandNavy}" Foreground="White"
                                             Click="OnCreateReorderLevelClick"/>
                                   </Grid>
