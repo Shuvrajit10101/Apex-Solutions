@@ -39,6 +39,7 @@ public sealed class CanonicalTrackingNumberRoundTripTests
     private const string NoteTracking = "RN/2025-26/0007";
     private const string BillTracking = "RN/2025-26/0007";
     private const string NoteCostTracking = "JOB-SITE-A";
+    private const string BillCostTracking = "JOB-SITE-B";   // distinct from the note's, so a swap or a drop shows
     private const string BillNarration = "Purchase billing receipt note RN/2025-26/0007";
 
     /// <summary>
@@ -89,7 +90,7 @@ public sealed class CanonicalTrackingNumberRoundTripTests
             inventoryLines: new[]
             {
                 new VoucherInventoryLine(widget.Id, godown, 25m, Money.FromRupees(100m),
-                    StockDirection.Inward, null, null, null, BillTracking),
+                    StockDirection.Inward, null, null, null, BillTracking, BillCostTracking),
             }));
 
         return c;
@@ -165,7 +166,12 @@ public sealed class CanonicalTrackingNumberRoundTripTests
         Assert.Equal(NoteCostTracking, alloc.CostTrackingNumber);
 
         var bill = Assert.Single(target.Vouchers, v => v.Narration == BillNarration);
-        Assert.Equal(BillTracking, Assert.Single(bill.InventoryLines).TrackingNumber);
+        var billLine = Assert.Single(bill.InventoryLines);
+        Assert.Equal(BillTracking, billLine.TrackingNumber);
+        // Wave-6 review: the BILL line's Cost Tracking Number was carried by the fix but asserted nowhere --
+        // dropping `CostTrackingNumber = l.CostTrackingNumber` from CanonicalMapper's item-line arm left all 864
+        // Io tests green. It is the bill half of census 9.7's pair and must survive the transport too.
+        Assert.Equal(BillCostTracking, billLine.CostTrackingNumber);
 
         var pending = Report.BuildPurchaseBillsPending(target, new DateOnly(2026, 3, 31));
         var row = Assert.Single(pending, r => r.TrackingNumber == NoteTracking);
