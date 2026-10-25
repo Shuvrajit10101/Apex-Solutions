@@ -286,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 67;
+    public const int CurrentVersion = 68;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1436,7 +1436,11 @@ public static class Schema
             gst_rcm_scheme        INTEGER     NULL,            -- RcmItcScheme ordinal (ImportOfServices=0, OtherRcm=1) or NULL
             -- v44 (Phase 9 slice 7): the set-off / cash-payment / reversal adjustment tag on the tax line. NULL ⇒ a
             -- forward outward/ITC line, byte-identical to a v43 line (ER-13).
-            gst_adjustment_kind   INTEGER     NULL             -- GstAdjustmentKind ordinal (SetOff=0, …) or NULL
+            gst_adjustment_kind   INTEGER     NULL,            -- GstAdjustmentKind ordinal (SetOff=0, …) or NULL
+            -- v68 (census 5.11): the per-ledger narration the voucher type's "Provide narration for each ledger in
+            -- voucher" flag lets the operator key under each line. NULL = no line narration = every pre-v68 line.
+            -- Declaration byte-identical to MigrateV67ToV68.
+            narration             TEXT        NULL
         );
 
         -- v26 TDS withholding detail (catalog §13; Phase 7 slice 2): one row per TDS-assessed line — the TDS
@@ -5613,6 +5617,42 @@ public static class Schema
         -- pre-v67 company had neither switch — so the Godown Creation screen shows exactly what it showed.
         ALTER TABLE companies ADD COLUMN config_allow_storage_of_materials INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE companies ADD COLUMN config_use_address_for_locations  INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v68 — THE PER-LEDGER NARRATION (census row 5.11, the second voucher-type user flag). Object names are
+    // published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The one <c>entry_lines</c> column v68 adds — the exact set <see cref="MigrateV67ToV68"/> adds and
+    /// <c>SchemaDowngrade.V68ToV67</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V68EntryLineColumns = new[] { "narration" };
+
+    /// <summary>
+    /// v67 → v68 (census row <b>5.11</b>, Voucher-type user flags): ONE nullable column,
+    /// <c>entry_lines.narration</c>, which gives the voucher type's <i>Provide narration for each ledger in
+    /// voucher</i> flag (stored since v53 and, until this rung, read by nothing) the storage its behaviour needs.
+    ///
+    /// <para>🔴 <b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/voucher-types-tally/, opened BY CONTENT
+    /// 2026-10-25, under <i>Configure Voucher Types → Set up transaction options</i>: <i>"Enable Provide narration
+    /// for each ledger in voucher to add narration for individual ledgers"</i>. The narration therefore belongs to
+    /// a LINE (one ledger posting), not to the voucher — which is why it lands on <c>entry_lines</c> and not on
+    /// <c>vouchers.narration</c>, which keeps the voucher-level narration it has always held.</para>
+    ///
+    /// <para>🔴 <b>NOTHING IS BACK-FILLED.</b> NULL means "no line narration", which is exactly what every pre-v68
+    /// line was, so every voucher reads, prints and exports exactly as it did at v67 (ER-13). There is no
+    /// <c>UPDATE</c> in this migration.</para>
+    ///
+    /// <para>⚠️ <c>entry_lines</c> is an FK <b>PARENT</b> (bill, cost, bank, TDS, TCS and payroll detail all
+    /// reference <c>entry_lines(id)</c>), so <c>SchemaDowngrade.V68ToV67</c> uses <c>RebuildPreservingShape</c>,
+    /// which keeps the PRIMARY KEY; see that rung for the AUTOINCREMENT residual it carries.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 68.</para>
+    /// </summary>
+    public const string MigrateV67ToV68 = """
+        -- v68 (census 5.11): the per-ledger narration. NULL = no line narration = every pre-v68 line, so there is
+        -- deliberately no UPDATE. Declaration byte-identical to its counterpart in CreateV1.
+        ALTER TABLE entry_lines ADD COLUMN narration             TEXT        NULL;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

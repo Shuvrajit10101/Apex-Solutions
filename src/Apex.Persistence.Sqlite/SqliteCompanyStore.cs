@@ -1728,6 +1728,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 67;
         }
 
+        // v67 → v68 (census 5.11): ONE nullable column, entry_lines.narration — the per-ledger narration the voucher
+        // type's "Provide narration for each ledger in voucher" flag lets the operator key. Purely additive and it
+        // back-fills NOTHING: NULL = no line narration = every pre-v68 line (ER-13). See Schema.MigrateV67ToV68.
+        if (version == 67)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV67ToV68;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 68);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 68;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -5261,14 +5284,15 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     private List<EntryLine> ReadEntryLines(Guid voucherId)
     {
         // Read the raw line rows first (capturing the id), then load each line's bill allocations.
-        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side, ForexInfo? Forex, GstLineTax? Gst)>();
+        var raw = new List<(long Id, Guid LedgerId, long AmountPaisa, DrCr Side, ForexInfo? Forex, GstLineTax? Gst, string? Narration)>();
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
                 SELECT id, ledger_id, amount_paisa, side,
                        forex_currency_id, forex_amount_micro, forex_rate_micro,
                        gst_tax_head, gst_rate_bp, gst_taxable_value_paisa,
-                       gst_is_reverse_charge, gst_rcm_scheme, gst_adjustment_kind
+                       gst_is_reverse_charge, gst_rcm_scheme, gst_adjustment_kind,
+                       narration
                 FROM entry_lines WHERE voucher_id = $vid ORDER BY line_order, id;
                 """;
             cmd.Parameters.AddWithValue("$vid", voucherId.ToString("D"));
@@ -5305,12 +5329,14 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.GetInt64(2),
                     (DrCr)(int)r.GetInt64(3),
                     forex,
-                    gst));
+                    gst,
+                    // v68 (census 5.11): the per-ledger narration; NULL on every pre-v68 line.
+                    r.IsDBNull(13) ? null : r.GetString(13)));
             }
         }
 
         var lines = new List<EntryLine>(raw.Count);
-        foreach (var (id, ledgerId, amountPaisa, side, forex, gst) in raw)
+        foreach (var (id, ledgerId, amountPaisa, side, forex, gst, narration) in raw)
         {
             var allocs = ReadBillAllocations(id);
             var costAllocs = ReadCostAllocations(id);
@@ -5329,7 +5355,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 gst,
                 tds,
                 tcs,
-                payroll));
+                payroll,
+                narration));
         }
         return lines;
     }
@@ -8705,9 +8732,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                         (voucher_id, line_order, ledger_id, amount_paisa, side,
                          forex_currency_id, forex_amount_micro, forex_rate_micro,
                          gst_tax_head, gst_rate_bp, gst_taxable_value_paisa,
-                         gst_is_reverse_charge, gst_rcm_scheme, gst_adjustment_kind)
+                         gst_is_reverse_charge, gst_rcm_scheme, gst_adjustment_kind, narration)
                     VALUES ($vid, $ord, $lid, $amt, $side, $fxcur, $fxamt, $fxrate, $gthead, $grate, $gtax,
-                            $grcm, $grcmsch, $gadj)
+                            $grcm, $grcmsch, $gadj, $lnarr)
                     RETURNING id;
                     """;
                 cmd.Parameters.AddWithValue("$vid", v.Id.ToString("D"));
@@ -8732,6 +8759,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$grcmsch", gt?.RcmScheme is { } sch ? (int)sch : (object)DBNull.Value);
                 // v44 (Phase 9 slice 7): the set-off / cash-payment / reversal adjustment tag (NULL for a forward line).
                 cmd.Parameters.AddWithValue("$gadj", gt?.Adjustment is { } adj ? (int)adj : (object)DBNull.Value);
+                // v68 (census 5.11): the per-ledger narration (NULL when none was keyed — byte-identical, ER-13).
+                cmd.Parameters.AddWithValue("$lnarr", (object?)line.Narration ?? DBNull.Value);
                 lineId = Convert.ToInt64(cmd.ExecuteScalar());
             }
 

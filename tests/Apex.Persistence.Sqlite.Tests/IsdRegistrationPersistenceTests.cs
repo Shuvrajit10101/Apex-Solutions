@@ -78,7 +78,9 @@ public sealed class IsdRegistrationPersistenceTests
         // still adds no DDL of its own and still round-trips through the registration_type / gst_reg_type
         // INTEGER columns that already exist, which the round-trip test below proves independently of this
         // number.
-        Assert.Equal(67, Schema.CurrentVersion);
+        // RE-BASELINED 67 -> 68, 2026-10-25 (census 5.11). Check performed first: the whole v68 diff under
+        // src/Apex.Persistence.Sqlite/ is ONE column, entry_lines.narration - not an ISD column.
+        Assert.Equal(68, Schema.CurrentVersion);
     }
 
     [Fact]

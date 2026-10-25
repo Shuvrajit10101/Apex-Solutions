@@ -63,7 +63,7 @@ public sealed class MasterFieldsV67SchemaTests
                 store.Save(CompanyFactory.CreateSeeded("Legacy Master Co", FyStart));
 
             // ONE rung only — this test is about the v66 → v67 step in isolation.
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(66L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The downgraded book genuinely lacks all twenty-two — otherwise the "migration" below proves nothing.
@@ -113,7 +113,7 @@ public sealed class MasterFieldsV67SchemaTests
 
             var indexesBefore = V67Tables.ToDictionary(t => t, t => IndexNames(path, t).OrderBy(n => n).ToList());
 
-            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
 
             foreach (var table in V67Tables)
                 Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, table));
@@ -157,7 +157,7 @@ public sealed class MasterFieldsV67SchemaTests
             Assert.True(typesBefore > 0 && catsBefore > 0 && godownsBefore > 0,
                 "the seeded book is missing one of the three masters, so this test proves nothing");
 
-            using (var conn = Open(path)) { SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
             using (new SqliteCompanyStore(path)) { }   // climbs v66 → v67
 
             Assert.Equal(typesBefore, ReadScalar(path, "SELECT COUNT(*) FROM voucher_types;"));
@@ -533,7 +533,8 @@ public sealed class MasterFieldsV67SchemaTests
         // The_scenario_master_gains_no_period_because_the_vendor_screen_has_none.
         Assert.DoesNotContain("ALTER TABLE scenarios", Schema.MigrateV66ToV67);
 
-        Assert.Equal(67, Schema.CurrentVersion);
+        // Re-baselined 67 -> 68 (census 5.11): v68 adds only entry_lines.narration, none of the v67 columns.
+        Assert.Equal(68, Schema.CurrentVersion);
     }
 
     // ================================================================= helpers
