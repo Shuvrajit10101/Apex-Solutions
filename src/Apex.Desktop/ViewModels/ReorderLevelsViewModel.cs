@@ -72,8 +72,10 @@ public sealed class ReorderTargetOption
 ///   <item><b>Alt+V</b> toggles the min-order-qty Simple⇄Advanced (<see cref="MinQtyAdvanced"/>).</item>
 /// </list>
 /// A single shared consumption <b>Period</b> (count + unit) and <b>Criteria</b> (Higher/Lower) govern both Advanced
-/// figures (DD-1). At most one definition per (scope, target); creating for an existing (scope, target)
-/// <b>replaces</b> it (upsert — RQ-32). Persists via <see cref="ReorderLevelsService"/>.
+/// figures (DD-1). At most one definition per (scope, target); ~~creating for an existing (scope, target)
+/// <b>replaces</b> it (upsert — RQ-32)~~ 🔴 creating for an existing (scope, target) is now <b>refused by name</b>
+/// and the saved definition is loaded for alteration — the upsert silently wiped every figure not re-keyed
+/// (census 3.12, T2-158 item 1). Persists via <see cref="ReorderLevelsService"/>.
 ///
 /// <para>MVVM boundary: references the domain + persistence but no Avalonia/UI types, so it is headlessly
 /// unit-testable. Mirrors <see cref="BatchMasterViewModel"/> / <see cref="PriceLevelsViewModel"/>.</para>
@@ -137,29 +139,85 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
         if (company.FindReorderDefinition(definitionId) is not { } definition) return null;
 
         var vm = new ReorderLevelsViewModel(company, storage, onChanged);
-        vm._editingId = definitionId;
-
-        // Scope first — it is what rebuilds Targets, so the target pick below has something to land on.
-        vm.SelectedScope = vm.Scopes.FirstOrDefault(s => s.Scope == definition.Scope) ?? vm.SelectedScope;
-        vm.SelectedTarget = vm.Targets.FirstOrDefault(t => t.Id == definition.TargetId) ?? vm.SelectedTarget;
-
-        vm.ReorderAdvanced = definition.ReorderAdvanced;
-        vm.ReorderQuantityText = QuantityText(definition.ReorderQuantity);
-        vm.MinQtyAdvanced = definition.MinQtyAdvanced;
-        vm.MinOrderQtyText = QuantityText(definition.MinOrderQuantity);
-
-        vm.PeriodCountText = definition.PeriodCount is { } pc
-            ? pc.ToString(CultureInfo.InvariantCulture)
-            : string.Empty;
-        if (definition.PeriodUnit is { } pu)
-            vm.SelectedPeriodUnit = vm.PeriodUnits.FirstOrDefault(u => u.Unit == pu) ?? vm.SelectedPeriodUnit;
-        if (definition.Criteria is { } cr)
-            vm.SelectedCriteria = vm.Criteria.FirstOrDefault(c => c.Criteria == cr) ?? vm.SelectedCriteria;
-
-        vm.OnPropertyChanged(nameof(IsAltering));
-        vm.OnPropertyChanged(nameof(Caption));
+        vm.LoadForAlteration(definition, routedFromCreate: false);
         return vm;
     }
+
+    /// <summary>
+    /// True while this screen was opened for CREATE and was switched into Alteration because the operator asked
+    /// to create over a (scope, target) that already holds a definition (census 3.12, T2-158 item 1). While it is
+    /// true, moving the scope or target AWAY from that definition returns the screen to Creation — otherwise
+    /// Ctrl+A would silently RE-POINT the loaded definition at the new target (<see cref="ReorderLevelsService.Alter"/>
+    /// allows re-pointing), and an operator who believed they were creating a second level would move the first.
+    /// </summary>
+    private bool _routedFromCreate;
+
+    /// <summary>The (scope, target) the routed-from-create alteration was opened over.</summary>
+    private (ReorderScope Scope, Guid TargetId) _routedKey;
+
+    /// <summary>Suppresses the route-back check while <see cref="RefreshTargets"/> rebuilds the target list, which
+    /// transiently clears the selection (a bound picker can push <c>null</c> back through the two-way binding).</summary>
+    private bool _rebuildingTargets;
+
+    /// <summary>
+    /// Puts the screen into Alteration over <paramref name="definition"/> with EVERY stored field in its box —
+    /// the single load path for both <see cref="ForAlter"/> (Ctrl+Enter on the list) and a CREATE over an
+    /// occupied (scope, target). One copy, so the two routes cannot load differently.
+    /// </summary>
+    private void LoadForAlteration(ReorderDefinition definition, bool routedFromCreate)
+    {
+        _editingId = definition.Id;
+        _routedFromCreate = false;   // never route back while the load itself is moving the pickers
+
+        // Scope first — it is what rebuilds Targets, so the target pick below has something to land on.
+        SelectedScope = Scopes.FirstOrDefault(s => s.Scope == definition.Scope) ?? SelectedScope;
+        SelectedTarget = Targets.FirstOrDefault(t => t.Id == definition.TargetId) ?? SelectedTarget;
+
+        ReorderAdvanced = definition.ReorderAdvanced;
+        ReorderQuantityText = QuantityText(definition.ReorderQuantity);
+        MinQtyAdvanced = definition.MinQtyAdvanced;
+        MinOrderQtyText = QuantityText(definition.MinOrderQuantity);
+
+        PeriodCountText = definition.PeriodCount is { } pc
+            ? pc.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+        SelectedPeriodUnit = definition.PeriodUnit is { } pu
+            ? PeriodUnits.FirstOrDefault(u => u.Unit == pu) ?? SelectedPeriodUnit
+            : PeriodUnits.First(u => u.Unit == ExpiryPeriodUnit.Months);
+        SelectedCriteria = definition.Criteria is { } cr
+            ? Criteria.FirstOrDefault(c => c.Criteria == cr) ?? SelectedCriteria
+            : Criteria.First();
+
+        _routedFromCreate = routedFromCreate;
+        _routedKey = (definition.Scope, definition.TargetId);
+
+        OnPropertyChanged(nameof(IsAltering));
+        OnPropertyChanged(nameof(Caption));
+    }
+
+    /// <summary>
+    /// Leaves a routed-from-create alteration when the operator moves to a (scope, target) other than the one it
+    /// was opened over: back to Creation with blank figures, since the loaded figures belong to the OTHER target.
+    /// A screen opened by <see cref="ForAlter"/> is never routed back — re-pointing there is an explicit alter.
+    /// </summary>
+    private void RouteBackToCreateIfMoved()
+    {
+        if (!_routedFromCreate || _rebuildingTargets) return;
+        if (SelectedScope is not { } s || SelectedTarget is not { } t) return;
+        if (s.Scope == _routedKey.Scope && t.Id == _routedKey.TargetId) return;
+
+        _routedFromCreate = false;
+        _editingId = Guid.Empty;
+        ReorderAdvanced = false;
+        MinQtyAdvanced = false;
+        ReorderQuantityText = string.Empty;
+        MinOrderQtyText = string.Empty;
+        PeriodCountText = string.Empty;
+        OnPropertyChanged(nameof(IsAltering));
+        OnPropertyChanged(nameof(Caption));
+    }
+
+    partial void OnSelectedTargetChanged(ReorderTargetOption? value) => RouteBackToCreateIfMoved();
 
     /// <summary>
     /// Ctrl+A <b>alter</b>: re-validates exactly as <see cref="Create"/> does, then rewrites the definition this
@@ -325,9 +383,10 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
     public void ToggleMinQtyAdvanced() => MinQtyAdvanced = !MinQtyAdvanced;
 
     /// <summary>
-    /// Ctrl+A create/upsert: validates the target + quantities (6 dp) and — when either figure is Advanced — the
-    /// consumption period (count &gt; 0) and criterion, then creates (or replaces) the definition via
-    /// <see cref="ReorderLevelsService.CreateOrUpdate"/> and persists. Any domain error is surfaced to
+    /// Ctrl+A create: validates the target + quantities (6 dp) and — when either figure is Advanced — the
+    /// consumption period (count &gt; 0) and criterion, then creates the definition via
+    /// <see cref="ReorderLevelsService.Create"/> and persists. Over a (scope, target) that already holds a
+    /// definition it saves NOTHING, refuses by name and loads the saved definition for alteration (census 3.12). Any domain error is surfaced to
     /// <see cref="Message"/> without crashing the UI. Blank quantity fields are left unset (null).
     /// </summary>
     public bool Create()
@@ -338,10 +397,26 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
                 out var periodCount, out var periodUnit, out var criteria))
             return false;
 
+        // 🔴 Census 3.12 / T2-158 item 1 — CREATE OVER AN OCCUPIED (scope, target) IS REFUSED BY NAME AND THE
+        // SAVED DEFINITION IS LOADED FOR ALTERATION. It used to run the CreateOrUpdate upsert, which minted a new
+        // id and — because a blank box here means "unset" — wiped every figure the operator had not re-keyed
+        // (probe P1c: 100 / 25, Create, key 150, Ctrl+A → new id, minimum NULL, notice "saved"). Nothing is
+        // written on this keystroke: the keyed figures are NOT merged over the saved ones, because a half-typed
+        // form silently combined with a stored one is exactly how a figure nobody chose ends up on the report.
+        // The operator now sees every saved figure, corrects what they meant to, and Ctrl+A ALTERS in place.
+        if (_company.FindReorderDefinition(scope.Scope, target.Id) is { } existing)
+        {
+            LoadForAlteration(existing, routedFromCreate: true);
+            Message = $"A reorder level already exists for {ScopeLabel(scope.Scope).ToLowerInvariant()} " +
+                      $"'{target.Display}' — nothing was saved. Its saved figures are loaded for alteration; " +
+                      "correct them and press Ctrl+A to save in place.";
+            return false;
+        }
+
         try
         {
             var service = new ReorderLevelsService(_company);
-            service.CreateOrUpdate(scope.Scope, target.Id, ReorderAdvanced, reorderQty,
+            service.Create(scope.Scope, target.Id, ReorderAdvanced, reorderQty,
                 MinQtyAdvanced, minQty, periodCount, periodUnit, criteria);
             _storage.Save(_company);
         }
@@ -449,6 +524,15 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
     private void RefreshTargets()
     {
         var priorId = SelectedTarget?.Id;
+        _rebuildingTargets = true;
+        try { RebuildTargets(priorId); }
+        finally { _rebuildingTargets = false; }
+        OnPropertyChanged(nameof(CanCreate));
+        RouteBackToCreateIfMoved();
+    }
+
+    private void RebuildTargets(Guid? priorId)
+    {
         Targets.Clear();
         var scope = SelectedScope?.Scope ?? ReorderScope.Item;
         switch (scope)
@@ -467,7 +551,6 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
                 break;
         }
         SelectedTarget = Targets.FirstOrDefault(t => t.Id == priorId) ?? Targets.FirstOrDefault();
-        OnPropertyChanged(nameof(CanCreate));
     }
 
     private void RefreshList()

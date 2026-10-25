@@ -57,6 +57,44 @@ public sealed class ReorderLevelsService
     }
 
     /// <summary>
+    /// <b>Creates</b> a reorder definition for a (scope, target) that has NONE yet, and <b>refuses by name</b> when
+    /// one already exists — census 3.12's last open clause (T2-158 item 1).
+    ///
+    /// <para>🔴 <b>WHY THE SCREEN NO LONGER CALLS <see cref="CreateOrUpdate"/>.</b> That upsert mints a fresh
+    /// <c>Guid</c> and discards the existing row, and the screen reads a blank quantity box as <i>unset</i>; so
+    /// an operator who picked an occupied (scope, target) in CREATE mode, keyed one figure and accepted silently
+    /// WIPED every other figure the Reorder Status report consumes and replaced the record under a new id
+    /// (reviewer probe P1c: 100 / 25 → Create, key 150, Ctrl+A → new id, minimum <c>NULL</c>, notice "saved").
+    /// A create verb may only ever add; changing an existing definition is <see cref="Alter"/>'s job, which keeps
+    /// the id. <see cref="CreateOrUpdate"/> is kept for seeding and tests, never for a user-facing verb.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The target does not exist, a definition already covers this
+    /// (scope, target), or the <see cref="ReorderDefinition"/> constructor refuses the figures.</exception>
+    public ReorderDefinition Create(
+        ReorderScope scope,
+        Guid targetId,
+        bool reorderAdvanced = false,
+        decimal? reorderQuantity = null,
+        bool minQtyAdvanced = false,
+        decimal? minOrderQuantity = null,
+        int? periodCount = null,
+        ExpiryPeriodUnit? periodUnit = null,
+        ReorderCriteria? criteria = null)
+    {
+        if (!TargetExists(scope, targetId))
+            throw new InvalidOperationException($"{scope} {targetId} not found.");
+
+        if (_company.FindReorderDefinition(scope, targetId) is not null)
+            throw new InvalidOperationException(
+                $"A reorder level already exists for {scope} '{TargetName(scope, targetId)}'. Alter it instead of creating a second one.");
+
+        var definition = new ReorderDefinition(Guid.NewGuid(), scope, targetId, reorderAdvanced, reorderQuantity,
+            minQtyAdvanced, minOrderQuantity, periodCount, periodUnit, criteria);
+        _company.AddReorderDefinition(definition);
+        return definition;
+    }
+
+    /// <summary>
     /// <b>Alters ONE existing reorder definition in place</b> — census 3.12. Keeps the definition's
     /// <see cref="ReorderDefinition.Id"/> and replaces every other field, so a correction updates the row that
     /// already exists instead of creating a second one.
@@ -127,6 +165,14 @@ public sealed class ReorderLevelsService
             ?? throw new InvalidOperationException($"Reorder definition {definitionId} not found.");
         _company.RemoveReorderDefinition(definition);
     }
+
+    private string TargetName(ReorderScope scope, Guid targetId) => scope switch
+    {
+        ReorderScope.Item => _company.FindStockItem(targetId)?.Name ?? targetId.ToString(),
+        ReorderScope.Group => _company.FindStockGroup(targetId)?.Name ?? targetId.ToString(),
+        ReorderScope.Category => _company.FindStockCategory(targetId)?.Name ?? targetId.ToString(),
+        _ => targetId.ToString(),
+    };
 
     private bool TargetExists(ReorderScope scope, Guid targetId) => scope switch
     {
