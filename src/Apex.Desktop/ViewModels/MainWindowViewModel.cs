@@ -6099,6 +6099,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void ReopenRestoredCompany(Company restored)
     {
+        // 🔴 A12 re-review w6, N1 — THE OPEN ENTRY AND THE VAULT SESSION MOVE WITH THE BOOK. The panel can now
+        // restore onto a book OTHER than the one open (IV-139: the target is redirected from the open book onto the
+        // archive's own), so the book on screen after this call need not be the file OpenEntry names. Leaving the
+        // old entry here meant Alt+K > Data Vault on the restored, displayed book vaulted the PREVIOUSLY open book
+        // instead, and the next save wrote the displayed company into that vault beside it — measured: the other
+        // book's vault then held two company rows and could no longer be opened at all. The restore lands as a
+        // PLAIN book at its name-derived file (Apply's post-load check proves that), so the entry is derived exactly
+        // as OpenCompany derives it for a plain book, and a held vault passphrase is forgotten exactly as
+        // ReleaseOpenCompany forgets it: it belongs to a book that is no longer open.
+        _storage.CloseVault();
+        OpenEntry = new CompanyEntry(restored.Name, _storage.PathForName(restored.Name));
         Company = restored;
         StatusCompany = restored.Name;
         StatusDate = ApexDate.Format(restored.FinancialYearStart);

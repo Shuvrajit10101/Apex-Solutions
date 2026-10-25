@@ -339,7 +339,10 @@ public sealed partial class RestoreCompanyViewModel : ViewModelBase
             Company reloaded;
             try
             {
-                reloaded = _storage.Load(new CompanyEntry(TargetCompanyName, TargetPath));
+                // Inspect, not Load: Load is the OPEN verb and forgets the open vault's session, which must not
+                // happen when this restore is about to be refused below and the shell stays on its book (A12
+                // re-review w6, N2). The shell forgets the session itself when it switches to the restored book.
+                reloaded = _storage.Inspect(new CompanyEntry(TargetCompanyName, TargetPath));
             }
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
             {
