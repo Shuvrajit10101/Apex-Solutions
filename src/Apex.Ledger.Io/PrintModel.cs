@@ -47,12 +47,39 @@ public sealed class PrintRow
     public bool IsTotal { get; init; }
     public int Indent { get; init; }
 
+    /// <summary>
+    /// 🔴 <b>PROSE, NOT A CELL: draw <see cref="Cells"/>[0] across the WHOLE content width and ignore the rest.</b>
+    ///
+    /// <para><b>The defect this exists for, measured on emitted bytes.</b> The documents of census row 12.7 — the
+    /// reminder letter, the confirmation of accounts and now the delivery challan — are LETTERS rendered through
+    /// the tabular <c>ReportPdf</c>, so their addressee and their sentences were carried in cell 0 of a four- or
+    /// six-column grid. <c>ReportPdf.DrawRowCells</c> clips every cell to its column's inner width through
+    /// <c>PdfWriter.FitToWidth</c>, and column 0 of those documents is a <i>Reference</i> / <i>Description</i>
+    /// column barely 200pt wide. So the letter's own sentence and, worse, the line naming the ADDRESSEE were
+    /// drawn truncated with an ellipsis on the document posted to that counterparty.</para>
+    ///
+    /// <para><b>Default <c>false</c>, and a false row takes the identical path it always did</b> — every
+    /// already-shipped document is byte-identical (ER-13). A full-width row also contributes NO width
+    /// requirement to column 0 (<c>ReportPdf.MeasureRequirements</c> skips it), because a sentence is not a
+    /// column and letting it bid for width would starve the figure columns beside it — the very starvation that
+    /// draws a rupee figure as <c>37,000....</c>.</para>
+    /// </summary>
+    public bool FullWidth { get; init; }
+
     public PrintRow() { }
 
     public PrintRow(params string[] cells) => Cells = cells;
 
     public static PrintRow Header(params string[] cells) => new() { Cells = cells, IsHeader = true };
     public static PrintRow Total(params string[] cells) => new() { Cells = cells, IsTotal = true };
+
+    /// <summary>A line of prose drawn across the whole content width — see <see cref="FullWidth"/>.</summary>
+    public static PrintRow FullWidthText(string text) =>
+        new() { Cells = new[] { text }, FullWidth = true };
+
+    /// <summary>A BOLD line of prose drawn across the whole content width — see <see cref="FullWidth"/>.</summary>
+    public static PrintRow FullWidthHeader(string text) =>
+        new() { Cells = new[] { text }, FullWidth = true, IsHeader = true };
 }
 
 /// <summary>

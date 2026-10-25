@@ -464,6 +464,9 @@ public static class ReportPdf
                 IsHeader = source.IsHeader,
                 IsTotal = source.IsTotal,
                 Indent = source.Indent,
+                // Carried, not dropped: a prose row is prose on every column group of a split document, and a
+                // slice that lost the flag would re-clip the addressee into the stub column this split repeats.
+                FullWidth = source.FullWidth,
             };
         }
 
@@ -748,6 +751,11 @@ public static class ReportPdf
         foreach (var row in report.Rows)
         {
             if (row is null) continue;
+            // 🔴 A full-width PROSE row claims no column width at all. It is drawn across the whole content
+            // width by DrawRowCells, so letting its sentence bid for column 0 would hand a letter's longest
+            // line the width every figure column beside it needs — and a starved figure column is how
+            // 99,99,99,999.00 comes out as 99,99,99,... reading as a real, smaller amount.
+            if (row.FullWidth) continue;
             int cells = Math.Min(n, row.Cells.Count);
             for (int i = 0; i < cells; i++)
             {
@@ -855,6 +863,26 @@ public static class ReportPdf
         double pad = CellPad;
         // Section headers and total rows render bold so they stand out from body rows (RQ-9 fidelity).
         bool bold = row.IsHeader || row.IsTotal;
+
+        // 🔴 A PROSE row spans the whole content width (PrintRow.FullWidth). The letters of census row 12.7 put
+        // their addressee and their sentences in cell 0, and cell 0 of a letter rendered through this tabular
+        // renderer is a ~200pt Reference/Description column — so the line naming the counterparty was drawn
+        // truncated on the document posted to them. Left-aligned regardless of column 0's alignment: a sentence
+        // is prose, not a figure. Still clipped at the FULL width, because a line longer than the sheet has to
+        // give way somewhere and silently running past the right margin is worse than an ellipsis.
+        if (row.FullWidth)
+        {
+            string prose = row.Cells.Count > 0 ? (row.Cells[0] ?? string.Empty) : string.Empty;
+            if (row.Indent > 0) prose = new string(' ', row.Indent) + prose;
+            if (prose.Length == 0) return;
+            double proseLeft = colX[0] + pad;
+            double proseRight = colX[n] - pad;
+            prose = PdfWriter.FitToWidth(prose, proseRight - proseLeft, fontSize);
+            if (prose.Length == 0) return;
+            writer.Text(proseLeft, baseline, prose, fontSize, bold);
+            return;
+        }
+
         for (int i = 0; i < n; i++)
         {
             // 🔴 RULING 18: a body cell is BOOK DATA and is drawn VERBATIM. Every one of them is projected from a

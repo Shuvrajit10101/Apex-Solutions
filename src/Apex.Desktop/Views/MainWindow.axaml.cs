@@ -516,6 +516,11 @@ public partial class MainWindow : Window
             // the same accept-shortcut every other panel in this switch uses for its own primary action.
             else if (vm.CurrentScreen == Screen.MultiAccountPrint)
                 vm.PrintMultiAccountJob();
+            // Census 12.7's export arm: Ctrl+A on the multi-account Export column WRITES the files. It needs
+            // its own arm because ApplyExport() above dereferences ExportPanel, which is null on this screen -
+            // sharing Screen.Export would have made Ctrl+A a silent no-op here.
+            else if (vm.CurrentScreen == Screen.MultiAccountExport)
+                vm.ApplyMultiAccountExport();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             // Ctrl+A on the WhatsApp share column writes the document — step ONE of the two-step share. Alt+O
@@ -3094,6 +3099,15 @@ public partial class MainWindow : Window
     // print logic can rot behind the button. Say that, and not more.
     private void OnPrintMultiAccountClick(object? sender, RoutedEventArgs e)
         => Vm?.PrintMultiAccountJob();
+
+    // Census 12.7's export arm. Same shape as OnPrintMultiAccountClick above, and the same caveat applies:
+    // this handler shares the CALL with the Ctrl+A arm (so no second copy of the export logic can rot behind
+    // the button) and NOT the guard (the key arm tests the screen; this does not).
+    private void OnExportMultiAccountClick(object? sender, RoutedEventArgs e)
+        => Vm?.ExportMultiAccountJob();
+
+    private void OnApplyMultiAccountExportClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyMultiAccountExport();
 
     private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
         => Vm?.MultiAccountPrint?.SelectAll();

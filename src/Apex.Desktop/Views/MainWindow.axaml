@@ -20350,7 +20350,7 @@
                             <Border Grid.Row="5" Background="{StaticResource Cream}"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1"
                                     Padding="10,6" Margin="0,2">
-                              <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                              <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
                                 <Button Grid.Column="0" Content="Select All" Padding="10,4"
                                         Click="OnMultiAccountSelectAllClick"/>
                                 <Button Grid.Column="1" Content="Select None" Padding="10,4" Margin="6,0,0,0"
@@ -20358,13 +20358,92 @@
                                 <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="12,0"
                                            FontWeight="SemiBold"
                                            Text="{Binding SelectedCount, StringFormat='{}{0} selected'}"/>
-                                <Button Grid.Column="4" Content="Print (Ctrl+A)" Padding="12,5"
+                                <!-- Census 12.7 EXPORT ARM. The vendor reaches this verb at Alt+E (Export) >
+                                     Others (help.tallysolutions.com/printing-multi-account-reports); this button
+                                     is the mouse door onto the same Vm.ExportMultiAccountJob() that route calls,
+                                     so neither can carry its own copy of the logic. -->
+                                <Button Grid.Column="4" Content="Export" Padding="12,5" Margin="0,0,6,0"
+                                        Click="OnExportMultiAccountClick"/>
+                                <Button Grid.Column="5" Content="Print (Ctrl+A)" Padding="12,5"
                                         Background="{StaticResource BrandNavy}" Foreground="White"
                                         Click="OnPrintMultiAccountClick"/>
                               </Grid>
                             </Border>
 
                             <TextBlock Grid.Row="6" Text="{Binding Status}"
+                                       IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource BrandNavy}" FontSize="12"
+                                       Margin="2,4,0,0" TextWrapping="Wrap"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: the MULTI-ACCOUNT "Export" panel (census 12.7 export arm). Reached from
+                         Alt+E (Export) > Others, which is the vendor own route for a multi-account report:
+                         "For Export: Alt+E (Export) > Others > select a report from the List of Reports."
+                         (help.tallysolutions.com/printing-multi-account-reports, opened by content 2026-10-23).
+                         It writes ONE FILE PER ACCOUNT - see MultiAccountExportViewModel for why that shape is
+                         ours and not the vendor's, and why a single combined file was refused. The file list is
+                         shown before Apply so the operator can see every party he is about to write out. -->
+                    <ContentControl IsVisible="{Binding MultiAccountExportPanel, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding MultiAccountExportPanel}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:MultiAccountExportViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding JobTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"
+                                       ToolTip.Tip="{Binding JobTitle}"/>
+
+                            <TextBlock Grid.Row="2" Text="Folder" FontWeight="Bold"
+                                       Foreground="{StaticResource BrandNavy}" Margin="2,0,0,2"/>
+                            <TextBox Grid.Row="3" Text="{Binding Folder, Mode=TwoWay}"
+                                     FontSize="12.5" Margin="0,0,0,6"/>
+
+                            <CheckBox Grid.Row="4" Content="Append timestamp to each file name"
+                                      IsChecked="{Binding AppendTimestamp, Mode=TwoWay}"
+                                      Foreground="{StaticResource BrandNavy}" Margin="2,0,0,6"/>
+
+                            <!-- One row per file Apply will write. This is the cross-party check an operator can
+                                 make with his own eyes before anything lands in a folder he may attach from. -->
+                            <Border Grid.Row="5" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1">
+                              <ScrollViewer>
+                                <ItemsControl ItemsSource="{Binding PlannedFileNames}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="x:String">
+                                      <TextBlock Text="{Binding}" FontSize="12" Margin="8,3"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 ToolTip.Tip="{Binding}"/>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                              </ScrollViewer>
+                            </Border>
+
+                            <Border Grid.Row="6" Background="{StaticResource Cream}"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                    Padding="10,6" Margin="0,2">
+                              <Grid ColumnDefinitions="*,Auto">
+                                <!-- Bound to the CONSTANT, never retyped. A second copy of a user-visible
+                                     disclosure is a copy that drifts: the Alt+E menu's own disclosure was
+                                     measurably false this very wave because the menu changed and the string
+                                     did not. One source, so this cannot happen here. -->
+                                <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="11.5"
+                                           Foreground="#6A6A6A" TextWrapping="Wrap"
+                                           Text="{x:Static vm:MultiAccountExportViewModel.FormatDisclosure}"/>
+                                <Button Grid.Column="1" Content="Export (Ctrl+A)" Padding="12,5"
+                                        Background="{StaticResource BrandNavy}" Foreground="White"
+                                        Click="OnApplyMultiAccountExportClick"/>
+                              </Grid>
+                            </Border>
+
+                            <TextBlock Grid.Row="7" Text="{Binding Status}"
                                        IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                        Foreground="{StaticResource BrandNavy}" FontSize="12"
                                        Margin="2,4,0,0" TextWrapping="Wrap"/>

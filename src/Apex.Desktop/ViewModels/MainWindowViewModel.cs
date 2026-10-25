@@ -143,6 +143,12 @@ public enum Screen
     /// <summary>W2-32 (census 12.6): Reports → Statements of Accounts → Multi-Account Printing — the panel that
     /// selects a SET of accounts and prints them as one collated job.</summary>
     MultiAccountPrint,
+
+    /// <summary>Census 12.7's EXPORT ARM: the Alt+E &gt; Others column that writes a multi-account job to
+    /// one file per account. Its own screen rather than <see cref="Export"/> because the panel is a different
+    /// type with a different Apply: <see cref="MainWindowViewModel.ApplyExport"/> dereferences
+    /// <c>ExportPanel</c>, which is null here, so sharing the screen would have left Ctrl+A silently inert.</summary>
+    MultiAccountExport,
     Export,
     ExportData,
     ImportData,
@@ -856,6 +862,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// open. It is what makes <see cref="MultiAccountPrintViewModel"/> reachable at all.</summary>
     [ObservableProperty] private MultiAccountPrintViewModel? _multiAccountPrint;
 
+    /// <summary>The multi-account "Export" panel (census 12.7's export arm), non-null only while that column
+    /// is open. It is what makes <see cref="MultiAccountExportViewModel"/> reachable at all - the same thing
+    /// <see cref="MultiAccountPrint"/> is for the print panel, and the lesson T2-40 was filed for.</summary>
+    [ObservableProperty] private MultiAccountExportViewModel? _multiAccountExportPanel;
+
     /// <summary>The E / Alt+E "Export" panel view model (RQ-14/16), non-null only while that panel column is open.</summary>
     [ObservableProperty] private ExportViewModel? _exportPanel;
 
@@ -976,7 +987,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && SaveView is null && SavedViews is null && SwitchTo is null && MoreDetails is null
         && PrintPreview is null && PrintConfigPanel is null
         && PrinterPanel is null
-        && MultiAccountPrint is null
+        && MultiAccountPrint is null && MultiAccountExportPanel is null
         && ExportPanel is null && ExportDataPanel is null && ImportDataPanel is null
         && BackupCompanyPanel is null && RestoreCompanyPanel is null
         && VerifyDataPanel is null && SplitCompanyPanel is null
@@ -1084,6 +1095,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnPrintConfigPanelChanged(PrintConfigViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnPrinterPanelChanged(PrinterSelectionViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMultiAccountPrintChanged(MultiAccountPrintViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnMultiAccountExportPanelChanged(MultiAccountExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportPanelChanged(ExportViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnExportDataPanelChanged(ExportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnImportDataPanelChanged(ImportDataViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -4446,7 +4458,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         PushMenuColumn(
             ReportExportMenu.BuildColumn(
-                current: () => { PopMenuColumn(Screen.ExportMenu); OpenExport(); }),
+                current: () => { PopMenuColumn(Screen.ExportMenu); OpenExport(); },
+                others: () => { PopMenuColumn(Screen.ExportMenu); OpenMultiAccountPrint(); }),
             Screen.ExportMenu);
     }
 
@@ -4915,6 +4928,30 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             }
             preview = vd.BuildPrintPreview();
         }
+        // 🔴 CENSUS 12.7 — the DELIVERY CHALLAN, and the wrong document that stood where it should have been.
+        //
+        // This arm did not exist. Screen.InventoryVoucherDetail is a drill column raised FROM a register (the
+        // Day Book, the Delivery Note Register), so `Reports` is still live underneath it — and with no arm of
+        // its own, Ctrl+P on a drilled stock voucher fell through to the `Reports is not null` arm below and
+        // printed THE WHOLE REGISTER: every other party's goods movements, on a sheet the operator raised from
+        // one voucher and would hand to one consignee. That is the same class as the Day Book that once shared
+        // itself to a third party instead of exporting one invoice. Measured on emitted bytes, then fixed here.
+        //
+        // The arm is deliberately narrow (DeliveryChallanPrintProjector.PrintsAChallan): a Delivery Note is
+        // "an inventory document/challan sent with the goods to be delivered to the customer"
+        // (help.tallysolutions.com/tally-prime/sales-process/faq-sales/), and no TallyPrime page we opened gives
+        // any other pure-stock kind a printed document. So every other kind now gets a NOTICE saying it has
+        // none — which is what InventoryVoucherDetailViewModel's own note always asked for — instead of
+        // somebody else's data.
+        else if (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is { } ivd)
+        {
+            if (ivd.BuildPrintPreview() is not { } challan)
+            {
+                RaiseLifecycleNotice(ivd.ChallanProjection.Refusal ?? DeliveryChallanPrintProjector.NotAChallan);
+                return;
+            }
+            preview = challan;
+        }
         // A Payslip prints the dedicated de-branded PayslipPdf (RQ-16) — the same PDF pipeline as the tax invoice /
         // TDS certificates — rather than the generic report grid; a payslip with no employee/structure is a no-op.
         else if (Reports is { IsPayslipReport: true, CurrentPayslip: { } slip })
@@ -5088,6 +5125,59 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         SyncActiveColumn();
         BuildButtonBar();
     }
+
+    /// <summary>
+    /// <b>Ctrl+E / the Export button on the Multi-Account Printing panel</b> - census row 12.7's EXPORT ARM.
+    /// Projects the selected accounts into one document PER ACCOUNT and opens
+    /// <see cref="MultiAccountExportViewModel"/> beside the panel, so the operator picks the folder and Ctrl+A
+    /// writes one PDF per party.
+    ///
+    /// <para><b>GROUNDED, BY CONTENT (R7).</b> help.tallysolutions.com/printing-multi-account-reports, under
+    /// <i>Configure multi-account reports</i>: <i>"For Export: <b>Alt+E</b> (Export) &gt; <b>Others</b> &gt;
+    /// select a report from the List of Reports."</i> That sentence is the whole fidelity claim; the file-shape
+    /// and PDF-only decisions below it are OURS and are recorded in docs/invented-vs-cloned.md (IV-162, IV-163).</para>
+    ///
+    /// <para>🔴 <b>THE COLUMN HANDLING IS COPIED FROM <see cref="PrintMultiAccountJob"/> DELIBERATELY, INCLUDING
+    /// THE TRIM.</b> That method's own remarks record the defect it had to fix: a bare <c>Columns.Add</c> with no
+    /// trim left THREE preview columns after three presses. The same bug is available here for the same reason -
+    /// the operator's selection has to survive so a second Export re-exports it, so this cannot go through
+    /// <see cref="OpenPageColumn"/>, so the one-page-column invariant is not applied for us and must be applied
+    /// HERE. Everything right of the panel column goes first.</para>
+    ///
+    /// <para>An empty selection opens NOTHING: <c>BuildExportJob</c> sets the panel's status line to say whether
+    /// the operator has not chosen or there was nothing to choose. An export panel over an empty job would offer
+    /// an Apply that writes no files and says nothing.</para>
+    /// </summary>
+    public void ExportMultiAccountJob()
+    {
+        if (MultiAccountPrint is not { } panel) return;
+
+        var documents = panel.BuildExportJob();
+        if (documents.Count == 0) return;              // panel.Status already says why
+
+        var panelIndex = IndexOfColumnHosting(panel);
+        if (panelIndex >= 0) TrimColumnsAfter(panelIndex);
+        PrintConfigPanel = null;                       // an F12 config column over an old preview went with it
+        PrintPreview = null;                           // ... and so did the preview it was stacked on
+
+        // The documents are projected ONCE, here, and the panel is handed a closure over that fixed list rather
+        // than a re-projection: between opening this column and pressing Ctrl+A the operator can walk back to the
+        // selection list and change it, and an Apply that silently exported a DIFFERENT set from the one the file
+        // list previewed is the class of surprise this project keeps finding in print paths.
+        var export = new MultiAccountExportViewModel(
+            panel.JobTitle, () => documents, ExportDefaultFolder(), System.DateTime.Now, writeBytes: null);
+
+        MultiAccountExportPanel = export;
+        Columns.Add(new GatewayColumn(export.Title, export));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.MultiAccountExport;
+        ScreenTitle = export.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>Ctrl+A / the Export button on the multi-account export panel: write the files. Returns success.</summary>
+    public bool ApplyMultiAccountExport() => MultiAccountExportPanel?.Apply() ?? false;
 
     /// <summary>
     /// Ctrl+A / the Print button on the printer panel: build the job from the previewed bytes and hand it to the
@@ -5812,6 +5902,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.Export when ExportPanel is { } export =>
             FilePathPickRequest.Folder("Choose the folder to export into", export.Folder),
 
+        Screen.MultiAccountExport when MultiAccountExportPanel is { } multiExport =>
+            FilePathPickRequest.Folder("Choose the folder to export into", multiExport.Folder),
+
         Screen.EmailCompose when EmailCompose is { } email =>
             FilePathPickRequest.SaveFile("Save the e-mail message as", string.Empty,
                 SafePathStem(email.DocumentTitle) + ".eml",
@@ -5894,6 +5987,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
             case Screen.Export when ExportPanel is { } export:
                 export.Folder = path;
+                return true;
+
+            case Screen.MultiAccountExport when MultiAccountExportPanel is { } multiExport:
+                multiExport.Folder = path;
                 return true;
 
             case Screen.EmailCompose:
@@ -9147,6 +9244,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         PrintConfigPanel = null;
         PrinterPanel = null;
         MultiAccountPrint = null;
+        MultiAccountExportPanel = null;
         ExportPanel = null;
         ExportDataPanel = null;
         ImportDataPanel = null;
@@ -14018,6 +14116,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case MultiAccountPrintViewModel map:
                 MultiAccountPrint = map;
                 return Screen.MultiAccountPrint;
+            // Census 12.7's export arm, for the same reason as the print panel above it: Escape out of a
+            // column opened over the export panel and the operator is back on their file list, so Ctrl+A has
+            // to find the panel rather than a null and do nothing.
+            case MultiAccountExportViewModel mae:
+                MultiAccountExportPanel = mae;
+                return Screen.MultiAccountExport;
             // WI-1 — an ENTRY screen survives beneath a just-popped Alt+C create-master column. Re-binding the
             // SAME view-model instance (the column has held it all along) is what makes the in-progress voucher
             // come back with every line, party and amount intact instead of as a fresh blank entry.
