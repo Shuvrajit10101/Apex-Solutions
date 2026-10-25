@@ -48,6 +48,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>The voucher type this screen is entering (Payment, Receipt, …).</summary>
     public VoucherType Type => _type;
 
+    /// <summary>
+    /// 🔴 <b>Census 5.11 — the behaviour reader for <i>Provide narration for each ledger in voucher</i></b>, a flag
+    /// stored since v53 that nothing read. When on, every Dr/Cr line offers its own narration field
+    /// (<see cref="VoucherLineViewModel.LineNarration"/>), persisted per line on <c>entry_lines.narration</c> (v68).
+    /// help.tallysolutions.com/voucher-types-tally/ (Set up transaction options), by content 2026-10-25:
+    /// <i>"Enable Provide narration for each ledger in voucher to add narration for individual ledgers"</i>.
+    /// </summary>
+    public bool IsLineNarrationEnabled => _type.ProvideNarrationForEachLedger;
+
     /// <summary>Voucher-type display name for the header, e.g. "Payment".</summary>
     public string TypeName => _type.Name;
 
@@ -1476,6 +1485,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     {
         var line = new VoucherLineViewModel(Ledgers, Recalculate, _company, side);
         line.SetVoucherDate(Date);
+        line.ShowLineNarration = IsLineNarrationEnabled;   // census 5.11 — the flag's behaviour reader
         Lines.Add(line);
         return line;
     }
@@ -2180,7 +2190,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             bills.Count > 0 ? bills : null,
             costs.Count > 0 ? costs : null,
             line.ToBankAllocation(),
-            line.ToForexInfo());
+            line.ToForexInfo(),
+            narration: line.ToLineNarration());
     }
 
     /// <summary>The operator changing the TDS section re-computes the deduction (unless the change came from the
@@ -5040,7 +5051,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     billAllocs.Count > 0 ? billAllocs : null,
                     costAllocs.Count > 0 ? costAllocs : null,
                     l.ToBankAllocation(),
-                    l.ToForexInfo());
+                    l.ToForexInfo(),
+                    narration: l.ToLineNarration());
             })
             .ToList();
     }
@@ -5253,7 +5265,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     billAllocs.Count > 0 ? billAllocs : null,
                     costAllocs.Count > 0 ? costAllocs : null,
                     bankAlloc,
-                    forex);
+                    forex,
+                    narration: l.ToLineNarration());
             })
             .ToList();
 

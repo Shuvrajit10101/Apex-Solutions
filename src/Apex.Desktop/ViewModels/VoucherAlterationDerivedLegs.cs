@@ -239,7 +239,8 @@ public static class VoucherAlterationDerivedLegs
             restoredBills,
             restoredCosts,
             party.BankAllocation,
-            party.Forex);
+            party.Forex,
+            narration: party.Narration);   // census 5.11 (v68)
 
         pin = new TdsPin(detail.NatureId, detail.DeducteeLedgerId, detail.RateBasisPoints, detail.SectionCode,
             detail.TdsAmount, gross);

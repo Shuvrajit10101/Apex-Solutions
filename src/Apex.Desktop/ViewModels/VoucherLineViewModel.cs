@@ -55,6 +55,23 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
     [ObservableProperty] private DrCr _side = DrCr.Debit;
     [ObservableProperty] private string _amountText = string.Empty;
 
+    /// <summary>
+    /// 🔴 <b>Census 5.11 — the per-ledger narration</b> keyed under this line when the voucher type has <i>Provide
+    /// narration for each ledger in voucher</i> on (help.tallysolutions.com/voucher-types-tally/, Set up transaction
+    /// options: <i>"Enable Provide narration for each ledger in voucher to add narration for individual
+    /// ledgers"</i>). Persisted on <c>entry_lines.narration</c> (schema v68) via <see cref="ToLineNarration"/>.
+    /// </summary>
+    [ObservableProperty] private string _lineNarration = string.Empty;
+
+    /// <summary>True when the line-narration field is shown under this line: the voucher type's flag is on, or the
+    /// line was posted carrying a narration (so an alteration after the flag is switched off never hides — and then
+    /// silently keeps — text the operator cannot see).</summary>
+    [ObservableProperty] private bool _showLineNarration;
+
+    /// <summary>The narration to post on this line, or <c>null</c> when blank (normalised exactly as
+    /// <c>EntryLine</c> does, so an unnarrated line stays byte-identical, ER-13).</summary>
+    public string? ToLineNarration() => string.IsNullOrWhiteSpace(LineNarration) ? null : LineNarration.Trim();
+
     /// <summary>True when the picked ledger maintains balances bill-by-bill ⇒ show the sub-panel.</summary>
     [ObservableProperty] private bool _isBillWise;
 
@@ -677,6 +694,10 @@ public sealed partial class VoucherLineViewModel : ViewModelBase
         // fills those panels or refuses because they no longer match what was posted.
         SelectedLedger = ledger;
         Side = posted.Side;
+
+        // Census 5.11 (v68): the line's own narration reloads on alteration (and on Alt+2 duplicate).
+        LineNarration = posted.Narration ?? string.Empty;
+        if (posted.Narration is not null) ShowLineNarration = true;
 
         if (RehydrateAmount(posted, ledger) is { } amountRefusal) return amountRefusal;
         if (RehydrateBillAllocations(posted, ledger) is { } billRefusal) return billRefusal;

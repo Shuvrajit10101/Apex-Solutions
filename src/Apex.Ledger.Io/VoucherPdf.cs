@@ -83,14 +83,16 @@ public static class VoucherPdf
         double y = page.PageHeight - page.MarginTop - headerHeight;
         foreach (var line in data.Lines)
         {
-            if (y - page.RowHeight < bottom && current.Count > 0)
+            // Census 5.11 (v68): a narrated line occupies one extra row per wrapped narration line.
+            double lineHeight = page.RowHeight * (1 + LineNarration(line, config, page).Count);
+            if (y - lineHeight < bottom && current.Count > 0)
             {
                 pages.Add(current);
                 current = new List<VoucherPrintLine>();
                 y = page.PageHeight - page.MarginTop - ContinuationBandHeight(data, page);
             }
             current.Add(line);
-            y -= page.RowHeight;
+            y -= lineHeight;
         }
         pages.Add(current); // always at least one page (may be empty for a line-less voucher)
 
@@ -119,7 +121,7 @@ public static class VoucherPdf
             double yy = DrawHeaderBand(writer, data, config, page, title, left, right, isFirst);
             yy = DrawPostingHeader(writer, page, left, right, yy);
             foreach (var line in pages[p])
-                yy = DrawPostingLine(writer, page, left, right, line, yy);
+                yy = DrawPostingLine(writer, page, left, right, line, yy, LineNarration(line, config, page));
 
             if (p == pages.Count - 1 && !closingOnNewPage)
                 DrawClosingBlock(writer, data, page, left, right, wordLines, narrationLines, yy);
@@ -270,7 +272,17 @@ public static class VoucherPdf
         return y;
     }
 
-    private static double DrawPostingLine(PdfWriter writer, PageConfig page, double left, double right, VoucherPrintLine line, double y)
+    /// <summary>Census 5.11 (v68): the wrapped per-ledger narration printed under <paramref name="line"/>, or empty
+    /// when the line carries none or the F12 narration toggle is off (the same toggle as the voucher narration).</summary>
+    private static List<string> LineNarration(VoucherPrintLine line, PrintConfig config, PageConfig page)
+    {
+        if (!config.ShowNarration || string.IsNullOrWhiteSpace(line.Narration)) return new List<string>();
+        double width = page.ContentWidth * 0.62 - 24;
+        return WrapText(Debrand.Text(line.Narration), width, page.BodyFontSize);
+    }
+
+    private static double DrawPostingLine(PdfWriter writer, PageConfig page, double left, double right, VoucherPrintLine line, double y,
+        List<string>? narration = null)
     {
         double particularsX = left;
         double drX = left + page.ContentWidth * 0.62;
@@ -283,6 +295,12 @@ public static class VoucherPdf
         string amt = Fmt(line.Amount);
         if (line.IsDebit) RightText(writer, amt, drX, crX - 4, y, page.BodyFontSize, bold: false);
         else RightText(writer, amt, crX, right, y, page.BodyFontSize, bold: false);
+        if (narration is { Count: > 0 })
+            foreach (var nl in narration)
+            {
+                y -= page.RowHeight;
+                writer.Text(particularsX + 20, y, nl, page.BodyFontSize, bold: false);
+            }
         return y - page.RowHeight;
     }
 

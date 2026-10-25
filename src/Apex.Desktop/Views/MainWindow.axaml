@@ -3058,6 +3058,16 @@
                                                    PlaceholderText="0.00"/>
                                         </Grid>
 
+                                        <!-- Census 5.11 (v68): the per-ledger narration, shown when the voucher type has
+                                             "Provide narration for each ledger in voucher" on. Next in Tab order after
+                                             the Amount, so it is reached from the keyboard like every other line field. -->
+                                        <TextBox Name="LineNarrationBox"
+                                                 IsVisible="{Binding ShowLineNarration}"
+                                                 Text="{Binding LineNarration, Mode=TwoWay}"
+                                                 Margin="18,3,46,1" FontSize="11.5" FontStyle="Italic"
+                                                 TextWrapping="Wrap" AcceptsReturn="False"
+                                                 PlaceholderText="Narration for this ledger…"/>
+
                                         <!-- Bill-wise Details sub-panel (only for a bill-by-bill ledger) -->
                                         <Border IsVisible="{Binding IsBillWise}"
                                                 Background="#F4F7FB"

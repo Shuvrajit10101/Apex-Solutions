@@ -757,12 +757,17 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         if (!string.IsNullOrEmpty(v.PartyName))
             rows.Add(PrintRow.Header("Party: " + v.PartyName, string.Empty, string.Empty));
         foreach (var l in v.Lines)
+        {
             rows.Add(new PrintRow(new[]
             {
                 l.LedgerName,
                 l.IsDebit ? IndianFormat.Amount(l.Amount) : string.Empty,
                 l.IsDebit ? string.Empty : IndianFormat.Amount(l.Amount),
             }));
+            // Census 5.11 (v68): the per-ledger narration under its line, on the same toggle VoucherPdf uses.
+            if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(l.Narration))
+                rows.Add(new PrintRow(new[] { "    " + l.Narration, string.Empty, string.Empty }));
+        }
         rows.Add(PrintRow.Total("Total",
             IndianFormat.AmountAlways(v.TotalDebit), IndianFormat.AmountAlways(v.TotalCredit)));
         if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(v.Narration))
