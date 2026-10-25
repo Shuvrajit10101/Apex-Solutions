@@ -520,6 +520,11 @@ public partial class MainWindow : Window
             // RANGE of vouchers — the same accept-shortcut every other panel in this switch uses.
             else if (vm.CurrentScreen == Screen.MultiVoucherPrint)
                 vm.PrintMultiVoucherJob();
+            // Census 12.7's export arm: Ctrl+A on the multi-account Export column WRITES the files. It needs
+            // its own arm because ApplyExport() above dereferences ExportPanel, which is null on this screen -
+            // sharing Screen.Export would have made Ctrl+A a silent no-op here.
+            else if (vm.CurrentScreen == Screen.MultiAccountExport)
+                vm.ApplyMultiAccountExport();
             else if (vm.CurrentScreen == Screen.EmailCompose)
                 SaveEmailToDocuments(vm);
             // Ctrl+A on the WhatsApp share column writes the document — step ONE of the two-step share. Alt+O
@@ -960,6 +965,28 @@ public partial class MainWindow : Window
             && vm.IsDeleteTargetPage && !IsTyping(e) && !IsPickerOpen(e))
         {
             vm.RequestDeleteHighlighted();
+            e.Handled = true;
+            return;
+        }
+
+        // 🔴 Census 3.11 — Alt+Shift+D on the PRICE LIST master withdraws the WHOLE price list for the (level,
+        // item) pair the screen is scoped to: every dated version, not the one highlighted.
+        //
+        // IT CANNOT COLLIDE WITH THE ARM DIRECTLY ABOVE and that is a property of the code, not a hope: that arm
+        // matches `e.KeyModifiers == KeyModifiers.Alt` EXACTLY (not HasFlag) and its own comment already names
+        // Alt+Shift+D as a chord it deliberately excludes. This arm requires Alt|Shift just as exactly, so the
+        // two are disjoint by construction and Alt+D keeps its existing meaning on this screen untouched.
+        //
+        // The !IsTyping / !IsPickerOpen guards are the master arm's and are load-bearing for the same reason: the
+        // Price List screen is a form full of TextBoxes and two pickers standing OVER the version history, and a
+        // destructive chord typed mid-figure must not act on the pair behind the form. Everything that depends on
+        // DATA is decided in the view model (no company, a question already up, mid-alteration, no pair, an empty
+        // history), so an on-screen route added later cannot diverge from this accelerator. `e.Handled` is set
+        // unconditionally once the surface matches, so the chord never falls through.
+        if (e.Key == Key.D && e.KeyModifiers == (KeyModifiers.Alt | KeyModifiers.Shift)
+            && vm.CurrentScreen == Screen.PriceListsMaster && !IsTyping(e) && !IsPickerOpen(e))
+        {
+            vm.RequestDeleteWholePriceList();
             e.Handled = true;
             return;
         }
@@ -2656,8 +2683,17 @@ public partial class MainWindow : Window
         if (master.IsAltering) master.Alter(); else master.Create();
     }
 
+    // 🔴 census 3.12: BRANCHES, exactly as the Ctrl+A arm in MainWindowViewModel.AcceptCurrentPage does — see
+    // OnCreatePriceLevelClick for why the pointer route and the keyboard route must agree rather than one of them
+    // always creating. This handler used to be a bare `Create()`, i.e. the CREATE verb, on the one button the
+    // Reorder Level ALTERATION screen renders: an operator who corrected a reorder figure and then CLICKED
+    // instead of pressing Ctrl+A would have had CreateOrUpdate mint a NEW Guid and discard the row they opened,
+    // while the screen reported success — the same shape as T2-99 on the price list.
     private void OnCreateReorderLevelClick(object? sender, RoutedEventArgs e)
-        => Vm?.ReorderLevels?.Create();
+    {
+        if (Vm?.ReorderLevels is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     // 🔴 T2-99 (census 3.11): BRANCHES, exactly as the Ctrl+A arm in
     // MainWindowViewModel.AcceptCurrentPage does — see OnCreatePriceLevelClick for why the pointer route and the
@@ -2677,6 +2713,15 @@ public partial class MainWindow : Window
 
     private void OnAddPriceListSlabClick(object? sender, RoutedEventArgs e)
         => Vm?.PriceLists?.AddSlabRow();
+
+    // 🔴 census 3.11: the POINTER route for the whole-price-list withdrawal, and it goes through the SAME
+    // `RequestDeleteWholePriceList` the Alt+Shift+D accelerator calls — so the button cannot drift into deleting
+    // without the confirmation, and every gate (no company, a question already up, mid-alteration, no pair, an
+    // empty history) is decided in the one place. Nothing is destroyed here: this only puts the question up, and
+    // the operator still answers Y. That is deliberately stricter than the Save button beside it, because this
+    // verb is irreversible.
+    private void OnDeleteWholePriceListClick(object? sender, RoutedEventArgs e)
+        => Vm?.RequestDeleteWholePriceList();
 
     private void OnAddBomLineClick(object? sender, RoutedEventArgs e)
         => Vm?.BomMaster?.AddBlankLine();
@@ -3071,6 +3116,15 @@ public partial class MainWindow : Window
     // agree on WHAT is printed and not on WHEN.
     private void OnPrintMultiVoucherClick(object? sender, RoutedEventArgs e)
         => Vm?.PrintMultiVoucherJob();
+
+    // Census 12.7's export arm. Same shape as OnPrintMultiAccountClick above, and the same caveat applies:
+    // this handler shares the CALL with the Ctrl+A arm (so no second copy of the export logic can rot behind
+    // the button) and NOT the guard (the key arm tests the screen; this does not).
+    private void OnExportMultiAccountClick(object? sender, RoutedEventArgs e)
+        => Vm?.ExportMultiAccountJob();
+
+    private void OnApplyMultiAccountExportClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyMultiAccountExport();
 
     private void OnMultiAccountSelectAllClick(object? sender, RoutedEventArgs e)
         => Vm?.MultiAccountPrint?.SelectAll();

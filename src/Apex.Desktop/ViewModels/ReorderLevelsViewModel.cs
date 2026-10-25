@@ -89,10 +89,124 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
     /// <inheritdoc/>
     public string MasterKindLabel => "reorder level for";
 
+    /// <summary>The reorder definition this screen was opened over for ALTERATION, or <see cref="Guid.Empty"/>
+    /// when it is creating. Set only by <see cref="ForAlter"/>.</summary>
+    private Guid _editingId = Guid.Empty;
+
     /// <inheritdoc/>
-    /// <remarks>Create-only screen (an existing scope+target is replaced by <c>CreateOrUpdate</c>, which is an
-    /// upsert rather than an Alter mode), so it is never mid-alteration.</remarks>
-    public bool IsAltering => false;
+    /// <remarks>🔴 Was the CONSTANT <c>false</c> until census 3.12's alter slice, with a remark saying the screen
+    /// was create-only because an existing scope+target is replaced by the <c>CreateOrUpdate</c> upsert. That
+    /// remark described the only route that existed; it was never a statement that the vendor has no alter route,
+    /// and the vendor does — see <see cref="ForAlter"/>. It is now derived, and the derivation matters to the
+    /// shell in two separate places: Alt+D is refused while it is true (deleting the definition you are part-way
+    /// through correcting is never what was meant), and <c>AcceptCurrentPage</c> reads it to decide whether Ctrl+A
+    /// means <see cref="Create"/> or <see cref="Alter"/>.</remarks>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>The column caption — "Reorder Level Alteration" while altering, else "Reorder Level Creation".</summary>
+    public string Caption => IsAltering ? "Reorder Level Alteration" : "Reorder Level Creation";
+
+    /// <summary>
+    /// Opens this screen over an EXISTING reorder definition, for a correction (census 3.12). Returns
+    /// <c>null</c> if the id does not resolve. Mirrors <c>PriceLevelsViewModel.ForAlter</c>.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14): VENDOR-ATTESTED.</b> TallyPrime's own route to the reorder level IS an
+    /// alteration route — <i>"Press Alt+G (Go To) &gt; Alter Master &gt; type or select Reorder Level (Stock
+    /// Item) and press Enter."</i> — and the fields it then shows are the ones this factory loads back:
+    /// <i>"Period: Select the consumption for various periods – Days, Weeks, Months, or Years."</i>, a
+    /// <i>Criteria</i> of Higher or Lower, and <i>"Minimum Order Quantity: Enter the minimum quantity you want to
+    /// order."</i> The same page puts the Advanced toggles on that screen as <b>Alt+S</b> and <b>Alt+V</b>, which
+    /// is what this screen already binds. [<c>help.tallysolutions.com/tally-prime/inventory/reorder-stock-items-reorder-status-and-reorder-quantity/</c>,
+    /// opened and read BY CONTENT 2026-10-23.] 🔴 The ROUTE here — arrows over the existing-definitions list,
+    /// Ctrl+Enter to open the highlighted one — is <b>OURS</b>, exactly as it is for every other arm of
+    /// <c>MainWindowViewModel.AlterHighlightedMasterListRow</c>; only the SCREEN and its fields are attested.
+    ///
+    /// <para>🔴 <b>WHY THE UPSERT WAS NOT ALREADY AN ALTER, measured rather than assumed.</b> Nothing on this
+    /// screen ever LOADED an existing definition. Picking a target that already had one left every field blank,
+    /// and <see cref="Create"/> reads a blank quantity as <i>unset</i> (null) — so an operator who opened the
+    /// screen to raise one figure and pressed Ctrl+A silently WIPED the other figure, the consumption period and
+    /// the criterion from a definition the Reorder Status report consumes. Loading the row back is the half of
+    /// this that fixes a data loss; keeping the id (<see cref="ReorderLevelsService.Alter"/>) is the half that
+    /// stops the correction becoming a different record.</para>
+    /// </para>
+    /// </summary>
+    public static ReorderLevelsViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid definitionId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindReorderDefinition(definitionId) is not { } definition) return null;
+
+        var vm = new ReorderLevelsViewModel(company, storage, onChanged);
+        vm._editingId = definitionId;
+
+        // Scope first — it is what rebuilds Targets, so the target pick below has something to land on.
+        vm.SelectedScope = vm.Scopes.FirstOrDefault(s => s.Scope == definition.Scope) ?? vm.SelectedScope;
+        vm.SelectedTarget = vm.Targets.FirstOrDefault(t => t.Id == definition.TargetId) ?? vm.SelectedTarget;
+
+        vm.ReorderAdvanced = definition.ReorderAdvanced;
+        vm.ReorderQuantityText = QuantityText(definition.ReorderQuantity);
+        vm.MinQtyAdvanced = definition.MinQtyAdvanced;
+        vm.MinOrderQtyText = QuantityText(definition.MinOrderQuantity);
+
+        vm.PeriodCountText = definition.PeriodCount is { } pc
+            ? pc.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+        if (definition.PeriodUnit is { } pu)
+            vm.SelectedPeriodUnit = vm.PeriodUnits.FirstOrDefault(u => u.Unit == pu) ?? vm.SelectedPeriodUnit;
+        if (definition.Criteria is { } cr)
+            vm.SelectedCriteria = vm.Criteria.FirstOrDefault(c => c.Criteria == cr) ?? vm.SelectedCriteria;
+
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: re-validates exactly as <see cref="Create"/> does, then rewrites the definition this
+    /// screen was opened over THROUGH ITS OWN ID via <see cref="ReorderLevelsService.Alter"/>. Any domain refusal
+    /// is surfaced to <see cref="Message"/> without crashing the UI.
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+        if (_editingId == Guid.Empty)
+        {
+            Message = "This screen is not altering an existing reorder level.";
+            return false;
+        }
+
+        if (!TryReadForm(out var scope, out var target, out var reorderQty, out var minQty,
+                out var periodCount, out var periodUnit, out var criteria))
+            return false;
+
+        ReorderDefinition altered;
+        try
+        {
+            var service = new ReorderLevelsService(_company);
+            altered = service.Alter(_editingId, scope.Scope, target.Id, ReorderAdvanced, reorderQty,
+                MinQtyAdvanced, minQty, periodCount, periodUnit, criteria);
+            _storage.Save(_company);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        // 🔴 The quantity boxes are deliberately NOT cleared here, unlike Create. The screen is still sitting over
+        // the same definition; blanking the fields would make the form contradict the list row it just corrected
+        // — and on THIS screen a blank box means "unset", so a cleared form reads as a definition with no figures.
+        RefreshList();
+        Message = $"Reorder level altered for {ScopeLabel(altered.Scope).ToLowerInvariant()} '{target.Display}'.";
+        _onChanged();
+        return true;
+    }
+
+    /// <summary>Renders a stored quantity back into the box it was typed in, exactly and invariantly — "100", not
+    /// "100.000000" and not a culture's "100,0". Blank for an unset figure, which is how <see cref="Create"/>
+    /// and <see cref="Alter"/> both read "no figure".</summary>
+    private static string QuantityText(decimal? value) =>
+        value is { } q ? q.ToString("0.######", CultureInfo.InvariantCulture) : string.Empty;
 
     /// <inheritdoc/>
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
@@ -220,35 +334,9 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
     {
         Message = null;
 
-        if (SelectedScope is not { } scope)
-        {
-            Message = "Pick a scope (Item / Group / Category).";
+        if (!TryReadForm(out var scope, out var target, out var reorderQty, out var minQty,
+                out var periodCount, out var periodUnit, out var criteria))
             return false;
-        }
-        if (SelectedTarget is not { } target)
-        {
-            Message = $"Pick a {scope.Display.ToLowerInvariant()} to define a reorder level for.";
-            return false;
-        }
-
-        if (!TryParseOptionalQuantity(ReorderQuantityText, "Reorder level", out var reorderQty)) return false;
-        if (!TryParseOptionalQuantity(MinOrderQtyText, "Minimum order quantity", out var minQty)) return false;
-
-        int? periodCount = null;
-        ExpiryPeriodUnit? periodUnit = null;
-        ReorderCriteria? criteria = null;
-        if (ReorderAdvanced || MinQtyAdvanced)
-        {
-            if (!int.TryParse((PeriodCountText ?? string.Empty).Trim(), NumberStyles.None,
-                    CultureInfo.InvariantCulture, out var count) || count <= 0)
-            {
-                Message = "An Advanced figure needs a consumption period count (a whole number greater than zero).";
-                return false;
-            }
-            periodCount = count;
-            periodUnit = (SelectedPeriodUnit ?? PeriodUnits.First()).Unit;
-            criteria = (SelectedCriteria ?? Criteria.First()).Criteria;
-        }
 
         try
         {
@@ -269,6 +357,66 @@ public sealed partial class ReorderLevelsViewModel : ViewModelBase, IMasterListE
         MinOrderQtyText = string.Empty;
         PeriodCountText = string.Empty;
         _onChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Reads and validates the whole form once — the scope, the target, both optional quantities and (only when
+    /// either figure is Advanced) the consumption period and criterion. Returns false with
+    /// <see cref="Message"/> set on the FIRST violation, leaving the company untouched.
+    ///
+    /// <para>🔴 <b>Shared by <see cref="Create"/> and <see cref="Alter"/> deliberately.</b> Two copies of this
+    /// block is how one verb silently ends up validating differently from the other — and here the asymmetry
+    /// would be a wrong-data path, since a blank quantity box means "unset" and an Alter that skipped the
+    /// Advanced period check could write a definition the Reorder Status report cannot resolve.</para>
+    /// </summary>
+    private bool TryReadForm(
+        out ReorderScopeOption scope,
+        out ReorderTargetOption target,
+        out decimal? reorderQty,
+        out decimal? minQty,
+        out int? periodCount,
+        out ExpiryPeriodUnit? periodUnit,
+        out ReorderCriteria? criteria)
+    {
+        scope = null!;
+        target = null!;
+        reorderQty = null;
+        minQty = null;
+        periodCount = null;
+        periodUnit = null;
+        criteria = null;
+
+        if (SelectedScope is not { } pickedScope)
+        {
+            Message = "Pick a scope (Item / Group / Category).";
+            return false;
+        }
+        scope = pickedScope;
+
+        if (SelectedTarget is not { } pickedTarget)
+        {
+            Message = $"Pick a {scope.Display.ToLowerInvariant()} to define a reorder level for.";
+            return false;
+        }
+        target = pickedTarget;
+
+        if (!TryParseOptionalQuantity(ReorderQuantityText, "Reorder level", out reorderQty)) return false;
+        if (!TryParseOptionalQuantity(MinOrderQtyText, "Minimum order quantity", out minQty)) return false;
+
+        if (ReorderAdvanced || MinQtyAdvanced)
+        {
+            if (!int.TryParse((PeriodCountText ?? string.Empty).Trim(), NumberStyles.None,
+                    CultureInfo.InvariantCulture, out var count) || count <= 0)
+            {
+                Message = "An Advanced figure needs a consumption period count (a whole number greater than zero).";
+                return false;
+            }
+            periodCount = count;
+            periodUnit = (SelectedPeriodUnit ?? PeriodUnits.First()).Unit;
+            criteria = (SelectedCriteria ?? Criteria.First()).Criteria;
+        }
+
         return true;
     }
 

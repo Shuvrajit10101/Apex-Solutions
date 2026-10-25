@@ -50,6 +50,13 @@ public static class Report
     public static IReadOnlyList<BillsPendingRow> BuildSalesBillsPending(Company c, DateOnly asOf)
         => BillsPending.BuildSales(c, asOf);
 
+    /// <summary>Census 9.8 — the tracking numbers a Purchase (<paramref name="purchase"/> true) or Sales item
+    /// invoice may be raised against as at <paramref name="asOf"/>. See
+    /// <see cref="BillsPending.OpenTrackingNumbers"/>.</summary>
+    public static IReadOnlyList<PendingTrackingNumber> BuildOpenTrackingNumbers(
+        Company c, DateOnly asOf, bool purchase)
+        => BillsPending.OpenTrackingNumbers(c, asOf, purchase);
+
     /// <summary>Census 9.7 — Stock Item Cost Analysis. See <see cref="ItemCostAnalysis"/>.</summary>
     public static IReadOnlyList<ItemCostAnalysisRow> BuildStockItemCostAnalysis(Company c, DateOnly asOf)
         => ItemCostAnalysis.BuildItems(c, asOf);

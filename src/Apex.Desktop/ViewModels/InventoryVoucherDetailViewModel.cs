@@ -2,6 +2,7 @@ using System;
 using System.Collections.ObjectModel;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Io;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -26,10 +27,19 @@ namespace Apex.Desktop.ViewModels;
 /// accounting entry), so every one of those members would have to acquire a null branch that is dead for the
 /// accounting case and meaningless for this one. That is not reuse; it is two shapes wearing one type.</para>
 ///
-/// <para><b>What it deliberately does NOT carry, so the absence is not read as an oversight:</b> no print
-/// route and no e-mail route. Printing a stock voucher is its own census question with its own vendor
-/// templates, and a Ctrl+P here that silently produced an invoice-shaped document would be a wrong document
-/// rather than a missing one.</para>
+/// <para>🔴 <b>IT NOW CARRIES ONE PRINT ROUTE — THE DELIVERY CHALLAN (census 12.7), AND THE NOTE THAT USED TO
+/// STAND HERE WAS RIGHT ABOUT THE PRINCIPLE AND WRONG ABOUT THE FACT.</b> It said this pane carries "no print
+/// route", and that "a Ctrl+P here that silently produced an invoice-shaped document would be a wrong document
+/// rather than a missing one". The principle holds and is why the route below is narrow. The FACT did not:
+/// <c>MainWindowViewModel.OpenPrintPreview</c> had no arm for <see cref="Screen.InventoryVoucherDetail"/> at
+/// all, so Ctrl+P on a drilled stock voucher fell through to its <c>Reports is not null</c> arm and printed
+/// <b>the whole register the operator had drilled from</b> — every other party's movements on a sheet raised
+/// from one voucher. That is the wrong document, and it was already shipping. Measured on emitted bytes by
+/// <c>DeliveryChallanRouteTests</c>. The arm now produces the challan for a <b>Delivery Note</b> and REFUSES
+/// (with a notice) for every other pure-stock kind, because refusing is what the note above actually
+/// asked for.</para>
+///
+/// <para><b>Still deliberately absent: the e-mail route.</b></para>
 /// </summary>
 public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
 {
@@ -61,6 +71,31 @@ public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
     /// <summary>The projected lines: one row per stock movement / order line / counted line, with section
     /// headers where a voucher has two sides.</summary>
     public ObservableCollection<ReportRow> Rows { get; } = new();
+
+    /// <summary>
+    /// 🔴 <b>Census 12.7 — the delivery challan this voucher prints, or why it prints none.</b> Read off the
+    /// voucher this pane is CURRENTLY pointed at (<see cref="Refresh"/> re-points it), so an altered Delivery
+    /// Note cannot print its superseded quantities — the staleness defect
+    /// <see cref="VoucherDetailViewModel"/> records for the accounting pane.
+    ///
+    /// <para>Exactly one half is non-null, which is what lets the shell either open a preview or say something
+    /// rather than silently do neither — or, as it did before this slice, print the register behind the
+    /// pane.</para>
+    /// </summary>
+    public DeliveryChallanProjection ChallanProjection =>
+        DeliveryChallanPrintProjector.Project(_company, _voucher);
+
+    /// <summary>
+    /// Builds the print-preview VM for this voucher's delivery challan, or <c>null</c> when it has none (the
+    /// caller then shows <see cref="DeliveryChallanProjection.Refusal"/> instead). The job is a ONE-document
+    /// set so the challan renders through exactly the <see cref="ReportPdf"/> path this row's reminder letter
+    /// and confirmation of accounts already render through.
+    /// </summary>
+    public PrintPreviewViewModel? BuildPrintPreview()
+    {
+        if (ChallanProjection.Document is not { } challan) return null;
+        return new PrintPreviewViewModel(challan, DeliveryChallanPrintProjector.Title);
+    }
 
     public InventoryVoucherDetailViewModel(Company company, InventoryVoucher voucher)
     {

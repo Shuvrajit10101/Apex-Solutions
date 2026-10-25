@@ -334,11 +334,17 @@ public static class MultiAccountPrintProjector
     private static PrintReport ReminderLetter(Company company, DomainLedger ledger, DateOnly asOf)
     {
         var bills = Outstandings.OpenBillsFor(company, ledger, asOf);
+        // 🔴 THE ADDRESSEE AND THE SENTENCES ARE PROSE, NOT CELLS — see PrintRow.FullWidth. They used to be
+        // cell 0 of this four-column grid, and ReportPdf clips every cell to its column's inner width: column 0
+        // here is "Reference", ~190pt, so the line naming the counterparty was drawn
+        // "To: Bharat Heavy Electricals & Comp..." and the sentence asking for settlement was cut mid-word — on
+        // the letter posted to that counterparty. Measured on the emitted bytes and pinned by
+        // DeliveryChallanDocumentTests.The_reminder_letter_and_the_confirmation_name_their_addressee_in_full_too.
         var rows = new List<PrintRow>
         {
-            PrintRow.Header("To: " + ReportPrintProjector.Ascii(ledger.Name), string.Empty, string.Empty, string.Empty),
-            new PrintRow("Our records show the following amounts still outstanding as at "
-                + Day(asOf) + ".", string.Empty, string.Empty, string.Empty),
+            PrintRow.FullWidthHeader("To: " + ReportPrintProjector.Ascii(ledger.Name)),
+            PrintRow.FullWidthText("Our records show the following amounts still outstanding as at "
+                + Day(asOf) + "."),
             new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty),
             PrintRow.Header("Reference", "Bill Date", "Due Date", "Amount Pending"),
         };
@@ -359,16 +365,15 @@ public static class MultiAccountPrintProjector
         rows.Add(PrintRow.Total("Total outstanding", string.Empty, string.Empty,
             IndianFormat.AmountAlways(total)));
         rows.Add(new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty));
-        rows.Add(new PrintRow(
+        rows.Add(PrintRow.FullWidthText(
             overdue > 0
                 // OURS (ruling 9): the wording is ours. It states a fact from the books and asks for settlement;
                 // it makes no legal demand and threatens nothing, because nothing in this application establishes
                 // an entitlement to do either.
                 ? "We would be grateful if the overdue amounts above could be settled at your earliest convenience."
-                : "This is a statement of the amounts currently open on your account; no amount is overdue.",
-            string.Empty, string.Empty, string.Empty));
+                : "This is a statement of the amounts currently open on your account; no amount is overdue."));
         rows.Add(new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty));
-        rows.Add(new PrintRow(SignatoryLine(company), string.Empty, string.Empty, string.Empty));
+        rows.Add(PrintRow.FullWidthText(SignatoryLine(company)));
 
         return new PrintReport
         {
@@ -394,9 +399,10 @@ public static class MultiAccountPrintProjector
 
         var rows = new List<PrintRow>
         {
-            PrintRow.Header("To: " + ReportPrintProjector.Ascii(ledger.Name), string.Empty, string.Empty, string.Empty),
-            new PrintRow("Our books show the following balance on your account as at "
-                + Day(asOf) + ".", string.Empty, string.Empty, string.Empty),
+            // Prose, not cells — see the note on ReminderLetter's own addressee block.
+            PrintRow.FullWidthHeader("To: " + ReportPrintProjector.Ascii(ledger.Name)),
+            PrintRow.FullWidthText("Our books show the following balance on your account as at "
+                + Day(asOf) + "."),
             new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty),
             PrintRow.Total("Balance per our books", string.Empty, string.Empty,
                 IndianFormat.SignedAlways(balance.Amount, balance.Side)),
@@ -417,13 +423,11 @@ public static class MultiAccountPrintProjector
 
         // OURS (ruling 9): the confirmation wording is ours. It asks the counterparty to confirm or state its own
         // figure — it asserts nothing about which figure is right.
-        rows.Add(new PrintRow(
-            "Please confirm that this balance agrees with your books, or advise us of the difference.",
-            string.Empty, string.Empty, string.Empty));
+        rows.Add(PrintRow.FullWidthText(
+            "Please confirm that this balance agrees with your books, or advise us of the difference."));
         rows.Add(new PrintRow(string.Empty, string.Empty, string.Empty, string.Empty));
-        rows.Add(new PrintRow(SignatoryLine(company), string.Empty, string.Empty, string.Empty));
-        rows.Add(new PrintRow("Confirmed by ____________________   Date ____________",
-            string.Empty, string.Empty, string.Empty));
+        rows.Add(PrintRow.FullWidthText(SignatoryLine(company)));
+        rows.Add(PrintRow.FullWidthText("Confirmed by ____________________   Date ____________"));
 
         return new PrintReport
         {
