@@ -184,11 +184,11 @@ public sealed class RestoreOnFreshInstallTests : IDisposable
     /// 🔴 <b>THE WHOLE POINT OF THE ROW: a machine with NO companies recovers a lost book end to end, through
     /// the shipped screens, and the recovered book is still there for the NEXT session.</b>
     ///
-    /// <para>The last clause is the one that nearly shipped broken. <c>CompanyStorage.ListCompanies</c> reads
-    /// the REGISTRY, not the directory, and <c>Load</c> registers nothing — only <c>Save</c> does. So a restore
-    /// that CREATED a company would have written a perfectly good <c>.db</c> that Company Select never listed:
-    /// the operator recovers his data and has no way to open it again. That is why this test re-opens a
-    /// brand-new shell on the same directory at the end instead of stopping at a green status line.</para>
+    /// <para>That is why this test re-opens a brand-new shell on the same directory at the end instead of
+    /// stopping at a green status line. (This paragraph used to claim that without <c>RegisterPlain</c> the
+    /// created book would never be listed. That was false — <c>CompanyRegistry.Load</c> adopts any unregistered
+    /// plain <c>.db</c> on its own — and the call's real effect, the display name, is pinned by
+    /// <see cref="A_restored_book_is_listed_under_its_own_name_not_its_file_name"/>. A12 review w6, F5.)</para>
     /// </summary>
     [Fact]
     public void A_machine_with_no_companies_recovers_a_lost_book_and_it_is_listed_next_session()
@@ -234,6 +234,33 @@ public sealed class RestoreOnFreshInstallTests : IDisposable
         Assert.True(tb.Balanced);
         Assert.Equal(original.Vouchers.Count, reopened.Vouchers.Count);
         Assert.Equal(31_241.37m, reopened.Vouchers.Single().Lines.First().Amount.Amount);
+    }
+
+    /// <summary>
+    /// What the Apply path's <c>RegisterPlain</c> call actually does (A12 review w6, F5): the recovered book is
+    /// listed under its OWN name. A name holding a character the file system cannot (here <c>/</c>, invalid on every
+    /// platform) is stored under a sanitised file name, and without the call the registry adopts that file under
+    /// the FILE's name, so the operator would find "Slash_Name Co" in Company Select for a book called
+    /// "Slash/Name Co".
+    /// </summary>
+    [Fact]
+    public void A_restored_book_is_listed_under_its_own_name_not_its_file_name()
+    {
+        var archive = ArchiveOfAVanishedCompany("Slash/Name Co", out _);
+        var storage = new CompanyStorage(_companiesDir);
+
+        var vm = FreshShell(storage);
+        vm.Menu.Single(m => m.Label == "Restore Company").Activate();
+        var panel = vm.RestoreCompanyPanel!;
+        panel.FilePath = archive;
+        panel.TargetCompanyName = "Slash/Name Co";
+        Assert.True(panel.Examine(), panel.Status);
+        panel.Confirmed = true;
+        Assert.True(panel.Apply(), panel.Status);
+
+        SqliteConnection.ClearAllPools();
+        var names = new CompanyStorage(_companiesDir).ListCompanies().Select(e => e.Name).ToArray();
+        Assert.Contains("Slash/Name Co", names);
     }
 
     // ------------------------------------------------------------------ the target is redirectable
