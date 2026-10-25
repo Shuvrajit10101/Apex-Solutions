@@ -1478,7 +1478,8 @@ internal sealed class ImportPlan
             gst: BuildGstLineTax(l.Gst),
             tds: BuildTdsLineTax(l.Tds, tdsNatureId, ledgerId, t),
             tcs: BuildTcsLineTax(l.Tcs, tcsNatureId, ledgerId, t),
-            payroll: BuildPayrollLineDetail(l.Payroll, employeeId, payHeadId, t)));
+            payroll: BuildPayrollLineDetail(l.Payroll, employeeId, payHeadId, t),
+            narration: l.Narration));   // census 5.11 (v68)
 
         var invLines = v.InventoryLines.Count == 0
             ? null

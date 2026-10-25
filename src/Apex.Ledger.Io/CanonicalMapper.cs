@@ -960,6 +960,7 @@ public static class CanonicalMapper
         Tds = l.Tds is { } t ? MapTdsLineTax(t) : null,
         Tcs = l.Tcs is { } tc ? MapTcsLineTax(tc) : null,
         Payroll = l.Payroll is { } pr ? MapPayrollLine(pr) : null,
+        Narration = l.Narration,   // census 5.11 (v68)
     };
 
     private static PayrollLineDto MapPayrollLine(PayrollLineDetail p) => new()
