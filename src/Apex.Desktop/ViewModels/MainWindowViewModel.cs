@@ -7819,10 +7819,20 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // 🔴 CENSUS 5.11 wave 8 (IV-238) — "Print voucher after saving" was IGNORED on this creation door. The
+        // same wrap OpenInventoryVoucher uses: navigate first, then route the voucher THIS screen committed through
+        // the inventory printing door (which states by name that a job work order has no printed document here).
+        JobWorkOrderEntryViewModel? openedOrder = null;
         var entry = new JobWorkOrderEntryViewModel(
             Company, type, direction, _storage,
-            onSaved: ShowGateway,
+            onSaved: () =>
+            {
+                ShowGateway();
+                if (type.PrintAfterSaving && openedOrder?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenInventoryVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage);
+        openedOrder = entry;
         var title = $"Job Work Order Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.JobWorkOrderEntry, title,
             () => JobWorkOrderEntry = entry);
@@ -7847,10 +7857,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        // 🔴 CENSUS 5.11 wave 8 (IV-238) — the Material In / Material Out creation door, wired as above.
+        MaterialMovementEntryViewModel? openedMovement = null;
         var entry = new MaterialMovementEntryViewModel(
             Company, type, _storage,
-            onSaved: ShowGateway,
+            onSaved: () =>
+            {
+                ShowGateway();
+                if (type.PrintAfterSaving && openedMovement?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenInventoryVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage);
+        openedMovement = entry;
         var title = $"Material Movement Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.MaterialMovementEntry, title,
             () => MaterialMovementEntry = entry);
