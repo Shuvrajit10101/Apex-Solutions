@@ -936,6 +936,10 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
         // company — the retry its own message advises then failed "A stock item named ... already exists", and
         // any later save persisted the phantom WITHOUT its alternate unit (probe P3).
         StockItem? createdThisAccept = null;
+        // 🔴 Reviewer fix (wave 7): the roll-back lives in a FINALLY keyed on this flag, not in the catch alone.
+        // Two refusals inside the try are a `return false`, not a throw — a non-numeric Alternate Unit factor and
+        // an unparsable VAT rate — and both run AFTER CreateStockItem, so a catch-only roll-back left the phantom.
+        var committed = false;
         try
         {
             var service = new InventoryService(_company);
@@ -1082,10 +1086,16 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
             }
 
             _storage.Save(_company);
+            committed = true;
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            if (createdThisAccept is { } phantom)
+            Message = ex.Message;
+            return false;
+        }
+        finally
+        {
+            if (!committed && createdThisAccept is { } phantom)
             {
                 // Take back everything this accept added for the new item: its opening allocations (added last,
                 // so normally none) and the item itself. Nothing else references an item created a moment ago.
@@ -1093,8 +1103,6 @@ public sealed partial class StockItemMasterViewModel : ViewModelBase, IMasterLis
                     _company.RemoveStockOpeningBalance(ob);
                 _company.RemoveStockItem(phantom);
             }
-            Message = ex.Message;
-            return false;
         }
 
         RefreshPickers();
