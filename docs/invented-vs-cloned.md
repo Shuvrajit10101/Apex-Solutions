@@ -2786,6 +2786,15 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | All three voucher-entry drill screens are excluded from `IsReportContext`, so the list equals the set of non-report screens `OpenDrillColumn` can raise. Ctrl+E / Alt+E / Alt+M / Ctrl+M / W on an alteration screen are now inert rather than acting on the register. **⚠️ Not built:** exporting or sharing the voucher being ALTERED (the vendor's Ctrl+E would export it) — that is an export of unsaved entry state and is reported as owed. The POS-bill alteration door is held by its own key-driven case (a bill posted through the real POS screen, then Ctrl+Enter from the Day Book). |
 | **Tests** | `DrilledVoucherEgressTests.Egress_keys_on_an_alteration_drilled_from_the_day_book_never_build_the_register` (four doors: `inventory-alter`, `accounting-alter`, `accounting-duplicate`, `pos-alter`). Removing `PosBilling` alone from the exclusion fails exactly the `pos-alter` case. |
 
+### IV-209 · **The same leak through a THIRD door: a column stacked OVER a drill page** (wave 7, track dr, found and fixed by the adversarial review)
+
+| | |
+|---|---|
+| **Severity** | **HIGH (same confidentiality class).** Excluding the drill screens' own ids was not enough. Print Preview, Export, E-Mail and WhatsApp columns are appended ON TOP of a drilled pane and carry their own screen ids, while the Day Book stays bound beneath. Measured on the track head before the fix, through the real key handler on a two-consignee book: a drilled Delivery Note, then P (its challan preview), then Ctrl+E, Ctrl+M, Alt+M > E-Mail or W wrote or attached the **whole Day Book** with the other consignee; Ctrl+E then M did the same; and so did a drilled accounting voucher's preview (that half was already live on main). |
+| **What TallyPrime does** | Same ground as IV-206/IV-207: "the current voucher or report". Not a divergence in itself. |
+| **What we ship** | `MainWindowViewModel.IsReportContext` walks the cascade from the top; when a drilled voucher, ledger-vouchers or voucher-entry page is met before the report page, the report is not the context and its verbs stay inert. **OURS / owed:** the verbs on such a stacked column are silently inert rather than acting on the voucher beneath or refusing by name. |
+| **Tests** | `StackedColumnOverDrillEgressTests.Probe` (seven routes, on the written CSV, the decoded `.eml` and the WhatsApp PDF) and the positive control `A_report_preview_still_e_mails_the_report`. Deleting the new clause reddens all seven routes; the control stays green. **A reviewer's fix: it needs an independent check.** |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
