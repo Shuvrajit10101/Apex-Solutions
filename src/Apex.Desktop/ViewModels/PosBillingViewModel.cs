@@ -1356,7 +1356,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         // narration an import put on the bill would vanish on accept. Refused by name instead (the same guard the
         // voucher-entry alteration runs).
         if (VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal(
-                _company, existing.Lines, replacement.Lines, Array.Empty<string>(), "bill") is { } dropped)
+                _company, existing.Lines, replacement.Lines, Array.Empty<string>(), Array.Empty<string>(), "bill") is { } dropped)
         {
             Message = dropped;
             return false;

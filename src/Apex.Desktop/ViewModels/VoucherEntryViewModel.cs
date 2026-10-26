@@ -4032,7 +4032,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // 🔴 Census 5.11 (v68) — a line narration the operator was never shown must not vanish on accept. See
         // VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal. Ahead of every write, so nothing to roll back.
         if (VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal(
-                _company, existing.Lines, replacement.Lines, _editableLineNarrations, "voucher") is { } dropped)
+                _company, existing.Lines, replacement.Lines, _editableLineNarrations,
+                // The grid's CURRENT narrations (empty on an item invoice, whose lines have no field) — see the guard.
+                _alteringPostedAsItemInvoice
+                    ? Array.Empty<string>()
+                    : Lines.Select(l => l.ToLineNarration()).OfType<string>().ToList(),
+                "voucher") is { } dropped)
         {
             Message = dropped;
             return false;

@@ -548,17 +548,25 @@ public static class VoucherAlterationDerivedLegs
     /// (<paramref name="editable"/>), which is how a deliberate clear or rewrite on the Dr/Cr grid stays legal.
     /// Matched as a multiset of texts, so two lines carrying the same words are counted twice. Returns the refusal
     /// naming the ledger and the words, or <c>null</c> when nothing would be lost.</para>
+    ///
+    /// <para>🔴 <b>The editable fields' CURRENT texts (<paramref name="keyedNow"/>) are taken out of the rebuilt
+    /// pool before any un-excused narration is matched against it</b> (A12 review, wave 7). Without that, an
+    /// editable line and a derived leg posted with the SAME words were both satisfied by the one surviving copy on
+    /// the editable line, and the derived leg's narration was dropped under "altered." (measured on a withheld TDS
+    /// Journal whose party and TDS-Payable legs both read "May fees").</para>
     /// </summary>
     public static string? DroppedLineNarrationRefusal(
         Company company, IEnumerable<EntryLine> posted, IEnumerable<EntryLine> rebuilt,
-        IEnumerable<string> editable, string documentNoun)
+        IEnumerable<string> editable, IEnumerable<string> keyedNow, string documentNoun)
     {
-        var kept = rebuilt.Select(l => l.Narration).Where(n => n is not null).Select(n => n!)
-            .Concat(editable).ToList();
+        var available = rebuilt.Select(l => l.Narration).Where(n => n is not null).Select(n => n!).ToList();
+        foreach (var keyed in keyedNow) available.Remove(keyed);   // these ride the editable lines, not derived legs
+        var excused = editable.ToList();
         foreach (var line in posted)
         {
             if (line.Narration is not { } narration) continue;
-            if (kept.Remove(narration)) continue;
+            if (excused.Remove(narration)) continue;
+            if (available.Remove(narration)) continue;
             var ledgerName = company.FindLedger(line.LedgerId)?.Name ?? "a ledger no longer in this company";
             return $"The posted line on '{ledgerName}' carries its own narration (\"{narration}\"), and this "
                  + "screen has no field for it on that line, so accepting would silently drop it. Cancel this "
