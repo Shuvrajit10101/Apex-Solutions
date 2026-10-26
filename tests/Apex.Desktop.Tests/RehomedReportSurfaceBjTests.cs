@@ -181,7 +181,8 @@ public sealed class RehomedReportSurfaceBjTests : IDisposable
         var reports = PopulatedReport("Bj Hsn", ReportKind.Gstr9AnnualReturn);
 
         Assert.True(reports.HasPayrollSection2, "Table 17 did not reach the matrix at all.");
-        Assert.Equal("Part VI Table 17 — Outward HSN Summary", reports.PayrollSection2Title);
+        // Census 6.12: Table 18 (inward HSN) now shares this band, below Table 17 and its own foot.
+        Assert.Equal("Part VI Tables 17 and 18 — Outward and Inward HSN Summary", reports.PayrollSection2Title);
         Assert.Equal(new[] { "HSN / SAC", "Description", "UQC", "Quantity", "Taxable Value", "Total Tax" },
             reports.PayrollColumns2.Select(c => c.Header).ToArray());
         Assert.All(reports.PayrollColumns2, c => Assert.False(string.IsNullOrWhiteSpace(c.Header)));
