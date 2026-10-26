@@ -52,6 +52,23 @@ public sealed record OutstandingBill(
     /// this asks "has its date arrived".</para>
     /// </summary>
     public bool IsDueBy(DateOnly asOf) => DueDate.DayNumber <= asOf.DayNumber;
+
+    /// <summary>
+    /// Whether this bill is <b>overdue</b> as of <paramref name="asOf"/>: its due date is STRICTLY before the
+    /// report date, i.e. <see cref="OverdueDays"/> is at least 1. A bill falling due exactly on
+    /// <paramref name="asOf"/> is due (<see cref="IsDueBy"/>) but NOT overdue — the same boundary the ageing
+    /// buckets already draw ("Not due" holds zero overdue days). Census 11.13 Overdue Receivables / Payables
+    /// read this one predicate; the boundary is recorded as ours in <c>docs/invented-vs-cloned.md</c> IV-245,
+    /// because the vendor's TallyPrime page lists "overdue days" without defining the due-date day.
+    /// </summary>
+    public bool IsOverdue(DateOnly asOf) => OverdueDays(asOf) > 0;
+
+    /// <summary>
+    /// The voucher whose New-Ref / Advance allocation OPENED this bill (the latest such voucher when a bill was
+    /// re-opened), or <see cref="Guid.Empty"/> when only Agst-Ref allocations name it. Census 11.13: the drill
+    /// key the Overdue Receivables / Payables rows open, so Enter on a bill lands on the invoice that raised it.
+    /// </summary>
+    public Guid OpeningVoucherId { get; init; }
 }
 
 /// <summary>
@@ -360,6 +377,7 @@ public static class Outstandings
                         state.Date = v.Date;
                         state.DueDate = a.EffectiveDueDate(v.Date, ledger.DefaultCreditPeriodDays);
                         state.OpenedAs = a.RefType;
+                        state.OpeningVoucherId = v.Id;
                     }
                 }
             }
@@ -384,7 +402,7 @@ public static class Outstandings
                 s.DueDate,
                 new Money(s.Original == 0m ? s.Pending : s.Original),
                 new Money(s.Pending),
-                kind));
+                kind) { OpeningVoucherId = s.OpeningVoucherId });
         }
         return result;
     }
@@ -451,5 +469,6 @@ public static class Outstandings
         public DateOnly DueDate;
         public decimal Original;
         public decimal Pending;
+        public Guid OpeningVoucherId;
     }
 }
