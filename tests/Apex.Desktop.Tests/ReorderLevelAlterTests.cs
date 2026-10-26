@@ -307,11 +307,95 @@ public sealed class ReorderLevelAlterTests
         finally { window.Close(); Cleanup(dir); }
     }
 
+    // ============================================================ 4b. probe P1c — CREATE over an occupied target
+
+    /// <summary>
+    /// 🔴 <b>REVIEWER PROBE P1c, BY KEYBOARD (census 3.12's last open clause, T2-158 item 1).</b> A definition
+    /// saved as 100 / 25; a fresh CREATE screen over the same (Item, Cabinet); key 150 into the reorder box; Ctrl+A.
+    /// On the branch the review held, that minted a NEW id with minimum <c>NULL</c> and said "saved". Now the
+    /// first Ctrl+A saves nothing, refuses by name and loads the saved figures as an Alteration; keying the
+    /// correction again and pressing Ctrl+A alters IN PLACE. Both states are re-read from SQLite through a FRESH
+    /// store handle.
+    /// </summary>
+    [AvaloniaFact]
+    public void P1c_CtrlA_create_over_an_occupied_target_keeps_the_id_and_the_minimum()
+    {
+        var (window, vm, dir, company) = NewWindow("Cd Reorder P1c Key Co");
+        try
+        {
+            var (_, original) = Seed(vm, dir);
+            OpenReorderMaster(window, vm);
+            var master = vm.ReorderLevels!;
+            Assert.False(master.IsAltering);
+            Assert.Equal("Cabinet", master.SelectedTarget!.Display);
+
+            master.ReorderQuantityText = "150";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Contains("already exists", master.Message ?? string.Empty);
+            Assert.Contains("'Cabinet'", master.Message ?? string.Empty);
+            Assert.True(master.IsAltering);
+            var untouched = Assert.Single(LoadBack(dir, company).ReorderDefinitions);
+            Assert.Equal(original.Id, untouched.Id);
+            Assert.Equal(100m, untouched.ReorderQuantity);
+            Assert.Equal(25m, untouched.MinOrderQuantity);
+
+            Assert.Equal("25", master.MinOrderQtyText);   // the saved minimum is ON SCREEN now
+            master.ReorderQuantityText = "150";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            Assert.Contains("altered", master.Message ?? string.Empty);
+            var altered = Assert.Single(LoadBack(dir, company).ReorderDefinitions);
+            Assert.Equal(original.Id, altered.Id);
+            Assert.Equal(150m, altered.ReorderQuantity);
+            Assert.Equal(25m, altered.MinOrderQuantity);
+            Assert.Equal(3, altered.PeriodCount);
+            Assert.Equal(ReorderCriteria.Higher, altered.Criteria);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>REVIEWER PROBE P1c, BY POINTER.</b> The same sequence through the realised commit button, because a
+    /// verb that holds on one route certifies nothing about the other (T2-99).
+    /// </summary>
+    [AvaloniaFact]
+    public void P1c_click_create_over_an_occupied_target_keeps_the_id_and_the_minimum()
+    {
+        var (window, vm, dir, company) = NewWindow("Cd Reorder P1c Click Co");
+        try
+        {
+            var (_, original) = Seed(vm, dir);
+            OpenReorderMaster(window, vm);
+            var master = vm.ReorderLevels!;
+            Assert.False(master.IsAltering);
+
+            master.ReorderQuantityText = "150";
+            ClickCommit(window);
+
+            Assert.Contains("already exists", master.Message ?? string.Empty);
+            Assert.True(master.IsAltering);
+            var untouched = Assert.Single(LoadBack(dir, company).ReorderDefinitions);
+            Assert.Equal(original.Id, untouched.Id);
+            Assert.Equal(25m, untouched.MinOrderQuantity);
+
+            master.ReorderQuantityText = "150";
+            ClickCommit(window);
+
+            var altered = Assert.Single(LoadBack(dir, company).ReorderDefinitions);
+            Assert.Equal(original.Id, altered.Id);
+            Assert.Equal(150m, altered.ReorderQuantity);
+            Assert.Equal(25m, altered.MinOrderQuantity);
+        }
+        finally { window.Close(); Cleanup(dir); }
+    }
+
     // ============================================================ 5. a fresh drill is still a CREATE screen
 
     /// <summary>
-    /// Re-drilling from the Gateway gives a create-mode screen again, and Ctrl+A on it still UPSERTS rather than
-    /// altering — so the new branch has not swallowed the create verb the screen always had.
+    /// Re-drilling from the Gateway gives a create-mode screen again, and Ctrl+A on it still CREATES over a free
+    /// target — so the new branch has not swallowed the create verb the screen always had. (Over an OCCUPIED
+    /// target Ctrl+A no longer upserts; see the P1c tests above.)
     /// </summary>
     [AvaloniaFact]
     public void A_fresh_drill_is_still_a_create_screen_and_CtrlA_still_creates()

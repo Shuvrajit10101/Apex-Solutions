@@ -105,6 +105,21 @@ public sealed partial class EmailComposeViewModel : ViewModelBase
     { }
 
     /// <summary>
+    /// Shell factory over an ALREADY-RENDERED PDF — the drilled pure-stock voucher's delivery challan (T2-159).
+    /// The caller passes the exact bytes Print renders, so the attachment and the printed document are one
+    /// document; the caller, not this panel, decides that a voucher with no document is refused.
+    /// </summary>
+    public static EmailComposeViewModel ForDocument(string documentTitle, byte[] pdf)
+    {
+        ArgumentNullException.ThrowIfNull(pdf);
+        return new EmailComposeViewModel(
+            documentTitle,
+            new EmlAttachment(SafeFileName(documentTitle) + ".pdf", "application/pdf", pdf),
+            DateTime.Now,
+            writeBytes: null);
+    }
+
+    /// <summary>
     /// Testable ctor: supply the document title, the already-rendered attachment (or null for an
     /// attachment-less compose), the "now" the Date/Message-ID derive from, and an optional write seam.
     /// </summary>
