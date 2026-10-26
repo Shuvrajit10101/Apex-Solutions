@@ -150,7 +150,8 @@ public sealed class AddVoucherInactiveTypeTests
 
     /// <summary>
     /// <b>NO.</b> Choosing <i>No</i> puts the list back with the inactive row still offered, and the type stays
-    /// inactive on the reloaded book. <b>Mutation (A5):</b> making <i>No</i> activate as well reddens this.
+    /// inactive on the reloaded book. <b>Mutations:</b> (A5) making <i>No</i> activate as well reddens this; (A6)
+    /// dropping the menu re-sync at the end of <c>FillAddVoucherPicker</c> reddens the highlight assertion.
     /// </summary>
     [AvaloniaFact]
     public void No_leaves_the_type_inactive_and_restores_the_list()
@@ -168,6 +169,10 @@ public sealed class AddVoucherInactiveTypeTests
 
             Assert.Equal(Screen.AddVoucherPicker, vm.CurrentScreen);
             Assert.Contains(vm.Columns[^1].Items, i => i.Label == contra.Name + MainWindowViewModel.InactiveTypeSuffix);
+            // The keys walk the RESTORED rows, highlighted on the first (A6: dropping the re-sync at the end of
+            // FillAddVoucherPicker leaves the shell's menu copy on the prompt's rows).
+            Assert.Equal(vm.Columns[^1].Items.First(i => i.IsSelectable).Label, vm.Menu[vm.SelectedIndex].Label);
+            Assert.Equal(vm.Columns[^1].Items.Count, vm.Menu.Count);
             Assert.False(contra.IsActive);
             Assert.False(Reload(dir, "AddInactive No Co").VoucherTypes.Single(t => t.Id == contra.Id).IsActive);
         }
