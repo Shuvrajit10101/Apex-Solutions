@@ -705,11 +705,6 @@ public sealed record Gstr1(
         return new Money(total);
     }
 
-    /// <summary>Reads a voucher's posted forward tax by head off its <see cref="GstLineTax"/> tax lines. Reverse-charge
-    /// lines are excluded (finding #7): they are their own 3.1(d)/4A buckets, so folding an identical head set here keeps
-    /// Table 9B aligned with GSTR-3B <c>ReadCdn</c> (which already skips them) and consistent with
-    /// <see cref="GstReportSupport.InvoiceTaxableValue"/> (which excludes them too). An ordinary outward invoice carries no
-    /// reverse-charge forward-tax line, so this is a defensive alignment — byte-identical for the reachable paths.</summary>
     /// <summary>Projects the HSN accumulators to filed rows, ordered by HSN (shared by Table 12 and the inward
     /// Table-18 summary so the two cannot drift).</summary>
     private static List<Gstr1HsnRow> ToHsnRows(Dictionary<string, HsnAcc> hsnAcc) =>
@@ -785,6 +780,11 @@ public sealed record Gstr1(
         return ToHsnRows(hsnAcc);
     }
 
+    /// <summary>Reads a voucher's posted forward tax by head off its <see cref="GstLineTax"/> tax lines. Reverse-charge
+    /// lines are excluded (finding #7): they are their own 3.1(d)/4A buckets, so folding an identical head set here keeps
+    /// Table 9B aligned with GSTR-3B <c>ReadCdn</c> (which already skips them) and consistent with
+    /// <see cref="GstReportSupport.InvoiceTaxableValue"/> (which excludes them too). An ordinary outward invoice carries no
+    /// reverse-charge forward-tax line, so this is a defensive alignment — byte-identical for the reachable paths.</summary>
     private static (decimal Cgst, decimal Sgst, decimal Igst) ReadInvoiceHeads(Voucher voucher)
     {
         var cgst = 0m; var sgst = 0m; var igst = 0m;
