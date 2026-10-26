@@ -435,16 +435,19 @@ public sealed class DrilledVoucherEgressTests
     /// so the register stays bound beneath it — and <c>IsReportContext</c> was TRUE there too. Measured before
     /// the fix (probe, this branch): on the stock-voucher alteration, focus on no text field, Ctrl+E opened
     /// Export titled <b>"Day Book"</b>. Asserted here on the stock-voucher alteration, the accounting-voucher
-    /// alteration and the Alt+2 duplicate: none of Ctrl+E, Alt+E, Alt+M, Ctrl+M or W produces anything built
+    /// alteration, the Alt+2 duplicate and the POS-bill alteration: none of Ctrl+E, Alt+E, Alt+M, Ctrl+M or W produces anything built
     /// from the register.
     ///
     /// <para><b>Mutation (run):</b> removing <c>VoucherEntry</c> / <c>InventoryVoucherEntry</c> /
-    /// <c>PosBilling</c> from <c>IsReportContext</c>'s exclusion — Ctrl+E opens the Day Book export: fails.</para>
+    /// <c>PosBilling</c> from <c>IsReportContext</c>'s exclusion — Ctrl+E opens the Day Book export: fails.
+    /// Removing <c>PosBilling</c> ALONE fails exactly the <c>pos-alter</c> case (M14, wave 7 resume), so the POS
+    /// door is held by its own row and not only by the predicate.</para>
     /// </summary>
     [AvaloniaTheory]
     [InlineData("inventory-alter")]
     [InlineData("accounting-alter")]
     [InlineData("accounting-duplicate")]
+    [InlineData("pos-alter")]
     public void Egress_keys_on_an_alteration_drilled_from_the_day_book_never_build_the_register(string door)
     {
         var (window, vm, dir) = NewWindow();
@@ -467,11 +470,44 @@ public sealed class DrilledVoucherEgressTests
             Assert.True(entry.Accept(), entry.Message);
             var receiptId = vm.Company!.Vouchers.Single().Id;
 
+            // One POS bill, posted through the real POS screen, so the POS-alteration door has a row to open.
+            Guid? posBillId = null;
+            if (door == "pos-alter")
+            {
+                var c = vm.Company!;
+                var sales = new Domain.Ledger(Guid.NewGuid(), "Retail Sales",
+                    c.FindGroupByName("Sales Accounts")!.Id, Money.Zero, openingIsDebit: false);
+                var till = new Domain.Ledger(Guid.NewGuid(), "Till Cash",
+                    c.FindGroupByName("Cash-in-Hand")!.Id, Money.Zero, openingIsDebit: false);
+                c.AddLedger(sales);
+                c.AddLedger(till);
+                var before = c.Vouchers.Select(v => v.Id).ToHashSet();
+                vm.OpenPosBilling();
+                Pump(window);
+                var pos = vm.PosBilling!;
+                pos.Date = entry.Date;
+                pos.SelectedSalesLedger = pos.SalesLedgers.Single(l => l.Id == sales.Id);
+                pos.CashRow.SelectedLedger = c.Ledgers.Single(l => l.Id == till.Id);
+                var line = pos.Items[0];
+                line.SelectedItem = pos.StockItems.Single(i => i.Id == k.WidgetId);
+                line.SelectedGodown = pos.Godowns.Single(g => g.Id == k.GodownId);
+                line.QuantityText = "2";
+                line.RateText = "50";
+                window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+                Pump(window);
+                var bill = Assert.Single(c.Vouchers, v => !before.Contains(v.Id));
+                Assert.True(bill.HasPosTenders);
+                posBillId = bill.Id;
+            }
+
             vm.OpenReport(ReportKind.DayBook);
             Pump(window);
-            vm.Reports!.SelectedRow = door == "inventory-alter"
-                ? vm.Reports!.Rows.Single(r => r.DrillInventoryVoucherId == mine.Id)
-                : vm.Reports!.Rows.Single(r => r.DrillVoucherId == receiptId);
+            vm.Reports!.SelectedRow = door switch
+            {
+                "inventory-alter" => vm.Reports!.Rows.Single(r => r.DrillInventoryVoucherId == mine.Id),
+                "pos-alter" => vm.Reports!.Rows.Single(r => r.DrillVoucherId == posBillId),
+                _ => vm.Reports!.Rows.Single(r => r.DrillVoucherId == receiptId),
+            };
             Pump(window);
 
             if (door == "accounting-duplicate")
@@ -480,7 +516,12 @@ public sealed class DrilledVoucherEgressTests
                 window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Control);
             Pump(window);
 
-            var entryScreen = door == "inventory-alter" ? Screen.InventoryVoucherEntry : Screen.VoucherEntry;
+            var entryScreen = door switch
+            {
+                "inventory-alter" => Screen.InventoryVoucherEntry,
+                "pos-alter" => Screen.PosBilling,
+                _ => Screen.VoucherEntry,
+            };
             Assert.Equal(entryScreen, vm.CurrentScreen);
             Assert.NotNull(vm.Reports);           // the register IS still bound beneath — the precondition
 
