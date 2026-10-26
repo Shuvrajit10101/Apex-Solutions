@@ -3125,3 +3125,63 @@ behind the code, not that 20 capabilities were built**. The real remaining work 
 highest-value items this pass surfaced and did NOT fix:** (1) **T0-27** — wrong money, three figures, live at
 main; (2) the **projector maps** — print captions zero for 69 kinds, plus three reports that print entirely
 blank. Both are now written down at their measured size rather than their assumed one.
+
+## 2026-10-26 — PLAN WAVE 7 (A12): FOUR TRACKS LANDED (PRs #186-#189), CENSUS GRADED — `C=81 → 84`, SCHEMA **v68**
+
+**▶ WHAT LANDED, in landing order (smallest diff first, per the wave-7 plan).** Every merge was verified with
+`git ls-remote origin refs/heads/main`, never an exit code.
+| PR | Track / branch | Merge on `main` | Rows |
+|---|---|---|---|
+| #186 | `dg` `claude/apex-dg-gst-2b-surfaces` | `f9b9323` | 6.16 and 6.19 → `COMPLETE`; `T2-151(1)(2)` fixed |
+| #187 | `dm` `claude/apex-dm-inv-masters-reorder-bom` | `e7ac96c` | 3.12 → `COMPLETE`; 3.9 held; `T2-158(2)` phantom item fixed |
+| #188 | `dr` `claude/apex-dr-drilled-voucher-egress` | `3447c02` | `T2-159` HIGH closed; 12.7 held; 11.13 held |
+| #189 | `dv` `claude/apex-dv-vtype-flags-v68` | `920ae3f` | 5.11 held; **schema v67 → v68** (`entry_lines.narration`) |
+Each of #187, #188 and #189 merged the then-current `origin/main` into its branch first. The only conflict
+each time was `docs/invented-vs-cloned.md`, and both sides were kept. The IV sections are §2M (dg, IV-175..178),
+§2N (dr, IV-205..209) and §2O (dv, IV-195..200); dm's IV-185..188 sit unsectioned. **The IV-number blocks were
+pre-assigned per track, so no IV number collided this wave. Only the section LETTER collided, three times.**
+Pre-assign section letters as well next wave.
+
+**▶ GATE.** On `main` after #189 (CI run on dv's synced head, ubuntu/windows/macos each from its own job log):
+**`866 / 3181 / 409 / 5315`** (Io / Ledger / Sqlite / Desktop), 0 failed, 0 skipped. Io +2 and Sqlite +4 are the
+v68 round-trip and migration tests. dg's CI on its own head read `864/3181/405/5243` on all three legs.
+
+**▶ CENSUS (PR for this entry: `claude/apex-w7-census`).** Literal awk before, at `920ae3f`:
+`TOTAL rows=219 C=81 P=133 A=5 U=0 sum=219`. After: `TOTAL rows=219 C=84 P=130 A=5 U=0 sum=219`.
+- **Promoted:** **3.12** (create over an occupied reorder target refuses by name and loads for alteration; P1c
+  holds via Ctrl+A and click; vendor silent → `IV-187`), **6.16** (2B reconciliation prints and exports, scoped to
+  the statement's registration; the 4-of-9 bucket caveat and T2-22 stand → `IV-177`), and **6.19** (`T2-121` (iv)
+  and (v) struck, each proved by mutation; `T2-151(1)` aged-book empty default fixed).
+- **Held `PARTIAL`, cells amended:** **3.9**: the tick ships, but there is NO M-BOM name list, so an item's second
+  and later BOMs cannot be altered anywhere. `IV-186` was re-classed from "navigation shape" to MISSING
+  CAPABILITY (reviewer F5). **5.11**: the per-ledger narration is live on Dr/Cr, Single Entry and Accounting
+  Invoice (persist, round-trip, reload, print), and print-after-save is live on duplicate, inventory and POS.
+  Still open: narration ENTRY in Item Invoice and POS mode (`IV-196`), and print-after-save IGNORED on Job Work
+  orders, Material In/Out and the Payroll door. **12.7**: the `T2-160` blockers are closed (unit printed in the
+  entered unit, qty × rate = amount, description whole), and the stale "2 Doz @ 120 ⇒ 24 Nos @ 10" text is
+  struck. It is held on `IV-164`. **11.13**: the builder's census-only strike was REJECTED, because
+  `help.tallysolutions.com/manage-receivables-outstanding-tally/` documents Alt+G > Overdue Receivables and
+  Overdue Payables, and neither exists in `src/`.
+- **`T2-159` CLOSED** (no census row). The reviewer found the leak on a THIRD door: every column stacked OVER a
+  drill page (Print Preview, Printer, Print Config, voucher-Export). It was fixed with
+  `IsReportContext && !IsDrillPageAboveReport()` (`IV-209`). The verifier then proved 17 routes clean on emitted
+  bytes, and the report-above-drill control stays live. **Residual (LOW, owed):** those verbs are silently inert,
+  with no notice (`IV-208`/`IV-209`).
+
+**▶ 🔴 THE STRANDED-MUTATION RESCUE IN `apexdv`.** During the A12 rescue phase, the `dv` worktree held an
+uncommitted edit in `MainWindowViewModel.cs`'s `ShowVoucherDuplicate` arm. It dropped `Type.PrintAfterSaving: true`
+from the pattern, so EVERY duplicate would have opened print, flag or no flag. **That is a reviewer/builder
+MUTATION that was never reverted**, left behind when an agent died mid-run. It is not authored work. It was
+saved to `Apex-Review-Artifacts/w7-rescue/dv-stranded-mutation.diff` and NOT committed. `apexdv` is now clean at
+`26bdc9b`. `main` carries the correct pattern, re-read at `920ae3f`:
+`duplicate is { Type.PrintAfterSaving: true, SavedVoucherId: var saved }`. The flag-off half of
+`PrintAfterSavingDoorsTests` is exactly the test it would redden. **Lesson:** an A12 rescue
+must READ every dirty hunk before committing it. "Commit before build" must never become "commit whatever is
+dirty", because a dead agent's last state can be a mutation in flight.
+
+**▶ OPEN ITEMS CARRIED FORWARD.** The M-BOM name list (3.9). Item-Invoice/POS narration entry, and
+print-after-save on the Job Work, Material and Payroll doors (5.11). The Overdue Receivables/Payables views,
+reached by Alt+G (11.13). `IV-164` letter shape (12.7). Inert-verb notices (`IV-208`/`209`). `T2-158` F3: a
+refused stock-item ALTER leaves the in-memory item half-altered (MEDIUM, pre-existing). VF3 BOM picker scope
+(LOW). The non-contiguous year list on books aged 2+ years (LOW). `ImsActionsViewModel` has no export seam
+(INFO). **Schema v69 is free.** The deferred 5.6(b) stretch was not attempted.
