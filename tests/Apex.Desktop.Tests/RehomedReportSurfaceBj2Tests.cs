@@ -223,6 +223,62 @@ public sealed class RehomedReportSurfaceBj2Tests : IDisposable
         Assert.All(reports.PayrollColumns, c => Assert.False(string.IsNullOrWhiteSpace(c.Header)));
     }
 
+    /// <summary>
+    /// 🔴 <b>T2-151(1) — ON AN AGED BOOK EACH RE-HOMED REPORT OPENS ON ITS DEFAULT YEAR WITH FIGURES, NOT EMPTY.</b>
+    /// The default window anchors on the LAST voucher's date; each page's own year list was bounded to the
+    /// company FY and the two prior. With the FY starting 01-04-2024 and the only voucher on 09-09-2025 the
+    /// default year is 2025-26, which no page offered — so all three opened with
+    /// <i>"FY 2025-26 is not one it can project"</i> where the page they superseded opened with figures. Driven
+    /// through each REAL opener, and compared cell for cell with the superseded page projected over 2025-26, so
+    /// rows from the wrong year cannot pass.
+    ///
+    /// <para><b>Mutation that reddens it:</b> delete the <c>OfferTheDefaultAsOfYear(page)</c> call in
+    /// <c>ReportsViewModel.BuildRehomedFyScopedGstPage</c> — the report is marked empty with the refusal.</para>
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RehomedKinds))]
+    public void An_aged_book_opens_each_rehomed_report_on_its_default_year_with_figures(ReportKind kind)
+    {
+        var vm = RegularGstFixture($"Bj2 Aged {kind}", saleDate: new DateOnly(2025, 9, 9));
+
+        OpenerFor(vm, kind)();
+        Assert.Equal(Screen.Report, vm.CurrentScreen);
+        var reports = vm.Reports!;
+        Assert.Equal(kind, reports.Kind);
+
+        Assert.False(reports.IsPayrollEmpty, $"{kind} opened empty on an aged book: {reports.PayrollEmptyNote}");
+        Assert.Contains("01-Apr-2025", reports.Subtitle);
+        Assert.Contains("31-Mar-2026", reports.Subtitle);
+
+        var page = SupersededPageFor(kind, vm.Company!, startYear: 2025);
+        Assert.NotEmpty(page.Rows);
+        Assert.Equal(page.Rows.SelectMany(r => r).ToList(), Cells(reports));
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-151(2) — A PARTIAL WINDOW IS SNAPPED TO ITS WHOLE FINANCIAL YEAR ON EVERY RE-HOMED KIND.</b> Every
+    /// <c>SetPeriod</c> elsewhere in this file is already a whole year, so mutation M3 (making
+    /// <c>GstAnnualReturnWindow</c> honour the requested window verbatim — the shape that printed a year's figures
+    /// under a four-day heading) reddened nothing here. A four-day window inside FY 2024-25 must state the whole
+    /// year it projected and carry exactly the whole year's cells.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(RehomedKinds))]
+    public void A_partial_window_is_snapped_to_its_whole_financial_year_on_every_rehomed_kind(ReportKind kind)
+    {
+        var vm = RegularGstFixture($"Bj2 Partial {kind}");
+        var reports = new ReportsViewModel(vm.Company!, kind);
+        var wholeYear = Cells(reports);
+
+        reports.SetPeriod(new DateOnly(2024, 4, 11), new DateOnly(2024, 4, 14));
+
+        Assert.Contains("01-Apr-2024", reports.Subtitle);
+        Assert.Contains("31-Mar-2025", reports.Subtitle);
+        Assert.DoesNotContain("11-Apr-2024", reports.Subtitle);
+        Assert.DoesNotContain("14-Apr-2024", reports.Subtitle);
+        Assert.Equal(wholeYear, Cells(reports));
+    }
+
     // ================================================================= the egress contract
 
     /// <summary>
@@ -339,6 +395,20 @@ public sealed class RehomedReportSurfaceBj2Tests : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "not a W-BJ2 re-homed kind"),
     };
 
+    /// <summary>The superseded page projected over a chosen financial year (one its list may not have offered).</summary>
+    private static MasterListSnapshot SupersededPageFor(ReportKind kind, Company company, int startYear)
+    {
+        IFyScopedGstReportPage page = kind switch
+        {
+            ReportKind.ItcSetOffProjection => new ItcSetOffReportViewModel(company),
+            ReportKind.QrmpIffCadence => new QrmpReportViewModel(company),
+            ReportKind.ElectronicLedgers => new ElectronicLedgersReportViewModel(company),
+            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "not a W-BJ2 re-homed kind"),
+        };
+        page.SelectedYear = new GstAdvFyOption { StartYear = startYear };
+        return page.ToMasterListSnapshot();
+    }
+
     /// <summary>Every cell of the matrix, flattened — the comparison a figure change cannot hide from.</summary>
     private static List<string> Cells(ReportsViewModel reports) => reports.PayrollRows
         .SelectMany(r => r.Cells.Select(c => c.Text))
@@ -347,7 +417,7 @@ public sealed class RehomedReportSurfaceBj2Tests : IDisposable
     /// <summary>A Regular GST company that elected QRMP (Quarterly return / Monthly payment), with one
     /// intra-state B2B sale of ₹1,000 @ 18% posted inside FY 2024-25 — so every one of these three reports has
     /// real, non-zero figures in that year and different ones in the year before.</summary>
-    private MainWindowViewModel RegularGstFixture(string name)
+    private MainWindowViewModel RegularGstFixture(string name, DateOnly? saleDate = null)
     {
         var vm = new MainWindowViewModel(_storage);
         vm.NewCompanyName = name + " " + Guid.NewGuid().ToString("N")[..6];
@@ -389,7 +459,7 @@ public sealed class RehomedReportSurfaceBj2Tests : IDisposable
             new(sales.Id, Money.FromRupees(1000m), DrCr.Credit),
         };
         lines.AddRange(tax.TaxLines);
-        ledgers.Post(new Voucher(Guid.NewGuid(), salesType, SaleDate, lines, number: 1, partyId: debtor.Id));
+        ledgers.Post(new Voucher(Guid.NewGuid(), salesType, saleDate ?? SaleDate, lines, number: 1, partyId: debtor.Id));
 
         _storage.Save(c);
         vm.ShowGateway();

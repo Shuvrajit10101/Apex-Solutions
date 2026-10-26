@@ -8704,6 +8704,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var (from, to) = GstAnnualReturnWindow();
         IsTwoColumn = false;
 
+        OfferTheDefaultAsOfYear(page);
         var wanted = page.FinancialYears.FirstOrDefault(o => o.StartYear == from.Year);
         if (wanted is not null) page.SelectedYear = wanted;   // re-projects the page over the chosen year
 
@@ -8730,6 +8731,30 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         MarkStatutoryFormEmpty(PayrollRows.Count == 0,
             $"No figures for FY {FormatDate(from)} to {FormatDate(to)}.");
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-151(1) — THE YEAR THE REPORT OPENS ON MUST BE A YEAR THE PAGE OFFERS.</b> Each re-homed page lists
+    /// its company FY and the two prior (<c>[FYStart.Year−2 .. FYStart.Year]</c>), while this surface's DEFAULT
+    /// window anchors on <see cref="ComputeAsOf"/> — the last voucher's date. On an aged book (FY start
+    /// 01-04-2024, last voucher 09-09-2025) the default year, 2025-26, was not on the list, so ITC Set-Off,
+    /// QRMP / IFF and Electronic Ledgers all opened EMPTY by default where the pages they superseded opened with
+    /// figures.
+    ///
+    /// <para><b>This WIDENS what is offered; it is not a fallback.</b> The financial year containing the default
+    /// as-of is added to the page's own list (in its descending order), and then the ordinary lookup runs. A
+    /// period the operator chooses outside the widened list is still refused by name, exactly as before — the
+    /// "never answer one year with another year's figures" rule is untouched.</para>
+    /// </summary>
+    private void OfferTheDefaultAsOfYear(IFyScopedGstReportPage page)
+    {
+        var fyMonth = _company.FinancialYearStart.Month;
+        var asOfYear = _defaultAsOf.Month >= fyMonth ? _defaultAsOf.Year : _defaultAsOf.Year - 1;
+        if (page.FinancialYears.Any(o => o.StartYear == asOfYear)) return;
+
+        var at = 0;
+        while (at < page.FinancialYears.Count && page.FinancialYears[at].StartYear > asOfYear) at++;
+        page.FinancialYears.Insert(at, new GstAdvFyOption { StartYear = asOfYear });
     }
 
     private static string Or(string? s) => string.IsNullOrWhiteSpace(s) ? "—" : s!;
