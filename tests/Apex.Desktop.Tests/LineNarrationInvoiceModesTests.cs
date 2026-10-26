@@ -333,8 +333,8 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
     /// <summary>
     /// 🔴 <b>CARRY ACROSS AN AMENDMENT.</b> A narration on an ADDITIONAL-COST leg is matched by ledger alone — it
     /// moves no figure — so amending the freight from 555.53 to 777.71 keeps it on the reloaded book's freight leg.
-    /// <b>Mutation:</b> deleting <c>carriedCostNarration = narrated.Narration;</c> in <c>BuildItemInvoice</c>
-    /// reddens this (the dropped-narration guard then refuses the accept).
+    /// <b>Mutation:</b> replacing <c>carriedCostNarration = r.ToLineNarration();</c> in <c>BuildItemInvoice</c> with
+    /// <c>null</c> reddens this (wave 8: the row's field, re-loaded on alteration, is now the one source).
     /// </summary>
     [Fact]
     public void An_additional_cost_leg_keeps_its_narration_when_its_amount_is_amended()
@@ -362,9 +362,11 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
     // ============================================================== (4) the POS bill alteration
 
     /// <summary>
-    /// 🔴 <b>THE POS BILL HAS NO NARRATION FIELD AND REBUILDS EVERY LINE</b>, so a narration an import put on its
-    /// sales leg is refused BY NAME on alteration and left on the reloaded book. GST is off so the bill total is
-    /// the line value (2 × 1,234.57 = 2,469.14), tendered exactly in cash.
+    /// 🔴 <b>THE POS BILL REBUILDS EVERY LINE</b>, and its re-derived GST legs have no narration field, so a
+    /// narration an import put on a GST leg is refused BY NAME on alteration and left on the reloaded book.
+    /// ⚠️ <i>Wave 8 (IV-236) moved this test off the Sales leg:</i> the Sales and tender legs now HAVE fields, so a
+    /// narration there is re-loaded and carried (pinned by <c>LineNarrationPosBillTests</c>); the refusal survives
+    /// for the legs that still have none. GST is on (Counter Widget at 18%, 2 x 1,234.57), tendered exactly in cash.
     /// <b>Mutation:</b> deleting the <c>DroppedLineNarrationRefusal</c> check in
     /// <c>PosBillingViewModel</c>'s alteration accept reddens this at the first assertion.
     /// </summary>
@@ -373,9 +375,11 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
     {
         using var book = AlterationBook.New("ln_pos_refuse");
         var c = book.Company;
+        book.EnableGst();
         var masters = new InventoryService(c);
         var widget = masters.CreateStockItem("Counter Widget", masters.CreateStockGroup("Retail").Id,
             masters.CreateSimpleUnit("Nos", "Numbers", decimalPlaces: 3).Id);
+        widget.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
         var sales = book.Ledger("Retail Sales", "Sales Accounts");
         var cash = book.Ledger("Till Cash", "Cash-in-Hand");
         var posType = new VoucherType(Guid.NewGuid(), "Sales (POS)", VoucherBaseType.Sales, useForPos: true,
@@ -394,23 +398,26 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         row.RateText = WidgetRate;
         vm.Narration = "Counter nonce ONE";
         vm.CashRow.SelectedLedger = cash;
-        vm.CashRow.CashTenderedText = "2469.14";
         Assert.True(vm.Accept(), vm.Message);
         var posted = c.Vouchers.Last(v => v.TypeId == posType.Id);
+        var taxLeg = posted.Lines.First(l => l.Gst is not null);
+        var taxLedgerName = c.FindLedger(taxLeg.LedgerId)!.Name;
 
-        posted = StampNarrations(book, posted, l => l.LedgerId == sales.Id ? "Festival counter, stall 9" : null);
+        posted = StampNarrations(book, posted, l =>
+            l.LedgerId == taxLeg.LedgerId && l.Side == taxLeg.Side ? "Festival counter, stall 9" : null);
 
         var open = PosBillingViewModel.ForAlter(c, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
         Assert.False(open.IsRefused, open.Refusal);
         var alter = open.Entry!;
         alter.Narration = "Counter nonce TWO";
         Assert.False(alter.AcceptAlteration());
-        Assert.Contains("Retail Sales", alter.Message);
+        Assert.Contains(taxLedgerName, alter.Message);
         Assert.Contains("Festival counter, stall 9", alter.Message);
 
         var reloaded = ReloadOf(book).Vouchers.Single(v => v.Id == posted.Id);
         Assert.Equal("Counter nonce ONE", reloaded.Narration);
-        Assert.Equal("Festival counter, stall 9", reloaded.Lines.Single(l => l.LedgerId == sales.Id).Narration);
+        Assert.Equal("Festival counter, stall 9",
+            reloaded.Lines.Single(l => l.LedgerId == taxLeg.LedgerId && l.Side == taxLeg.Side).Narration);
     }
 
     public void Dispose()

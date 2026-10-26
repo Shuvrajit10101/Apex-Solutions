@@ -273,9 +273,8 @@ public sealed class LineNarrationItemInvoiceEntryTests : IDisposable
     /// 🔴 <b>RELOAD ON ALTERATION.</b> A posted item invoice re-opens with each narration IN ITS FIELD; an edit to
     /// one and a deliberate CLEAR of another both reach the reloaded book, and the untouched cost-row narration
     /// survives. <b>Mutations:</b> (M7) deleting <c>LoadInvoiceLegNarrations(...)</c> in
-    /// <c>RehydrateItemInvoiceFrom</c> reddens the field assertions; (M8) passing <c>Array.Empty&lt;string&gt;()</c>
-    /// instead of <c>CurrentInvoiceLegNarrations()</c> to the guard does NOT redden this (the guard only excuses),
-    /// so (M9) — dropping the narrations from <c>_editableLineNarrations</c> — is the one that reddens the clear.
+    /// <c>RehydrateItemInvoiceFrom</c> reddens the field assertions; (M9) not recording the loaded narrations in
+    /// <c>_editableLineNarrations</c> reddens the accept (the guard then refuses the deliberate clear).
     /// </summary>
     [AvaloniaFact]
     public void An_item_invoice_alteration_reloads_its_narrations_and_honours_an_edit_and_a_clear()
@@ -421,8 +420,8 @@ public sealed class LineNarrationItemInvoiceEntryTests : IDisposable
     /// <summary>
     /// 🔴 <b>PRINTED.</b> The saved GST item invoice's printing screen is the TAX INVOICE, and its emitted PDF bytes
     /// carry each ledger narration named by its ledger. <b>Mutations:</b> (M10) deleting the LedgerNarrations loop in
-    /// <c>InvoicePdf.BuildClosing</c> reddens the byte assertions; (M11) dropping
-    /// <c>LedgerNarrations = LedgerNarrationsOf(company, voucher)</c> from <c>ProjectInvoice</c> reddens them too.
+    /// <c>InvoicePdf.BuildClosing</c> reddens the byte assertions; (M11) making
+    /// <c>VoucherPrintProjector.LedgerNarrationsOf</c> return nothing reddens them too.
     /// </summary>
     [AvaloniaFact]
     public void The_item_invoice_ledger_narrations_print_on_its_tax_invoice()
@@ -433,6 +432,12 @@ public sealed class LineNarrationItemInvoiceEntryTests : IDisposable
         Assert.Contains("TAX INVOICE", pdf, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("(Nonce Clients: Counter sale) Tj", pdf, StringComparison.Ordinal);
         Assert.Contains("(Sales Account: Widgets for Pune) Tj", pdf, StringComparison.Ordinal);
+
+        // …and the on-screen mirror the operator approves shows the same lines (M13: dropping the
+        // LedgerNarrations loop from the invoice mirror in PrintPreviewViewModel reddens this).
+        var mirror = string.Join("\n", preview.Pages.SelectMany(p => p.Lines.Select(l => string.Join(" ", l.Cells))));
+        Assert.Contains("Nonce Clients: Counter sale", mirror, StringComparison.Ordinal);
+        Assert.Contains("Sales Account: Widgets for Pune", mirror, StringComparison.Ordinal);
     }
 
     /// <summary>THE CONTROL for the print: the same invoice without narrations prints no ledger-narration line.</summary>
