@@ -29,8 +29,9 @@ namespace Apex.Desktop.Tests;
 ///
 /// <para><b>FIDELITY (R7, ruling 14).</b> help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/
 /// was opened BY CONTENT on 2026-10-25: <i>"In the Stock Item Alteration screen, enable the option Alter
-/// Components (BOM)"</i>. What is OURS is labelled ours: the F12-feature gating of the option (IV-185) and
-/// opening the item's first BOM by name directly instead of the vendor's BOM-name list (IV-186).</para>
+/// Components (BOM)"</i>. What is OURS is labelled ours: the F12-feature gating of the option (IV-185) and,
+/// until wave 8, opening the item's first BOM by name directly (IV-186) — now replaced by the M BOM name list
+/// (<see cref="BomNameListTests"/>).</para>
 /// </summary>
 public sealed class BomAlterComponentsTests
 {
@@ -196,6 +197,9 @@ public sealed class BomAlterComponentsTests
             TickAlterComponentsByKeyboard(window);
 
             Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            // Census 3.9 (wave 8): the M BOM name list comes first; Enter opens the highlighted (only) BOM.
+            Assert.Equal(Screen.BomNameList, vm.CurrentScreen);
+            Key(window, PhysicalKey.Enter);
 
             Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
             var bom = vm.BomMaster!;
@@ -224,6 +228,8 @@ public sealed class BomAlterComponentsTests
             OpenTableAlteration(window, vm);
             TickAlterComponentsByKeyboard(window);
             Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Equal(Screen.BomNameList, vm.CurrentScreen);
+            Key(window, PhysicalKey.Enter);
             var bom = vm.BomMaster!;
             AssertLoadedStandard(bom, s);
 
