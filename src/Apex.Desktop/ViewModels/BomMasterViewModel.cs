@@ -190,6 +190,12 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
 
         var vm = new BomMasterViewModel(company, storage, onChanged);
         vm._editingId = bom.Id;
+        if (bom.CarveOutLines.Any() && !company.DefineBomComponentType)
+        {
+            vm._altersSavedCarveOuts = true;
+            vm.BuildPickerOptions();   // rebuild the type list so the saved carve-out types have options to land on
+            vm.OnPropertyChanged(nameof(ShowLineTypePicker));
+        }
         vm.Name = bom.Name;
         vm.SelectedFinishedGood = vm.FinishedGoods.FirstOrDefault(i => i.Id == bom.StockItemId) ?? vm.SelectedFinishedGood;
         vm.UnitOfManufactureText = bom.UnitOfManufacture.ToString("0.######", CultureInfo.InvariantCulture);
@@ -296,7 +302,13 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     }
 
     /// <summary>True iff the F12 config "Define type of component for BOM" is on — the carve-out type picker shows (RQ-10).</summary>
-    public bool ShowLineTypePicker => _company.DefineBomComponentType;
+    public bool ShowLineTypePicker => _company.DefineBomComponentType || _altersSavedCarveOuts;
+
+    /// <summary>🔴 Reviewer fix (wave 7): true while this screen ALTERS a BOM that already carries By-Product,
+    /// Co-Product or Scrap lines. With the F12 switch off the type list held only "Component", so
+    /// <see cref="ForAlter"/> fell back to it and an unchanged Ctrl+A rewrote a Scrap output as a consumed
+    /// Component and dropped its carve-out rate. The saved types are shown and kept instead.</summary>
+    private bool _altersSavedCarveOuts;
 
     /// <summary>True once at least one stock item exists — a BOM needs a finished good and components.</summary>
     public bool CanCreate => FinishedGoods.Count > 0;
