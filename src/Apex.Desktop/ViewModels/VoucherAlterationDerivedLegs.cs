@@ -264,7 +264,8 @@ public static class VoucherAlterationDerivedLegs
             line.BillAllocations.Count > 0 ? line.BillAllocations : null,
             line.CostAllocations.Count > 0 ? line.CostAllocations : null,
             line.BankAllocation,
-            line.Forex);
+            line.Forex,
+            narration: line.Narration);   // census 5.11 (v68): the below-threshold deductee row keeps its narration
 
     // ------------------------------------------------------------------ the reverse-charge pair
 
