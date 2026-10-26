@@ -2920,7 +2920,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Severity** | **MEDIUM. Class B (attested, partly built). Area: ENT.** |
 | **What TallyPrime does — attested** | The *Provide narration for each ledger in voucher* sentence in the section head, naming the Accounting/Item Invoice and As Voucher modes. |
 | **What we ship** | With the flag on, a narration field sits under each Dr/Cr line (As Voucher), under each particular (Single Entry, the layout Payment/Receipt/Contra open in) and under each particulars line of an **Accounting Invoice**; it is next in Tab order after that line's Amount. It persists on `entry_lines.narration` (schema v68), reloads on alteration and on Alt+2 duplicate, and round-trips canonical JSON/XML. With the flag off the field is realised and hidden. |
-| **🔴 NOT BUILT — the gap** | **Item Invoice ENTRY.** The item screen's ledger legs (party, stock/value ledger, additional costs) have no narration field, so a narration cannot be KEYED there. What IS built for item invoices is the no-loss half: an alteration CARRIES a narration an import put on the party, value or additional-cost leg (IV-199). The vendor's own exclusion list (Delivery Note … Rejection Out) needs no work: those screens have no ledger lines in this product. |
+| **🔴 NOT BUILT — the gap** | ✅ **SUPERSEDED in wave 8 (track `ec`) — see IV-235; the row below is the wave-7 record.** **Item Invoice ENTRY.** The item screen's ledger legs (party, stock/value ledger, additional costs) have no narration field, so a narration cannot be KEYED there. What IS built for item invoices is the no-loss half: an alteration CARRIES a narration an import put on the party, value or additional-cost leg (IV-199). The vendor's own exclusion list (Delivery Note … Rejection Out) needs no work: those screens have no ledger lines in this product. |
 | **What is OURS** | The field's placement (a full-width row under the line), its caption and its Tab position. The page says nothing about layout. ALSO ours: a line that was POSTED carrying a narration keeps its field visible on alteration even after the type's flag is switched off, so text the operator cannot see is never silently kept or dropped. |
 | **Tests** | `LineNarrationEntryTests` (Dr/Cr and Single Entry through the real Tab/typing/Ctrl+A, reload, alteration, export→import), `LineNarrationInvoiceModesTests` (Accounting Invoice through the real keys, read off the reloaded book; the flag-off control). |
 
@@ -2931,7 +2931,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Severity** | **LOW. Class C. Area: PRN.** |
 | **What TallyPrime does** | **SILENT on the page above.** No sentence on `voucher-types-tally/` says a ledger narration prints. Bounded to that page; no universal negative is claimed. |
 | **What we ship** | `VoucherPdf` prints the narration indented under its posting line, wrapped to the particulars column, on the SAME F12 *Show Narration* toggle as the voucher narration; the on-screen preview mirrors it. |
-| **🔴 NOT BUILT** | The GST **invoice** documents (`InvoicePdf` — the item and service tax invoices) do not print line narrations. A narration keyed on an Accounting Invoice (IV-196) is stored and exported but does not appear on its printed tax invoice. |
+| **🔴 NOT BUILT** | ✅ **SUPERSEDED in wave 8 (track `ec`) — see IV-237; the row below is the wave-7 record.** The GST **invoice** documents (`InvoicePdf` — the item and service tax invoices) do not print line narrations. A narration keyed on an Accounting Invoice (IV-196) is stored and exported but does not appear on its printed tax invoice. |
 | **Tests** | `LineNarrationEntryTests.The_line_narration_prints_on_the_voucher_pdf` (emitted PDF bytes of the reloaded voucher, and the preview mirror). |
 
 ### IV-198 · Line-narration normalisation and its canonical encoding are ours
@@ -2960,6 +2960,76 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Severity** | **LOW. Class C. Area: ENT (census 14.4, not 5.11).** |
 | **What changed** | The footnote used to say *"this book stores narration on the voucher, not on the line"*. After v68 that is false, so the reason now reads that an item invoice does not offer it and the Dr/Cr and service grids take it when the voucher type allows. The entry stays in the withheld list: the More Details panel itself still has no Ledger Narration row. Promoting it is census 14.4's work. |
 | **Tests** | `MoreDetailsTests.Per_line_narration_is_stored_but_the_footnote_still_names_what_this_panel_cannot_offer` (renamed from `Per_line_narration_genuinely_has_nowhere_to_be_stored`, which reddened on v68 as it was written to). |
+
+## 2P. ADDED 2026-10-26 — WAVE 8 TRACK `ec`: THE REST OF THE VOUCHER-TYPE FLAGS (census rows 5.11 and 5.6(b))
+
+> **This track's pre-assigned block is IV-235..IV-244.** It takes **IV-235 … IV-239** and leaves IV-240..244
+> unused. The section letter `2P` is this branch's guess at the next free letter; a sibling track may take the
+> same letter this wave, and A12 renames the section at merge if so — the entry NUMBERS are the stable handle.
+>
+> **Vendor ground, opened BY CONTENT on 2026-10-26 with a fresh fetch:**
+> - `help.tallysolutions.com/voucher-types-tally/`: **"Enable Print voucher after saving to automatically open the
+>   Voucher Printing screen for the voucher, once it is saved."** — the page states no voucher-type restriction for
+>   it. And **"Enable Provide narration for each ledger in voucher to add narration for individual ledgers based on
+>   the voucher mode, such as Accounting/Item Invoice or As Voucher."**, with the exclusion list (Delivery Note,
+>   Receipt Note, Sales Order, Purchase Order, Physical Stock, Stock Journal, Rejection In, Rejection Out). The page
+>   says nothing about where the field sits, about printing a ledger narration, or about alteration.
+> - `help.tallysolutions.com/accounting-entry-tally/` and `…/tally-prime/accounting/accounting-faq/` for the
+>   activation prompt (quoted in IV-239; the census row 5.6 records both pages).
+> - `help.tallysolutions.com/principal-manufacturer/` and `…/job-worker/` were opened by content for IV-238 and
+>   **mention no printing at all** for Job Work orders or Material In/Out. That is a statement about two pages,
+>   not a universal negative, and it is not used as a ground for anything below — it is why IV-238 stays a
+>   divergence.
+
+### IV-235 · Item Invoice ledger narration: the party, the value ledger and each additional-cost row take one — WHERE the fields sit is ours
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM → closes the IV-196 gap.** Class B (attested, now built). Area: ENT. |
+| **What TallyPrime does — attested** | The *Provide narration for each ledger in voucher* sentence in the section head, naming Item Invoice. |
+| **What we ship** | With the flag on, the invoice header grows a narration row under its pickers: the **party** ledger's field (both invoice modes — so the Accounting Invoice's party leg, which IV-196 left without one, now has it too) and the **value (Sales/Purchases) ledger**'s field (item invoice only, and only while that picker is shown). Each **additional-cost** row grows a field under it, next in Tab order after the row's amount. The fields post on the legs they name (`entry_lines.narration`, v68 — no schema change here), reload INTO THOSE FIELDS on alteration and on Alt+2 duplicate, and round-trip canonical JSON/XML. The fields are the one source on accept, so an untouched posted narration survives, an edit persists and a **deliberate clear is honoured** — the dropped-narration guard (IV-199) excuses exactly what was loaded into a field. Engine-derived legs (GST, TCS) still take none, and a narration an import put on one is still REFUSED by name. |
+| **What is OURS** | (a) The placement: one header row (party, then value ledger) below the header pickers, so Tab reaches it from the value-ledger picker; and a full-width row under each cost row. (b) A cost row carrying ONLY a narration is refused as incomplete rather than its words dropped. (c) A value-ledger narration typed before a voucher class that pre-maps ledgers is chosen is refused by name (the class splits the value leg, so the words have no single leg to ride). (d) IV-196's visibility rule extends here: a posted narration keeps its field visible even if the type's flag is later switched off. |
+| **Tests** | `LineNarrationItemInvoiceEntryTests` — the flag-off control, the real Tab/typing/Ctrl+A path read off a reloaded book, the cost row through the real Tab, the narration-only cost row refusal, the alteration (reload, edit, clear), canonical export→import, and the Accounting Invoice party leg. Mutation log `Apex-Review-Artifacts/w8-ec-mut.txt` M1–M9, M12. |
+
+### IV-236 · POS bill ledger narration: the Sales ledger and each tender ledger take one
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM → closes the POS half of the census 5.11 entry gap.** Class B. Area: ENT. |
+| **What TallyPrime does — attested** | The same sentence. A POS bill is a Sales voucher in invoice mode in this product. |
+| **What we ship** | With the POS type's flag on, a field sits under the **Sales ledger** picker and under every **tender** row (Cash in single mode; Gift, Card, Cheque and Cash in multi mode). Each posts on its own leg; the tender lines are `PosTenderService.BuildTenderDebitLines`' lines re-stamped, so a bill without narrations posts byte-identically. On alteration each posted narration is loaded back into its field (the tender line is matched to its tender by ledger and amount), an edit or a clear is honoured, and a narration on a re-derived GST leg is still refused by name. |
+| **What is OURS** | The placement and caption of the fields; the matching rule above. ⚠️ The pre-wave-8 test `LineNarrationInvoiceModesTests.A_pos_bill_alteration_that_would_drop_a_line_narration_is_refused_by_name` stamped its narration on the SALES leg, which now has a field and is carried; it was moved to a GST leg (where the refusal still applies) rather than deleted. |
+| **Tests** | `LineNarrationPosBillTests` — flag-off control, the real Tab/typing/Ctrl+A path (Sales and cash), alteration (reload, edit, clear), canonical export→import. Mutations P1–P6. |
+
+### IV-237 · Ledger narrations print on the TAX INVOICE and on the POS RECEIPT — the vendor page is silent on printing
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C. Area: PRN.** Closes IV-197's "NOT BUILT" row. |
+| **What TallyPrime does** | **SILENT** on `voucher-types-tally/`, bounded to that page as in IV-197. |
+| **What we ship** | `InvoicePrintData.LedgerNarrations` / `PosReceiptData.LedgerNarrations`, filled from the POSTED voucher by `VoucherPrintProjector.LedgerNarrationsOf` (posting order, each named by its ledger, ASCII-folded). The tax invoice prints them as `<ledger>: <words>` lines under the remarks, on the same F12 *Show Narration* toggle and measured by the same closing-block arithmetic; the POS receipt prints a **Ledger Narrations** block under the payment lines. Both on-screen mirrors show the same. A document with no ledger narration is byte-identical (ER-13). The item, service and §34-note projections all carry the list. |
+| **What is OURS** | The whole layout. **Not measured:** the service (Accounting) invoice and the §34 note carry the list through the same projector call, but no test prints one of them with a ledger narration — the claim is the code path, not an emitted byte. |
+| **Tests** | `LineNarrationItemInvoiceEntryTests.The_item_invoice_ledger_narrations_print_on_its_tax_invoice` (+ its control), `LineNarrationPosBillTests.The_pos_receipt_prints_the_ledger_narrations` (+ its control). Mutations M10, M11, M13, P7–P9. |
+
+### IV-238 · `Print voucher after saving` on the Job Work order and Material In / Out doors — read, but there is NO document to open, so the door SAYS so
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (divergence, labelled as ours). Area: ENT/PRN.** |
+| **What TallyPrime does — attested** | The *Print voucher after saving* sentence: the Voucher Printing screen opens **for the voucher**, no base-type restriction stated. **What a Job Work order or a Material In/Out voucher PRINTS is not stated** on any TallyPrime page we opened (section head). |
+| **What we ship** | Both creation doors (`OpenJobWorkOrder`, `OpenMaterialMovement`) now wrap their save the way `OpenInventoryVoucher` does: navigate first, then — only when the type's flag is on — route the voucher THIS screen saved (its new `SavedVoucherId`) through `OpenInventoryVoucherPrintingAfterSave`. This product prints no document for those kinds (IV-161, deliberately narrow: Tally.ERP 9 pages describe a Material Out challan and Tally.ERP 9 is not ground truth), so the door raises its NAMED notice — *"This voucher has no printed document. …"* — instead of the flag being silently ignored. |
+| **🔴 NOT BUILT, stated rather than implied** | **No Voucher Printing screen opens for these vouchers.** The census cell asked for the preview of THAT voucher; there is no document to preview, and inventing one (a Material Out challan) on a Tally.ERP 9 lead is what IV-161 refuses to do. When a TallyPrime page settles it, the change is `DeliveryChallanPrintProjector.PrintsAChallan` (one predicate) and both doors light up without further wiring. **The Payroll voucher door is OUT of scope by ruling 30 and was not touched.** |
+| **Tests** | `PrintAfterSavingJobWorkDoorsTests` — Job Work Out Order (flag on: the screen's saved id is the order on the reloaded book and the notice is raised; flag off: nothing), Material Out (flag on/off theory), Material In. Every save goes through the real Ctrl+A. Mutations J1–J6. |
+
+### IV-239 · Alt+A from the Day Book offers INACTIVE voucher types and asks to activate — the prompt's shape and wording are ours
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM → closes census 5.6 clause (b).** Class B. Area: ENT. |
+| **What TallyPrime does — attested** | `help.tallysolutions.com/accounting-entry-tally/`: *"In case the voucher is inactive, you will be prompted to activate the Memorandum voucher type"*; `…/tally-prime/accounting/accounting-faq/`: *"TallyPrime prompts you to activate the voucher types"*. (Both pages are quoted in census 5.6's own cell; this branch re-used them and did not re-derive them.) |
+| **What we ship** | The Alt+A picker lists inactive types AFTER the active ones, each marked **"(Inactive)"**. Choosing one turns the picker column, in place, into a prompt — *"'X' is inactive. Activate it?"* — with **Yes - activate and enter** (activates through `VoucherTypeService.SetActive`, SAVES, rolls the flag back with a named notice if the save fails, then opens that type's entry exactly as an active row would) and **No** (restores the list; the type stays inactive). Esc closes the picker as before. An inactive type whose own screen is feature-gated — Job Work In/Out Order and Material In/Out while job-order processing is off, Payroll while payroll is off — is NOT offered, because activating it would open nothing. |
+| **What is OURS** | The suffix, the prompt wording, the in-column Yes/No shape and the feature-gate exclusion. ⚠️ **A divergence in the key:** the accounting-entry page adds that you *"select Yes or press Y to proceed"* (re-opened by content 2026-10-26). Here **Yes is the default highlight, so Enter alone accepts**, but a bare **Y is not wired** to accept — in this data-driven column a bare letter type-ahead-filters rather than activating (the same column rule the Alt+A picker has always had). ⚠️ **Scope:** only the Day Book's Alt+A picker; the F10 / Other Vouchers routes the vendor pages describe still filter inactive types out and are untouched here. |
+| **Tests** | `AddVoucherInactiveTypeTests` (list, Yes, No — real Alt+A / arrows / Enter, activation read off a reloaded book); `DayBookAddVoucherKeyboardTests.AltA_picker_lists_all_active_types_including_credit_and_debit_note` still pins the default book's list (no feature-gated inactive type leaks in). Mutations A1–A7, A6b. |
 
 ## 3. Grouped by area
 

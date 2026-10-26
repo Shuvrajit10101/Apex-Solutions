@@ -342,6 +342,10 @@ public sealed class MoreDetailsTests : IDisposable
         Assert.NotNull(typeof(EntryLine).GetProperty(nameof(EntryLine.Narration)));
         Assert.DoesNotContain("stores narration on the voucher, not on the line",
             string.Join("; ", MoreDetailsViewModel.WithheldFields));
+        // Census 5.11 wave 8 (IV-235): the item invoice now takes a ledger narration, so the footnote may not say
+        // it does not.
+        Assert.DoesNotContain("not offered on an item invoice",
+            string.Join("; ", MoreDetailsViewModel.WithheldFields));
         Assert.Null(typeof(Company).GetProperty("Pan"));
         Assert.Null(typeof(Company).GetProperty("Cin"));
     }

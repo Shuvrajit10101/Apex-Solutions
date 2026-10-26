@@ -108,7 +108,7 @@ public sealed partial class MoreDetailsViewModel : ViewModelBase
     /// </summary>
     public static IReadOnlyList<string> WithheldFields { get; } = new[]
     {
-        "Ledger Narration (per line) — not offered on an item invoice; the Dr/Cr and service grids take it when the voucher type allows narration for each ledger",
+        "Ledger Narration (per line) — not on this panel; the voucher screen takes it under each ledger (Dr/Cr and service grids, the item invoice header and cost rows) when the voucher type allows narration for each ledger",
         "Voucher No. Details / Select Unused Voucher Nos. — unused numbers are not tracked",
         "PAN / CIN — not stored on the company",
     };
