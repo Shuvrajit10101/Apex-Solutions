@@ -3726,10 +3726,63 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// TRUE the instant the menu's own screen id replaced <see cref="Screen.VoucherDetail"/> — and the bare-W
     /// arm, reached from the Share menu's own painted W, then handed a third party the whole Day Book in place
     /// of the one invoice the operator had drilled into.</para>
+    ///
+    /// <para>🔴 <b>T2-159 — <see cref="Screen.InventoryVoucherDetail"/> IS A DRILL COLUMN TOO, AND LEAVING IT OFF
+    /// THIS LIST WAS A CONFIDENTIALITY DEFECT.</b> The pure-stock drill pane (census 4.9–4.16) is raised from the
+    /// Day Book or a stock register exactly as <see cref="Screen.VoucherDetail"/> is, so <see cref="Reports"/> is
+    /// still bound beneath it — and with the screen missing here this property stayed TRUE on it. Measured on
+    /// main before the fix, on a two-consignee book: Ctrl+E on a drilled Delivery Note opened the Export panel
+    /// for <b>the whole Day Book</b> and wrote both consignees' goods to disk, and Alt+M &gt; E-Mail attached the
+    /// same register to the draft. F2 / F12 / Alt+F1 / Alt+F2 / Alt+F12 re-parameterised the hidden register in
+    /// the same way. The pane now answers Export, Print and Share for ITSELF
+    /// (<see cref="IsExportablePage"/> / <see cref="IsPrintablePage"/> / <see cref="IsShareablePage"/> each carry
+    /// an explicit arm for it), and the report shortcuts are inert on it, as they are on the other two drill
+    /// columns. <c>DrilledVoucherEgressTests</c> asserts it on the written file and the composed <c>.eml</c>.</para>
+    ///
+    /// <para>🔴 <b>THE SAME SHAPE, COUNTED ACROSS EVERY DRILL COLUMN — AND THREE MORE SCREENS CARRIED IT.</b>
+    /// <c>OpenDrillColumn</c> is the one helper that appends a column WITHOUT clearing <see cref="Reports"/>, and
+    /// it has nine call sites. Two raise <see cref="Screen.Report"/> itself (the report-to-report drills, where
+    /// this property is meant to be true). The other seven raise <see cref="Screen.LedgerVouchers"/>,
+    /// <see cref="Screen.VoucherDetail"/>, <see cref="Screen.InventoryVoucherDetail"/>, and the voucher-alteration
+    /// family — <see cref="Screen.VoucherEntry"/> (Ctrl+Enter alteration AND Alt+2 duplicate),
+    /// <see cref="Screen.InventoryVoucherEntry"/> (stock-voucher alteration) and <see cref="Screen.PosBilling"/>
+    /// (POS bill alteration). Only the first two were on this list. MEASURED, not inferred: Ctrl+Enter on a Day
+    /// Book Delivery Note opened its alteration screen with focus on no text field, and Ctrl+E then opened Export
+    /// for <b>"Day Book"</b> over the voucher being altered — the T2-159 leak from a second door. The voucher-entry
+    /// screens own their own F2 (date), Alt+C (create master) and Ctrl+P; none of the report verbs belongs there.
+    /// So all three voucher-entry drill screens are excluded too, which makes this list equal to the set of
+    /// non-report screens <c>OpenDrillColumn</c> can raise.</para>
     /// </summary>
     public bool IsReportContext => Reports is not null
-        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail)
-        && !IsActionMenuColumn;
+        && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail or Screen.InventoryVoucherDetail
+            or Screen.VoucherEntry or Screen.InventoryVoucherEntry or Screen.PosBilling)
+        && !IsActionMenuColumn
+        && !IsDrillPageAboveReport();
+
+    /// <summary>
+    /// 🔴 <b>T2-159, THE THIRD DOOR (wave 7 review) — A COLUMN STACKED OVER A DRILL PAGE IS NOT "ON THE REPORT".</b>
+    /// Excluding the drill screens' own ids from <see cref="IsReportContext"/> was not enough: Print Preview,
+    /// Export, E-Mail, WhatsApp, Printer and Print Config columns are appended ON TOP of a drilled voucher pane
+    /// and carry their own screen ids, while <see cref="Reports"/> stays bound two columns down. MEASURED on the
+    /// branch before this clause, through the real key handler on a two-consignee book: a drilled Delivery Note,
+    /// then P (the challan's preview), then Ctrl+E / Ctrl+M / Alt+M &gt; E-Mail / W wrote or attached the
+    /// <b>whole Day Book</b> — the other consignee included; and the same on a drilled accounting voucher's
+    /// preview. So the cascade is walked from the top: if a drilled voucher / ledger-vouchers / voucher-entry
+    /// page is met before the report page itself, the report is NOT the context and its verbs stay inert.
+    /// </summary>
+    private bool IsDrillPageAboveReport()
+    {
+        for (int i = Columns.Count - 1; i >= 0; i--)
+        {
+            var page = Columns[i].Page;
+            if (page is null) continue;
+            if (ReferenceEquals(page, Reports)) return false;
+            if (page is VoucherDetailViewModel or InventoryVoucherDetailViewModel or LedgerVouchersViewModel
+                or VoucherEntryViewModel or InventoryVoucherEntryViewModel or PosBillingViewModel)
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// True while one of the four ACTION-MENU columns (Ctrl+H Change View, Alt+P Print, Alt+E Export, Alt+M
@@ -3907,6 +3960,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         !IsActionMenuColumn
         && (IsReportContext
             || (CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            // T2-159: this arm used to be supplied BY ACCIDENT through IsReportContext, which was wrongly TRUE
+            // on the pure-stock drill pane. With that hole closed the pane needs its own arm, or P / Ctrl+P /
+            // Alt+P would go dead on it. OpenPrintPreview prints the challan or refuses by name.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null)
             || TopMasterExportSource() is not null);
 
     /// <summary>
@@ -3944,6 +4001,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsShareablePage =>
         !IsActionMenuColumn
         && ((CurrentScreen == Screen.VoucherDetail && VoucherDetail is not null)
+            // T2-159: the drilled pure-stock voucher. Both channels then attach ITS challan or refuse BY NAME
+            // (a Stock Journal has no document) — so the menu opens and every row answers.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null)
             || (IsReportContext && Reports is not null));
 
     /// <summary>
@@ -5336,7 +5396,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public bool IsExportablePage =>
         !IsActionMenuColumn
-        && (IsReportContext || TopMasterExportSource() is not null);
+        && (IsReportContext
+            // T2-159: the drilled pure-stock voucher exports ITSELF (BuildExportPanel's first arm), never the
+            // register still bound beneath it.
+            || (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is not null)
+            || TopMasterExportSource() is not null);
 
     /// <summary>
     /// The master-list export source on top of the cascade, if any: the currently-displayed master-list page
@@ -5381,6 +5445,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private ExportViewModel? BuildExportPanel()
     {
+        // 🔴 T2-159 — the drilled pure-stock voucher exports ITSELF. Without this arm the report branch at the
+        // bottom answered (IsReportContext was TRUE on this pane) and the operator who pressed Ctrl+E on one
+        // Delivery Note wrote the whole Day Book — every other consignee's goods — to disk.
+        if (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is { } ivd)
+            return ivd.BuildExportPanel(ExportDefaultFolder(), System.DateTime.Now);
+
         // Chart of Accounts keeps its bespoke tree projector (indented names + a group's nature).
         if (CurrentScreen == Screen.ChartOfAccounts && ChartOfAccounts is { } coa)
             return new ExportViewModel(coa.Title,
@@ -5499,6 +5569,18 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         EmailComposeViewModel panel;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
             panel = new EmailComposeViewModel(vd);       // e-mail the drilled voucher / tax invoice
+        // 🔴 T2-159 — the drilled pure-stock voucher attaches ITS delivery challan (the bytes Print renders), or
+        // the panel is refused BY NAME. It never falls through to the report arm below, which is what attached
+        // the whole Day Book to the draft before this arm existed.
+        else if (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is { } ivd)
+        {
+            if (ivd.RenderSharedDocument() is not { } challan)
+            {
+                Notice = Message = "M: E-Mail — " + ivd.ShareRefusal;
+                return;
+            }
+            panel = EmailComposeViewModel.ForDocument(ivd.ExportTitle, challan);
+        }
         else if (IsReportContext && Reports is { } r)
             panel = new EmailComposeViewModel(r);        // e-mail the open report
         else
@@ -5562,6 +5644,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         WhatsAppShareViewModel panel;
         if (CurrentScreen == Screen.VoucherDetail && VoucherDetail is { } vd)
             panel = new WhatsAppShareViewModel(vd);      // share the drilled voucher / tax invoice
+        // 🔴 T2-159 — same rule as OpenEmailCompose: the drilled pure-stock voucher's own challan, or a refusal
+        // by name. Never the register beneath it.
+        else if (CurrentScreen == Screen.InventoryVoucherDetail && InventoryVoucherDetail is { } ivd)
+        {
+            if (ivd.RenderSharedDocument() is not { } challan)
+            {
+                Notice = Message = "W: WhatsApp — " + ivd.ShareRefusal;
+                return;
+            }
+            panel = new WhatsAppShareViewModel(ivd.ExportTitle, challan, writeBytes: null);
+        }
         else if (IsReportContext && Reports is { } r)
             panel = new WhatsAppShareViewModel(r);       // share the open report
         else

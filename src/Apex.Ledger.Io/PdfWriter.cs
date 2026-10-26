@@ -468,6 +468,55 @@ public sealed class PdfWriter
         return 500; // lower-case & everything else
     }
 
+    /// <summary>
+    /// 🔴 <b>Census 12.7 (T2-160 F1) — break prose into lines that each FIT, measured by the same heuristic
+    /// <see cref="FitToWidth"/> clips with.</b> A producer that must draw a value WHOLE (a delivery challan's
+    /// Description of Goods, handed to the consignee) cannot let <see cref="FitToWidth"/> ellipsise it, and it
+    /// cannot guess a character count either, because the clipper measures in points. So the producer asks THIS
+    /// method for lines, and because the two share <see cref="MeasureHelvetica"/>, a line returned here is a line
+    /// <see cref="FitToWidth"/> returns unchanged at the same width and size.
+    ///
+    /// <para>Breaks at spaces; a single word wider than the line is split by character (it has to give way
+    /// somewhere, and splitting it keeps every character on the page where an ellipsis would drop some). Never
+    /// returns an empty list for non-empty text. Deterministic, no clock, no font file.</para>
+    /// </summary>
+    public static IReadOnlyList<string> WrapToWidth(string text, double maxWidth, double fontSize)
+    {
+        var lines = new List<string>();
+        if (string.IsNullOrEmpty(text)) { lines.Add(string.Empty); return lines; }
+        if (maxWidth <= 0 || MeasureHelvetica(text, fontSize) <= maxWidth) { lines.Add(text); return lines; }
+
+        var current = new StringBuilder();
+        foreach (var word in text.Split(' '))
+        {
+            string candidate = current.Length == 0 ? word : current + " " + word;
+            if (MeasureHelvetica(candidate, fontSize) <= maxWidth)
+            {
+                current.Clear().Append(candidate);
+                continue;
+            }
+
+            if (current.Length > 0)
+            {
+                lines.Add(current.ToString());
+                current.Clear();
+            }
+
+            // A word that does not fit on a line of its own is split by character.
+            foreach (char c in word)
+            {
+                if (current.Length > 0 && MeasureHelvetica(current.ToString() + c, fontSize) > maxWidth)
+                {
+                    lines.Add(current.ToString());
+                    current.Clear();
+                }
+                current.Append(c);
+            }
+        }
+        if (current.Length > 0) lines.Add(current.ToString());
+        return lines;
+    }
+
     /// <summary>The three-dot ASCII ellipsis appended when a cell is truncated to fit its column.</summary>
     internal const string Ellipsis = "...";
 

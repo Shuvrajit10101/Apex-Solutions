@@ -52,11 +52,11 @@ public readonly record struct DeliveryChallanProjection(PrintReport? Document, s
 /// string, the column set, the column order, the acknowledgement line and the wording are OURS and are recorded
 /// in <c>docs/invented-vs-cloned.md</c> (IV-159). They can never join the compared set.</para>
 ///
-/// <para><b>What is NOT a divergence: the figures.</b> Quantity, Rate and Amount come from the voucher's own
-/// <see cref="InventoryAllocation"/>s with exactly the base-unit normalisation
-/// <c>InventoryVoucherDetailViewModel.AllocationRow</c> performs — pairing a displayed quantity with a per-base
-/// rate understates by the conversion factor and the reverse overstates by it, so the two sites are locked
-/// together by <c>DeliveryChallanFiguresMatchTheDrilledPaneTests</c> rather than merely written alike.</para>
+/// <para><b>What is NOT a divergence: the figures.</b> Quantity, Rate and Amount are the voucher's own
+/// <see cref="InventoryAllocation"/> figures AS ENTERED — the quantity in the unit it was stated in, WITH that
+/// unit, and the rate per that unit (see <see cref="StatedLine"/>), so printed Quantity x printed Rate is the
+/// printed Amount on every line (T2-160). <c>InventoryVoucherDetailViewModel</c> renders its rows through the
+/// same <see cref="StatedLine"/>, so the challan and the pane it is printed from are locked by construction.</para>
 ///
 /// <para>🔴 <b>IT REFUSES RATHER THAN ADDRESSES NOBODY.</b> A challan is handed to a third party, so a Delivery
 /// Note that names no party yields no document and a reason instead. Our entry screen makes the party optional
@@ -137,19 +137,29 @@ public static class DeliveryChallanPrintProjector
         };
 
         decimal total = 0m;
+        int lineNo = 0;
         foreach (var a in voucher.Allocations)
         {
-            var (quantity, rate) = InBaseUnit(company, a);
-            var value = rate is { } perUnit ? Money.ForexBase(new Money(perUnit), quantity) : Money.Zero;
-            if (rate is not null) total += value.Amount;
+            var line = StatedLine(company, a);
+            if (line.Rate is not null) total += line.Value.Amount;
+            lineNo++;
+
+            // 🔴 T2-160 F1 — THE DESCRIPTION OF GOODS IS DRAWN WHOLE. It used to sit in cell 0 of the six-column
+            // grid, and ReportPdf clips every cell to its column's width: a long description reached the
+            // consignee as "Hot-Dip Galvanised Steel Angle 75x7..." — goods this document does not actually
+            // describe. It now rides FULL-WIDTH prose rows above its figures, wrapped by the SAME measure the
+            // clipper uses (PdfWriter.WrapToWidth), so no line of it can be ellipsised. Layout OURS (IV-205).
+            var description = ReportPrintProjector.Ascii(Describe(company, a));
+            foreach (var part in PdfWriter.WrapToWidth(lineNo + ". " + description, DescriptionWidth, DescriptionFontSize))
+                rows.Add(PrintRow.FullWidthText(part));
 
             rows.Add(new PrintRow(
-                ReportPrintProjector.Ascii(Describe(company, a)),
+                string.Empty,
                 ReportPrintProjector.Ascii(company.FindGodown(a.GodownId)?.Name ?? string.Empty),
                 ReportPrintProjector.Ascii(a.TrackingNumber ?? string.Empty),
-                IndianFormat.Quantity(quantity),
-                rate is { } r ? IndianFormat.Amount(new Money(r)) : string.Empty,
-                rate is null ? string.Empty : IndianFormat.Amount(value)));
+                ReportPrintProjector.Ascii(line.QuantityText),
+                line.Rate is { } r ? IndianFormat.Amount(new Money(r)) : string.Empty,
+                line.Rate is null ? string.Empty : IndianFormat.Amount(line.Value)));
         }
 
         // The quantity column is deliberately NOT totalled: lines may be stated in different stock units and a
@@ -189,22 +199,65 @@ public static class DeliveryChallanPrintProjector
     }
 
     /// <summary>
-    /// 🔴 <b>Base-unit normalisation, byte-for-byte as <c>InventoryVoucherDetailViewModel.AllocationRow</c>
-    /// performs it.</b> A line's rate is per the unit the LINE is stated in, so the quantity and the rate must be
-    /// converted by the SAME factor or Amount stops equalling Quantity × Rate — the one arithmetic a consignee
-    /// checks by eye. Converting only the quantity overstates "2 Doz @ 10" as 240; converting only the rate
-    /// understates it as 1.67.
+    /// The width, in points, a Description-of-Goods line is wrapped to. The narrowest sheet this document can
+    /// be printed on is A4 portrait with ReportPdf's fixed 36pt margins: 595.28 - 72 = 523.28pt of content, less
+    /// the 2pt cell padding each side a full-width row is drawn inside. 500 leaves a margin under that, and every
+    /// other page size and orientation the print panel offers is wider.
     /// </summary>
-    private static (decimal Quantity, decimal? Rate) InBaseUnit(Company company, InventoryAllocation a)
+    public const double DescriptionWidth = 500;
+
+    /// <summary>The body font size a description line is measured at — <see cref="PageConfig"/>'s default
+    /// body size, the largest a body row is ever drawn at (dot-matrix draws at 8).</summary>
+    public const double DescriptionFontSize = 9;
+
+    /// <summary>
+    /// One stock line as the CONSIGNEE reads it: the quantity <b>in the unit it was entered in, with that
+    /// unit</b>, the rate per that same unit, and the amount they multiply out to.
+    /// </summary>
+    /// <param name="QuantityText">e.g. <c>"2 Doz"</c>, <c>"12,345.678 MT"</c> — never a bare number.</param>
+    /// <param name="Rate">The rate per the stated unit, or <c>null</c> when the line carries none.</param>
+    /// <param name="Value">Quantity x Rate, rounded once to the paisa (zero when there is no rate).</param>
+    public readonly record struct ChallanLine(string QuantityText, decimal? Rate, Money Value);
+
+    /// <summary>
+    /// 🔴 <b>T2-160 F2 / F8 — THE LINE IS PRINTED IN THE UNIT IT WAS STATED IN, SO IT MULTIPLIES OUT.</b> This
+    /// used to normalise both quantity and rate to the item's BASE unit, which kept the amount right and made
+    /// the two visible figures wrong to a reader: "2 Doz @ 10.00" printed as <c>24 · 0.83 · 20.00</c>, and
+    /// 24 x 0.83 is 19.92 — and the quantity carried no unit at all, so "24" of what was anyone's guess
+    /// (12,345.678 MT printed as a bare <c>12,345.678</c>). The vendor's own entry screen states the
+    /// <i>Quantity</i> and the <i>Rate</i> the operator typed
+    /// (<c>help.tallysolutions.com/tally-prime/sales-process/sales-order-tally/</c>); printing those, with the
+    /// unit, is the one rendering in which printed Quantity x printed Rate = printed Amount for every unit.
+    ///
+    /// <para>The rate on a line is per the unit the line is stated in (<c>Unit.RateInBaseMeasure</c>'s own
+    /// contract), so no conversion is needed here at all; the base-unit route only ever existed to undo itself.
+    /// A line with no unit of its own is stated in the item's base unit, and that unit's symbol is printed.</para>
+    ///
+    /// <para>Public because <see cref="ViewModels.InventoryVoucherDetailViewModel"/> renders its own rows through
+    /// it: the challan and the pane it is printed from are locked by construction, not by two copies of a rule.
+    /// </para>
+    /// </summary>
+    public static ChallanLine StatedLine(Company company, InventoryAllocation a)
     {
-        var quantity = a.Quantity;
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(a);
         var rate = a.Rate?.Amount;
-        if (a.UnitId is { } unitId && company.FindUnit(unitId) is { } unit)
-        {
-            quantity = unit.QuantityInBaseMeasure(a.Quantity);
-            if (rate is { } r) rate = unit.RateInBaseMeasure(r);
-        }
-        return (quantity, rate);
+        var value = rate is { } perUnit ? Money.ForexBase(new Money(perUnit), a.Quantity) : Money.Zero;
+        return new ChallanLine(QuantityWithUnit(company, a.StockItemId, a.UnitId, a.Quantity), rate, value);
+    }
+
+    /// <summary>
+    /// A quantity followed by the symbol of the unit it is stated in — the line's own unit when it has one,
+    /// else the item's base unit. A unit that cannot be resolved prints the bare figure rather than a guess.
+    /// </summary>
+    public static string QuantityWithUnit(Company company, Guid stockItemId, Guid? unitId, decimal quantity)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        var unit = unitId is { } uid
+            ? company.FindUnit(uid)
+            : company.FindStockItem(stockItemId) is { } item ? company.FindUnit(item.BaseUnitId) : null;
+        var figure = IndianFormat.Quantity(quantity);
+        return unit is null || string.IsNullOrWhiteSpace(unit.Symbol) ? figure : figure + " " + unit.Symbol;
     }
 
     private static string Describe(Company company, InventoryAllocation a)

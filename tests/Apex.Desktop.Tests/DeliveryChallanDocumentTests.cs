@@ -108,8 +108,11 @@ public sealed class DeliveryChallanDocumentTests
 
         var document = DeliveryChallanPrintProjector.Project(k.C, v).Document!;
         var goods = document.Rows.Single(r => r.Cells.Count > 2 && r.Cells[2] == "TRK-4417");
-        Assert.Equal("Galvanised Widget", goods.Cells[0]);
-        Assert.Equal("14", goods.Cells[3]);                            // vendor field: Quantity
+        // The description rides its own full-width prose row above the figures (T2-160 F1), so it is never
+        // clipped to a column; the figure row's first cell is empty.
+        Assert.Contains(document.Rows, r => r.FullWidth && r.Cells[0] == "1. Galvanised Widget");
+        Assert.Equal(string.Empty, goods.Cells[0]);
+        Assert.Equal("14 Nos", goods.Cells[3]);                        // vendor field: Quantity, WITH its unit
         Assert.Equal("250.00", goods.Cells[4]);                        // vendor field: Rate
         Assert.Equal("3,500.00", goods.Cells[5]);                      // ours: 14 x 250
 
@@ -118,7 +121,8 @@ public sealed class DeliveryChallanDocumentTests
         Assert.Contains("Delivery Challan", s, StringComparison.Ordinal);
         // The consignee, IN FULL — not a prefix of it.
         Assert.Contains("To: Bharat Heavy Electricals & Components Private Limited", s, StringComparison.Ordinal);
-        Assert.Contains("Galvanised Widget", s, StringComparison.Ordinal);
+        Assert.Contains("(1. Galvanised Widget) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(14 Nos) Tj", s, StringComparison.Ordinal);
         Assert.Contains("TRK-4417", s, StringComparison.Ordinal);      // vendor field: Tracking No.
         Assert.Contains("Tracking No.", s, StringComparison.Ordinal);  // ... and its caption
         Assert.Contains("250.00", s, StringComparison.Ordinal);
@@ -315,9 +319,9 @@ public sealed class DeliveryChallanDocumentTests
     /// into the Rs.20 the books mean. The challan's own Quantity / Rate / Amount cells are compared against
     /// <see cref="InventoryVoucherDetailViewModel"/>'s, cell for cell.
     ///
-    /// <para><b>Mutation:</b> deleting the unit conversion in
-    /// <c>DeliveryChallanPrintProjector.InBaseUnit</c> reddens this at the Amount comparison (Rs.240 vs
-    /// Rs.20).</para>
+    /// <para><b>Mutation (run):</b> making <c>DeliveryChallanPrintProjector.StatedLine</c> print the quantity
+    /// normalised to the base unit (<c>unit.QuantityInBaseMeasure(a.Quantity)</c>) while keeping the stated rate
+    /// reddens this at the Quantity / Amount assertions (24 x 120.00 = 2,880.00).</para>
     /// </summary>
     [Fact]
     public void The_challans_figures_are_the_drilled_panes_figures_even_in_a_compound_unit()
@@ -343,44 +347,36 @@ public sealed class DeliveryChallanDocumentTests
         Assert.Equal(paneRow.Col3, goods.Cells[3]);   // Quantity
         Assert.Equal(paneRow.Col4, goods.Cells[4]);   // Rate
         Assert.Equal(paneRow.Col5, goods.Cells[5]);   // Amount
-        // ... and the arithmetic itself, so a test that merely agreed with a wrong pane could not pass.
-        Assert.Equal("24", goods.Cells[3]);
-        Assert.Equal("10.00", goods.Cells[4]);
+        // ... and the arithmetic itself, so a test that merely agreed with a wrong pane could not pass: the line
+        // AS ENTERED, with its unit — 2 Doz x 120.00 = 240.00.
+        Assert.Equal("2 Doz", goods.Cells[3]);
+        Assert.Equal("120.00", goods.Cells[4]);
         Assert.Equal("240.00", goods.Cells[5]);
 
         // And the figures reach the page.
         string s = AsLatin1(ReportPdf.Render(document, new PageConfig()));
-        Assert.Contains("240.00", s, StringComparison.Ordinal);
+        Assert.Contains("(2 Doz) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(120.00) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(240.00) Tj", s, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// 🔴 <b>A RESIDUAL, PINNED RATHER THAN HIDDEN: on a compound-unit line whose per-base rate does not land
-    /// on a round paisa, the printed Quantity × printed Rate does NOT equal the printed Amount.</b>
+    /// 🔴 <b>T2-160 F8 — PRINTED QUANTITY x PRINTED RATE = PRINTED AMOUNT, ON THE PAGE, IN A COMPOUND UNIT.</b>
     ///
-    /// <para>2 Doz @ ₹10.00 per Doz is ₹20.00. Normalised to the base unit that is 24 Nos at ₹0.8333…/Nos, and
-    /// the Rate CELL can only show two decimals — so the challan prints <c>24 · 0.83 · 20.00</c>, and a
-    /// consignee multiplying the two visible figures gets ₹19.92, two paisa short. The AMOUNT is right (it is
-    /// computed from the unrounded per-base rate and rounded once, so it equals the 2 × 10 the books hold);
-    /// only the Rate cell is a rounded view of a derived intermediate.</para>
+    /// <para><b>THIS TEST USED TO PIN THE OPPOSITE, AND IS REWRITTEN DELIBERATELY.</b> It was named
+    /// <c>A_compound_line_with_a_non_round_per_base_rate_prints_a_rate_that_does_not_multiply_out</c> and it
+    /// asserted the challan printed <c>24 · 0.83 · 20.00</c> for "2 Doz @ 10.00": a document on which a consignee
+    /// multiplying the two visible figures gets 19.92 and no unit says what the 24 counts. The comment beside it
+    /// carried a further wrong figure for the per-Nos rate. A test that pins a wrong answer is worse than no
+    /// test — the next reader "fixes" the code to match it — so it now pins the document a reader can check:
+    /// the line AS ENTERED, <c>2 Doz · 10.00 · 20.00</c>, read off the emitted Tj operands.</para>
     ///
-    /// <para>⚠️ <b>THIS TEST SHIPPED RED, PINNING A WRONG ANSWER, AND IS CORRECTED HERE.</b> It expected
-    /// <c>0.42</c>, which is <c>10 ÷ 24</c> — the STATED rate divided by the base quantity. The per-base rate is
-    /// the AMOUNT divided by the base quantity, <c>20 ÷ 24 = 0.8333…</c>, and <c>0.83</c> is what the projector
-    /// and the pane both actually produce. The residual the test exists to pin is real and is unchanged; only
-    /// the arithmetic in the expectation was wrong. <b>A test that pins a wrong answer is the failure mode this
-    /// project has hit four times, and it is worse than no test, because the next reader "fixes" the code to
-    /// match it.</b></para>
-    ///
-    /// <para><b>It is inherited, not introduced.</b> <see cref="InventoryVoucherDetailViewModel"/> has shown
-    /// exactly these three figures since it shipped, and the challan is deliberately locked to that pane — so
-    /// curing it here would make the printed document disagree with the screen the operator printed it from,
-    /// which is a worse defect than the one it fixes. <b>The cure is to print the line in the unit it was STATED
-    /// in</b> (2 · Doz · 120.00 · 240.00), which is a change to the PANE as well and belongs to the pane's own
-    /// census row. Recorded in <c>docs/invented-vs-cloned.md</c> IV-159 and asserted here so it cannot be
-    /// changed silently in either direction.</para>
+    /// <para><b>Mutation (run):</b> restoring the base-unit normalisation in
+    /// <c>DeliveryChallanPrintProjector.StatedLine</c> (quantity via <c>QuantityInBaseMeasure</c>, rate via
+    /// <c>RateInBaseMeasure</c>, no unit) reddens this at <c>(2 Doz) Tj</c> and at <c>(10.00) Tj</c>.</para>
     /// </summary>
     [Fact]
-    public void A_compound_line_with_a_non_round_per_base_rate_prints_a_rate_that_does_not_multiply_out()
+    public void A_compound_line_prints_in_its_entered_unit_so_quantity_times_rate_is_the_amount_on_the_page()
     {
         var k = Seed();
         var masters = new InventoryService(k.C);
@@ -388,24 +384,95 @@ public sealed class DeliveryChallanDocumentTests
         var dozen = masters.CreateCompoundUnit("Doz", "Dozen of 12 Nos", dz.Id, k.NosId, 12);
         var party = Party(k, "Riverside Trading Co");
         var item = Item(k, "Candle");
-        // 2 Doz @ Rs.10.00 per Doz = Rs.20.00. Per Nos that is Rs.0.41666..., which no two-decimal cell holds.
+        // 2 Doz @ Rs.10.00 per Doz = Rs.20.00.
         var v = Post(k, VoucherBaseType.DeliveryNote, party.Id,
             Outward(item, k.GodownId, 2m, 10m, tracking: "TRK-R", unitId: dozen.Id));
 
-        var document = DeliveryChallanPrintProjector.Project(k.C, v).Document!;
+        string s = RenderChallan(k, v);
+
+        Assert.Contains("(2 Doz) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(10.00) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(20.00) Tj", s, StringComparison.Ordinal);
+        // The base-unit rendering is GONE from the page: no bare 24, no rounded per-Nos rate.
+        Assert.DoesNotContain("(24) Tj", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("(0.83) Tj", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("(24 Nos) Tj", s, StringComparison.Ordinal);
+
+        // ... and the pane the operator printed it from says exactly the same.
         var pane = new InventoryVoucherDetailViewModel(k.C, v);
         var paneRow = pane.Rows.Single();
-        var goods = document.Rows.Single(r => r.Cells.Count > 2 && r.Cells[2] == "TRK-R");
+        Assert.Equal("2 Doz", paneRow.Col3);
+        Assert.Equal("10.00", paneRow.Col4);
+        Assert.Equal("20.00", paneRow.Col5);
+    }
 
-        // The AMOUNT is correct: 2 x 120... no — 2 Doz x Rs.10/Doz = Rs.20.00, and that is what is printed.
-        Assert.Equal("20.00", goods.Cells[5]);
-        // The RATE cell is the rounded per-base view, and 24 x 0.83 = 19.92 is NOT 20.00. This is the residual.
-        Assert.Equal("24", goods.Cells[3]);
-        Assert.Equal("0.83", goods.Cells[4]);
-        // ... and the challan says exactly what the pane says, which is the property that must not break.
-        Assert.Equal(paneRow.Col3, goods.Cells[3]);
-        Assert.Equal(paneRow.Col4, goods.Cells[4]);
-        Assert.Equal(paneRow.Col5, goods.Cells[5]);
+    /// <summary>
+    /// 🔴 <b>T2-160 F2 — A QUANTITY NEVER REACHES THE CONSIGNEE AS A BARE NUMBER.</b> 12,345.678 MT used to print
+    /// as <c>12,345.678</c>; a line with no unit of its own is stated in the item's base unit, and that unit's
+    /// symbol is printed. Asserted on the Tj operands, with the bare figure excluded by name.
+    /// <para><b>Mutation (run):</b> returning the bare <c>figure</c> from
+    /// <c>DeliveryChallanPrintProjector.QuantityWithUnit</c> reddens both unit assertions.</para>
+    /// </summary>
+    [Fact]
+    public void A_quantity_prints_with_its_unit_including_a_base_unit_line_with_decimals()
+    {
+        var k = Seed();
+        var masters = new InventoryService(k.C);
+        var mt = masters.CreateSimpleUnit("MT", "Metric Tonne", decimalPlaces: 3);
+        var party = Party(k, "Riverside Trading Co");
+        var ore = Item(k, "Iron Ore Fines", mt.Id);
+        var bolt = Item(k, "Bolt M8");
+        var v = Post(k, VoucherBaseType.DeliveryNote, party.Id,
+            Outward(ore, k.GodownId, 12_345.678m, 2m, tracking: "TRK-MT"),
+            Outward(bolt, k.GodownId, 7m, 3m, tracking: "TRK-NOS"));
+
+        string s = RenderChallan(k, v);
+
+        Assert.Contains("(12,345.678 MT) Tj", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("(12,345.678) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(7 Nos) Tj", s, StringComparison.Ordinal);
+        Assert.DoesNotContain("(7) Tj", s, StringComparison.Ordinal);
+        // 12,345.678 x 2.00 = 24,691.356 -> 24,691.36, and 7 x 3.00 = 21.00.
+        Assert.Contains("(24,691.36) Tj", s, StringComparison.Ordinal);
+        Assert.Contains("(21.00) Tj", s, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-160 F1 — THE DESCRIPTION OF GOODS IS DRAWN WHOLE.</b> A description far wider than any column
+    /// (and wider than the sheet) used to reach the consignee ellipsised inside cell 0. It now rides full-width
+    /// prose rows, wrapped by the clipper's own measure, so every word reaches the page and no row of the
+    /// document carries the ellipsis.
+    /// <para><b>Mutation (run):</b> putting the description back into cell 0 of the figure row (and dropping
+    /// the full-width rows) reddens the per-word assertions and the ellipsis assertion.</para>
+    /// </summary>
+    [Fact]
+    public void A_long_goods_description_is_drawn_whole_and_never_ellipsised()
+    {
+        var words = new[]
+        {
+            "Hot-Dip", "Galvanised", "Structural", "Steel", "Equal", "Angle", "75x75x6mm", "IS-2062", "E250",
+            "Grade-A", "Cut-To-Length", "Six-Metre", "Bundles", "Strapped", "And", "Tagged", "Per", "Heat",
+            "Number", "With", "Mill", "Test", "Certificate", "Enclosed", "For", "Site", "Delivery", "Bay-Seven",
+        };
+        var description = string.Join(" ", words);
+        var k = Seed();
+        var party = Party(k, "Riverside Trading Co");
+        var item = Item(k, description);
+        var v = Post(k, VoucherBaseType.DeliveryNote, party.Id,
+            Outward(item, k.GodownId, 3m, 1_000m, tracking: "TRK-LONG"));
+
+        // The PAGE first: every word reaches it, and no drawn string carries the clipper's ellipsis.
+        string s = RenderChallan(k, v);
+        Assert.DoesNotContain("...) Tj", s, StringComparison.Ordinal);
+        foreach (var w in words)
+            Assert.Contains(w, s, StringComparison.Ordinal);
+
+        var document = DeliveryChallanPrintProjector.Project(k.C, v).Document!;
+        var descriptionRows = document.Rows.Where(r => r.FullWidth && r.Cells[0].Length > 0
+            && words.Any(w => r.Cells[0].Contains(w, StringComparison.Ordinal))).ToList();
+        Assert.True(descriptionRows.Count >= 2, "a description wider than the sheet must wrap onto more than one row");
+        // And it is ONE description: the wrapped rows, re-joined, are the item name prefixed with its line number.
+        Assert.Equal("1. " + description, string.Join(" ", descriptionRows.Select(r => r.Cells[0])));
     }
 
     /// <summary>
