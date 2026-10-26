@@ -3964,7 +3964,7 @@
                                       <DataTemplate x:DataType="vm:AccountingInvoiceLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,160,40">
+                                          <Grid ColumnDefinitions="*,160,40" RowDefinitions="Auto,Auto">
                                             <ComboBox Grid.Column="0" MinWidth="200" HorizontalAlignment="Stretch"
                                                       views:CreateField.Master="Ledger"
                                                       ItemsSource="{Binding Ledgers}"
@@ -3979,6 +3979,15 @@
                                             <TextBox Grid.Column="1" Width="150" Margin="6,0,0,0"
                                                      Text="{Binding AmountText, Mode=TwoWay}"
                                                      TextAlignment="Right" PlaceholderText="0.00"/>
+                                            <!-- Census 5.11 (v68): the per-ledger narration under each particulars line,
+                                                 shown when the voucher type has "Provide narration for each ledger" on. Declared BEFORE
+                                                 the remove button so Tab off the Amount lands in it. -->
+                                            <TextBox Grid.Row="1" Grid.ColumnSpan="2" Name="AccountingLineNarrationBox"
+                                                     IsVisible="{Binding ShowLineNarration}"
+                                                     Text="{Binding LineNarration, Mode=TwoWay}"
+                                                     Margin="18,3,0,1" FontSize="11.5" FontStyle="Italic"
+                                                     TextWrapping="Wrap" AcceptsReturn="False"
+                                                     PlaceholderText="Narration for this ledger…"/>
                                             <!-- The declared 40px column was EMPTY and RemoveAccountingInvoiceLine
                                                  had zero call sites, so a Particulars line could not be deleted at
                                                  all. The handler reads the button's own DataContext, so the click

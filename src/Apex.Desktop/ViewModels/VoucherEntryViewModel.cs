@@ -3716,6 +3716,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                         return "This voucher cannot be re-opened for alteration: " + refusal;
                 }
 
+                // Census 5.11 (v68): the narrations just loaded into an editable field under their line — the
+                // operator may clear or rewrite these, so CommitAlteration's dropped-narration guard excuses them.
+                _editableLineNarrations = Lines.Select(l => l.ToLineNarration()).OfType<string>().ToList();
+
                 // 🔴 The withholding panel opens on the section that was POSTED, not on the expense ledger's
                 // default. Without this the panel would default through DefaultNatureFor(expense) — and if that
                 // master default has moved since posting, the operator would be shown a section the voucher never
@@ -4025,6 +4029,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     private bool CommitAlteration(Voucher existing, Voucher replacement, string unbalancedMessage)
     {
+        // 🔴 Census 5.11 (v68) — a line narration the operator was never shown must not vanish on accept. See
+        // VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal. Ahead of every write, so nothing to roll back.
+        if (VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal(
+                _company, existing.Lines, replacement.Lines, _editableLineNarrations, "voucher") is { } dropped)
+        {
+            Message = dropped;
+            return false;
+        }
+
         // 🔴 THE OPTIONAL DELTA IS SPLIT OUT OF THE ALTERATION AND APPLIED THROUGH ITS OWN VERB, FIRST.
         //
         // WHAT WAS MEASURED HERE BEFORE THIS BLOCK EXISTED: the vendor's documented way to regularise a
@@ -4352,7 +4365,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         IReadOnlyList<BillAllocation> BillAllocations,
         IReadOnlyList<CostAllocation> CostAllocations,
         BankAllocation? Bank,
-        ForexInfo? Forex)
+        ForexInfo? Forex,
+        string? Narration = null)
     {
         /// <summary>Nothing to carry — the ordinary invoice, which therefore posts byte-identically (ER-13).</summary>
         public bool IsEmpty =>
@@ -4374,6 +4388,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         public bool HasFootingChildren =>
             BillAllocations.Count > 0 || CostAllocations.Count > 0 || Forex is not null;
     }
+
+    /// <summary>Census 5.11 (v68): the posted line narrations the alteration loaded into an editable field (the
+    /// Dr/Cr and Single Entry grids). Empty on an item invoice, whose lines have no narration field.</summary>
+    private List<string> _editableLineNarrations = new();
 
     private CarriedLegChildren? _carriedValueLegChildren;
     private CarriedLegChildren? _carriedPartyLegChildren;
@@ -4399,7 +4417,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         static CarriedLegChildren Capture(EntryLine leg, bool carryBills) =>
             new(leg.LedgerId, leg.Amount,
                 carryBills ? leg.BillAllocations.ToList() : Array.Empty<BillAllocation>(),
-                leg.CostAllocations.ToList(), leg.BankAllocation, leg.Forex);
+                leg.CostAllocations.ToList(), leg.BankAllocation, leg.Forex, leg.Narration);
     }
 
     /// <summary>
@@ -4421,12 +4439,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         out IReadOnlyList<BillAllocation>? billAllocations,
         out IReadOnlyList<CostAllocation>? costAllocations,
         out BankAllocation? bank,
-        out ForexInfo? forex)
+        out ForexInfo? forex,
+        out string? narration)
     {
         billAllocations = null;
         costAllocations = null;
         bank = null;
         forex = null;
+        // Census 5.11 (v68): the line narration rides the rebuilt leg while its LEDGER is unmoved. It is not a
+        // child that refuses (it moves no figure); on a re-point it is simply not carried, and CommitAlteration's
+        // dropped-narration guard then refuses by name rather than letting it vanish.
+        narration = carried is not null && carried.LedgerId == rebuiltLedgerId ? carried.Narration : null;
         if (carried is null || carried.IsEmpty) return true;
 
         var postedName = _company.FindLedger(carried.LedgerId)?.Name ?? "a ledger no longer in this company";
@@ -5899,7 +5922,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// a single trailing blank row via <see cref="OnAccountingInvoiceLineChanged"/>.</summary>
     public AccountingInvoiceLineViewModel AddAccountingInvoiceLine()
     {
-        var row = new AccountingInvoiceLineViewModel(AccountingInvoiceLedgers, OnAccountingInvoiceLineChanged);
+        var row = new AccountingInvoiceLineViewModel(AccountingInvoiceLedgers, OnAccountingInvoiceLineChanged)
+        {
+            ShowLineNarration = IsLineNarrationEnabled,   // census 5.11 — the flag's reader on the service grid
+        };
         AccountingInvoiceLines.Add(row);
         return row;
     }
@@ -6572,7 +6598,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             var amt = new Money(l.ParsedAmount!.Value);
             taxable += amt;
-            incomeLines.Add(new EntryLine(l.SelectedLedger!.Id, amt, IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit));
+            incomeLines.Add(new EntryLine(l.SelectedLedger!.Id, amt, IsPurchaseInvoice ? DrCr.Debit : DrCr.Credit,
+                narration: l.ToLineNarration()));   // census 5.11 (v68)
         }
 
         // GST (only when enabled): resolve each line's SAC rate, split intra CGST/SGST vs inter IGST, and build the
@@ -7296,6 +7323,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // unmatched when the loop ends is a leg whose children this build would have dropped: it is refused below
         // by name rather than posted bare. Null on a fresh entry ⇒ this whole limb is inert (ER-13).
         var unmatchedCostChildren = _carriedCostLegChildren?.Where(ch => !ch.IsEmpty).ToList();
+        // Census 5.11 (v68): a posted cost leg's narration is matched by LEDGER alone — it is descriptive and moves
+        // no figure, so an amended amount keeps it. A leg whose ledger is gone is caught by CommitAlteration.
+        var narratedCostLegs = _carriedCostLegChildren?.Where(ch => ch.Narration is not null).ToList();
         if (ShowAdditionalCosts)
         {
             foreach (var r in AdditionalCosts.Where(r => !r.IsBlank))
@@ -7310,6 +7340,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 IReadOnlyList<CostAllocation>? carriedCostAllocations = null;
                 BankAllocation? carriedCostBank = null;
                 ForexInfo? carriedCostForex = null;
+                string? carriedCostNarration = null;
                 if (unmatchedCostChildren?.FirstOrDefault(ch => ch.LedgerId == led.Id && ch.Amount == costAmount)
                     is { } matched)
                 {
@@ -7319,10 +7350,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     carriedCostForex = matched.Forex;
                     unmatchedCostChildren.Remove(matched);
                 }
+                if (narratedCostLegs?.FirstOrDefault(ch => ch.LedgerId == led.Id) is { } narrated)
+                {
+                    carriedCostNarration = narrated.Narration;
+                    narratedCostLegs.Remove(narrated);
+                }
                 additionalCostLines.Add(new EntryLine(
                     led.Id, costAmount, DrCr.Debit, billAllocations: carriedCostBills,
                     costAllocations: carriedCostAllocations, bankAllocation: carriedCostBank,
-                    forex: carriedCostForex));
+                    forex: carriedCostForex, narration: carriedCostNarration));
                 additionalTotal += costAmount;
             }
         }
@@ -7435,14 +7471,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         IReadOnlyList<CostAllocation>? valueCostAllocations = null;
         BankAllocation? valueBank = null;
         ForexInfo? valueForex = null;
+        string? valueNarration = null;
         if (!ClassSuppliesValueLedgers
             && !TryCarryDerivedLegChildren(
                 _carriedValueLegChildren, "value leg", valueLedger!.Id, taxable,
-                out valueBills, out valueCostAllocations, out valueBank, out valueForex))
+                out valueBills, out valueCostAllocations, out valueBank, out valueForex, out valueNarration))
             return null;
         if (!TryCarryDerivedLegChildren(
                 _carriedPartyLegChildren, "party leg", party.Id, partyAmount,
-                out _, out var partyCostAllocations, out var partyBank, out var partyForex))
+                out _, out var partyCostAllocations, out var partyBank, out var partyForex, out var partyNarration))
             return null;
 
         // The party's bill-wise comes from the PANEL (invoiceBills), never from the carry — see
@@ -7454,7 +7491,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var partyLine = new EntryLine(
             party.Id, partyAmount, ItemInvoicePartySide, billAllocations: invoiceBills,
             costAllocations: partyCostAllocations, bankAllocation: partyBank, forex: partyForex,
-            tcs: ItemInvoicePartySide == DrCr.Debit ? belowThresholdDetail : null);
+            tcs: ItemInvoicePartySide == DrCr.Debit ? belowThresholdDetail : null,
+            narration: partyNarration);   // census 5.11 (v68)
         // The value leg's NATURAL SIDE — Cr on a sale, Dr on a purchase, and REVERSED on a return note, which is
         // the same ONE rule above rather than a second one. 🔴 MERGE NOTE (wave 29): this was
         // `IsPurchaseInvoice ? Debit : Credit` when the voucher-class work (census 2.6) landed it, and that
@@ -7479,7 +7517,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         {
             entryLines.Add(new EntryLine(
                 valueLedger!.Id, taxable, valueSide, billAllocations: valueBills,
-                costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex));
+                costAllocations: valueCostAllocations, bankAllocation: valueBank, forex: valueForex,
+                narration: valueNarration));   // census 5.11 (v68)
         }
 
         entryLines.Add(partyLine);

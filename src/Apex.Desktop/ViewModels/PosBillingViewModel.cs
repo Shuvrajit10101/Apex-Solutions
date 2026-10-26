@@ -1352,6 +1352,16 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             referenceDate: existing.ReferenceDate,
             isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
 
+        // 🔴 Census 5.11 (v68) — this screen has no per-ledger narration field and rebuilds every line, so a line
+        // narration an import put on the bill would vanish on accept. Refused by name instead (the same guard the
+        // voucher-entry alteration runs).
+        if (VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal(
+                _company, existing.Lines, replacement.Lines, Array.Empty<string>(), "bill") is { } dropped)
+        {
+            Message = dropped;
+            return false;
+        }
+
         IReadOnlyList<VoucherAlterationWarning> warnings;
         try
         {

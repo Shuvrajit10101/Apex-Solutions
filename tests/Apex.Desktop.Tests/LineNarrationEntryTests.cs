@@ -26,8 +26,9 @@ namespace Apex.Desktop.Tests;
 /// <para><b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/voucher-types-tally/, opened by content
 /// 2026-10-25, Configure Voucher Types → Set up transaction options: <i>"Enable Provide narration for each ledger
 /// in voucher to add narration for individual ledgers"</i>. The page continues "based on the voucher mode, such as
-/// Accounting/Item Invoice or As Voucher" — this build offers it on the As-Voucher Dr/Cr grid only; the invoice
-/// modes are a documented divergence (see <c>docs/invented-vs-cloned.md</c>, IV-196).</para>
+/// Accounting/Item Invoice or As Voucher" — this build offers it on the As-Voucher Dr/Cr and Single Entry grids
+/// (this file) and on the Accounting Invoice grid (<see cref="LineNarrationInvoiceModesTests"/>); Item Invoice
+/// ENTRY is a documented divergence (see <c>docs/invented-vs-cloned.md</c>, IV-196).</para>
 ///
 /// <para>Every assertion reads an OBSERVABLE artefact: a realised control on the real window, a row off a book
 /// RELOADED through a fresh <see cref="CompanyStorage"/>, emitted PDF bytes, or the canonical export of the

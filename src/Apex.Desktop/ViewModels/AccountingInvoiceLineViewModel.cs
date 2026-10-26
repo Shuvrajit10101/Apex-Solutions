@@ -64,6 +64,17 @@ public sealed partial class AccountingInvoiceLineViewModel : ViewModelBase
     [ObservableProperty] private DomainLedger? _selectedLedger;
     [ObservableProperty] private string _amountText = string.Empty;
 
+    /// <summary>Census 5.11 (v68): the per-ledger narration keyed under this particulars line when the voucher type
+    /// has <i>Provide narration for each ledger in voucher</i> on. The vendor names the Accounting Invoice mode among
+    /// those the option serves (help.tallysolutions.com/voucher-types-tally/, Set up transaction options).</summary>
+    [ObservableProperty] private string _lineNarration = string.Empty;
+
+    /// <summary>True when the narration field is shown under this line (the voucher type's flag is on).</summary>
+    [ObservableProperty] private bool _showLineNarration;
+
+    /// <summary>The narration to post on this line, or <c>null</c> when blank (normalised as <c>EntryLine</c> does).</summary>
+    public string? ToLineNarration() => string.IsNullOrWhiteSpace(LineNarration) ? null : LineNarration.Trim();
+
     public AccountingInvoiceLineViewModel(IReadOnlyList<DomainLedger> ledgers, Action onChanged)
     {
         Ledgers = ledgers ?? throw new ArgumentNullException(nameof(ledgers));
