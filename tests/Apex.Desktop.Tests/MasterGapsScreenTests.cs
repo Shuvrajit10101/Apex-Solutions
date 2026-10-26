@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
@@ -484,6 +485,60 @@ public sealed class MasterGapsScreenTests
 
             Assert.False(m.Create());
             Assert.Contains("conversion factor", m.Message);
+        }
+        finally { Close(w, dir); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-158 item 2 — A REFUSED ALTERNATE UNIT MUST NOT LEAVE A PHANTOM ITEM BEHIND (probe P3).</b>
+    /// <c>SaveMaster</c> runs <c>CreateStockItem</c> (which adds the item to the open company) BEFORE
+    /// <c>SetAlternateUnit</c> can refuse. Before the roll-back, the refusal left an unsaved item in the company:
+    /// the retry its own message advises failed <i>"already exists"</i>, and the next save of anything persisted
+    /// the phantom WITHOUT its alternate unit. Both refusal routes are driven through Ctrl+A on the real window:
+    /// the IV-171 compound-unit disagreement and the blank factor. The artefact is the book re-read through a
+    /// FRESH store handle after the retry: exactly one item, carrying the factor the retry keyed.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("compound")]
+    [InlineData("blank")]
+    public void A_refused_alternate_unit_leaves_no_phantom_item_and_the_retry_succeeds(string route)
+    {
+        const string company = "Alt Unit Phantom Co";
+        var (w, vm, dir) = NewCompany(company);
+        try
+        {
+            SeedUnitsAndGroup(vm);
+            var inv = new InventoryService(vm.Company!);
+            var nos = vm.Company!.FindUnitByName("Nos")!;
+            var box = vm.Company!.FindUnitByName("Box")!;
+            if (route == "compound")
+                inv.CreateCompoundUnit("Crate", "Crate of 20 Nos", box.Id, nos.Id, 20);
+            OpenStockItemMaster(w, vm);
+            var m = vm.StockItemMaster!;
+
+            var altSymbol = route == "compound" ? "Crate" : "Box";
+            m.Name = "Gadget";
+            m.SelectedUnit = m.Units.First(u => u.Symbol == "Nos");
+            m.SelectedAlternateUnit = m.AlternateUnitOptions.First(o => o.Unit?.Symbol == altSymbol);
+            m.AlternateUnitConversionText = route == "compound" ? "10" : string.Empty;
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+
+            Assert.False(string.IsNullOrEmpty(m.Message));
+            Assert.DoesNotContain("created", m.Message);
+            Assert.DoesNotContain(vm.Company!.StockItems, i => i.Name == "Gadget");   // no phantom in the open book
+
+            // The retry the refusal advises: the agreeing factor (compound) or a factor at all (blank).
+            m.AlternateUnitConversionText = route == "compound" ? "20" : "12";
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            Assert.Contains("created", m.Message);
+
+            var storage = new CompanyStorage(dir);
+            var reloaded = storage.Load(new CompanyEntry(company, storage.PathForName(company)));
+            var item = Assert.Single(reloaded.StockItems, i => i.Name == "Gadget");
+            Assert.Equal(reloaded.FindUnitByName(altSymbol)!.Id, item.AlternateUnitId);
+            Assert.Equal(route == "compound" ? 20m : 12m, item.AlternateUnitConversion);
         }
         finally { Close(w, dir); }
     }

@@ -913,6 +913,19 @@ public sealed class Company
     /// <summary>Removes a Bill of Materials (delete-guards live in <c>BomService</c>; also used by import roll-back).</summary>
     public bool RemoveBillOfMaterials(BillOfMaterials bom) => _billsOfMaterials.Remove(bom);
 
+    /// <summary>Swaps <paramref name="existing"/> for <paramref name="replacement"/> AT ITS OWN INDEX — the
+    /// aggregate half of <c>BomService.AlterBom</c> (census 3.9). Both must carry the same id.</summary>
+    public void ReplaceBillOfMaterials(BillOfMaterials existing, BillOfMaterials replacement)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(replacement);
+        if (existing.Id != replacement.Id)
+            throw new InvalidOperationException("A BOM alteration must keep the BOM's id.");
+        var index = _billsOfMaterials.IndexOf(existing);
+        if (index < 0) throw new InvalidOperationException($"BOM {existing.Id} is not in this company.");
+        _billsOfMaterials[index] = replacement;
+    }
+
     /// <summary>Adds a price level (uniqueness guard lives in <c>PriceListService</c>).</summary>
     public void AddPriceLevel(PriceLevel level) => _priceLevels.Add(level ?? throw new ArgumentNullException(nameof(level)));
 

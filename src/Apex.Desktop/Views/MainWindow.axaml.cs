@@ -2672,8 +2672,15 @@ public partial class MainWindow : Window
     private void OnAcceptBatchAllocationClick(object? sender, RoutedEventArgs e)
         => Vm?.AcceptCurrent();
 
+    // 🔴 census 3.9: BRANCHES, exactly as the Ctrl+A arm in MainWindowViewModel.AcceptCurrentPage does. The BOM
+    // screen now also serves the item-side "Alter Components (BOM)" alteration; a bare Create() here would turn a
+    // CLICKED correction into a second BOM (or a "name already exists" refusal) — the create-and-append shape
+    // this area was demoted for three times.
     private void OnCreateBomClick(object? sender, RoutedEventArgs e)
-        => Vm?.BomMaster?.Create();
+    {
+        if (Vm?.BomMaster is not { } master) return;
+        if (master.IsAltering) master.Alter(); else master.Create();
+    }
 
     // W33 C3: branches exactly as the Ctrl+A arm does — see OnCreateCurrencyClick for why the two routes must
     // agree rather than one of them always creating.

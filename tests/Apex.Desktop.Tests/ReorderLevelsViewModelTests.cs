@@ -154,8 +154,17 @@ public sealed class ReorderLevelsViewModelTests : IDisposable
         Assert.Equal(2, k.Vm.Company!.ReorderDefinitions.Count);
     }
 
+    /// <summary>
+    /// 🔴 <b>REWRITTEN DELIBERATELY (census 3.12, T2-158 item 1) — THE OLD BODY PINNED A WRONG ANSWER.</b> It was
+    /// named <c>Master_upserts_on_the_same_scope_and_target</c> and asserted that a second CREATE for the same
+    /// (Item, Widget) REPLACED the first: <c>CreateOrUpdate</c> minted a new id and, since a blank box reads as
+    /// "unset", wiped every figure not re-keyed while the screen said "saved". The right answer is that a create
+    /// over an occupied (scope, target) saves NOTHING, says so by name, and loads the saved definition for
+    /// alteration — and the record on disk, re-read through a fresh store handle, is untouched: same id, same
+    /// figures.
+    /// </summary>
     [Fact]
-    public void Master_upserts_on_the_same_scope_and_target()
+    public void Master_create_over_an_occupied_scope_and_target_refuses_by_name_and_loads_for_alteration()
     {
         var k = NewKit("RL Upsert Co");
         var m = OpenMaster(k);
@@ -163,16 +172,65 @@ public sealed class ReorderLevelsViewModelTests : IDisposable
         SelectScope(m, ReorderScope.Item);
         SelectTarget(m, k.ItemId);
         m.ReorderQuantityText = "20";
+        m.MinOrderQtyText = "25";
         Assert.True(m.Create());
+        var originalId = k.Vm.Company!.FindReorderDefinition(ReorderScope.Item, k.ItemId)!.Id;
 
-        // Re-create for the same (Item, Widget) with a different figure → replaces, not duplicates.
+        // Re-create for the same (Item, Widget) keying ONLY the reorder figure.
         SelectScope(m, ReorderScope.Item);
         SelectTarget(m, k.ItemId);
         m.ReorderQuantityText = "35";
+        Assert.False(m.Create());
+
+        Assert.Contains("already exists", m.Message ?? string.Empty);
+        Assert.Contains("'Widget'", m.Message ?? string.Empty);
+        Assert.True(m.IsAltering);
+        Assert.Equal("Reorder Level Alteration", m.Caption);
+        Assert.Equal("20", m.ReorderQuantityText);   // the SAVED figures, not the half-keyed form
+        Assert.Equal("25", m.MinOrderQtyText);
+
+        var reloaded = Reload(k.CompanyName);
+        var def = Assert.Single(reloaded.ReorderDefinitions);
+        Assert.Equal(originalId, def.Id);
+        Assert.Equal(20m, def.ReorderQuantity);
+        Assert.Equal(25m, def.MinOrderQuantity);
+    }
+
+    /// <summary>
+    /// The routed alteration must not become a silent RE-POINT: once a create over an occupied target has loaded
+    /// that definition, moving the scope/target away returns the screen to Creation with blank figures, so the
+    /// next Ctrl+A creates a SECOND definition rather than moving the first onto the new target
+    /// (<c>ReorderLevelsService.Alter</c> allows re-pointing, which is right for an explicit alter only).
+    /// </summary>
+    [Fact]
+    public void Moving_off_a_routed_alteration_returns_to_creation_and_leaves_the_first_definition_in_place()
+    {
+        var k = NewKit("RL Route Back Co");
+        var m = OpenMaster(k);
+        SelectScope(m, ReorderScope.Item);
+        SelectTarget(m, k.ItemId);
+        m.ReorderQuantityText = "20";
+        Assert.True(m.Create());
+        var originalId = k.Vm.Company!.FindReorderDefinition(ReorderScope.Item, k.ItemId)!.Id;
+
+        Assert.False(m.Create());           // occupied → routed into alteration
+        Assert.True(m.IsAltering);
+
+        SelectScope(m, ReorderScope.Group);
+        SelectTarget(m, k.GroupId);
+        Assert.False(m.IsAltering);
+        Assert.Equal("Reorder Level Creation", m.Caption);
+        Assert.Equal(string.Empty, m.ReorderQuantityText);
+
+        m.ReorderQuantityText = "7";
         Assert.True(m.Create());
 
-        Assert.Single(k.Vm.Company!.ReorderDefinitions);
-        Assert.Equal(35m, k.Vm.Company!.FindReorderDefinition(ReorderScope.Item, k.ItemId)!.ReorderQuantity);
+        var reloaded = Reload(k.CompanyName);
+        Assert.Equal(2, reloaded.ReorderDefinitions.Count);
+        var item = reloaded.FindReorderDefinition(ReorderScope.Item, k.ItemId)!;
+        Assert.Equal(originalId, item.Id);
+        Assert.Equal(20m, item.ReorderQuantity);
+        Assert.Equal(7m, reloaded.FindReorderDefinition(ReorderScope.Group, k.GroupId)!.ReorderQuantity);
     }
 
     [Fact]
