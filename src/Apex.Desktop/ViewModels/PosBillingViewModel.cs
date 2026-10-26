@@ -47,6 +47,16 @@ public sealed partial class PosTenderRowViewModel : ViewModelBase
     [ObservableProperty] private string _cashTenderedText = string.Empty;
     [ObservableProperty] private string _changeText = "0.00";
 
+    /// <summary>Census 5.11, wave 8 (IV-236): this tender ledger's own narration, offered when the POS voucher type
+    /// has <i>Provide narration for each ledger in voucher</i> on (help.tallysolutions.com/voucher-types-tally/).</summary>
+    [ObservableProperty] private string _lineNarration = string.Empty;
+
+    /// <summary>Whether this row's narration field is shown.</summary>
+    [ObservableProperty] private bool _showLineNarration;
+
+    /// <summary>The narration as it posts: trimmed, blank means <c>null</c> (IV-198).</summary>
+    public string? ToLineNarration() => string.IsNullOrWhiteSpace(LineNarration) ? null : LineNarration.Trim();
+
     public bool ShowCardNo => Type == PosTenderType.Card;
     public bool ShowChequeRefs => Type == PosTenderType.Cheque;
     public bool ShowCashFields => Type == PosTenderType.Cash;
@@ -233,6 +243,33 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     [ObservableProperty] private string _title = string.Empty;
     [ObservableProperty] private DateOnly _date;
     [ObservableProperty] private string _narration = string.Empty;
+
+    /// <summary>
+    /// 🔴 <b>Census 5.11, wave 8 (IV-236) — per-ledger narration on the POS bill.</b> The bill's KEYED ledgers are
+    /// the Sales ledger and each tender's ledger (<see cref="PosTenderRowViewModel.LineNarration"/>); the GST legs
+    /// are engine-derived and take none. help.tallysolutions.com/voucher-types-tally/, by content 2026-10-26:
+    /// <i>"Enable Provide narration for each ledger in voucher to add narration for individual ledgers"</i>.
+    /// </summary>
+    [ObservableProperty] private string _salesLineNarration = string.Empty;
+
+    /// <summary>True once an alteration loaded a posted narration into a field — the fields then stay visible even
+    /// if the type's flag was switched off since (the IV-196 rule).</summary>
+    private bool _lineNarrationLoaded;
+
+    /// <summary>The posted narrations an alteration loaded into an editable field (the dropped-narration guard
+    /// excuses exactly these, so a deliberate clear is legal).</summary>
+    private List<string> _editableLineNarrations = new();
+
+    /// <summary>Whether the per-ledger narration fields are shown on this bill.</summary>
+    public bool ShowLineNarration => _type.ProvideNarrationForEachLedger || _lineNarrationLoaded;
+
+    private static string? NormaliseLineNarration(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    private List<string> CurrentLineNarrations() =>
+        new[] { NormaliseLineNarration(SalesLineNarration) }
+            .Concat(Tenders.Select(t => t.ToLineNarration()))
+            .OfType<string>().ToList();
     [ObservableProperty] private bool _canAccept;
     [ObservableProperty] private string? _message;
     [ObservableProperty] private int _savedNumber;
@@ -311,6 +348,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         Tenders.Add(new PosTenderRowViewModel(PosTenderType.Card, "Credit/Debit Card", bankLedgers, Recalculate, cfg.TenderLedgerDefault(PosTenderType.Card)));
         Tenders.Add(new PosTenderRowViewModel(PosTenderType.Cheque, "Cheque/DD", bankLedgers, Recalculate, cfg.TenderLedgerDefault(PosTenderType.Cheque)));
         Tenders.Add(new PosTenderRowViewModel(PosTenderType.Cash, "Cash", cashLedgers, Recalculate, cfg.TenderLedgerDefault(PosTenderType.Cash)));
+        foreach (var tenderRow in Tenders) tenderRow.ShowLineNarration = ShowLineNarration;   // census 5.11 wave 8
 
         // Default date: last voucher date, else books-begin.
         var last = company.Vouchers.Count == 0 ? (DateOnly?)null : company.Vouchers.Max(v => v.Date);
@@ -845,9 +883,20 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         if (!TryBuildTenders(billTotal.Amount, out var tenders, out var change))
             return null; // Message already set
 
+        // 🔴 Census 5.11 wave 8 (IV-236): each tender debit carries its ROW's narration and the Sales leg its own.
+        // The tender lines are BuildTenderDebitLines' lines (one per tender, in tender order) re-stamped, so the
+        // posted shape is byte-identical when no narration is keyed (ER-13). One row per tender KIND, and a bill
+        // never carries two tenders of one kind (PosAlterationEligibility), so the kind names the row.
         var entryLines = new List<EntryLine>();
-        entryLines.AddRange(PosTenderService.BuildTenderDebitLines(tenders));
-        entryLines.Add(new EntryLine(salesLedger.Id, taxable, DrCr.Credit));
+        foreach (var (tender, line) in tenders.Zip(PosTenderService.BuildTenderDebitLines(tenders)))
+        {
+            var tenderNarration = Tenders.FirstOrDefault(r => r.Type == tender.Type)?.ToLineNarration();
+            entryLines.Add(tenderNarration is null
+                ? line
+                : new EntryLine(line.LedgerId, line.Amount, line.Side, narration: tenderNarration));
+        }
+        entryLines.Add(new EntryLine(salesLedger.Id, taxable, DrCr.Credit,
+            narration: NormaliseLineNarration(SalesLineNarration)));
         entryLines.AddRange(taxLines);
 
         return new PosBillBuild(
@@ -1109,6 +1158,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
                 return "This bill cannot be re-opened: the Sales ledger its value leg posts to is no longer one "
                      + "this screen offers, so re-accepting would move the sale to a different ledger.";
             SelectedSalesLedger = salesLedger;
+            SalesLineNarration = valueLegs[0].Narration ?? string.Empty;   // census 5.11 wave 8 (IV-236)
 
             foreach (var line in voucher.Lines)
             {
@@ -1135,6 +1185,7 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             AddItemLine();   // one blank trailing row, so the grid is ready to type into (as a fresh bill is)
 
             if (RehydrateTenders(voucher) is { } tenderRefusal) return tenderRefusal;
+            LoadLineNarrations(voucher, valueLegs[0]);
         }
         finally
         {
@@ -1160,6 +1211,33 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
     /// AXAML and in <c>TryBuildTenders</c> as much as in this loop, so representing N tenders of one kind is a
     /// payment-panel design (an R6 row), not a rehydration change.</para>
     /// </summary>
+    /// <summary>
+    /// Census 5.11 wave 8 (IV-236): loads each tender debit's posted narration into its row (the tender line is the
+    /// first unclaimed debit on the tender's ledger at the tender's amount, which is how the build lays them out),
+    /// records every loaded narration as EDITABLE for the dropped-narration guard, and keeps the fields visible.
+    /// </summary>
+    private void LoadLineNarrations(Voucher voucher, EntryLine salesLeg)
+    {
+        var loaded = new List<string>();
+        if (salesLeg.Narration is { } salesNarration) loaded.Add(salesNarration);
+        var unclaimed = voucher.Lines.Where(l => l.Side == DrCr.Debit && !l.HasGst).ToList();
+        foreach (var tender in voucher.PosTenders)
+        {
+            var line = unclaimed.FirstOrDefault(l => l.LedgerId == tender.LedgerId && l.Amount == tender.Amount);
+            if (line is null) continue;
+            unclaimed.Remove(line);
+            if (line.Narration is not { } n) continue;
+            if (Tenders.FirstOrDefault(r => r.Type == tender.Type) is not { } row) continue;
+            row.LineNarration = n;
+            loaded.Add(n);
+        }
+        _editableLineNarrations = loaded;
+        if (loaded.Count == 0) return;
+        _lineNarrationLoaded = true;
+        foreach (var row in Tenders) row.ShowLineNarration = true;
+        OnPropertyChanged(nameof(ShowLineNarration));
+    }
+
     private string? RehydrateTenders(Voucher voucher)
     {
         // The mode inference — see RehydrateFrom's summary for why this clause is the exact one.
@@ -1352,11 +1430,13 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             referenceDate: existing.ReferenceDate,
             isAccountingInvoice: existing.IsAccountingInvoice); // get-only, and Replace refuses a change
 
-        // 🔴 Census 5.11 (v68) — this screen has no per-ledger narration field and rebuilds every line, so a line
-        // narration an import put on the bill would vanish on accept. Refused by name instead (the same guard the
-        // voucher-entry alteration runs).
+        // 🔴 Census 5.11 (v68) — this screen rebuilds every line, so a line narration on a leg it has no field for
+        // (an engine-derived GST leg) would vanish on accept. Refused by name instead (the same guard the
+        // voucher-entry alteration runs). Since wave 8 the Sales and tender legs HAVE fields (IV-236): what was
+        // loaded into them is excused, and what they hold now is taken out of the rebuilt pool first.
         if (VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal(
-                _company, existing.Lines, replacement.Lines, Array.Empty<string>(), Array.Empty<string>(), "bill") is { } dropped)
+                _company, existing.Lines, replacement.Lines, _editableLineNarrations, CurrentLineNarrations(),
+                "bill") is { } dropped)
         {
             Message = dropped;
             return false;
@@ -1528,6 +1608,9 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             Message1 = _type.PosConfig?.Message1 ?? string.Empty,
             Message2 = _type.PosConfig?.Message2 ?? string.Empty,
             Declaration = _type.PosConfig?.Declaration ?? string.Empty,
+            // Census 5.11 wave 8 (IV-237): read off the POSTED bill, never the screen, so the slip states what the
+            // book holds.
+            LedgerNarrations = VoucherPrintProjector.LedgerNarrationsOf(_company, posted),
         };
     }
 

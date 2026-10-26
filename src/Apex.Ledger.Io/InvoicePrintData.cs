@@ -404,6 +404,15 @@ public sealed class InvoicePrintData
     /// <summary>Optional narration; printed only when <see cref="PrintConfig.ShowNarration"/> is set.</summary>
     public string Narration { get; init; } = string.Empty;
 
+    /// <summary>
+    /// Census 5.11, wave 8 (IV-237): the posted per-ledger narrations (<c>EntryLine.Narration</c>), one entry per
+    /// narrated leg in posting order, each naming its ledger. Printed under the voucher narration on the SAME
+    /// <see cref="PrintConfig.ShowNarration"/> toggle. <b>Default empty means nothing prints, so every document
+    /// without a line narration is byte-identical (ER-13).</b> The placement is ours: the vendor's voucher-type page
+    /// is silent on printing a ledger narration (IV-197).
+    /// </summary>
+    public IReadOnlyList<InvoiceLedgerNarration> LedgerNarrations { get; init; } = Array.Empty<InvoiceLedgerNarration>();
+
     /// <summary>Σ all GST tax (CGST+SGST+IGST) — <b>excludes</b> the ring-fenced <see cref="TotalCess"/> (ER-2).</summary>
     public Money TotalTax => new(TotalCgst.Amount + TotalSgst.Amount + TotalIgst.Amount);
 
@@ -428,3 +437,7 @@ public sealed class InvoicePrintData
     public Money GrandTotal =>
         new(TotalTaxable.Amount + TotalTax.Amount + TotalCess.Amount + TotalOtherCharges.Amount + RoundOff.Amount);
 }
+
+/// <summary>One posted per-ledger narration on a printed invoice or receipt (census 5.11, wave 8; IV-237): the
+/// ledger's name and its words, both already de-branded/ASCII-folded by the projector.</summary>
+public sealed record InvoiceLedgerNarration(string Ledger, string Narration);

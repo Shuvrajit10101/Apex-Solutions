@@ -228,6 +228,23 @@ public static class PosReceiptPdf
         }
         y -= 2;
 
+        // ---- Per-ledger narrations (census 5.11 wave 8, IV-237) — only when the bill carries one (ER-13) ----
+        if (data.LedgerNarrations.Count > 0)
+        {
+            writer.Line(left, y, right, y, 0.5);
+            y -= page.BodyFontSize + 2;
+            writer.Text(left, y, "Ledger Narrations", page.BodyFontSize, bold: true);
+            y -= page.RowHeight;
+            foreach (var ln in data.LedgerNarrations)
+                foreach (var wrapped in VoucherPdf.WrapText(
+                             Debrand.Text(ln.Ledger) + ": " + Debrand.Text(ln.Narration), width - 6, page.BodyFontSize))
+                {
+                    writer.Text(left + 6, y, wrapped, page.BodyFontSize);
+                    y -= page.BodyFontSize + 3;
+                }
+            y -= 2;
+        }
+
         // ---- Messages + declaration ----
         writer.Line(left, y, right, y, 0.5);
         y -= page.BodyFontSize + 4;
