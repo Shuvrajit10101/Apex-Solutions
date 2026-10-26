@@ -68,6 +68,62 @@ public sealed class BomService
     }
 
     /// <summary>
+    /// <b>Alters ONE existing BOM in place</b> — census 3.9. Keeps the BOM's <see cref="BillOfMaterials.Id"/> and
+    /// its finished good, and replaces the name, the unit of manufacture and the whole line set.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14): VENDOR-ATTESTED ROUTE.</b> TallyPrime alters an existing item's BOM from
+    /// the item itself — <i>"In the Stock Item Alteration screen, enable the option Alter Components (BOM)"</i>
+    /// [<c>help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/</c>,
+    /// opened and read BY CONTENT 2026-10-25].</para>
+    ///
+    /// <para>🔴 <b>WHY THIS IS NOT DELETE + <see cref="CreateBom"/>.</b> A fresh <c>Guid</c> would orphan every
+    /// <c>job_work_orders.fill_components_bom_id</c> that points at this BOM — a real foreign key, which would
+    /// leave the open company unsavable — and the "alter" would really be a create-and-append, the exact shape
+    /// this area has been demoted for three times. The row is swapped AT ITS OWN INDEX so list order is kept.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Unknown BOM; blank name; the name is taken by ANOTHER BOM of the
+    /// same item; a line references an unknown item/godown or the finished good itself; or the
+    /// <see cref="BillOfMaterials"/> constructor refuses the shape.</exception>
+    public BillOfMaterials AlterBom(
+        Guid bomId,
+        string name,
+        decimal unitOfManufacture,
+        IEnumerable<BomLine> lines)
+    {
+        var existing = _company.FindBillOfMaterials(bomId)
+            ?? throw new InvalidOperationException($"BOM {bomId} not found.");
+        var stockItemId = existing.StockItemId;
+
+        var trimmed = (name ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+            throw new InvalidOperationException("A BOM name is required.");
+        if (_company.FindStockItem(stockItemId) is not { } item)
+            throw new InvalidOperationException($"Stock item {stockItemId} not found.");
+        if (_company.FindBomByName(stockItemId, trimmed) is { } clash && clash.Id != bomId)
+            throw new InvalidOperationException(
+                $"A BOM '{trimmed}' already exists for item '{item.Name}' (BOM names are unique per item).");
+
+        var lineList = lines?.ToList() ?? throw new ArgumentNullException(nameof(lines));
+        foreach (var line in lineList)
+        {
+            if (_company.FindStockItem(line.ComponentStockItemId) is null)
+                throw new InvalidOperationException(
+                    $"BOM line references unknown stock item {line.ComponentStockItemId}.");
+            if (line.ComponentStockItemId == stockItemId)
+                throw new InvalidOperationException(
+                    $"A BOM for '{item.Name}' cannot reference the finished good itself as a component/output.");
+            if (line.GodownId is { } gid && _company.FindGodown(gid) is null)
+                throw new InvalidOperationException($"BOM line references unknown godown {gid}.");
+        }
+
+        // Build (and validate) BEFORE touching the company, so a refusal leaves it untouched.
+        var altered = new BillOfMaterials(existing.Id, stockItemId, trimmed, unitOfManufacture, lineList);
+        _company.ReplaceBillOfMaterials(existing, altered);
+        item.SetComponents = true;
+        return altered;
+    }
+
+    /// <summary>
     /// Deletes a BOM. If it was the finished good's <b>last</b> BOM, the item's
     /// <see cref="StockItem.SetComponents"/> flag is turned back off (it is no longer a manufactured item).
     ///
