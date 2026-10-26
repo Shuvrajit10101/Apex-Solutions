@@ -2787,6 +2787,48 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Why** | It shipped in Phase 6 and is the only place a BOM's carve-out lines were enterable before the item-side route existed. Removing it is a scope decision for the user. |
 | **Fix** | User decision: keep as a labelled extra route, or fold BOM creation into the Stock Item Creation screen's *Set Components (BOM)* flow and remove the menu entry. |
 
+## 2M. ADDED 2026-10-25 — WAVE 7 TRACK `dg`: GSTR-2B RECONCILIATION OUTPUT AND THE RE-HOMED GST YEAR WINDOW (census rows 6.16 / 6.19)
+
+> Vendor page for every entry below, opened BY CONTENT on 2026-10-25:
+> `help.tallysolutions.com/india-gst-status-gstr-2b-reconciliation-tally-2/`. Each sentence quoted is on that page.
+
+### IV-175 · **The GSTR-2B reconciliation is scoped to the SELECTED STATEMENT'S OWN registration — the vendor consolidates by default and narrows with F3**
+
+| | |
+|---|---|
+| **What TallyPrime does** | On the reconciliation page: *"If you have multiple GST registrations, the report shows consolidated data for all registrations by default."* The operator then narrows it with **F3 (Company/Tax Registration)**. |
+| **What we do** | `Gstr2bReconReportViewModel.Rebuild` passes the selected statement's `Gstr2bSnapshot.OwningRegistrationId` to `Gstr2bReconciler.Reconcile`, so the books side is exactly the registration the portal statement was issued to. On a multi-registration book the subtitle and the export name that registration. There is no consolidated view and no F3 on this page. |
+| **Why** | Before this change the page reconciled UNSCOPED and the engine's census-6.23 refusal (`GstReportSupport.EnsureRegistrationScoped`) replaced the whole page — and so any print or export of it — with refusal text on every book holding a second registration. A consolidated reconciliation needs N statements matched against N registrations' books at once, which the engine does not build. Scoping to the statement's owner is the narrowest honest answer: each imported statement is anchored to the one registration it was imported for (schema v66), and the vendor's own import screen asks for that registration. (The CGST rule 60(7) reading in `GstAdvancedReportOptions.cs` was not re-verified against cbic-gst.gov.in by this track and is not relied on here.) |
+| **Proof** | `Gstr2bReconOutputTests.On_a_two_registration_book_the_export_carries_the_statements_own_registration_only` (mutation: drop the registration argument ⇒ red). |
+| **Fix** | Build the vendor's consolidated default plus an F3 registration picker on this page if the user wants parity; until then this entry is the divergence. |
+
+### IV-176 · **The LAYOUT of the exported / printed reconciliation is ours; the vendor's old-GSTR-2-format Excel option is NOT built**
+
+| | |
+|---|---|
+| **What TallyPrime does** | The page attests the export ROUTE — *"Press Alt+E (Export) > Current > F8 (File Format)."* — and one option on it: *"you can export the GSTR-2B report to Excel as per the old GSTR-2 format."* It does not describe the exported document's layout, and it says nothing about printing this report. |
+| **What we do** | Ctrl+P, Ctrl+E, bare E and Alt+E > Current all reach the page through `IMasterListExportSource`. The document leads with the statement period, its recipient GSTIN, the registration (multi-registration books only) and the window; then every bucket as a heading with its count — **empty buckets included as "(0)"** — and under it one row per document: `GSTIN  doc no`, date, taxable value, tax, and the partial-mismatch variances as two numeric columns of their own. The print path is the shared `ExportViewModel.TabularToPrint`, so Print and Export → PDF are one document. |
+| **Why** | No vendor sentence describes the layout, so it is labelled ours. The identity cell is the widest printed column because the supplier GSTIN is what an auditor matches on; the variances get numeric columns so a spreadsheet can sum them and the printed page cannot clip them out of a sentence. |
+| **Not built** | The *"old GSTR-2 format"* Excel option. Our XLSX is the generic tabular export. |
+
+### IV-177 · **T2-22's *"Excluded, but available on Portal"* bucket is NOT built — the vendor page does not support mapping our automatic RCM set-aside into it**
+
+| | |
+|---|---|
+| **What TallyPrime does** | *"Excluded, but available on Portal"* appears on the page only as a Reconciliation Statistics heading, among nine. **The page does not define it.** The only route into excluded portal transactions it describes is the operator's own act: *"If a transaction on the portal is not relevant for your books"*, after which *"The transaction moves to the Excluded Portal Transactions section."* |
+| **What we do** | Our reconciler excludes reverse-charge portal lines **automatically** (symmetrically with the books register) and they land in no bucket. That is unchanged by this track. |
+| **Why not built** | Putting an AUTOMATIC set-aside under a heading the vendor populates by a USER exclusion would be an inference from a heading's wording — the exact pattern this project has withdrawn twelve times. The optional T2-22 work in the wave plan was conditional on the vendor naming the bucket BY CONTENT for that case, and it does not. |
+| **Fix** | Build the vendor's user-driven exclude / restore verbs first (they are attested above); the RCM question can then be answered against real behaviour. |
+
+### IV-178 · **The re-homed ITC Set-Off, QRMP / IFF and Electronic Ledgers reports offer the financial year of the default as-of in addition to the page's own three**
+
+| | |
+|---|---|
+| **What TallyPrime does** | F2 changes the period of a report freely (keyboard-shortcuts page, already cited in `GstAdvancedReportOptions.cs`). No vendor page we have opened describes a bounded year list on these three reports. |
+| **What we do** | `ReportsViewModel.OfferTheDefaultAsOfYear` adds the financial year containing the surface's default as-of (the last voucher's date) to the page's `[FYStart.Year−2 .. FYStart.Year]` list before the lookup. A period outside the widened list is still refused by name. |
+| **Why** | **T2-151(1):** on an aged book (FY start 01-04-2024, last voucher 09-09-2025) all three reports opened EMPTY by default. The bounded list itself is ours and pre-dates this track; this entry records that the bound now has one more member, and why. |
+| **Proof** | `RehomedReportSurfaceBj2Tests.An_aged_book_opens_each_rehomed_report_on_its_default_year_with_figures` (three kinds; mutation: delete the call ⇒ all three red). |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
