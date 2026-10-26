@@ -176,6 +176,7 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         public required StockItem Widget { get; init; }
         public required DomainLedger Supplier { get; init; }
         public required DomainLedger Purchases { get; init; }
+        public required DomainLedger Freight { get; init; }
         public required VoucherType PurchaseType { get; init; }
     }
 
@@ -188,9 +189,16 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         var nos = masters.CreateSimpleUnit("Nos", "Numbers", decimalPlaces: 3);
         var widget = masters.CreateStockItem("Widget", group.Id, nos.Id);
         widget.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        // The additional-cost ledger must exist BEFORE the entry screen is built (AdditionalCostLedgers is read once
+        // in the constructor, from Ledger.IsAdditionalCostLedger).
+        var freight = new DomainLedger(
+            Guid.NewGuid(), "Inward Freight", c.FindGroupByName("Direct Expenses")!.Id, Money.Zero,
+            openingIsDebit: true, methodOfAppropriation: MethodOfAppropriation.ByValue);
+        c.AddLedger(freight);
         var kit = new Kit
         {
             Book = book,
+            Freight = freight,
             Widget = widget,
             Supplier = book.Ledger("Nonce Suppliers", "Sundry Creditors"),
             Purchases = book.Ledger("Purchases", "Purchase Accounts"),
@@ -200,7 +208,7 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         return kit;
     }
 
-    private static Voucher PostInvoice(Kit kit)
+    private static Voucher PostInvoice(Kit kit, string? freightAmount = null)
     {
         var entry = new VoucherEntryViewModel(
             kit.Book.Company, kit.PurchaseType, kit.Book.Storage,
@@ -214,6 +222,13 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         row.SelectedGodown = entry.Godowns.Single(g => g.Id == kit.Book.Company.MainLocation!.Id);
         row.QuantityText = WidgetQty;
         row.RateText = WidgetRate;
+        if (freightAmount is not null)
+        {
+            entry.TrackAdditionalCosts = true;   // the F12 knob, as PurchaseAndPosAlterationTests keys it
+            Assert.True(entry.ShowAdditionalCosts);
+            entry.AdditionalCosts[0].SelectedLedger = kit.Freight;
+            entry.AdditionalCosts[0].AmountText = freightAmount;
+        }
         Assert.True(entry.Accept(), entry.Message);
         return kit.Book.Company.Vouchers.Last(v => v.TypeId == kit.PurchaseType.Id);
     }
@@ -313,6 +328,89 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         Assert.Equal("Nonce narration ONE", reloaded.Narration);   // nothing was written
         Assert.Equal("Input credit claimed in GSTR-3B May",
             reloaded.Lines.Single(l => l.LedgerId == taxLeg.LedgerId && l.Side == taxLeg.Side).Narration);
+    }
+
+    /// <summary>
+    /// 🔴 <b>CARRY ACROSS AN AMENDMENT.</b> A narration on an ADDITIONAL-COST leg is matched by ledger alone — it
+    /// moves no figure — so amending the freight from 555.53 to 777.71 keeps it on the reloaded book's freight leg.
+    /// <b>Mutation:</b> deleting <c>carriedCostNarration = narrated.Narration;</c> in <c>BuildItemInvoice</c>
+    /// reddens this (the dropped-narration guard then refuses the accept).
+    /// </summary>
+    [Fact]
+    public void An_additional_cost_leg_keeps_its_narration_when_its_amount_is_amended()
+    {
+        using var book = AlterationBook.New("ln_item_cost");
+        var kit = Seed(book);
+        var posted = PostInvoice(kit, freightAmount: "555.53");
+        posted = StampNarrations(book, posted, l =>
+            l.LedgerId == kit.Freight.Id ? "Lorry MH-12 AB 4471, two trips" : null);
+
+        var open = book.ForAlter(posted.Id);
+        Assert.False(open.IsRefused, open.Refusal);
+        var entry = open.Entry!;
+        var freightRow = entry.AdditionalCosts.Single(r => r.SelectedLedger?.Id == kit.Freight.Id);
+        Assert.Equal("555.53", freightRow.AmountText);
+        freightRow.AmountText = "777.71";
+        Assert.True(entry.AcceptAlteration(), entry.Message);
+
+        var reloaded = ReloadOf(book).Vouchers.Single(v => v.Id == posted.Id);
+        var freightLeg = reloaded.Lines.Single(l => l.LedgerId == kit.Freight.Id);
+        Assert.Equal(777.71m, freightLeg.Amount.Amount);
+        Assert.Equal("Lorry MH-12 AB 4471, two trips", freightLeg.Narration);
+    }
+
+    // ============================================================== (4) the POS bill alteration
+
+    /// <summary>
+    /// 🔴 <b>THE POS BILL HAS NO NARRATION FIELD AND REBUILDS EVERY LINE</b>, so a narration an import put on its
+    /// sales leg is refused BY NAME on alteration and left on the reloaded book. GST is off so the bill total is
+    /// the line value (2 × 1,234.57 = 2,469.14), tendered exactly in cash.
+    /// <b>Mutation:</b> deleting the <c>DroppedLineNarrationRefusal</c> check in
+    /// <c>PosBillingViewModel</c>'s alteration accept reddens this at the first assertion.
+    /// </summary>
+    [Fact]
+    public void A_pos_bill_alteration_that_would_drop_a_line_narration_is_refused_by_name()
+    {
+        using var book = AlterationBook.New("ln_pos_refuse");
+        var c = book.Company;
+        var masters = new InventoryService(c);
+        var widget = masters.CreateStockItem("Counter Widget", masters.CreateStockGroup("Retail").Id,
+            masters.CreateSimpleUnit("Nos", "Numbers", decimalPlaces: 3).Id);
+        var sales = book.Ledger("Retail Sales", "Sales Accounts");
+        var cash = book.Ledger("Till Cash", "Cash-in-Hand");
+        var posType = new VoucherType(Guid.NewGuid(), "Sales (POS)", VoucherBaseType.Sales, useForPos: true,
+            posConfig: new PosConfig());
+        c.AddVoucherType(posType);
+        book.Storage.Save(c);
+
+        var vm = new PosBillingViewModel(c, posType, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        vm.Date = book.On(4);
+        vm.SelectedSalesLedger = vm.SalesLedgers.Single(l => l.Id == sales.Id);
+        vm.SelectedGodown = vm.Godowns.Single(g => g.Id == c.MainLocation!.Id);
+        var row = vm.Items[0];
+        row.SelectedItem = vm.StockItems.Single(i => i.Id == widget.Id);
+        row.SelectedGodown = vm.Godowns.Single(g => g.Id == c.MainLocation!.Id);
+        row.QuantityText = WidgetQty;
+        row.RateText = WidgetRate;
+        vm.Narration = "Counter nonce ONE";
+        vm.CashRow.SelectedLedger = cash;
+        vm.CashRow.CashTenderedText = "2469.14";
+        Assert.True(vm.Accept(), vm.Message);
+        var posted = c.Vouchers.Last(v => v.TypeId == posType.Id);
+
+        posted = StampNarrations(book, posted, l => l.LedgerId == sales.Id ? "Festival counter, stall 9" : null);
+
+        var open = PosBillingViewModel.ForAlter(c, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+        var alter = open.Entry!;
+        alter.Narration = "Counter nonce TWO";
+        Assert.False(alter.AcceptAlteration());
+        Assert.Contains("Retail Sales", alter.Message);
+        Assert.Contains("Festival counter, stall 9", alter.Message);
+
+        var reloaded = ReloadOf(book).Vouchers.Single(v => v.Id == posted.Id);
+        Assert.Equal("Counter nonce ONE", reloaded.Narration);
+        Assert.Equal("Festival counter, stall 9", reloaded.Lines.Single(l => l.LedgerId == sales.Id).Narration);
     }
 
     public void Dispose()
