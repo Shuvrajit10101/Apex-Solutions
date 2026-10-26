@@ -2770,7 +2770,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What TallyPrime does** | Same page, same date: after enabling the option the vendor shows a BOM-name list first — *"In the Stock Item Multi Components (M BOM) screen, enter the name of the new BOM and press Enter."* — and only then the components screen (*"Stock Item Components (BOM) screen"*). The page does **not** say whether existing components are shown when an existing BOM's name is picked; its worked example is ADDING a BOM. |
 | **What we ship** | `MainWindowViewModel.ShowComponentsBomForItem` opens `BomMasterViewModel.ForAlter` over the item's **first BOM by name (case-insensitive)**, every line pre-filled; saving goes through `BomService.AlterBom`, which keeps the BOM's id and swaps it at its own index. An item with **no** BOM gets the BOM creation screen with the item already chosen as the finished good. **There is no M-BOM list screen**, so a second or third BOM of the same item cannot be reached from this option. |
 | **Why** | The defect this row was demoted for three times is an "alter" that is really create-and-append; the in-place alter of the item's BOM is the load-bearing part and is what ships. A BOM-name picker is a separate screen with no vendor sentence describing its alter behaviour. |
-| **Fix** | Build the M-BOM name list between the tick and the components screen: pick an existing name → `ForAlter` over that BOM; type a new name → creation with the item preset. Report owed: this is recorded as NOT DONE in the track report. |
+| **Fix** | Build the M-BOM name list between the tick and the components screen: pick an existing name → `ForAlter` over that BOM; type a new name → creation with the item preset. Report owed: this is recorded as NOT DONE in the track report. 🟢 **BUILT 2026-10-26 (wave 8, track `eb`) — PROPOSED FOR CLOSURE, A12 GRADES.** The tick now opens `BomNameListViewModel` (*Stock Item Multi Components (M BOM)*); see §2P, IV-225..IV-227, and `BomNameListTests`. The "What we ship" cell above describes the wave-7 shape and is kept as history. |
 
 ### IV-187 · **CREATE over an occupied reorder (scope, target) refuses by name and loads the saved definition — nothing is merged or saved — is ours**
 
@@ -2960,6 +2960,50 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Severity** | **LOW. Class C. Area: ENT (census 14.4, not 5.11).** |
 | **What changed** | The footnote used to say *"this book stores narration on the voucher, not on the line"*. After v68 that is false, so the reason now reads that an item invoice does not offer it and the Dr/Cr and service grids take it when the voucher type allows. The entry stays in the withheld list: the More Details panel itself still has no Ledger Narration row. Promoting it is census 14.4's work. |
 | **Tests** | `MoreDetailsTests.Per_line_narration_is_stored_but_the_footnote_still_names_what_this_panel_cannot_offer` (renamed from `Per_line_narration_genuinely_has_nowhere_to_be_stored`, which reddened on v68 as it was written to). |
+
+## 2P. ADDED 2026-10-26 — WAVE 8 TRACK `eb`: THE M BOM NAME LIST (census row 3.9, IV-225..IV-227)
+
+> Vendor page, opened BY CONTENT on 2026-10-26:
+> `help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/`.
+> The sentences this section rests on, each read on that page: *"In the Stock Item Alteration screen, enable the
+> option Alter Components (BOM) to add a new BOM"*; *"In the Stock Item Multi Components (M BOM) screen, enter the
+> name of the new BOM and press Enter."*; and, on creation, *"If you want to add one more BOM for this item, enter
+> the new BOM name under the Standard BoM and press Enter."* So the M BOM screen shows the item's existing names
+> with the new name typed beneath them, and Enter goes on to the components screen. **That much is CLONED.**
+> The page's worked example is only ever ADDING a BOM; what it does not say is recorded below as ours.
+> ⚠️ **NOT BUILT, AND NOT COVERED BY ANY LABEL HERE:** the same page documents *Ctrl+C (Copy BoM)* on the
+> Stock Item Components (BOM) screen. We have no Copy BoM. That is a missing capability, reported as such in the
+> track report, not a divergence.
+
+### IV-225 · **Opening an EXISTING name on the M BOM list for an in-place alteration is ours**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: WIDENED ROUTE.** It is the only route to an item's second and later BOMs. |
+| **What TallyPrime does** | The page documents the M BOM screen only for adding a name. It does not say what Enter on an already-listed name does. |
+| **What we ship** | `BomNameListViewModel` lists the item's BOMs in stored order with the first highlighted; Up/Down move the highlight (wrapping) through `MainWindowViewModel.StepActive`; Enter (or Ctrl+A) runs `OpenBomFromNameList`, which opens `BomMasterViewModel.ForAlter` over the highlighted BOM. Ctrl+A there saves through `BomService.AlterBom`, which keeps the id and swaps the BOM at its own index, so the item's other BOMs and any `job_work_orders.fill_components_bom_id` are untouched. Locked by `BomNameListTests.The_second_BOM_of_an_item_is_reached_by_arrow_and_Enter_and_altered_in_place`. |
+| **Why** | Without it, an item's second and later BOMs could not be corrected anywhere. That was the open clause of census 3.9. |
+| **Fix** | None proposed. Re-open only if a vendor page describes Enter on a listed name differently. |
+
+### IV-226 · **Typing a name the item already has opens THAT BOM for alteration, not a refused create**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: INPUT SHAPE.** |
+| **What TallyPrime does** | The page says only that a NEW name is typed and Enter pressed. It is silent on typing a name that already exists. |
+| **What we ship** | The match is case-insensitive, the per-item uniqueness rule the schema's `UNIQUE (stock_item_id, name COLLATE NOCASE)` index enforces. A typed existing name opens that BOM exactly as arrow + Enter would. A typed new name opens `BomMasterViewModel.ForNewBomOfItem`: a creation screen captioned *Stock Item Components (BOM) Creation*, with the name filled in and the finished good fixed to the item. A typed name wins over the highlight. With nothing typed and no BOM listed, Enter refuses with *"Enter the name of the new BOM."* Locked by `BomNameListTests.Typing_an_existing_name_opens_that_BOM_for_alteration_not_a_duplicate_create` and `…Typing_a_new_name_and_Enter_creates_a_further_BOM…`. |
+| **Why** | A create under a name the item already has can only be refused by the uniqueness rule. Opening the BOM the operator named is the useful reading. |
+| **Fix** | None proposed. |
+
+### IV-227 · **Leaving the components screen returns to the menu, not to the M BOM list**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: NAVIGATION SHAPE.** |
+| **What TallyPrime does** | Not stated on the page. |
+| **What we ship** | The M BOM list and the components screen are each a page column. `OpenPageColumn` REPLACES the page, so Escape on the components screen goes back to the menu column. To reach another BOM of the same item, the operator re-opens Stock Item Alteration and ticks the option again. Escape on the M BOM list writes nothing (`BomNameListTests.Escape_on_the_name_list_leaves_it_and_writes_nothing`). |
+| **Why** | The shell keeps at most one page column; stacking the components screen over the list would need a new column shape. |
+| **Fix** | Optional: stack the components screen beside the list (as the batch-allocation sub-screen does), so Escape returns to the list. |
 
 ## 3. Grouped by area
 
