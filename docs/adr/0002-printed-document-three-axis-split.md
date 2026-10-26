@@ -223,7 +223,7 @@ the **first** category.
   > `src/Apex.Ledger/Domain/VoucherEffects.cs:111` —
   > **the four item-invoice carriers are Purchase, Sales, Credit Note and Debit Note**; the validator, the
   > on-hand engine, the movement register, the no-negative guard, the
-  > `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:80`
+  > `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:89`
   > post-time direction stamp and `VoucherEntryViewModel.CanBeItemInvoice` all read that one predicate instead
   > of restating the set for themselves, which is what six of them used to do.
   > **The decoupling this bullet asserts still holds, for the reason it always rested on and not for the struck
