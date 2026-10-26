@@ -6570,21 +6570,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // any the user created — not an authored menu. A computed hotkey over user data would paint an arbitrary
         // mid-word red letter on a name nobody at build time has seen, so a bare letter FILTERS here instead.
         var picker = new GatewayColumn("Add Voucher") { Kind = GatewayColumnKind.DataDriven };
-        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
-        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive && CanAddFromDayBook(t)))
-        {
-            // Capture the TYPE, not its base kind: these rows are the company's own voucher types, and two of
-            // them can share a base (a second Sales series, a Manufacturing Journal over Stock Journal, a POS
-            // till). Passing the base kind sent the choice through resolution again and opened a DIFFERENT type
-            // than the row the operator was standing on.
-            var chosen = type;
-            picker.Add(new MenuItemViewModel(
-                type.Name,
-                () => PickAddVoucherType(chosen, seedDate),
-                type.DefaultShortcut ?? string.Empty,
-                isSubItem: true,
-                kind: MenuItemKind.Action));
-        }
+        FillAddVoucherPicker(picker, seedDate);
 
         // Append WITHOUT ClearSubScreens/OpenPageColumn — the Day Book page column survives beneath (Reports stays
         // bound), exactly like the F12 config column sits beside its live report.
@@ -6810,6 +6796,108 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     private bool CanAddFromDayBook(VoucherType type) =>
         type.BaseType != VoucherBaseType.Attendance
         && (!type.IsManufacturingJournal || Company is { SetComponentsBom: true });
+
+    /// <summary>Suffix on an inactive voucher type's row in the Alt+A picker (census 5.6(b), IV-239). Ours.</summary>
+    internal const string InactiveTypeSuffix = " (Inactive)";
+
+    /// <summary>
+    /// (Re)fills the Alt+A picker column with the company's voucher types. 🔴 <b>Census 5.6(b), wave 8 (IV-239)</b>:
+    /// INACTIVE types are now listed too, after the active ones and marked <see cref="InactiveTypeSuffix"/>, and
+    /// choosing one asks to activate it (<see cref="AskToActivateAddVoucherType"/>). Vendor, opened by content:
+    /// help.tallysolutions.com/accounting-entry-tally/ — <i>"In case the voucher is inactive, you will be prompted to
+    /// activate the Memorandum voucher type"</i>; help.tallysolutions.com/tally-prime/accounting/accounting-faq/ —
+    /// <i>"TallyPrime prompts you to activate the voucher types"</i>. An inactive type whose own screen is
+    /// feature-gated (Job Work / Material with job-order processing off; Payroll with payroll off) is NOT offered:
+    /// activating it would open nothing.
+    /// </summary>
+    private void FillAddVoucherPicker(GatewayColumn picker, DateOnly? seedDate)
+    {
+        picker.Items.Clear();
+        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
+        foreach (var type in Company!.VoucherTypes.Where(t => t.IsActive && CanAddFromDayBook(t)))
+        {
+            // Capture the TYPE, not its base kind: these rows are the company's own voucher types, and two of
+            // them can share a base (a second Sales series, a Manufacturing Journal over Stock Journal, a POS
+            // till). Passing the base kind sent the choice through resolution again and opened a DIFFERENT type
+            // than the row the operator was standing on.
+            var chosen = type;
+            picker.Add(new MenuItemViewModel(
+                type.Name,
+                () => PickAddVoucherType(chosen, seedDate),
+                type.DefaultShortcut ?? string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+        foreach (var type in Company.VoucherTypes.Where(t => !t.IsActive && CanAddFromDayBook(t)
+                                                              && InactiveTypeScreenIsReachable(t)))
+        {
+            var chosen = type;
+            picker.Add(new MenuItemViewModel(
+                type.Name + InactiveTypeSuffix,
+                () => AskToActivateAddVoucherType(picker, chosen, seedDate),
+                string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+        picker.SelectFirstSelectable();
+        // The shell's Menu is a COPY of the active column's rows (SyncActiveColumn), so a refill in place must re-sync
+        // or the keys would walk the stale rows.
+        if (ReferenceEquals(ActiveColumn, picker)) SyncActiveColumn();
+    }
+
+    /// <summary>Whether the screen an inactive type opens is reachable once the type is activated (its family's own
+    /// F11 feature is on) — see <see cref="FillAddVoucherPicker"/>.</summary>
+    private bool InactiveTypeScreenIsReachable(VoucherType type) => type.BaseType switch
+    {
+        VoucherBaseType.JobWorkInOrder or VoucherBaseType.JobWorkOutOrder
+            or VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut => Company is { EnableJobOrderProcessing: true },
+        VoucherBaseType.Payroll => Company is { PayrollEnabled: true },
+        _ => true,
+    };
+
+    /// <summary>
+    /// 🔴 <b>Census 5.6(b), wave 8 (IV-239) — the activation PROMPT.</b> The picker column is turned, in place, into
+    /// a two-row question: <i>Yes - activate and enter</i> activates the type through
+    /// <see cref="Apex.Ledger.Services.VoucherTypeService.SetActive"/>, SAVES (rolling the flag back if the save fails), and opens that
+    /// type's entry exactly as an active row would; <i>No</i> restores the list. Esc closes the picker as before.
+    /// The prompt's wording and its in-column shape are ours; the vendor attests only that a prompt is raised.
+    /// </summary>
+    private void AskToActivateAddVoucherType(GatewayColumn picker, VoucherType type, DateOnly? seedDate)
+    {
+        picker.Items.Clear();
+        picker.Add(MenuItemViewModel.Header($"'{type.Name}' is inactive. Activate it?"));
+        picker.Add(new MenuItemViewModel(
+            "Yes - activate and enter",
+            () =>
+            {
+                new Apex.Ledger.Services.VoucherTypeService(Company!).SetActive(type.Id, true);
+                try
+                {
+                    _storage.Save(Company!);
+                }
+                catch (Exception ex) when (SaveFailure.IsReportable(ex))
+                {
+                    new Apex.Ledger.Services.VoucherTypeService(Company!).SetActive(type.Id, false);
+                    RaiseLifecycleNotice($"Could not activate '{type.Name}': {ex.Message} Nothing was changed.");
+                    FillAddVoucherPicker(picker, seedDate);
+                    return;
+                }
+                PickAddVoucherType(type, seedDate);
+            },
+            string.Empty,
+            isSubItem: true,
+            kind: MenuItemKind.Action));
+        picker.Add(new MenuItemViewModel(
+            "No",
+            () => FillAddVoucherPicker(picker, seedDate),
+            string.Empty,
+            isSubItem: true,
+            kind: MenuItemKind.Action));
+        picker.SelectFirstSelectable();
+        // The shell's Menu is a COPY of the active column's rows (SyncActiveColumn), so a refill in place must re-sync
+        // or the keys would walk the stale rows.
+        if (ReferenceEquals(ActiveColumn, picker)) SyncActiveColumn();
+    }
 
     /// <summary>
     /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
