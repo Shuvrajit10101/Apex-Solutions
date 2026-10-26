@@ -170,6 +170,11 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// <summary>The number assigned once accepted (0 until then).</summary>
     [ObservableProperty] private int _savedNumber;
 
+    /// <summary>The id of the stock/order voucher this screen last CREATED (census 5.11, <i>Print voucher after
+    /// saving</i>); <see cref="Guid.Empty"/> until an accept succeeds. Written only after the save returned, so a
+    /// refused save prints nothing. Not written by the alteration exit, which IV-117 leaves unwired.</summary>
+    [ObservableProperty] private Guid _savedVoucherId;
+
     /// <summary>Live text: whether the Stock-Journal source and destination balance in the base unit.</summary>
     [ObservableProperty] private string _balanceText = string.Empty;
 
@@ -1133,6 +1138,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
             var posted = _service.Post(voucher); // throws on type/content/imbalance/negative — never persisted
             _storage.Save(_company);             // persist the whole aggregate to the .db
             SavedNumber = posted.Number;
+            SavedVoucherId = posted.Id;          // census 5.11 — see SavedVoucherId
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted.";
             _onSaved();
             return true;

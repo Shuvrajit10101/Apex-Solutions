@@ -124,6 +124,16 @@ public sealed class EntryLine
     /// <summary>True iff this line carries payroll detail.</summary>
     public bool HasPayroll => Payroll is not null;
 
+    /// <summary>
+    /// The per-ledger narration on this line (census 5.11, schema v68), or <c>null</c> when none was keyed.
+    /// Entered on the voucher-entry screen when the voucher type has <i>Provide narration for each ledger in
+    /// voucher</i> on — help.tallysolutions.com/voucher-types-tally/ (Configure Voucher Types → Set up
+    /// transaction options): <i>"Enable Provide narration for each ledger in voucher to add narration for
+    /// individual ledgers"</i>. Blank/whitespace normalises to <c>null</c> so a line nobody narrated is
+    /// byte-identical to a pre-v68 line (ER-13). It is descriptive text only and moves no figure.
+    /// </summary>
+    public string? Narration { get; }
+
     public EntryLine(
         Guid ledgerId,
         Money amount,
@@ -135,7 +145,8 @@ public sealed class EntryLine
         GstLineTax? gst = null,
         TdsLineTax? tds = null,
         TcsLineTax? tcs = null,
-        PayrollLineDetail? payroll = null)
+        PayrollLineDetail? payroll = null,
+        string? narration = null)
     {
         // A payroll line self-describes its own amount, which by construction equals the line amount (they are
         // posted together). Enforce that invariant here — the single choke point every path (posting, import,
@@ -156,6 +167,7 @@ public sealed class EntryLine
         Tds = tds;
         Tcs = tcs;
         Payroll = payroll;
+        Narration = string.IsNullOrWhiteSpace(narration) ? null : narration.Trim();
     }
 
     /// <summary>Signed contribution: +amount for a debit, −amount for a credit.</summary>

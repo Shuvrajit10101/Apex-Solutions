@@ -246,6 +246,8 @@ public static class VoucherPrintProjector
                 LedgerName = ReportPrintProjector.Ascii(company.FindLedger(l.LedgerId)?.Name ?? "(unknown)"),
                 IsDebit = l.Side == DrCr.Debit,
                 Amount = l.Amount,
+                // Census 5.11 (v68): the line's own narration prints under it (ASCII-folded like the name).
+                Narration = l.Narration is { } ln ? ReportPrintProjector.Ascii(ln) : string.Empty,
             });
 
         return new VoucherPrintData

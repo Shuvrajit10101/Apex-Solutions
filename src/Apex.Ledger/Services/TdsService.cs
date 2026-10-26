@@ -583,7 +583,8 @@ public sealed class TdsService
                 NonEmpty(keyedPartyLine?.CostAllocations),
                 keyedPartyLine?.BankAllocation,
                 keyedPartyLine?.Forex,
-                tds: detail);
+                tds: detail,
+                narration: keyedPartyLine?.Narration);   // census 5.11 (v68)
             return new CarveOut(w, partyGrossObligation, partyFull, null, detail);
         }
 
@@ -598,7 +599,8 @@ public sealed class TdsService
             CarveBills(keyedPartyLine, w.TdsAmount, deductee),
             CarveCosts(keyedPartyLine, w.TdsAmount, deductee),
             keyedPartyLine?.BankAllocation,
-            RefuseForexOnACarve(keyedPartyLine, deductee));
+            RefuseForexOnACarve(keyedPartyLine, deductee),
+            narration: keyedPartyLine?.Narration);   // census 5.11 (v68)
         var tdsPayableLine = new EntryLine(payable.Id, w.TdsAmount, DrCr.Credit, tds: detail);
         return new CarveOut(w, net, partyLine, tdsPayableLine, detail);
     }

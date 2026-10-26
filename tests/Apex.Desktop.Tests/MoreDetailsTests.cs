@@ -328,15 +328,20 @@ public sealed class MoreDetailsTests : IDisposable
     }
 
     /// <summary>
-    /// The claim behind the first footnote entry, asserted against the DOMAIN rather than trusted: narration
-    /// lives on the voucher, not the line. If a later slice adds per-line narration this test reddens, which
-    /// is the signal to promote that field from the footnote into a real row.
+    /// The claims behind the footnote entries, asserted against the DOMAIN rather than trusted. 🔴 <b>Wave 7
+    /// (census 5.11, schema v68) added per-line narration</b>, so this test reddened exactly as it was written to,
+    /// and the first entry's REASON was corrected rather than this assertion flipped blindly: the store exists,
+    /// and what remains withheld is this panel's row for it on an item invoice (a missing screen, see
+    /// MoreDetailsViewModel). Promoting it into a real row is census 14.4's work, not 5.11's. PAN / CIN still
+    /// have no store at all.
     /// </summary>
     [Fact]
-    public void Per_line_narration_genuinely_has_nowhere_to_be_stored()
+    public void Per_line_narration_is_stored_but_the_footnote_still_names_what_this_panel_cannot_offer()
     {
         Assert.NotNull(typeof(Voucher).GetProperty(nameof(Voucher.Narration)));
-        Assert.Null(typeof(EntryLine).GetProperty("Narration"));
+        Assert.NotNull(typeof(EntryLine).GetProperty(nameof(EntryLine.Narration)));
+        Assert.DoesNotContain("stores narration on the voucher, not on the line",
+            string.Join("; ", MoreDetailsViewModel.WithheldFields));
         Assert.Null(typeof(Company).GetProperty("Pan"));
         Assert.Null(typeof(Company).GetProperty("Cin"));
     }

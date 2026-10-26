@@ -1752,6 +1752,13 @@ public sealed record EntryLineDto
 
     /// <summary>The payroll detail (Phase 8 slice 3), or null for a non-payroll line. Money is integer paisa.</summary>
     public PayrollLineDto? Payroll { get; init; }
+
+    /// <summary>The per-ledger narration (census 5.11, schema v68), or null when none was keyed. Appended LAST and
+    /// <see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull"/> so an unnarrated line emits
+    /// no key and every existing export stays byte-identical (ER-13); XML only adds the attribute when set.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Narration { get; init; }
 }
 
 /// <summary>The per-employee computed salary detail on a Payroll-voucher entry line (Phase 8 slice 3), mirroring

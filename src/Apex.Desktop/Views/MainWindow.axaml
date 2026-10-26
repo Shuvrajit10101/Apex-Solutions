@@ -3058,6 +3058,16 @@
                                                    PlaceholderText="0.00"/>
                                         </Grid>
 
+                                        <!-- Census 5.11 (v68): the per-ledger narration, shown when the voucher type has
+                                             "Provide narration for each ledger in voucher" on. Next in Tab order after
+                                             the Amount, so it is reached from the keyboard like every other line field. -->
+                                        <TextBox Name="LineNarrationBox"
+                                                 IsVisible="{Binding ShowLineNarration}"
+                                                 Text="{Binding LineNarration, Mode=TwoWay}"
+                                                 Margin="18,3,46,1" FontSize="11.5" FontStyle="Italic"
+                                                 TextWrapping="Wrap" AcceptsReturn="False"
+                                                 PlaceholderText="Narration for this ledger…"/>
+
                                         <!-- Bill-wise Details sub-panel (only for a bill-by-bill ledger) -->
                                         <Border IsVisible="{Binding IsBillWise}"
                                                 Background="#F4F7FB"
@@ -3379,6 +3389,14 @@
                                                      PlaceholderText="0.00"/>
                                           </Grid>
 
+                                          <!-- Census 5.11 (v68): the per-ledger narration under each particular (the Single Entry
+                                               layout Payment/Receipt/Contra open in); same binding and Tab position as the Dr/Cr grid. -->
+                                          <TextBox Name="LineNarrationBox"
+                                                   IsVisible="{Binding ShowLineNarration}"
+                                                   Text="{Binding LineNarration, Mode=TwoWay}"
+                                                   Margin="18,3,46,1" FontSize="11.5" FontStyle="Italic"
+                                                   TextWrapping="Wrap" AcceptsReturn="False"
+                                                   PlaceholderText="Narration for this ledger…"/>
                                           <!-- Bill-wise Details — the sub-screen the corpus places on Single-Entry
                                                Payment/Receipt (SG p.91). Same line view model, same rows, same
                                                exact-sum rule as the Dr/Cr grid. -->
@@ -3946,7 +3964,7 @@
                                       <DataTemplate x:DataType="vm:AccountingInvoiceLineViewModel">
                                         <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1"
                                                 Padding="6,4">
-                                          <Grid ColumnDefinitions="*,160,40">
+                                          <Grid ColumnDefinitions="*,160,40" RowDefinitions="Auto,Auto">
                                             <ComboBox Grid.Column="0" MinWidth="200" HorizontalAlignment="Stretch"
                                                       views:CreateField.Master="Ledger"
                                                       ItemsSource="{Binding Ledgers}"
@@ -3961,6 +3979,15 @@
                                             <TextBox Grid.Column="1" Width="150" Margin="6,0,0,0"
                                                      Text="{Binding AmountText, Mode=TwoWay}"
                                                      TextAlignment="Right" PlaceholderText="0.00"/>
+                                            <!-- Census 5.11 (v68): the per-ledger narration under each particulars line,
+                                                 shown when the voucher type has "Provide narration for each ledger" on. Declared BEFORE
+                                                 the remove button so Tab off the Amount lands in it. -->
+                                            <TextBox Grid.Row="1" Grid.ColumnSpan="2" Name="AccountingLineNarrationBox"
+                                                     IsVisible="{Binding ShowLineNarration}"
+                                                     Text="{Binding LineNarration, Mode=TwoWay}"
+                                                     Margin="18,3,0,1" FontSize="11.5" FontStyle="Italic"
+                                                     TextWrapping="Wrap" AcceptsReturn="False"
+                                                     PlaceholderText="Narration for this ledger…"/>
                                             <!-- The declared 40px column was EMPTY and RemoveAccountingInvoiceLine
                                                  had zero call sites, so a Particulars line could not be deleted at
                                                  all. The handler reads the button's own DataContext, so the click

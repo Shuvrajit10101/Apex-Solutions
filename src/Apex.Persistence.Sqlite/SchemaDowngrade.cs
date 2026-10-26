@@ -755,6 +755,37 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV67ToV68"/> (census row <b>5.11</b>): removes
+    /// <see cref="Schema.V68EntryLineColumns"/> (<c>entry_lines.narration</c>) and stamps <c>schema_version</c>
+    /// back to <b>67</b>.
+    ///
+    /// <para>🔴 <b><see cref="RebuildPreservingShape"/>, NOT <see cref="DropColumns"/></b>: <c>entry_lines</c> is
+    /// the FK PARENT of <c>bill_allocations</c>, <c>cost_allocations</c>, <c>bank_allocations</c>,
+    /// <c>tds_lines</c>, <c>tcs_lines</c> and <c>payroll_lines</c>, and a <c>CREATE … AS SELECT</c> rebuild of a
+    /// parent silently loses the PRIMARY KEY (the <c>foreign key mismatch</c> failure <see cref="V56ToV55"/>
+    /// records). The line ids are copied verbatim, so every child row still points at its line.</para>
+    ///
+    /// <para>⚠️ <b>ONE RESIDUAL, the one <see cref="V67ToV66"/> already carries on <c>budget_lines</c>.</b>
+    /// <c>entry_lines.id</c> is declared <c>AUTOINCREMENT</c>, which <c>PRAGMA table_info</c> does not report, so the
+    /// rebuilt table keeps its INTEGER PRIMARY KEY (inserts still allocate ids) but loses the strictly-monotonic
+    /// guarantee. The writer deletes and re-inserts a voucher's lines with their children in one transaction and
+    /// never reads a line id back across saves, and the downgrade is a test-fixture manoeuvre, never a production
+    /// path.</para>
+    ///
+    /// <para><b>WHAT IS LOST:</b> every per-ledger narration. No figure moves; the voucher-level narration on
+    /// <c>vouchers</c> is untouched. ⚠️ <b>This is now the TOP rung</b> — to reach v66 run this, then
+    /// <see cref="V67ToV66"/>.</para>
+    /// </summary>
+    public static void V68ToV67(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "entry_lines", Schema.V68EntryLineColumns, "entry_lines_v67");
+
+        Exec(connection, "UPDATE schema_version SET version = 67;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV66ToV67"/> (census rows <b>2.4, 2.7, 2.9, 2.11, 3.7</b>): removes all
     /// <b>twenty-two</b> columns v67 adds — <see cref="Schema.V67VoucherTypeColumns"/>,
     /// <see cref="Schema.V67CostCategoryColumns"/>, <see cref="Schema.V67BudgetLineColumns"/>,

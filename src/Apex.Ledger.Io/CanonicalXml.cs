@@ -814,7 +814,8 @@ public static class CanonicalXml
     private static XElement BuildEntryLine(EntryLineDto l)
     {
         var el = new XElement("line",
-            Attr("ledgerId", l.LedgerId), Attr("amountPaisa", l.AmountPaisa), Attr("side", l.Side));
+            Attr("ledgerId", l.LedgerId), Attr("amountPaisa", l.AmountPaisa), Attr("side", l.Side),
+            Opt("narration", l.Narration));   // census 5.11 (v68): emitted only when set (ER-13)
         var bills = new XElement("billAllocations");
         foreach (var b in l.BillAllocations)
             bills.Add(new XElement("billAllocation", Attr("refType", b.RefType), Attr("name", b.Name),
@@ -1879,6 +1880,7 @@ public static class CanonicalXml
     private static EntryLineDto ReadEntryLine(XElement e) => new()
     {
         LedgerId = Guid(e, "ledgerId"), AmountPaisa = Long(e, "amountPaisa"), Side = Str(e, "side")!,
+        Narration = Str(e, "narration"),   // census 5.11 (v68); absent => null
         BillAllocations = (e.Element("billAllocations")?.Elements("billAllocation") ?? Enumerable.Empty<XElement>())
             .Select(b => new BillAllocationDto
             {

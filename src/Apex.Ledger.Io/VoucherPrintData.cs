@@ -17,6 +17,10 @@ public sealed class VoucherPrintLine
 
     /// <summary>The line amount (paisa-exact).</summary>
     public required Money Amount { get; init; }
+
+    /// <summary>The per-ledger narration (census 5.11, schema v68), printed under the line; empty when none. Like
+    /// the voucher narration it honours <see cref="PrintConfig.ShowNarration"/>.</summary>
+    public string Narration { get; init; } = string.Empty;
 }
 
 /// <summary>

@@ -6369,9 +6369,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Payment link/QR code" carries a voucher-kind restriction; this one carries none.
         //
         // The alteration door (ShowVoucherAlteration) is deliberately NOT wired, on OUR reasoning: re-printing on
-        // every re-save would put a second document under one live number. ShowVoucherDuplicate (Alt+2) and
-        // OpenInventoryVoucher — both of which post a NEW voucher of the type — are NOT wired either, and that is
-        // an unclosed half of census 5.11 rather than a decision. See IV-117 for the measurement.
+        // every re-save would put a second document under one live number. ShowVoucherDuplicate (Alt+2),
+        // OpenInventoryVoucher and the POS bill — each of which posts a NEW voucher of the type — ARE wired (wave 7,
+        // IV-195); see each door. Only the alteration door stays unwired (IV-117).
         var afterSaved = onSaved ?? ShowGateway;
         VoucherEntryViewModel? opened = null;
 
@@ -6436,6 +6436,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // The tail is OpenPrintPreview's verbatim — the shape that APPENDS a column without trimming the pane
         // beneath, so the report or Gateway the save returned to survives and Esc pops straight back to it.
         var preview = detail.BuildPrintPreview();
+        preview.SourceVoucherId = voucher.Id;
+        AppendAfterSavePreview(preview);
+    }
+
+    /// <summary>The tail <see cref="OpenPrintPreview"/> uses, verbatim: APPENDS the printing column without trimming
+    /// the pane beneath, so the screen the save returned to survives and Esc pops straight back to it.</summary>
+    private void AppendAfterSavePreview(PrintPreviewViewModel preview)
+    {
         PrintPreview = preview;
         Columns.Add(new GatewayColumn(preview.Title, preview));
         ActiveColumnIndex = Columns.Count - 1;
@@ -6443,6 +6451,32 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ScreenTitle = preview.Title;
         SyncActiveColumn();
         BuildButtonBar();
+    }
+
+    /// <summary>
+    /// 🔴 <b>Census 5.11 — the INVENTORY sibling of <see cref="OpenVoucherPrintingAfterSave"/></b>, for a stock or
+    /// order voucher created through <see cref="OpenInventoryVoucher(VoucherType, DateOnly?, Action?)"/> whose type
+    /// has <i>Print voucher after saving</i> on. It reuses the drilled-voucher print door's own projection
+    /// (<see cref="InventoryVoucherDetailViewModel.BuildPrintPreview"/>), so what opens is exactly what Ctrl+P on
+    /// the drilled voucher prints: the delivery challan for a Delivery Note.
+    ///
+    /// <para>🔴 <b>Every other stock kind has NO printed document in this product</b> (see the Ctrl+P arm in
+    /// <see cref="OpenPrintPreview"/> and IV-195), so for those the flag raises that arm's own NAMED notice instead
+    /// of silently printing nothing — the operator ticked an option and is told why no document opened.</para>
+    /// </summary>
+    private void OpenInventoryVoucherPrintingAfterSave(Guid voucherId)
+    {
+        if (Company?.FindInventoryVoucher(voucherId) is not { } voucher) return;
+        if (PrintPreview is not null) return;
+
+        var detail = new InventoryVoucherDetailViewModel(Company, voucher);
+        if (detail.BuildPrintPreview() is not { } preview)
+        {
+            RaiseLifecycleNotice(detail.ChallanProjection.Refusal ?? DeliveryChallanPrintProjector.NotAChallan);
+            return;
+        }
+        preview.SourceVoucherId = voucher.Id;
+        AppendAfterSavePreview(preview);
     }
 
     // =============================================================== screen: inventory voucher entry
@@ -6484,11 +6518,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (Company is null) return;
         ArgumentNullException.ThrowIfNull(type);
 
+        // 🔴 CENSUS 5.11 — the same wrap OpenVoucher uses: the caller's own navigation runs FIRST (ShowGateway's
+        // ClearSubScreens would discard a preview opened before it), then the printing screen is appended for the
+        // voucher THIS screen committed, read off its SavedVoucherId.
+        var afterSaved = onSaved ?? ShowGateway;
+        InventoryVoucherEntryViewModel? opened = null;
         var entry = new InventoryVoucherEntryViewModel(
             Company, type, _storage,
-            onSaved: onSaved ?? ShowGateway,
+            onSaved: () =>
+            {
+                afterSaved();
+                if (type.PrintAfterSaving && opened?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenInventoryVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage,
             date: date);
+        opened = entry;
         // RQ-3: a batch-tracked line opens the batch-allocation sub-screen as a cascade column to the right.
         entry.BatchAllocationRequested += (item, godown, qty, isOutward, onCommitted) =>
             ShowBatchAllocation(item, godown, qty, isOutward, onCommitted);
@@ -11218,6 +11263,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // different report.
         var report = Reports;
         var register = LedgerVouchers;
+        VoucherEntryViewModel? duplicate = null;
 
         var open = VoucherEntryViewModel.ForDuplicate(
             Company!, voucher.Id, _storage,
@@ -11230,8 +11276,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 BackFromPage();
                 report?.Show(report.Kind);
                 register?.Refresh();
+                // 🔴 CENSUS 5.11 — a duplicate POSTS A NEW VOUCHER of the type, so the type's "Print voucher after
+                // saving" applies exactly as on OpenVoucher, and AFTER the surfaces beneath are re-rendered. The id
+                // is the NEW voucher's (SavedVoucherId), never the source's.
+                if (duplicate is { Type.PrintAfterSaving: true, SavedVoucherId: var saved } && saved != Guid.Empty)
+                    OpenVoucherPrintingAfterSave(saved);
             },
             onCancelled: BackFromPage);
+        duplicate = open.Entry;
 
         if (open.Refusal is { } refusal)
         {

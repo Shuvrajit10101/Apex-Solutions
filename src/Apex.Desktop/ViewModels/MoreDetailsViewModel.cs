@@ -79,9 +79,11 @@ public sealed partial class MoreDetailsRowViewModel : ViewModelBase
 /// <see cref="WithheldFields"/>, which <see cref="Footnote"/> and the test that locks it both read:</para>
 /// <list type="bullet">
 ///   <item><b>Ledger Narration (per line)</b> — the vendor's headline More Details example on an invoice line.
-///     <c>Apex.Ledger.Domain.Voucher</c> carries <c>Narration</c> at the VOUCHER level and
-///     <c>Apex.Ledger.Domain.EntryLine</c> has no narration field at all, so a per-line narration has nowhere
-///     to be stored. Adding it is a schema change, and this track takes none.</item>
+///     🔴 <b>The store now EXISTS</b> (census 5.11, schema v68: <c>EntryLine.Narration</c> on
+///     <c>entry_lines.narration</c>), and the Dr/Cr, Single Entry and Accounting Invoice grids offer it under each
+///     line when the voucher type's <i>Provide narration for each ledger in voucher</i> is on. What is still
+///     withheld is THIS panel's row for it on an item invoice, whose ledger legs have no narration field. The
+///     omission is therefore a missing SCREEN now, not a missing store.</item>
 ///   <item><b>Voucher No. Details &gt; Select Unused Voucher Nos.</b> — nothing in this build tracks unused or
 ///     skipped voucher numbers; <c>NumberingMethod</c> and the numbering services model the NEXT number, never
 ///     the gaps behind it. The list would have no source to draw from.</item>
@@ -106,7 +108,7 @@ public sealed partial class MoreDetailsViewModel : ViewModelBase
     /// </summary>
     public static IReadOnlyList<string> WithheldFields { get; } = new[]
     {
-        "Ledger Narration (per line) — this book stores narration on the voucher, not on the line",
+        "Ledger Narration (per line) — not offered on an item invoice; the Dr/Cr and service grids take it when the voucher type allows narration for each ledger",
         "Voucher No. Details / Select Unused Voucher Nos. — unused numbers are not tracked",
         "PAN / CIN — not stored on the company",
     };
