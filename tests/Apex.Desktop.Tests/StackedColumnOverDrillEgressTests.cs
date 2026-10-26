@@ -228,4 +228,75 @@ public sealed class StackedColumnOverDrillEgressTests
             try { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(dir, true); } catch (IOException) { }
         }
     }
+
+    /// <summary>
+    /// Second positive control, added by the independent check of the fix: a REPORT stacked ABOVE a drill page
+    /// keeps its own verbs. The cascade is Day Book &gt; Ledger Vouchers (a drill page) &gt; that ledger's Monthly
+    /// Summary (F6, census 11.5), so a drill page IS in the cascade, but beneath the report. The control above has
+    /// no drill page anywhere, so it could not tell "a drill page above the report" from "a drill page anywhere":
+    /// measured, changing the walk's <c>return false</c> on meeting the report to <c>continue</c> left the whole
+    /// Desktop suite green while Ctrl+E, Alt+M, P then W, F12 and Ctrl+H all went dead on the Monthly Summary.
+    /// This case reddens on that mutation.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("CtrlE")]
+    [InlineData("CtrlM")]
+    public void A_report_stacked_above_a_drill_page_keeps_its_own_export_and_share(string route)
+    {
+        var (w, vm, dir, ours, theirs, i1, i2, gd) = Setup("Probe Co above " + route);
+        try
+        {
+            vm.OpenVoucher(VoucherBaseType.Receipt);
+            var en = vm.VoucherEntry!;
+            en.Lines[0].SelectedLedger = vm.Company!.FindLedgerByName("Cash")!;
+            en.Lines[0].Side = DrCr.Debit;
+            en.Lines[0].AmountText = "987";
+            en.Lines[1].SelectedLedger = vm.Company!.FindLedger(theirs)!;
+            en.Lines[1].Side = DrCr.Credit;
+            en.Lines[1].AmountText = "987";
+            Assert.True(en.Accept(), en.Message);
+
+            vm.OpenReport(ReportKind.DayBook);
+            Pump(w);
+            vm.OpenAccountBook(Theirs);
+            Pump(w);
+            Assert.Equal(Screen.LedgerVouchers, vm.CurrentScreen);
+            w.KeyPressQwerty(PhysicalKey.F6, RawInputModifiers.None);
+            Pump(w);
+            Assert.Equal(ReportKind.LedgerMonthlySummary, vm.Reports!.Kind);
+            Assert.Contains(vm.Columns, c => c.Page is LedgerVouchersViewModel);   // a drill page IS in the cascade
+            Assert.True(vm.IsReportContext, "a report stacked above a drill page lost its report context");
+            var title = vm.Reports!.Title;
+            w.Focus();
+            Pump(w);
+
+            if (route == "CtrlE")
+            {
+                w.KeyPressQwerty(PhysicalKey.E, RawInputModifiers.Control);
+                Pump(w);
+                Assert.Equal(Screen.Export, vm.CurrentScreen);
+                var ep = vm.ExportPanel!;
+                Assert.Equal(title, ep.DocumentTitle);
+                Directory.CreateDirectory(dir);
+                ep.Folder = dir; ep.Format = ExportFormat.Csv; ep.AppendTimestamp = false;
+                var path = ep.BuildConfig().FullPath;
+                w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+                Pump(w);
+                Assert.True(File.Exists(path), "Ctrl+A wrote no file");
+                Assert.Contains("987", Encoding.Latin1.GetString(File.ReadAllBytes(path)), StringComparison.Ordinal);
+            }
+            else
+            {
+                w.KeyPressQwerty(PhysicalKey.M, RawInputModifiers.Control);
+                Pump(w);
+                Assert.Equal(Screen.EmailCompose, vm.CurrentScreen);
+                Assert.Equal(title, vm.EmailCompose!.DocumentTitle);
+            }
+        }
+        finally
+        {
+            w.Close();
+            try { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); Directory.Delete(dir, true); } catch (IOException) { }
+        }
+    }
 }
