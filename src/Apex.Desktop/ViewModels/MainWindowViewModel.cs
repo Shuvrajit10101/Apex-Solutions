@@ -3756,7 +3756,33 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public bool IsReportContext => Reports is not null
         && CurrentScreen is not (Screen.LedgerVouchers or Screen.VoucherDetail or Screen.InventoryVoucherDetail
             or Screen.VoucherEntry or Screen.InventoryVoucherEntry or Screen.PosBilling)
-        && !IsActionMenuColumn;
+        && !IsActionMenuColumn
+        && !IsDrillPageAboveReport();
+
+    /// <summary>
+    /// 🔴 <b>T2-159, THE THIRD DOOR (wave 7 review) — A COLUMN STACKED OVER A DRILL PAGE IS NOT "ON THE REPORT".</b>
+    /// Excluding the drill screens' own ids from <see cref="IsReportContext"/> was not enough: Print Preview,
+    /// Export, E-Mail, WhatsApp, Printer and Print Config columns are appended ON TOP of a drilled voucher pane
+    /// and carry their own screen ids, while <see cref="Reports"/> stays bound two columns down. MEASURED on the
+    /// branch before this clause, through the real key handler on a two-consignee book: a drilled Delivery Note,
+    /// then P (the challan's preview), then Ctrl+E / Ctrl+M / Alt+M &gt; E-Mail / W wrote or attached the
+    /// <b>whole Day Book</b> — the other consignee included; and the same on a drilled accounting voucher's
+    /// preview. So the cascade is walked from the top: if a drilled voucher / ledger-vouchers / voucher-entry
+    /// page is met before the report page itself, the report is NOT the context and its verbs stay inert.
+    /// </summary>
+    private bool IsDrillPageAboveReport()
+    {
+        for (int i = Columns.Count - 1; i >= 0; i--)
+        {
+            var page = Columns[i].Page;
+            if (page is null) continue;
+            if (ReferenceEquals(page, Reports)) return false;
+            if (page is VoucherDetailViewModel or InventoryVoucherDetailViewModel or LedgerVouchersViewModel
+                or VoucherEntryViewModel or InventoryVoucherEntryViewModel or PosBillingViewModel)
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// True while one of the four ACTION-MENU columns (Ctrl+H Change View, Alt+P Print, Alt+E Export, Alt+M
