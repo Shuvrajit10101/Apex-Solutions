@@ -40,11 +40,13 @@ public sealed record Gstr9c(
     // ---- Part III Tables 9–11 — reconciliation of rate-wise tax liability. ----
     /// <summary>Tax payable as per GSTR-9 (Table 9 payable = Table 4 total tax).</summary>
     public Money Table9TaxPerReturn { get; init; }
-    /// <summary>Tax payable as per the books (Σ the Output tax-ledger CREDIT legs over the FY — output tax charged).</summary>
+    /// <summary>Tax payable as per the books (Σ the Output tax-ledger CREDIT legs over the FY — output tax charged —
+    /// less the DEBIT legs a return note posted there).</summary>
     public Money Table9TaxPerBooks { get; init; }
 
     // ---- Part B Table 12 — reconciliation of net ITC. ----
-    /// <summary>12A — ITC availed as per the audited books (Σ the Input tax-ledger DEBIT legs over the FY — ITC availed).</summary>
+    /// <summary>12A — ITC availed as per the audited books (Σ the Input tax-ledger DEBIT legs over the FY — ITC availed —
+    /// less the CREDIT legs a return note posted there).</summary>
     public Money Table12ABooksItc { get; init; }
     /// <summary>12E — net ITC as per GSTR-9 (Table 6 availed − Table 7 reversed).</summary>
     public Money Table12EReturnItc { get; init; }
@@ -94,6 +96,14 @@ public sealed record Gstr9c(
         // FY-windowed directional leg-sum over a tax ledger: Σ the line amounts on it whose DrCr side matches `side`,
         // counted over [fyFrom, fyTo] (opening balance + prior-FY vouchers excluded). Isolates the accrual legs from the
         // opposite-side set-off / payment discharge legs.
+        //
+        // 🔴 T2-114 (census 6.12 clause ii) — A RETURN NOTE IS AN ACCRUAL REVERSAL, NOT A DISCHARGE. A sales-return
+        // Credit Note posts its Output tax on the DEBIT side and a purchase-return Debit Note posts its Input tax on
+        // the CREDIT side (ComputeInvoiceTax `reverseSides: IsReturnNote`). The pure directional sum dropped both, so
+        // the books anchors stayed GROSS while GSTR-9 Tables 4/6 (off GSTR-3B, signed since PR #145) were NET, and
+        // Table 11 / 12F reported the return itself as an unreconciled difference. So an opposite-side leg is
+        // SUBTRACTED when — and only when — the voucher posting it is a return note; the Rule-88A set-off (Journal)
+        // and the PMT-06 cash discharge (Payment) are not return notes and stay excluded exactly as before.
         decimal LegSum(Domain.Ledger ledger, DrCr side)
         {
             var sum = 0m;
@@ -102,9 +112,13 @@ public sealed record Gstr9c(
                 if (v.Date < fyFrom) continue;
                 var type = company.FindVoucherType(v.TypeId);
                 if (type is null || !LedgerBalances.CountsAsOf(v, fyTo, type.BaseType)) continue;
+                var isReturnNote = VoucherEffects.IsReturnNote(type.BaseType);
                 foreach (var line in v.Lines)
-                    if (line.LedgerId == ledger.Id && line.Side == side)
-                        sum += line.Amount.Amount;
+                {
+                    if (line.LedgerId != ledger.Id) continue;
+                    if (line.Side == side) sum += line.Amount.Amount;
+                    else if (isReturnNote) sum -= line.Amount.Amount;
+                }
             }
             return sum;
         }
