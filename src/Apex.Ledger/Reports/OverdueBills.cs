@@ -23,6 +23,12 @@ public sealed record OverdueParty(
 /// re-walking the vouchers, so an overdue bill's pending amount can never disagree with the same bill on Bills
 /// Receivable / Bills Payable.</para>
 ///
+/// <para><b>Non-posting vouchers never make a bill overdue.</b> A Memorandum or Reversing Journal carrying a bill
+/// allocation neither opens nor settles a bill outside a scenario — the projection's voucher rule carries the base
+/// type (see <c>Outstandings.CountsUnder</c>). Vendor (help.tallysolutions.com/accounting-entry-tally/, opened by
+/// content 2026-10-27): <i>"Memorandum Vouchers are those vouchers that do not impact your books of
+/// accounts."</i></para>
+///
 /// <para><b>The boundary is ours (IV-245).</b> A bill is overdue when <see cref="OutstandingBill.IsOverdue"/>
 /// — its due date is strictly before the as-of date. A bill falling due ON the as-of date is not listed. The
 /// TallyPrime page names "overdue days" and does not say which way the due day itself falls.</para>
