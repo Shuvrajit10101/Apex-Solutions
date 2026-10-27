@@ -79,6 +79,26 @@ public static class DeliveryChallanPrintProjector
     public const string NotAChallan =
         "This voucher has no printed document. Only a Delivery Note prints a delivery challan.";
 
+    /// <summary>
+    /// 🔴 <b>w8 fix (review ec MEDIUM-1) — THE NOTICE FOR A MATERIAL OUT, WHICH MUST NOT SAY "NO PRINTED
+    /// DOCUMENT".</b> A Material Out is the principal's dispatch of goods to a job worker, and the law names the
+    /// document that travels with it. <c>cbic-gst.gov.in/pdf/circularno-38-cgst.pdf</c> (CBIC Circular
+    /// No. 38/12/2018, dated 26 March 2018, opened BY CONTENT 2026-10-27), para 8.2: <i>"Rule 45 of the CGST Rules
+    /// provides that the inputs, semi-finished goods or capital goods being sent for job work ... shall be sent
+    /// under the cover of a challan issued by the principal, containing the details specified in rule 55"</i>; and
+    /// para 8.4(i): <i>"The principal shall prepare in triplicate, the challan in terms of rules 45 and 55 of the
+    /// CGST Rules, for sending the goods to a job worker."</i>
+    ///
+    /// <para><b>This product does not build that challan</b> — the Rule 55 particulars (consignor/consignee GSTIN,
+    /// HSN, taxable value, tax rate and amount, place of supply) are not on our <see cref="DeliveryChallanPrintProjector"/>
+    /// layout, and printing the Delivery-Note challan in its place would hand the job worker a document the rule
+    /// does not describe. So the notice says the document EXISTS, names its legal basis, and says plainly that we
+    /// do not produce it. The gap is recorded as IV-238's open half (<c>docs/invented-vs-cloned.md</c>).</para>
+    /// </summary>
+    public const string JobWorkChallanNotBuilt =
+        "A Material Out sends goods to a job worker under a job-work delivery challan (CGST Rules 45 and 55). "
+        + "This product does not print that challan yet, so prepare it outside the product.";
+
     /// <summary>The notice for a Delivery Note that names no party — see the type note.</summary>
     public const string NoParty =
         "This Delivery Note names no party, so there is nobody to address a delivery challan to.";
@@ -100,6 +120,8 @@ public static class DeliveryChallanPrintProjector
     /// <para>Deliberately narrow. Tally.ERP 9 pages describe printing a challan from a Material Out / Material
     /// Transfer Out voucher too, and <b>Tally.ERP 9 is not ground truth on this project</b>; no TallyPrime page
     /// we opened says it, so those kinds are left alone rather than given a document on a lead.</para>
+    /// <para>A Material Out is still NOT given a document here, but <see cref="Project"/> refuses it with
+    /// <see cref="JobWorkChallanNotBuilt"/>, because a statutory source does name its challan (w8 fix, MEDIUM-1).</para>
     /// </summary>
     public static bool PrintsAChallan(Company company, InventoryVoucher voucher)
     {
@@ -117,7 +139,12 @@ public static class DeliveryChallanPrintProjector
         ArgumentNullException.ThrowIfNull(company);
         ArgumentNullException.ThrowIfNull(voucher);
 
-        if (!PrintsAChallan(company, voucher)) return new DeliveryChallanProjection(null, NotAChallan);
+        if (!PrintsAChallan(company, voucher))
+        {
+            // w8 fix (MEDIUM-1): a Material Out HAS a statutory document; say so rather than deny it exists.
+            var isMaterialOut = company.FindVoucherType(voucher.TypeId)?.BaseType == VoucherBaseType.MaterialOut;
+            return new DeliveryChallanProjection(null, isMaterialOut ? JobWorkChallanNotBuilt : NotAChallan);
+        }
 
         var party = voucher.PartyId is { } pid ? company.FindLedger(pid) : null;
         if (party is null) return new DeliveryChallanProjection(null, NoParty);

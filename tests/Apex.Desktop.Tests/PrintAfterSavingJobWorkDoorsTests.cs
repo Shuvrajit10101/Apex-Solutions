@@ -28,6 +28,13 @@ namespace Apex.Desktop.Tests;
 /// what they print — help.tallysolutions.com/principal-manufacturer/ and /job-worker/ were opened by content and
 /// mention no printing), so the flag raises that door's NAMED notice rather than being silently ignored. Each door
 /// has a flag-off CONTROL so the notice cannot pass by being raised on every save.</para>
+///
+/// <para>🔴 <b>MATERIAL OUT IS THE EXCEPTION (w8 fix, review ec MEDIUM-1).</b> The vendor pages are silent, but
+/// the statutory source is not: CBIC Circular No. 38/12/2018 (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened
+/// by content 2026-10-27) para 8.4(i) requires the principal to prepare a challan "in terms of rules 45 and 55"
+/// when sending goods to a job worker. So a Material Out raises
+/// <c>DeliveryChallanPrintProjector.JobWorkChallanNotBuilt</c>, which names that challan and says this product
+/// does not print it, and never the "no printed document" notice. The challan itself is an OPEN gap (IV-238).</para>
 /// </summary>
 public sealed class PrintAfterSavingJobWorkDoorsTests : IDisposable
 {
@@ -174,8 +181,24 @@ public sealed class PrintAfterSavingJobWorkDoorsTests : IDisposable
             var outType = book.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.MaterialOut && t.IsActive);
             var movement = book.InventoryVouchers.Single(v => v.TypeId == outType.Id);
             Assert.Equal(movement.Id, mo.SavedVoucherId);
-            if (flag) Assert.Equal(DeliveryChallanPrintProjector.NotAChallan, k.Vm.Notice);
-            else Assert.NotEqual(DeliveryChallanPrintProjector.NotAChallan, k.Vm.Notice);
+            if (flag)
+            {
+                // w8 fix (review ec MEDIUM-1): a Material Out HAS a statutory document (CBIC Circular 38/12/2018
+                // para 8.4(i): the principal "shall prepare in triplicate, the challan in terms of rules 45 and
+                // 55"), so the notice must never claim "no printed document". It names the challan and says this
+                // product does not print it, and that wording is REALISED in the window, not just on a property.
+                Assert.Equal(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, k.Vm.Notice);
+                Assert.DoesNotContain("no printed document", k.Vm.Notice ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains(RenderedText(w),
+                    t => t.Contains(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, StringComparison.Ordinal));
+                Assert.DoesNotContain(RenderedText(w),
+                    t => t.Contains(DeliveryChallanPrintProjector.NotAChallan, StringComparison.Ordinal));
+            }
+            else
+            {
+                Assert.NotEqual(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, k.Vm.Notice);
+                Assert.NotEqual(DeliveryChallanPrintProjector.NotAChallan, k.Vm.Notice);
+            }
             Assert.Null(k.Vm.PrintPreview);
         }
         finally { w.Close(); }
@@ -212,6 +235,22 @@ public sealed class PrintAfterSavingJobWorkDoorsTests : IDisposable
         }
         finally { w.Close(); }
     }
+
+    private static System.Collections.Generic.IEnumerable<Avalonia.Visual> Descendants(Avalonia.Visual v)
+    {
+        foreach (var c in Avalonia.VisualTree.VisualExtensions.GetVisualChildren(v))
+        {
+            yield return c;
+            foreach (var g in Descendants(c)) yield return g;
+        }
+    }
+
+    /// <summary>The text actually drawn in the window's visual tree: the realised notice, not the property.</summary>
+    private static System.Collections.Generic.List<string> RenderedText(MainWindow w) =>
+        Descendants(w).OfType<Avalonia.Controls.TextBlock>()
+            .Select(t => t.Text ?? string.Empty)
+            .Where(s => s.Length > 0)
+            .ToList();
 
     public void Dispose()
     {
