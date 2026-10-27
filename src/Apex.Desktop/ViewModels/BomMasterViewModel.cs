@@ -184,14 +184,18 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     /// <paramref name="name"/>, as typed on the item's M BOM name list. <i>"In the Stock Item Multi Components
     /// (M BOM) screen, enter the name of the new BOM and press Enter."</i> — help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
     /// opened BY CONTENT 2026-10-26. The finished good is fixed to the item; Ctrl+A runs <see cref="Create"/>.
+    /// <para>Returns <c>null</c> when <paramref name="stockItemId"/> is not a finished-good candidate (wave-8 review
+    /// F4). It used to fall back to the FIRST item with the picker unlocked, so a new BOM typed for one item would
+    /// have defaulted to an unrelated one — refusing is the only safe answer.</para>
     /// </summary>
-    public static BomMasterViewModel ForNewBomOfItem(
+    public static BomMasterViewModel? ForNewBomOfItem(
         Company company, CompanyStorage storage, Guid stockItemId, string name, Action onChanged)
     {
         ArgumentNullException.ThrowIfNull(company);
         var vm = new BomMasterViewModel(company, storage, onChanged);
-        vm.SelectedFinishedGood = vm.FinishedGoods.FirstOrDefault(i => i.Id == stockItemId) ?? vm.SelectedFinishedGood;
-        vm.IsItemFixed = vm.SelectedFinishedGood?.Id == stockItemId;
+        if (vm.FinishedGoods.FirstOrDefault(i => i.Id == stockItemId) is not { } item) return null;
+        vm.SelectedFinishedGood = item;
+        vm.IsItemFixed = true;
         vm.Name = (name ?? string.Empty).Trim();
         vm.OnPropertyChanged(nameof(IsItemFixed));
         vm.OnPropertyChanged(nameof(CanChangeFinishedGood));

@@ -7726,8 +7726,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 master = m;
                 break;
             case BomNameChoice.CreateNew create:
-                master = BomMasterViewModel.ForNewBomOfItem(Company, _storage, list.StockItemId, create.Name,
-                    onChanged: () => { });
+                if (BomMasterViewModel.ForNewBomOfItem(Company, _storage, list.StockItemId, create.Name,
+                        onChanged: () => { }) is not { } fresh)
+                {
+                    list.Message = "That stock item no longer exists.";
+                    return false;
+                }
+                master = fresh;
                 break;
             default:
                 return false;
