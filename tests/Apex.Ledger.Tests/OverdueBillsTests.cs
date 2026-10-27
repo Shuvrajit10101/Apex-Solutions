@@ -114,6 +114,128 @@ public class OverdueBillsTests
         Assert.Equal(10_401.62m, nextDay.Total.Amount);
     }
 
+    /// <summary>
+    /// Posts the non-posting vouchers HIGH-1 (wave 8 review, track ed) measured as overdue: a <b>Memorandum</b>
+    /// opening MEMO-1 50,000.01 against Acme (due start+20), a <b>Reversing Journal</b> opening RJ-1 20,000.03
+    /// against Acme (due start+25, applicable up to well past the as-of date), a Memorandum AgstRef that would
+    /// "settle" INV-3 in full, and a Reversing Journal opening RJ-P 4,444.41 against Zenith (due start+30).
+    /// None of them touches the books, so none may move an overdue or outstanding figure.
+    /// </summary>
+    internal static (Guid MemoTypeId, Guid RevTypeId) PostProvisionalBills(Company c, DateOnly start)
+    {
+        var asOf = start.AddDays(90);
+        var svc = new LedgerService(c);
+        var memo = c.FindVoucherTypeByName("Memorandum")!;
+        var rev = c.FindVoucherTypeByName("Reversing Journal")!;
+        var acme = c.FindLedgerByName("Acme Traders")!;
+        var zenith = c.FindLedgerByName("Zenith Supplies")!;
+        var sales = c.FindLedgerByName("Sales Overdue")!;
+        var purchases = c.FindLedgerByName("Purchases Overdue")!;
+        var cash = c.FindLedgerByName("Cash Overdue")!;
+
+        svc.Post(new Voucher(Guid.NewGuid(), memo.Id, start.AddDays(10), new[]
+        {
+            new EntryLine(acme.Id, Money.FromRupees(50_000.01m), DrCr.Debit, billAllocations: new[]
+                { new BillAllocation(BillRefType.NewRef, "MEMO-1", Money.FromRupees(50_000.01m), dueDate: start.AddDays(20)) }),
+            new EntryLine(sales.Id, Money.FromRupees(50_000.01m), DrCr.Credit),
+        }));
+        svc.Post(new Voucher(Guid.NewGuid(), rev.Id, start.AddDays(12), new[]
+        {
+            new EntryLine(acme.Id, Money.FromRupees(20_000.03m), DrCr.Debit, billAllocations: new[]
+                { new BillAllocation(BillRefType.NewRef, "RJ-1", Money.FromRupees(20_000.03m), dueDate: start.AddDays(25)) }),
+            new EntryLine(sales.Id, Money.FromRupees(20_000.03m), DrCr.Credit),
+        }, applicableUpto: asOf.AddDays(60)));
+        svc.Post(new Voucher(Guid.NewGuid(), memo.Id, start.AddDays(70), new[]
+        {
+            new EntryLine(cash.Id, Money.FromRupees(1_234.57m), DrCr.Debit),
+            new EntryLine(acme.Id, Money.FromRupees(1_234.57m), DrCr.Credit, billAllocations: new[]
+                { new BillAllocation(BillRefType.AgstRef, "INV-3", Money.FromRupees(1_234.57m)) }),
+        }));
+        svc.Post(new Voucher(Guid.NewGuid(), rev.Id, start.AddDays(15), new[]
+        {
+            new EntryLine(purchases.Id, Money.FromRupees(4_444.41m), DrCr.Debit),
+            new EntryLine(zenith.Id, Money.FromRupees(4_444.41m), DrCr.Credit, billAllocations: new[]
+                { new BillAllocation(BillRefType.NewRef, "RJ-P", Money.FromRupees(4_444.41m), dueDate: start.AddDays(30)) }),
+        }, applicableUpto: asOf.AddDays(60)));
+        return (memo.Id, rev.Id);
+    }
+
+    /// <summary>
+    /// 🔴 HIGH-1. Memorandum and Reversing Journal vouchers do not impact the books (vendor:
+    /// help.tallysolutions.com/accounting-entry-tally/ — <i>"Memorandum Vouchers are those vouchers that do not
+    /// impact your books of accounts."</i>; Reversing Journals <i>"are not posted to any books of accounts and
+    /// cannot be included in regular reports."</i>). So their bill allocations neither open an overdue bill nor
+    /// settle a real one: Overdue Receivables stays at 7,901.61 with INV-3 still listed, Overdue Payables stays at
+    /// 7,777.77, and Bills Receivable / Payable (the same projection) carry neither MEMO-1, RJ-1 nor RJ-P. Under a
+    /// scenario that INCLUDES the Memorandum type, the memo bill is seen — the scenario path is untouched.
+    /// </summary>
+    [Fact]
+    public void Memorandum_and_reversing_journal_bills_are_never_overdue_and_never_settle_a_real_bill()
+    {
+        var c = Seeded(out _, out _, out var inv3, out _);
+        var (memoTypeId, _) = PostProvisionalBills(c, Start);
+
+        var receivables = OverdueBills.Build(c, AsOf, OutstandingKind.Receivable);
+        var party = Assert.Single(receivables.Parties);
+        Assert.Equal(new[] { "INV-1", "INV-3" }, party.Bills.Select(b => b.Reference).ToArray());
+        Assert.Equal(1_234.57m, party.Bills[1].Pending.Amount);
+        Assert.Equal(inv3.Id, party.Bills[1].OpeningVoucherId);
+        Assert.Equal(7_901.61m, receivables.Total.Amount);
+
+        var payables = OverdueBills.Build(c, AsOf, OutstandingKind.Payable);
+        Assert.Equal(new[] { "PB-9" }, payables.Parties.Single().Bills.Select(b => b.Reference).ToArray());
+        Assert.Equal(7_777.77m, payables.Total.Amount);
+
+        // The same projection feeds Bills Receivable / Payable: neither carries a non-posting bill either,
+        // and the receivable total equals Acme's REAL closing balance to the paisa.
+        var outstanding = Outstandings.Build(c, AsOf);
+        Assert.Equal(new[] { "INV-1", "INV-2", "INV-3" }, outstanding.Receivables.Select(b => b.Reference).ToArray());
+        Assert.Equal(new[] { "PB-9" }, outstanding.Payables.Select(b => b.Reference).ToArray());
+        Assert.Equal(10_401.62m, outstanding.TotalReceivable.Amount);
+        Assert.Equal(10_401.62m,
+            LedgerBalances.SignedClosing(c, c.FindLedgerByName("Acme Traders")!, AsOf));
+
+        // Under a scenario that includes the Memorandum type, the memo's effect IS seen: MEMO-1 opens and the memo
+        // AgstRef settles INV-3 — the vendor's "Use Scenarios to see the effect of Memorandum entries".
+        var withMemo = new Scenario(Guid.NewGuid(), "With Memos", includeActuals: true, includedTypeIds: new[] { memoTypeId });
+        var scenarioReport = OverdueBills.Build(c, AsOf, OutstandingKind.Receivable, withMemo);
+        Assert.Equal(new[] { "INV-1", "MEMO-1" },
+            scenarioReport.Parties.Single().Bills.Select(b => b.Reference).OrderBy(r => r, StringComparer.Ordinal).ToArray());
+        Assert.Equal(56_667.05m, scenarioReport.Total.Amount);
+    }
+
+    /// <summary>
+    /// LOW-3. A bill with NO explicit due date falls due by the ledger's default credit period. With 30 days, a
+    /// 100.01 bill dated D is due D+30: absent from the report on D+30, 1 day overdue on D+31.
+    /// </summary>
+    [Fact]
+    public void A_bill_without_a_due_date_falls_overdue_by_the_ledgers_default_credit_period()
+    {
+        var c = CompanyFactory.CreateSeeded("Overdue Credit Co", Start);
+        var svc = new LedgerService(c);
+        var debtor = new DomainLedger(Guid.NewGuid(), "Credit Days Debtor", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, true, maintainBillByBill: true) { DefaultCreditPeriodDays = 30 };
+        var sales = new DomainLedger(Guid.NewGuid(), "Sales Credit", c.FindGroupByName("Sales Accounts")!.Id,
+            Money.Zero, false);
+        c.AddLedger(debtor);
+        c.AddLedger(sales);
+        var billDate = Start.AddDays(5);
+        svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, billDate, new[]
+        {
+            new EntryLine(debtor.Id, Money.FromRupees(100.01m), DrCr.Debit, billAllocations: new[]
+                { new BillAllocation(BillRefType.NewRef, "CR-1", Money.FromRupees(100.01m)) }),
+            new EntryLine(sales.Id, Money.FromRupees(100.01m), DrCr.Credit),
+        }));
+
+        Assert.Empty(OverdueBills.Build(c, billDate.AddDays(30), OutstandingKind.Receivable).Parties);
+        var late = OverdueBills.Build(c, billDate.AddDays(31), OutstandingKind.Receivable);
+        var bill = Assert.Single(Assert.Single(late.Parties).Bills);
+        Assert.Equal("CR-1", bill.Reference);
+        Assert.Equal(billDate.AddDays(30), bill.DueDate);
+        Assert.Equal(1, bill.OverdueDays(billDate.AddDays(31)));
+        Assert.Equal(100.01m, late.Total.Amount);
+    }
+
     [Fact]
     public void Overdue_payables_list_the_creditor_bill_and_never_a_receivable()
     {

@@ -69,7 +69,7 @@ public sealed class OverdueExceptionReportsTests : IDisposable
     /// INV-2 2,500.01 due EXACTLY on the as-of date, INV-3 1,234.57 due the day before — and a creditor with
     /// PB-9 7,777.77 due 15 days before the as-of date. Saved through the real store.
     /// </summary>
-    private Fixture Build(string name)
+    private Fixture Build(string name, bool provisional = false)
     {
         var vm = new MainWindowViewModel(_storage);
         vm.NewCompanyName = name + " " + Guid.NewGuid().ToString("N")[..6];
@@ -117,6 +117,39 @@ public sealed class OverdueExceptionReportsTests : IDisposable
                 { new BillAllocation(BillRefType.NewRef, "PB-9", Money.FromRupees(7_777.77m),
                     dueDate: start.AddDays(75)) }),
         }));
+
+        if (provisional)
+        {
+            // HIGH-1 (wave 8 review, track ed): non-posting vouchers carrying bill allocations. A Memorandum opens
+            // MEMO-1 50,000.01 (due start+20) and another "settles" INV-3 in full; a Reversing Journal opens RJ-1
+            // 20,000.03 against Acme and RJ-P 4,444.41 against Zenith, both applicable well past the as-of date.
+            var memo = c.FindVoucherTypeByName("Memorandum")!;
+            var rev = c.FindVoucherTypeByName("Reversing Journal")!;
+            svc.Post(new Voucher(Guid.NewGuid(), memo.Id, start.AddDays(10), new[]
+            {
+                new EntryLine(acme.Id, Money.FromRupees(50_000.01m), DrCr.Debit, billAllocations: new[]
+                    { new BillAllocation(BillRefType.NewRef, "MEMO-1", Money.FromRupees(50_000.01m), dueDate: start.AddDays(20)) }),
+                new EntryLine(sales.Id, Money.FromRupees(50_000.01m), DrCr.Credit),
+            }));
+            svc.Post(new Voucher(Guid.NewGuid(), rev.Id, start.AddDays(12), new[]
+            {
+                new EntryLine(acme.Id, Money.FromRupees(20_000.03m), DrCr.Debit, billAllocations: new[]
+                    { new BillAllocation(BillRefType.NewRef, "RJ-1", Money.FromRupees(20_000.03m), dueDate: start.AddDays(25)) }),
+                new EntryLine(sales.Id, Money.FromRupees(20_000.03m), DrCr.Credit),
+            }, applicableUpto: asOf.AddDays(60)));
+            svc.Post(new Voucher(Guid.NewGuid(), memo.Id, start.AddDays(70), new[]
+            {
+                new EntryLine(cash.Id, Money.FromRupees(1_234.57m), DrCr.Debit),
+                new EntryLine(acme.Id, Money.FromRupees(1_234.57m), DrCr.Credit, billAllocations: new[]
+                    { new BillAllocation(BillRefType.AgstRef, "INV-3", Money.FromRupees(1_234.57m)) }),
+            }));
+            svc.Post(new Voucher(Guid.NewGuid(), rev.Id, start.AddDays(15), new[]
+            {
+                new EntryLine(purchases.Id, Money.FromRupees(4_444.41m), DrCr.Debit),
+                new EntryLine(zenith.Id, Money.FromRupees(4_444.41m), DrCr.Credit, billAllocations: new[]
+                    { new BillAllocation(BillRefType.NewRef, "RJ-P", Money.FromRupees(4_444.41m), dueDate: start.AddDays(30)) }),
+            }, applicableUpto: asOf.AddDays(60)));
+        }
 
         _storage.Save(c);
         return new Fixture(vm, c, asOf, inv1.Id, inv2.Id, inv3.Id, pb9.Id, acme.Id, zenith.Id);
@@ -291,6 +324,72 @@ public sealed class OverdueExceptionReportsTests : IDisposable
         Assert.False(only.IsDrillable);
     }
 
+    /// <summary>
+    /// LOW-2. The report is AS-AT: an Alt+F2 period whose START is after INV-1's bill date (and after its due
+    /// date) still lists INV-1 at 6,667.04, 30 days overdue, because the period END is the as-of date and a bill
+    /// raised before the window is still owed. A builder that filtered bills by the period start would drop it.
+    /// </summary>
+    [Fact]
+    public void A_period_starting_after_the_bill_date_still_lists_the_older_overdue_bill()
+    {
+        var f = Build("Overdue Old Bill");
+        var reloaded = Reload(f.Company);
+        var reports = new ReportsViewModel(reloaded, ReportKind.OverdueReceivables);
+
+        reports.SetPeriod(reloaded.BooksBeginFrom.AddDays(80), f.AsOf);
+
+        var inv1 = Assert.Single(reports.Rows, r => r.Particulars.StartsWith("INV-1", StringComparison.Ordinal));
+        Assert.Equal("INV-1  ·  30 days overdue", inv1.Particulars);
+        Assert.Equal("6,667.04", inv1.Amount);
+        Assert.Equal("7,901.61", Assert.Single(reports.Rows, r => r.IsTotal).Amount);
+    }
+
+    /// <summary>
+    /// 🔴 HIGH-1, off the RELOADED book. Memorandum and Reversing Journal vouchers do not impact the books
+    /// (vendor, help.tallysolutions.com/accounting-entry-tally/: <i>"Memorandum Vouchers are those vouchers that do
+    /// not impact your books of accounts."</i>; Reversing Journals <i>"are not posted to any books of accounts and
+    /// cannot be included in regular reports."</i>). A memo bill of 50,000.01, a reversing-journal bill of
+    /// 20,000.03 and a memo "settlement" of INV-3 were saved through the real store and read back: Overdue
+    /// Receivables still foots 7,901.61 with INV-3 listed at 1,234.57, Overdue Payables still 7,777.77, and Bills
+    /// Receivable / Payable — the same projection — carry none of the non-posting bills.
+    /// </summary>
+    [Fact]
+    public void Memorandum_and_reversing_journal_bills_never_reach_overdue_or_bills_outstanding_off_the_reloaded_book()
+    {
+        var f = Build("Overdue Provisional", provisional: true);
+        var reloaded = Reload(f.Company);
+        // The non-posting vouchers DID survive the reload — the test is not vacuous.
+        Assert.Equal(4, reloaded.Vouchers.Count(v =>
+            reloaded.FindVoucherType(v.TypeId)!.Name is "Memorandum" or "Reversing Journal"));
+
+        var receivables = new ReportsViewModel(reloaded, ReportKind.OverdueReceivables);
+        receivables.SetAsOf(f.AsOf);
+        Assert.Equal("7,901.61", Assert.Single(receivables.Rows, r => r.Particulars == "Acme Traders").Amount);
+        Assert.Equal("1,234.57",
+            Assert.Single(receivables.Rows, r => r.Particulars.StartsWith("INV-3", StringComparison.Ordinal)).Amount);
+        Assert.DoesNotContain(receivables.Rows, r => r.Particulars.Contains("MEMO-", StringComparison.Ordinal)
+                                                  || r.Particulars.Contains("RJ-", StringComparison.Ordinal));
+        Assert.Equal("7,901.61", Assert.Single(receivables.Rows, r => r.IsTotal).Amount);
+
+        var payables = new ReportsViewModel(reloaded, ReportKind.OverduePayables);
+        payables.SetAsOf(f.AsOf);
+        Assert.DoesNotContain(payables.Rows, r => r.Particulars.Contains("RJ-P", StringComparison.Ordinal));
+        Assert.Equal("7,777.77", Assert.Single(payables.Rows, r => r.IsTotal).Amount);
+
+        var billsReceivable = new ReportsViewModel(reloaded, ReportKind.ReceivablesOutstanding);
+        billsReceivable.SetAsOf(f.AsOf);
+        Assert.Equal(new[] { "INV-1", "INV-2", "INV-3" },
+            billsReceivable.PayrollRows.Where(r => r.Cells.Count > 1 && r.Cells[0].Text == "Acme Traders")
+                .Select(r => r.Cells[1].Text).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.Equal("1,234.57",
+            Assert.Single(billsReceivable.PayrollRows, r => r.Cells.Count > 1 && r.Cells[1].Text == "INV-3").Cells[5].Text);
+
+        var billsPayable = new ReportsViewModel(reloaded, ReportKind.PayablesOutstanding);
+        billsPayable.SetAsOf(f.AsOf);
+        Assert.DoesNotContain(billsPayable.PayrollRows, r => r.Cells.Count > 1 && r.Cells[1].Text == "RJ-P");
+        Assert.Contains(billsPayable.PayrollRows, r => r.Cells.Count > 1 && r.Cells[1].Text == "PB-9");
+    }
+
     // ================================================================ egress: CSV and PDF bytes
 
     /// <summary>
@@ -367,6 +466,38 @@ public sealed class OverdueExceptionReportsTests : IDisposable
 
         Assert.Equal(Screen.LedgerVouchers, f.Vm.CurrentScreen);
         Assert.Equal(f.AcmeId, f.Vm.LedgerVouchers!.LedgerId);
+        window.Close();
+    }
+
+    /// <summary>
+    /// LOW-1. Under an Alt+F2 period that starts AFTER INV-1's bill date, Enter on the party row must open the
+    /// ledger from books-begin to the as-of date, so the invoice that makes the party overdue is on the drilled
+    /// screen. Real Enter on a shown window; the realised LedgerVouchers window is asserted.
+    /// </summary>
+    [AvaloniaFact]
+    public void Enter_on_a_party_row_under_a_later_period_opens_the_ledger_from_books_begin()
+    {
+        var f = Build("Overdue Drill Window");
+        var window = new MainWindow { DataContext = f.Vm, Width = 1440, Height = 900 };
+        window.Show();
+        Pump(window);
+
+        f.Vm.OpenReport(ReportKind.OverdueReceivables);
+        Pump(window);
+        f.Vm.Reports!.SetPeriod(f.Company.BooksBeginFrom.AddDays(80), f.AsOf);
+        Pump(window);
+        Assert.Contains(f.Vm.Reports!.Rows, r => r.Particulars.StartsWith("INV-1", StringComparison.Ordinal));
+
+        f.Vm.Reports!.SelectedRow = f.Vm.Reports!.Rows.Single(r => r.Particulars == "Acme Traders");
+        Pump(window);
+        window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        Pump(window);
+
+        Assert.Equal(Screen.LedgerVouchers, f.Vm.CurrentScreen);
+        var lv = f.Vm.LedgerVouchers!;
+        Assert.Equal(f.AcmeId, lv.LedgerId);
+        Assert.Equal(f.Company.BooksBeginFrom, lv.PeriodFrom);
+        Assert.Equal(f.AsOf, lv.PeriodTo);
         window.Close();
     }
 
