@@ -226,11 +226,6 @@ public static class VoucherPrintProjector
 
     // ---------------------------------------------------------------- RQ-10: plain voucher
 
-    /// <summary>
-    /// Projects a voucher into a <see cref="VoucherPrintData"/> for <c>VoucherPdf</c>: company/title header,
-    /// No/Date/Party line, the Dr/Cr posting lines (ledger names resolved) and the narration. Dates are
-    /// formatted here so the renderer stays clock-free.
-    /// </summary>
     /// <summary>Census 5.11 wave 8 (IV-237): the voucher's per-ledger narrations, in posting order, each named by
     /// its ledger and ASCII-folded like every other printed string. Empty on a voucher with none (ER-13).</summary>
     public static IReadOnlyList<InvoiceLedgerNarration> LedgerNarrationsOf(Company company, Voucher voucher) =>
@@ -241,6 +236,11 @@ public static class VoucherPrintProjector
                 ReportPrintProjector.Ascii(l.Narration!)))
             .ToList();
 
+    /// <summary>
+    /// Projects a voucher into a <see cref="VoucherPrintData"/> for <c>VoucherPdf</c>: company/title header,
+    /// No/Date/Party line, the Dr/Cr posting lines (ledger names resolved) and the narration. Dates are
+    /// formatted here so the renderer stays clock-free.
+    /// </summary>
     public static VoucherPrintData ProjectVoucher(Company company, Voucher voucher)
     {
         ArgumentNullException.ThrowIfNull(company);
