@@ -86,6 +86,32 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     private static string? NormaliseLegNarration(string? text) =>
         string.IsNullOrWhiteSpace(text) ? null : text.Trim();
 
+    /// <summary>
+    /// w8 fix (review ec LOW-2): the header narration this mode would DROP, named for the operator, or <c>null</c>.
+    /// Accounting Invoice posts the party narration but has no single value leg; As Voucher reads neither field.
+    /// Both fields are hidden in those modes, so the way out is Ctrl+H back to Item Invoice.
+    /// </summary>
+    private string? HeaderNarrationOrphanedByModeError()
+    {
+        if (IsItemInvoice) return null;
+        string? caption = null;
+        string? text = null;
+        if (NormaliseLegNarration(ValueLineNarration) is { } value)
+        {
+            caption = StockLedgerCaption;
+            text = value;
+        }
+        else if (!IsAccountingInvoice && NormaliseLegNarration(PartyLineNarration) is { } party)
+        {
+            caption = "Party A/c name";
+            text = party;
+        }
+        if (text is null) return null;
+        var mode = IsAccountingInvoice ? "Accounting Invoice" : "As Voucher";
+        return $"The {caption} narration (\"{text}\") was typed in Item Invoice mode and {mode} mode has no field "
+             + "for it, so it would be lost. Press Ctrl+H to return to Item Invoice, then post it there or clear it.";
+    }
+
     /// <summary>Voucher-type display name for the header, e.g. "Payment".</summary>
     public string TypeName => _type.Name;
 
@@ -5168,6 +5194,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         // Item-invoice mode routes to its own accept path (auto-derived legs + inventory lines).
         if (IsItemInvoice) return AcceptItemInvoice();
+
+        // w8 fix (review ec LOW-2): a header narration typed in Item Invoice mode and then left behind by Ctrl+H is
+        // refused by name, never dropped. The non-item builds have no field that reads it.
+        if (HeaderNarrationOrphanedByModeError() is { } orphanedByMode)
+        {
+            Message = orphanedByMode;
+            return false;
+        }
 
         // Accounting-invoice (service) mode routes to its own accept path (income ledger legs + auto SAC GST; no stock).
         if (IsAccountingInvoice) return AcceptAccountingInvoice();

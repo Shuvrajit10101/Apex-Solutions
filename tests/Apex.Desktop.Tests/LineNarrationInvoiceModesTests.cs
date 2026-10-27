@@ -165,6 +165,52 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         finally { w.Close(); }
     }
 
+    /// <summary>
+    /// 🔴 <b>w8 fix (review ec LOW-2) — A HEADER NARRATION LEFT BEHIND BY Ctrl+H IS REFUSED, NOT DROPPED.</b> The
+    /// value-leg narration is typed in Item Invoice mode, then Ctrl+H moves to Accounting Invoice, where no field
+    /// reads it. The REAL Ctrl+A is refused by name and NOTHING reaches the reloaded book; the way out (back to Item
+    /// Invoice and clear it) lets the same service invoice post. <b>Mutation (L2):</b> deleting the
+    /// <c>HeaderNarrationOrphanedByModeError</c> check in <c>Accept</c> posts on the first Ctrl+A and reddens this.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_value_narration_left_behind_by_a_mode_switch_is_refused_by_name_not_dropped()
+    {
+        var vm = NewServiceCompany("LNI Orphan Mode Co");
+        SalesType(vm).ProvideNarrationForEachLedger = true;
+        var w = new MainWindow { DataContext = vm };
+        try
+        {
+            w.Show();
+            vm.OpenVoucher(SalesType(vm));
+            var e = vm.VoucherEntry!;
+            e.ChangeMode();   // As Voucher -> Item Invoice
+            Assert.True(e.IsItemInvoice);
+            e.ValueLineNarration = "VALUE-NARR-ORPHAN";
+            e.ChangeMode();   // Item Invoice -> Accounting Invoice
+            Assert.True(e.IsAccountingInvoice);
+            e.SelectedParty = e.Parties.Single(p => p.Ledger?.Name == "Nonce Clients");
+            while (e.AccountingInvoiceLines.Count == 0) e.AddAccountingInvoiceLine();
+            var line = e.AccountingInvoiceLines[0];
+            line.SelectedLedger = e.AccountingInvoiceLedgers.Single(l => l.Name == "Consultancy Income");
+            line.AmountText = "4321.07";
+            Pump(w);
+
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            Assert.Empty(vm.Company!.Vouchers);
+            Assert.Empty(Reload("LNI Orphan Mode Co").Vouchers);
+            Assert.Contains("VALUE-NARR-ORPHAN", e.Message ?? string.Empty, StringComparison.Ordinal);
+            Assert.Contains("would be lost", e.Message ?? string.Empty, StringComparison.Ordinal);
+
+            // The way out the message names: clear it, and the same service invoice posts.
+            e.ValueLineNarration = string.Empty;
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            Assert.Single(Reload("LNI Orphan Mode Co").Vouchers);
+        }
+        finally { w.Close(); }
+    }
+
     // ============================================================== (2)/(3) item invoice alteration
 
     private const string WidgetRate = "1234.57";
