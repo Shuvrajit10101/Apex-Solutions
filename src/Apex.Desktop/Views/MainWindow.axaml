@@ -9986,6 +9986,7 @@
                                 </ItemsControl>
                                 <TextBox Name="BomNameListNewName" Margin="4,6"
                                          Text="{Binding NewName, Mode=TwoWay}"
+                                         AttachedToVisualTree="OnBomNameListNewNameAttached"
                                          PlaceholderText="name of a new BOM, then Enter"/>
                               </StackPanel>
                             </ScrollViewer>
