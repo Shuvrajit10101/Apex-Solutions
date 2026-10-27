@@ -761,6 +761,17 @@ public sealed record Gstr1(
         foreach (var (voucher, voucherType) in GstReportSupport.PostedDirectionalVouchers(
                      company, from, to, GstTaxDirection.Input, registrationId))
         {
+            // 🔴 W8 review F1 — AN OUTWARD DOCUMENT ON AN INWARD BASE TYPE. A §34(3) Debit Note raised to a CUSTOMER
+            // against a CONSOLIDATED original reference (OriginalInvoiceVoucherId null, so SignOf's linked-original
+            // escape cannot fire), or an unlinked Debit Note to a customer, is a DebitNote base type and so reaches
+            // this inward sweep — but it posts ORDINARY OUTPUT tax legs and adjusts OUR sale. Measured before the
+            // fix on a reloaded book: sale ₹10,000 @ 18% (SAC 998311) + a consolidated §34 debit note ₹2,000 filed
+            // Table 18 = 998311 taxable −2,000.00, tax −360.00 against a true EMPTY table. The discriminator is the
+            // posted legs themselves: a document carrying a non-RCM Output leg is not an inward supply. An RCM
+            // purchase is unaffected — its Output legs are the IsReverseCharge liability pair (pinned by
+            // A_reverse_charge_inward_service_files_its_tax_once, which must stay green).
+            if (IsOutwardTaxDocument(company, voucher)) continue;
+
             var sign = (decimal)GstReportSupport.SignOf(company, voucher, voucherType.BaseType);
             if (sign == 0m) continue;
 
@@ -779,6 +790,14 @@ public sealed record Gstr1(
         }
         return ToHsnRows(hsnAcc);
     }
+
+    /// <summary>W8 review F1: true when <paramref name="voucher"/> posts an ordinary (non-RCM) OUTPUT-direction tax
+    /// leg — an outward document, whatever its base type. An inward document never does: a purchase or purchase
+    /// return posts Input legs, and an RCM purchase's Output legs are the <c>IsReverseCharge</c> liability pair.</summary>
+    private static bool IsOutwardTaxDocument(Company company, Voucher voucher) =>
+        voucher.Lines.Any(line => line.Gst is not null
+            && company.FindLedger(line.LedgerId)?.GstClassification
+                is { Direction: GstTaxDirection.Output, IsReverseCharge: false });
 
     /// <summary>Reads a voucher's posted forward tax by head off its <see cref="GstLineTax"/> tax lines. Reverse-charge
     /// lines are excluded (finding #7): they are their own 3.1(d)/4A buckets, so folding an identical head set here keeps

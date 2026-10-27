@@ -123,7 +123,127 @@ public sealed class Gstr9Table18InwardHsnReloadTests
         Assert.Empty(r.Table17Hsn);
     }
 
+    /// <summary>🔴 W8 review F1 — an OUTWARD §34 debit note raised against a CONSOLIDATED original reference (the
+    /// voucher-entry panel's "Consolidated…" option, which stores <c>OriginalInvoiceVoucherId = null</c>). It is a
+    /// DebitNote base type, so it reaches the inward sweep, but it is an upward revision of OUR sale and posts
+    /// Output tax. Before the fix, Table 18 filed <c>998311 taxable −2,000.00, tax −360.00</c>. The book has a real
+    /// inward purchase too, so the assertion is "exactly the purchase row", not merely "empty".</summary>
+    [Fact]
+    public void A_consolidated_outward_debit_note_files_no_inward_row_on_the_reloaded_book()
+    {
+        var c = Reload(OutwardDebitNoteBook(consolidated: true));
+        var r = Gstr9.Build(c, FyFrom, FyTo);
+
+        var row = Assert.Single(r.Table18InwardHsn);
+        Assert.Equal("998212", row.HsnSac);                    // the genuine inward service only
+        Assert.Equal(4_444.44m, row.TaxableValue.Amount);
+        Assert.Equal(400.00m, row.Cgst.Amount);
+        Assert.Equal(400.00m, row.Sgst.Amount);
+        Assert.DoesNotContain(r.Table18InwardHsn, h => h.HsnSac == "998311");
+        Assert.Equal(4_444.44m, r.Table18TaxableValue.Amount);
+        Assert.Equal(800.00m, r.Table18TotalTax.Amount);
+
+        // The filed bytes: no 998311 row, and the one row is the purchase in paisa.
+        using var doc = JsonDocument.Parse(GstReturnJson.Gstr9(c, FyFrom, FyTo));
+        var rows = doc.RootElement.GetProperty("tbl18_hsn").EnumerateArray().ToList();
+        var only = Assert.Single(rows);
+        Assert.Equal("998212", only.GetProperty("hsn_sac").GetString());
+        Assert.Equal(444_444L, only.GetProperty("taxable_value_paisa").GetInt64());
+    }
+
+    /// <summary>W8 review F1, the wider shape: an UNLINKED Debit Note to a customer (the §34 toggle is opt-in) that
+    /// carries Output tax legs is not an inward supply either.</summary>
+    [Fact]
+    public void An_unlinked_debit_note_to_a_customer_files_no_inward_row_on_the_reloaded_book()
+    {
+        var r = Gstr9.Build(Reload(OutwardDebitNoteBook(consolidated: false)), FyFrom, FyTo);
+
+        var row = Assert.Single(r.Table18InwardHsn);
+        Assert.Equal("998212", row.HsnSac);
+        Assert.Equal(800.00m, r.Table18TotalTax.Amount);
+    }
+
     // ================================================================ helpers
+
+    /// <summary>A service sale ₹10,000 @ 18% on SAC 998311, an inward service purchase ₹4,444.44 @ 18% on SAC
+    /// 998212 (tax 18% × 4,444.44 = 799.9992 ⇒ 800.00, split total-then-halve to 400.00 + 400.00), and an outward Debit Note ₹2,000 @ 18%
+    /// to the customer — either a §34 note against a CONSOLIDATED reference, or unlinked.</summary>
+    private static Company OutwardDebitNoteBook(bool consolidated)
+    {
+        var c = NewRegular("Outward DN Co");
+        var gst = new GstService(c);
+        var ledgers = new LedgerService(c);
+        Guid TypeOf(VoucherBaseType b) => c.VoucherTypes.First(t => t.BaseType == b).Id;
+
+        var income = Add(c, "Consulting Income", "Sales Accounts", false);
+        income.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998311", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800, SupplyType = GstSupplyType.Services,
+        };
+        var client = Add(c, "Client", "Sundry Debtors", true);
+        client.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = GstinSupplier, StateCode = "27" };
+
+        var fees = Add(c, "Professional Fees", "Indirect Expenses", true);
+        fees.SalesPurchaseGst = new StockItemGstDetails
+        {
+            HsnSac = "998212", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800, SupplyType = GstSupplyType.Services,
+        };
+        var vendor = Add(c, "Consultant", "Sundry Creditors", false);
+        vendor.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = GstinSupplier, StateCode = "27" };
+
+        // ---- the sale.
+        var st = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(10_000m), 1800) },
+            interState: false, GstTaxDirection.Output);
+        var sl = new List<EntryLine>
+        {
+            new(client.Id, Money.FromRupees(10_000m + st.TotalTax.Amount), DrCr.Debit),
+            new(income.Id, Money.FromRupees(10_000m), DrCr.Credit),
+        };
+        sl.AddRange(st.TaxLines);
+        ledgers.Post(new Voucher(Guid.NewGuid(), TypeOf(VoucherBaseType.Sales), new(2025, 5, 10), sl, partyId: client.Id));
+
+        // ---- the genuine inward service.
+        var pt = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(4_444.44m), 1800) },
+            interState: false, GstTaxDirection.Input);
+        Assert.Equal(800.00m, pt.TotalTax.Amount);   // the fixture's premise: 18% of 4,444.44 = 799.9992, total-then-split
+        var pl = new List<EntryLine>
+        {
+            new(fees.Id, Money.FromRupees(4_444.44m), DrCr.Debit),
+            new(vendor.Id, Money.FromRupees(4_444.44m + pt.TotalTax.Amount), DrCr.Credit),
+        };
+        pl.AddRange(pt.TaxLines);
+        ledgers.Post(new Voucher(Guid.NewGuid(), TypeOf(VoucherBaseType.Purchase), new(2025, 5, 12), pl, partyId: vendor.Id));
+
+        // ---- the OUTWARD debit note: Output legs on the Credit side (an increase of our sale's tax).
+        var dnId = Guid.NewGuid();
+        IReadOnlyList<EntryLine> dnTax;
+        decimal dnTotal;
+        if (consolidated)
+        {
+            var posting = new CreditDebitNoteService(c).BuildCreditDebitNote(CdnType.Debit,
+                new[] { new GstService.TaxableLine(Money.FromRupees(2_000m), 1800) }, interState: false, dnId,
+                originalInvoiceVoucherId: null, originalInvoiceNumber: "CONSOLIDATED-MAY",
+                originalInvoiceDate: new DateOnly(2025, 5, 10), cdnDate: new DateOnly(2025, 6, 10),
+                reasonCode: "04 Correction in invoice");
+            Assert.Null(posting.Link.OriginalInvoiceVoucherId);   // the consolidated shape, held at build time
+            dnTax = posting.TaxLines; dnTotal = posting.Computed.TotalTax.Amount;
+        }
+        else
+        {
+            var t = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(2_000m), 1800) },
+                interState: false, GstTaxDirection.Output);
+            dnTax = t.TaxLines; dnTotal = t.TotalTax.Amount;
+        }
+        Assert.Equal(360m, dnTotal);
+        var dl = new List<EntryLine>
+        {
+            new(client.Id, Money.FromRupees(2_000m + dnTotal), DrCr.Debit),
+            new(income.Id, Money.FromRupees(2_000m), DrCr.Credit),
+        };
+        dl.AddRange(dnTax);
+        ledgers.Post(new Voucher(dnId, TypeOf(VoucherBaseType.DebitNote), new(2025, 6, 10), dl, partyId: client.Id));
+        return c;
+    }
 
     private static decimal NetDebit(Company c, Guid ledgerId) =>
         c.Vouchers.Where(v => v.Date >= FyFrom && v.Date <= FyTo)
