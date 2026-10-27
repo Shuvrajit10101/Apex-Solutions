@@ -6922,15 +6922,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Types whose identity means a DIFFERENT SCREEN, not just a different series — checked before the base
         // switch, because each of these shares its base kind with an ordinary type.
-        if (type.IsManufacturingJournal) { OpenManufacturingJournal(); return; }
-        if (type.IsPosSales) { OpenPosBilling(); return; }
+        // w8 fix (review ec LOW-1): each dedicated door is handed THE CHOSEN TYPE, so "Yes - activate and enter" on
+        // a second series opens that series (its numbering, its flags), not the one the resolver prefers.
+        if (type.IsManufacturingJournal) { OpenManufacturingJournal(type); return; }
+        if (type.IsPosSales) { OpenPosBilling(type); return; }
 
         switch (type.BaseType)
         {
-            case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In); break;
-            case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out); break;
-            case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
-            case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In, type); break;
+            case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out, type); break;
+            case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn, type); break;
+            case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut, type); break;
             // A Payroll voucher is computed on its own screen (period + employees + Compute), never keyed as a
             // bare Dr/Cr grid — which is what routing it through the accounting entry would have given.
             case VoucherBaseType.Payroll: ShowPayrollVoucher(); break;
@@ -6942,6 +6944,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 break;
         }
     }
+
+    /// <summary>
+    /// w8 fix (review ec LOW-1): <paramref name="chosen"/> when it is an ACTIVE type of <paramref name="baseType"/>,
+    /// else <c>null</c> (the caller then resolves the base as before). An inactive or mismatched type is never opened.
+    /// </summary>
+    private static VoucherType? ChosenOfBase(VoucherType? chosen, VoucherBaseType baseType) =>
+        chosen is { IsActive: true } && chosen.BaseType == baseType ? chosen : null;
 
     /// <summary>
     /// WI-12 — the date the Day-Book Alt+A entry defaults to: the highlighted Day-Book row's own voucher date (so an
@@ -7849,13 +7858,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// exists yet (RQ-11) — then hosts the entry screen that posts through the engine. A no-op unless the F12
     /// config "Set Components (BOM)" is on (RQ-10/RQ-52).
     /// </summary>
-    public void OpenManufacturingJournal()
+    public void OpenManufacturingJournal(VoucherType? chosen = null)
     {
         if (Company is null) return;
         if (!Company.SetComponentsBom) return;   // gated by the F12 config (RQ-10/RQ-52)
 
         var service = new Apex.Ledger.Services.ManufacturingJournalService(Company);
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsManufacturingJournal);
+        // w8 fix (review ec LOW-1): the Alt+A picker's chosen Manufacturing Journal type wins over the first one.
+        var type = (chosen is { IsManufacturingJournal: true, IsActive: true } ? chosen : null)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.IsManufacturingJournal);
         if (type is null)
         {
             // Create the Manufacturing-Journal voucher type on first use (RQ-11), avoiding a name clash.
@@ -7892,7 +7903,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// voucher type on the current company (activated by the F11 feature). A no-op unless the F11 feature
     /// "Enable Job Order Processing" is on (RQ-45/RQ-52), so the screen can never be reached with the feature off.
     /// </summary>
-    public void OpenJobWorkOrder(JobWorkDirection direction)
+    public void OpenJobWorkOrder(JobWorkDirection direction, VoucherType? chosen = null)
     {
         if (Company is null) return;
         if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
@@ -7900,7 +7911,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var baseType = direction == JobWorkDirection.In
             ? VoucherBaseType.JobWorkInOrder
             : VoucherBaseType.JobWorkOutOrder;
-        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
+        // w8 fix (review ec LOW-1): the Day-Book Alt+A picker passes the ROW the operator chose (and may just have
+        // activated); re-resolving the base would open whichever series the resolver prefers instead.
+        var type = ChosenOfBase(chosen, baseType) ?? VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
             Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
@@ -7932,13 +7945,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// type (activated by the F11 feature, carrying "Use for Job Work" and — for Material In — "Allow
     /// Consumption"). A no-op unless the F11 feature "Enable Job Order Processing" is on (RQ-45/RQ-52).
     /// </summary>
-    public void OpenMaterialMovement(VoucherBaseType baseType)
+    public void OpenMaterialMovement(VoucherBaseType baseType, VoucherType? chosen = null)
     {
         if (Company is null) return;
         if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
         if (baseType is not (VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut)) return;
 
-        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
+        var type = ChosenOfBase(chosen, baseType) ?? VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
             Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
@@ -7972,11 +7985,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Journal), then hosts the entry that posts through the engine. When the POS config's print-after-save is on
     /// the retail receipt opens in a Print-Preview column after Accept (RQ-44).
     /// </summary>
-    public void OpenPosBilling()
+    public void OpenPosBilling(VoucherType? chosen = null)
     {
         if (Company is null) return;
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales && t.IsActive)
+        // w8 fix (review ec LOW-1): the Alt+A picker's chosen POS type wins over "the first active one".
+        var type = (chosen is { IsPosSales: true, IsActive: true } ? chosen : null)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales && t.IsActive)
                    ?? Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales);
         if (type is null)
         {

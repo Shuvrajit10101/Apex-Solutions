@@ -149,6 +149,46 @@ public sealed class AddVoucherInactiveTypeTests
     }
 
     /// <summary>
+    /// 🔴 <b>w8 fix (review ec LOW-1) — YES OPENS THE TYPE THAT WAS CHOSEN, EVEN ON A DEDICATED SCREEN.</b> A
+    /// second, inactive Material Out series ("Material Out - Site B") is picked and activated through the real
+    /// Alt+A, arrows and Enter. The Material movement screen that opens is bound to SITE B, not to the seeded
+    /// Material Out the resolver prefers. <b>Mutation (L1):</b> dropping the chosen type from
+    /// <c>PickAddVoucherType</c>'s <c>OpenMaterialMovement(VoucherBaseType.MaterialOut, type)</c> call reddens the
+    /// type assertion.
+    /// </summary>
+    [AvaloniaFact]
+    public void Yes_on_an_inactive_second_material_out_series_opens_that_series()
+    {
+        var (window, vm, dir) = NewWindow();
+        try
+        {
+            Seed(window, vm, dir, "AddInactive SiteB Co");
+            vm.ShowGstConfig();
+            vm.GstConfig!.EnableJobOrderProcessing = true;   // the F11 feature, through its own screen
+            vm.Back();
+            var c = vm.Company!;
+            var seeded = c.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.MaterialOut && t.IsActive);
+            var siteB = new VoucherType(Guid.NewGuid(), "Material Out - Site B", VoucherBaseType.MaterialOut,
+                isActive: false, useForJobWork: true);
+            c.AddVoucherType(siteB);
+            new CompanyStorage(dir).Save(c);
+
+            vm.OpenReport(ReportKind.DayBook);
+            window.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Alt);
+            NavigateMenuTo(vm, window, siteB.Name + MainWindowViewModel.InactiveTypeSuffix);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Assert.Equal("Yes - activate and enter", vm.Menu[vm.SelectedIndex].Label);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+
+            Assert.True(Reload(dir, "AddInactive SiteB Co").VoucherTypes.Single(t => t.Id == siteB.Id).IsActive);
+            Assert.Equal(Screen.MaterialMovementEntry, vm.CurrentScreen);
+            Assert.NotEqual(seeded.Id, vm.MaterialMovementEntry!.Type.Id);
+            Assert.Equal(siteB.Id, vm.MaterialMovementEntry!.Type.Id);
+        }
+        finally { Close(window, dir); }
+    }
+
+    /// <summary>
     /// <b>NO.</b> Choosing <i>No</i> puts the list back with the inactive row still offered, and the type stays
     /// inactive on the reloaded book. <b>Mutations:</b> (A5) making <i>No</i> activate as well reddens this; (A6)
     /// dropping the menu re-sync at the end of <c>FillAddVoucherPicker</c> reddens the highlight assertion.
