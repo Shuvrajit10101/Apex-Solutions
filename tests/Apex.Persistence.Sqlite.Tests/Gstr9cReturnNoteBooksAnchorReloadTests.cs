@@ -39,11 +39,14 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// ₹1,999.98 ⇒ Table 12F = 1,999.98 − 1,600.02 = <b>+₹399.96</b>. <b>Correct:</b> both <b>₹0.00</b>.</item>
 /// </list>
 ///
-/// <para><b>Statutory grounding</b> (cbic-gst.gov.in, Form GSTR-9C as notified by Notification 30/2021-CT and its
-/// instructions): Table 9 reconciles "rate wise liability and amount payable thereon" per the audited statements
-/// against the annual return and Table 11 reports the "additional amount payable but not paid"; Table 12 reconciles
-/// "Net Input Tax Credit". A sales return reduces the liability the books record, and a purchase return reduces the
-/// ITC the books record — so a book anchor that omits them reports a difference that does not exist.</para>
+/// <para><b>Statutory grounding</b> (opened by content, W8 fix pass: CBIC's consolidated CGST Rules 2017 Part B
+/// (Forms), as amended to 01-01-2022 — cbic-gst.gov.in/pdf/01012022-CGST-Rules-2017-amended-Part-B.pdf, FORM GSTR-9C
+/// Part A, which carries the Notification 30/2021-CT amendments; Notification 30/2021-CT itself
+/// (cbic-gst.gov.in/pdf/central-tax/notfctn-30-central-tax-english-2021.pdf) is the AMENDING text and does not
+/// reproduce these headings): Table 9 is "Reconciliation of rate wise liability and amount payable thereon", Table 11
+/// is "Additional amount payable but not paid", and Table 12 is "Reconciliation of Net Input Tax Credit (ITC)". A
+/// sales return reduces the liability the books record, and a purchase return reduces the ITC the books record — so
+/// a book anchor that omits them reports a difference that does not exist.</para>
 ///
 /// <para>Every figure is read off a report built from a <b>RELOADED</b> book (save → fresh
 /// <see cref="SqliteCompanyStore"/> handle → load), and the filed artefact is asserted as the emitted JSON BYTES.</para>
@@ -126,7 +129,106 @@ public sealed class Gstr9cReturnNoteBooksAnchorReloadTests
         Assert.Equal(0.00m, r.Table12FUnreconciledItc.Amount);
     }
 
+    /// <summary>🔴 W8 review F2 — the LINKED §34 credit note, which is the default voucher-entry shape (the note is
+    /// raised through <see cref="CreditDebitNoteService"/> against the sale itself). Sale ₹33,333.00 ⇒ tax ₹5,999.94;
+    /// linked credit note ₹7,777.00 ⇒ ₹1,399.86 on the DEBIT side of Output. GSTR-3B folds it through <c>ReadCdn</c>,
+    /// so per return = 5,999.94 − 1,399.86 = ₹4,600.08, and the books anchor must net it the same way. Before the
+    /// T2-114 fix the anchor stayed gross at ₹5,999.94 here too.</summary>
+    [Fact]
+    public void Table_11_nets_a_linked_section_34_credit_note_on_the_reloaded_book()
+    {
+        var c = Reload(LinkedNoteBook(CdnType.Credit));
+        Assert.NotNull(Assert.Single(c.CreditDebitNoteLinks).OriginalInvoiceVoucherId);   // the linked shape survived
+
+        var r = Gstr9c.Build(c, FyFrom, FyTo);
+        Assert.Equal(4_600.08m, r.Table9TaxPerReturn.Amount);
+        Assert.Equal(4_600.08m, r.Table9TaxPerBooks.Amount);
+        Assert.Equal(0.00m, r.Table11UnreconciledTax.Amount);
+
+        using var doc = JsonDocument.Parse(GstReturnJson.Gstr9c(c, FyFrom, FyTo));
+        Assert.Equal(460_008L, doc.RootElement.GetProperty("tbl9_tax_per_books_paisa").GetInt64());
+        Assert.Equal(0L, doc.RootElement.GetProperty("tbl11_unreconciled_tax_paisa").GetInt64());
+    }
+
+    /// <summary>W8 review F2 — a §34(3) DEBIT note linked to the sale (an upward revision). It is a return-note BASE
+    /// type, but it posts its Output tax on the CREDIT (accrual) side, so the anchor must ADD it: ₹2,222.00 ⇒
+    /// ₹399.96, books = per return = 5,999.94 + 399.96 = ₹6,399.90. A rule that subtracted every return-note leg by
+    /// base type rather than by posted side would file ₹5,599.98 here.</summary>
+    [Fact]
+    public void Table_11_adds_a_linked_section_34_debit_note_on_the_reloaded_book()
+    {
+        var c = Reload(LinkedNoteBook(CdnType.Debit));
+        Assert.NotNull(Assert.Single(c.CreditDebitNoteLinks).OriginalInvoiceVoucherId);
+
+        var r = Gstr9c.Build(c, FyFrom, FyTo);
+        Assert.Equal(6_399.90m, r.Table9TaxPerReturn.Amount);
+        Assert.Equal(6_399.90m, r.Table9TaxPerBooks.Amount);
+        Assert.Equal(0.00m, r.Table11UnreconciledTax.Amount);
+
+        using var doc = JsonDocument.Parse(GstReturnJson.Gstr9c(c, FyFrom, FyTo));
+        Assert.Equal(639_990L, doc.RootElement.GetProperty("tbl9_tax_per_books_paisa").GetInt64());
+        Assert.Equal(0L, doc.RootElement.GetProperty("tbl11_unreconciled_tax_paisa").GetInt64());
+    }
+
     // ================================================================ helpers
+
+    /// <summary>A sale ₹33,333.00 @ 18% and ONE §34 note LINKED to it, raised through the engine's
+    /// <see cref="CreditDebitNoteService"/>: a credit note of ₹7,777.00 or a debit note of ₹2,222.00.</summary>
+    private static Company LinkedNoteBook(CdnType type)
+    {
+        var c = CompanyFactory.CreateSeeded("Linked Note 9C Co", FyFrom);
+        var gst = new GstService(c);
+        gst.EnableGst(new GstConfig
+        {
+            HomeStateCode = "27",
+            Gstin = GstinMaharashtra,
+            RegistrationType = GstRegistrationType.Regular,
+            ApplicableFrom = FyFrom,
+            Periodicity = GstReturnPeriodicity.Monthly,
+        });
+        var ledgers = new LedgerService(c);
+        var sales = Add(c, "Sales", "Sales Accounts", false);
+        var debtor = Add(c, "Debtor", "Sundry Debtors", true);
+        debtor.PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = GstinSupplier, StateCode = "27" };
+        Guid TypeOf(VoucherBaseType b) => c.VoucherTypes.First(t => t.BaseType == b).Id;
+
+        var saleTax = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(33_333m), 1800) }, false, GstTaxDirection.Output);
+        Assert.Equal(5_999.94m, saleTax.TotalTax.Amount);
+        var saleLines = new List<EntryLine>
+        {
+            new(debtor.Id, Money.FromRupees(33_333m + saleTax.TotalTax.Amount), DrCr.Debit),
+            new(sales.Id, Money.FromRupees(33_333m), DrCr.Credit),
+        };
+        saleLines.AddRange(saleTax.TaxLines);
+        var saleDate = new DateOnly(2024, 5, 10);
+        var sale = new Voucher(Guid.NewGuid(), TypeOf(VoucherBaseType.Sales), saleDate, saleLines, partyId: debtor.Id);
+        ledgers.Post(sale);
+
+        var value = type == CdnType.Credit ? 7_777m : 2_222m;
+        var noteId = Guid.NewGuid();
+        var noteDate = new DateOnly(2024, 6, 10);
+        var posting = new CreditDebitNoteService(c).BuildCreditDebitNote(type,
+            new[] { new GstService.TaxableLine(Money.FromRupees(value), 1800) }, interState: false, noteId,
+            sale.Id, null, saleDate, noteDate, type == CdnType.Credit ? "01 Sales return" : "04 Correction in invoice");
+        Assert.Equal(type == CdnType.Credit ? 1_399.86m : 399.96m, posting.Computed.TotalTax.Amount);
+        var tax = posting.Computed.TotalTax.Amount;
+        var noteLines = type == CdnType.Credit
+            ? new List<EntryLine>
+            {
+                new(sales.Id, Money.FromRupees(value), DrCr.Debit),
+                new(debtor.Id, Money.FromRupees(value + tax), DrCr.Credit),
+            }
+            : new List<EntryLine>
+            {
+                new(debtor.Id, Money.FromRupees(value + tax), DrCr.Debit),
+                new(sales.Id, Money.FromRupees(value), DrCr.Credit),
+            };
+        noteLines.AddRange(posting.TaxLines);
+        ledgers.Post(new Voucher(noteId,
+            TypeOf(type == CdnType.Credit ? VoucherBaseType.CreditNote : VoucherBaseType.DebitNote),
+            noteDate, noteLines, partyId: debtor.Id));
+        return c;
+    }
 
     private static decimal NetCredit(Company c, Guid ledgerId) =>
         c.Vouchers.Where(v => v.Date >= FyFrom && v.Date <= FyTo)
