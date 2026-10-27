@@ -1355,7 +1355,7 @@ string parsing (keyboard-first, consistent with Tally).
    **1-Apr-2020**; InvariantCulture reads **4-Jan-2020** — **wrong financial year, silently.**
 2. **🔴 SCOPE UNDERSTATED ~2.3× — AND IT OMITS THE MOST IMPORTANT FIELD IN THE APP.** The decoder listed 9 loose
    sites. A fresh `grep -rnE "(DateOnly|DateTime)\.TryParse\(" src/Apex.Desktop/ViewModels/` returns **21**.
-   **Missing from both the evidence and the touches list: `VoucherEntryViewModel.cs:472` — THE MAIN accounting
+   **Missing from both the evidence and the touches list: `VoucherEntryViewModel.cs:498` — THE MAIN accounting
    voucher date (Payment/Receipt/Journal/Sales/Purchase)**, with the identical `get => dd-MMM-yyyy` /
    `set => DateOnly.TryParse(InvariantCulture)` shape ⇒ **identical MM/dd misread + silent discard.** The decode
    lists `VoucherEntryViewModel` **only** as an `ISetsWorkingDate` implementer for F2, never as a defect site —
@@ -1368,7 +1368,7 @@ string parsing (keyboard-first, consistent with Tally).
 3. **🔴 THE SILENT-DISCARD MECHANISM IS WRONG — and the truth is WORSE.** The decoder said "the getter re-renders
    the OLD date; the user's typing vanishes with no message." Verified otherwise: `Date` is `[ObservableProperty]`
    and several VMs raise `OnDateChanged → OnPropertyChanged(nameof(DateText))`
-   (`VoucherEntryViewModel.cs:573-575`, `MaterialMovementEntryViewModel.cs:196`,
+   (`VoucherEntryViewModel.cs:599-601`, `MaterialMovementEntryViewModel.cs:196`,
    `JobWorkOrderEntryViewModel.cs:200`) — **but that fires only when `Date` CHANGES.** On unparseable input
    `Date` is never assigned, so **no notification fires** and the TwoWay binding (`MainWindow.axaml:1797`) never
    re-reads the getter. **The typed text STAYS ON SCREEN while `Date` silently retains the old value. Not
@@ -1416,7 +1416,7 @@ string parsing (keyboard-first, consistent with Tally).
    regression case: "01/04/2020" → 1-Apr-2020, NOT 4-Jan-2020** (see correction 1 — do **not** use the
    decoder's 05/06/2022 example).
 2. **STEP 2 — converge the call sites.** Replace all ~21 `TryParse` + the `TryParseExact` sites in
-   `src/Apex.Desktop/ViewModels/` — **including `VoucherEntryViewModel.cs:472` and `PosBillingViewModel.cs:200`
+   `src/Apex.Desktop/ViewModels/` — **including `VoucherEntryViewModel.cs:498` and `PosBillingViewModel.cs:200`
    and the other 10 the decode omitted** (correction 2). Delete the per-VM privates
    (`AddComparisonColumnViewModel.cs:25`, `AttendanceVoucherEntryViewModel.cs:256-263`,
    `PayrollVoucherEntryViewModel.cs:341-343`, `GenerateEInvoiceViewModel.cs:378-380`,
@@ -3104,7 +3104,7 @@ report.md` is silent (its only Day Book entry is item 14 at `:68`, Alt+X vs Alt+
   date/number sequence* the voucher lands, but the corpus states only "To insert or Add a voucher in a report"
   **without distinguishing them.** **"Add" is only well-defined relative to "Insert".** Not asserted from memory.
 - **The DATE the added voucher defaults to.** Candidates: the highlighted row's date; the last voucher date
-  (today's default, `VoucherEntryViewModel.cs:558`); the report period end; today. **The single most likely thing
+  (today's default, `VoucherEntryViewModel.cs:584`); the report period end; today. **The single most likely thing
   to get silently wrong.**
 - **Whether Tally prompts for a voucher TYPE on Alt+A in the Day Book**, or opens a default type.
 - **Whether Alt+A returns to the report on accept** (near-certain given "in a report", but not stated).
@@ -3223,7 +3223,7 @@ safer** than the decode implies.
      `OpenVoucher`.
 2. **Same file** — overload `OpenVoucher(VoucherBaseType baseType, DateOnly? date = null, Action? onSaved = null)`
    (`:2579`): pass `date` through to the ctor's existing `DateOnly? date` param
-   (`VoucherEntryViewModel.cs:497`), and **default `onSaved` to today's `ShowGateway` so ALL existing call sites
+   (`VoucherEntryViewModel.cs:523`), and **default `onSaved` to today's `ShowGateway` so ALL existing call sites
    are byte-identical.** From the Day Book pass `onSaved: () => { BackFromPage(); Reports?.Show(Reports.Kind); }`
    (`ReportsViewModel.cs:606`) to pop back to a **refreshed** Day Book.
 3. **Date source** — resolve the highlighted row via `Reports.SelectedRow?.DrillVoucherId` →
@@ -3564,7 +3564,7 @@ waste a slice. Each is evidenced above.
 | **Report-context Alt+C = New Column** | `MainWindow.axaml.cs:144-156` | **Correct Tally — preserve it.** *(But note its narrow gate: comparative reports only.)* |
 | **Report F2 / Alt+F2 split** | `MainWindow.axaml.cs:482`/`:445`, `ReportsViewModel.cs:525`/`:533` | **Correct Tally — leave alone.** WI-5 is about the *other* 97 screens. |
 | **Date STORAGE — already uniform ISO `DateOnly`** | `Schema.cs:7` and throughout | **WI-5 needs no migration.** A literal "saved in a format" reading makes point 4 a no-op. |
-| **Credit/Debit Note engine + entry screen + tests** | `VoucherBaseType.cs:15-16`, `VoucherEntryViewModel.cs:1193`/`:1176`, `CreditDebitNoteVoucherEntryViewModelTests.cs:94` (10 facts) | Only the **binding** is missing (`catalog:471`). |
+| **Credit/Debit Note engine + entry screen + tests** | `VoucherBaseType.cs:15-16`, `VoucherEntryViewModel.cs:1219`/`:1176`, `CreditDebitNoteVoucherEntryViewModelTests.cs:94` (10 facts) | Only the **binding** is missing (`catalog:471`). |
 
 ---
 

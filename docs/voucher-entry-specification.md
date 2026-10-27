@@ -157,8 +157,8 @@ Fidelity verdicts: **MATCH** · **PARTIAL** · **WRONG** (we do something a user
 | C-04 | **Enable Bill-wise entry** (F11) | Unlocks the *ledger* field "Maintain balances bill-by-bill". On its own changes no voucher screen. (SG p.91 step 1 **[verified-A1]**) | Payment, Receipt, Purchase, Sales, Cr/Dr Note, Journal | **No company-level flag.** Only `Ledger.MaintainBillByBill` (`Ledger.cs:36`) — layers 1 and 3 collapsed | PARTIAL |
 | C-05 | **Enable Cost Centres** (F11) | Unlocks the cost masters and the ledger field "Cost centres are applicable" (SG p.99 step 1 **[verified-A1]**) | all accounting types | **No company-level flag.** Gate is `ledger applicable ∧ ≥1 cost centre exists` (`VoucherLineViewModel.cs:275-299`) — a defined-cost-centre count standing in for a feature switch | PARTIAL |
 | C-06 | **Enable Batches** (+ *Maintain Expiry Date for Batches*) | Unlocks stock-item "Maintain in Batches" / "Track date of Manufacturing" / "Use Expiry dates"; adds the batch line to Item Allocations (BOOK pp.129–130 **[verified-A1]**) | Purchase, Sales, GRN, Delivery, Stock Journal, Physical | `Company.MaintainBatchwiseDetails` ✅ + `StockItem.MaintainInBatches` ✅ | MATCH (at this layer — see C-20) |
-| C-07 | **Use separate Actual and Billed Quantity columns** | Quantity column splits into Actual / Billed. **Actual drives stock, Billed drives accounts.** Explicitly *"allowed only in Sales or Purchase vouchers only"* (BOOK pp.145–146, Note1/Note2 **[verified-A1]**) | Sales, Purchase | `Company.UseSeparateActualBilledQuantity` ✅; gated to Sales/Purchase item invoice (`VoucherEntryViewModel.cs:459-460`); stock on Actual (`:3424`), value+GST on Billed (`:2676-2688`, `:2727`) | **MATCH** |
-| C-08 | **Use Discount column in invoices** (F11) | Inserts a **Disc%** (or Disc Amt, or both, per a "Discount format" sub-field) column inside the item line of Item-Invoice Sales **and Purchase**. Line Amount is net of it and **GST computes on the discounted value** (BOOK p.148, p.232 **[inherited]**; WEB Sales FAQ) | Sales, Purchase, Cr/Dr Note | **No such flag.** Disc% appears only when `EnableMultiplePriceLevels` is on **and** the voucher is a **Sales** item invoice (`VoucherEntryViewModel.cs:214-215`). Percentage only — no amount, no format choice. Purchase can never show it. | **WRONG** (right column, wrong trigger, wrong scope) |
+| C-07 | **Use separate Actual and Billed Quantity columns** | Quantity column splits into Actual / Billed. **Actual drives stock, Billed drives accounts.** Explicitly *"allowed only in Sales or Purchase vouchers only"* (BOOK pp.145–146, Note1/Note2 **[verified-A1]**) | Sales, Purchase | `Company.UseSeparateActualBilledQuantity` ✅; gated to Sales/Purchase item invoice (`VoucherEntryViewModel.cs:485-486`); stock on Actual (`:3424`), value+GST on Billed (`:2676-2688`, `:2727`) | **MATCH** |
+| C-08 | **Use Discount column in invoices** (F11) | Inserts a **Disc%** (or Disc Amt, or both, per a "Discount format" sub-field) column inside the item line of Item-Invoice Sales **and Purchase**. Line Amount is net of it and **GST computes on the discounted value** (BOOK p.148, p.232 **[inherited]**; WEB Sales FAQ) | Sales, Purchase, Cr/Dr Note | **No such flag.** Disc% appears only when `EnableMultiplePriceLevels` is on **and** the voucher is a **Sales** item invoice (`VoucherEntryViewModel.cs:240-241`). Percentage only — no amount, no format choice. Purchase can never show it. | **WRONG** (right column, wrong trigger, wrong scope) |
 | C-09 | **Enable multiple Price Levels** | Price Level / Price List masters; a party carries a level; the **Rate** auto-populates from the applicable price list, and the list's discount % can pre-fill Disc% | Sales (and Purchase in Tally) | `Company.EnableMultiplePriceLevels` ✅, header level picker, party default level, auto-fill respecting operator-dirty flags (`:2398-2470`) | MATCH for Sales; **conflated with C-08** |
 | C-10 | **Enable Job Order Processing** | Job Work In/Out Order types + material transfer/consumption screens | Job Work, Material In/Out | `Company.EnableJobOrderProcessing` ✅ (`MainWindowViewModel.cs:3304`, `:3336`) | MATCH |
 | C-11 | **Maintain Payroll / Enable Payroll Statutory** | Payroll (Ctrl+F4) and Attendance vouchers appear; statutory pay-head sub-screens | Payroll, Attendance | `Company.PayrollEnabled` / `PayrollStatutoryEnabled` ✅ | MATCH |
@@ -182,7 +182,7 @@ Fidelity verdicts: **MATCH** · **PARTIAL** · **WRONG** (we do something a user
 | # | Condition / trigger | TallyPrime effect | Touches | Ours | Verdict |
 |---|---|---|---|---|---|
 | C-20 | **Stock item `Maintain in Batches` = Yes** | On selecting the item **in a Purchase (F9) or Sales (F8) invoice**, the **Stock Item Allocations** sub-screen opens with `Mfg Dt.` · `Batch/Lot No.` (existing, or **"New Number"**) · `Expiry Date` · `Quantity` · `Rate` · `Amount`. Inward types a new batch; outward selects from batches carrying a balance. (BOOK pp.130–132 **[verified-A1]** — the corpus walks exactly F9 then F8) | **Purchase, Sales**, GRN, Delivery, Stock Journal, Physical | Real batch sub-screen exists **only on the inventory screen** (`InventoryVoucherEntryViewModel.cs:205-208`, `BatchAllocationViewModel.cs`). On the **Purchase/Sales item invoice the batch is a bare free-text label** (`InventoryVoucherLineViewModel.cs:327-328`) — no picker, no Mfg/Expiry, no split, no balance check | **WRONG** |
-| C-21 | **Ledger `Maintain balances bill-by-bill` = Yes** | The **Bill-wise Details** sub-screen fires after the amount (Payment/Receipt/Cr-Dr Note) or after the invoice total (Sales/Purchase invoice) — **in every mode**. SG places it explicitly at step 7 of Purchase Item Invoice (p.79), step 6 of Purchase Accounting Invoice (p.80), step 6 of Sales Item Invoice (p.81), step 5 of Sales Accounting Invoice (p.82) **[verified-A1]** | Payment, Receipt, Purchase, Sales, Cr/Dr Note, Journal | **As-Voucher mode ONLY.** The item-invoice and accounting-invoice Accept paths construct the party `EntryLine` with **no bill allocations at all** (`VoucherEntryViewModel.cs:3543-3547`; allocations are built only at `:2091-2097`, inside the plain-grid `PostAndSave`) | **WRONG — see §7 gap G-1** |
+| C-21 | **Ledger `Maintain balances bill-by-bill` = Yes** | The **Bill-wise Details** sub-screen fires after the amount (Payment/Receipt/Cr-Dr Note) or after the invoice total (Sales/Purchase invoice) — **in every mode**. SG places it explicitly at step 7 of Purchase Item Invoice (p.79), step 6 of Purchase Accounting Invoice (p.80), step 6 of Sales Item Invoice (p.81), step 5 of Sales Accounting Invoice (p.82) **[verified-A1]** | Payment, Receipt, Purchase, Sales, Cr/Dr Note, Journal | **As-Voucher mode ONLY.** The item-invoice and accounting-invoice Accept paths construct the party `EntryLine` with **no bill allocations at all** (`VoucherEntryViewModel.cs:3569-3573`; allocations are built only at `:2091-2097`, inside the plain-grid `PostAndSave`) | **WRONG — see §7 gap G-1** |
 | C-22 | **Ledger `Cost centres are applicable`** | Auto-**Yes** for revenue ledgers (income & expense), **No** by default for non-revenue (assets & liabilities); settable manually (SG p.100 **[verified-A1]**). The **Cost Allocation** window opens **immediately after the Amount** | all accounting types; allocatable on a Delivery Note but **not** a Receipt Note (WEB Cost Centres FAQ **[inherited]**) | `Ledger.CostCentresApplicable` nullable, defaulting to P&L nature (`ClassificationRules.cs:57-58`) — **the defaulting rule matches the corpus exactly**. Fires on the ledger pick, seeding a row (`VoucherLineViewModel.cs:275-299`) | MATCH at this layer; **the reconciliation rule is WRONG — C-27** |
 | C-23 | **Ledger is a bank** | **Bank Allocations**: `Transaction Type` (Cheque / e-Fund Transfer / Electronic Cheque), `Inst. No.`, `Inst. Date`, `Bank Date`, `Favouring Name`/`Received From` | Payment, Receipt, Contra | `IsBankLine` (`VoucherLineViewModel.cs:403-418`) — As-Voucher only | PARTIAL (mode-scoped; field set not compared here) |
 | C-24 | **Ledger carries a non-base currency** | Forex Amount / Rate of Exchange on the amount. **Not an F11 flag in TallyPrime** — currency masters exist by default and the trigger is the ledger's "Currency of Ledger" | all accounting types | `IsForexLine` when `Ledger.CurrencyId` resolves; rate defaulted from the rate in force on the voucher date (`:461-495`, `:557-567`) — **the trigger model matches TallyPrime, not ERP 9** | MATCH (As-Voucher only) |
@@ -205,7 +205,7 @@ Fidelity verdicts: **MATCH** · **PARTIAL** · **WRONG** (we do something a user
 | # | Condition | TallyPrime | Ours | Verdict |
 |---|---|---|---|---|
 | C-33 | **Ctrl+H on Payment / Receipt / Contra** | Single ⟷ Double Entry. Single shows `Account` + `Particulars` and **no Dr/Cr labels**; polarity inverts by type (Receipt/Contra: Account = Dr; Payment: Account = Cr) (BOOK pp.29, 32 **[verified-A1]**; SG p.76 **[verified-A1]**) | **Single Entry does not exist** anywhere in `src/` | **ABSENT** |
-| C-34 | **Ctrl+H on Purchase / Sales** | Item Invoice / Accounting Invoice / As Voucher (BOOK p.33 **[verified-A1]**; SG pp.78–82 **[verified-A1]**) | Item ✅ (Ctrl+I) · Accounting **Sales only** (Ctrl+H) · As Voucher ✅. **Purchase Accounting Invoice is dormant dead code** behind `CanBeAccountingInvoice` (`VoucherEntryViewModel.cs:109`, rationale `:70-79`) because TDS/RCM read `Lines`, which is empty in accounting mode | **PARTIAL** |
+| C-34 | **Ctrl+H on Purchase / Sales** | Item Invoice / Accounting Invoice / As Voucher (BOOK p.33 **[verified-A1]**; SG pp.78–82 **[verified-A1]**) | Item ✅ (Ctrl+I) · Accounting **Sales only** (Ctrl+H) · As Voucher ✅. **Purchase Accounting Invoice is dormant dead code** behind `CanBeAccountingInvoice` (`VoucherEntryViewModel.cs:135`, rationale `:70-79`) because TDS/RCM read `Lines`, which is empty in accounting mode | **PARTIAL** |
 | C-35 | **Ctrl+H on Credit Note / Debit Note** | All three modes, same list (BOOK pp.54–55 **[verified-A1]** — the Credit Note section repeats the Item / Accounting / As Voucher definitions verbatim) | **Neither invoice mode** — `CanBeItemInvoice` admits only Purchase/Sales (`:67-68`) | **WRONG** |
 | C-36 | **"As Voucher" still allows item selection** | BOOK p.33 definition #3 and pp.36–37, 42 **[verified-A1 for p.33]** | Our As-Voucher grid is pure Dr/Cr; no item picker | PARTIAL |
 | C-37 | **Accounting Invoice mode and e-Way Bill** | e-Way Bill details **cannot** be entered in Accounting Invoice mode — they require stock items (GSTN **[inherited]**) | Accounting-invoice ledger picker excludes any ledger declaring a **Goods** supply (Rule 46(f) guard, `:2574-2582`) — a different but compatible restriction | MATCH-ish |
@@ -226,7 +226,7 @@ configures **the screen you are standing on**, so the same label exists separate
 | C-44 | **Warn on negative Stock Balance** | Yes ⇒ **warns, does not block** (WEB **[inherited]**, see §8 U-1) | ABSENT — we **hard-block, unconditionally** |
 | C-45 | Select Cost Centre/Class | Shows the Cost Centre Class field; picking a class **allocates in the background and the Cost Allocation screen never appears** | ABSENT (no cost-centre classes) |
 | C-46 | Skip Supplier's / Buyer's / Party / Dispatch details screen | Suppresses those sub-screens | N/A — those screens do not exist |
-| C-47 | Allow cash accounts in journal vouchers | Off by default ⇒ cash/bank **not selectable** in a Journal | **ABSENT.** Our ledger picker is unfiltered for every type: `Ledgers = company.Ledgers` (`VoucherEntryViewModel.cs:659`). A Contra can post to Sales; a Journal can post to Cash. |
+| C-47 | Allow cash accounts in journal vouchers | Off by default ⇒ cash/bank **not selectable** in a Journal | **ABSENT.** Our ledger picker is unfiltered for every type: `Ledgers = company.Ledgers` (`VoucherEntryViewModel.cs:685`). A Contra can post to Sales; a Journal can post to Cash. |
 | C-48 | Modify Tax Rate details of GST · Warn when Voucher No. exceeds 16 characters | GST-conditional F12 rows | ABSENT |
 
 **Our whole F12 surface on a voucher screen is the voucher-numbering config** (`MainWindowViewModel.cs:6403-6428`).
@@ -286,7 +286,7 @@ ledger → `Name of Item` → `Location` → `Quantity` → `Rate` → Narration
 ### 3.5 Sales — F8
 Same shape, with two naming differences that must not be conflated:
 **Sales uses `Reference No.`; Purchase uses `Supplier Invoice No.`** (BOOK p.39 vs p.34 **[verified-A1]**).
-We get this right: `ShowReferenceCapture` swaps the caption per base type (`VoucherEntryViewModel.cs:575-581`).
+We get this right: `ShowReferenceCapture` swaps the caption per base type (`VoucherEntryViewModel.cs:601-607`).
 
 Item Invoice: Ref No. → `Party's A/c Name` → [sub] Dispatch Details ⛔ → [sub] Party/Buyer's Details
 (+`Consignee` only under F12 C-43) ⛔ → [sub] Order/Tracking ⛔ → `Sales Ledger` → items (+Disc% [cond C-08]
@@ -438,12 +438,12 @@ cannot be converted; every invoice is re-keyed).
 | Orders / notes / Stock Journal / Physical | none documented | none | — |
 
 Our mode gates are a clean total partition — `IsAsVoucherMode` is defined as the *complement* of the two
-invoice modes (`VoucherEntryViewModel.cs:147`), so forcing `Mode` directly cannot produce a screen with no
+invoice modes (`VoucherEntryViewModel.cs:173`), so forcing `Mode` directly cannot produce a screen with no
 grid. That is good defensive design and should survive any rework.
 
 **Key binding:** TallyPrime = **one** `Ctrl+H` picker. Ours = `Ctrl+I` item-invoice toggle
 (`MainWindow.axaml.cs:481`) + `Ctrl+H` accounting-invoice toggle (`:493`), cycling
-As Voucher → Item → Accounting → As Voucher (`VoucherEntryViewModel.cs:2521-2530`), degrading to a two-way
+As Voucher → Item → Accounting → As Voucher (`VoucherEntryViewModel.cs:2547-2556`), degrading to a two-way
 flip on Purchase.
 
 ---
@@ -461,7 +461,7 @@ flip on Purchase.
 
 ### 6.2 Ours
 
-**Plain grid — live gate `CanAccept`** (`VoucherEntryViewModel.cs:823-827`): balanced ∧ Σ Dr > 0 ∧ ≥2 complete
+**Plain grid — live gate `CanAccept`** (`VoucherEntryViewModel.cs:849-853`): balanced ∧ Σ Dr > 0 ∧ ≥2 complete
 lines ∧ no half-filled row ∧ every bill split OK ∧ every cost split OK.
 
 **`Accept()` hard refusals, in order** (`:1880-1987`): half-filled row · unreadable instrument date ·
@@ -510,7 +510,7 @@ Ranked by **how badly a real user is blocked**, not by implementation cost.
 
 ### G-1 — Bill-wise Details never fires in invoice mode ⇒ receivables silently empty · **CRITICAL**
 The normal way to record a sale is an Item Invoice. Our item-invoice and accounting-invoice Accept paths
-build the party `EntryLine` with **no bill allocations** (`VoucherEntryViewModel.cs:3543-3547`; allocations
+build the party `EntryLine` with **no bill allocations** (`VoucherEntryViewModel.cs:3569-3573`; allocations
 exist only at `:2091-2097`). `Outstandings.cs:137` only counts lines that *have* allocations. **Therefore a
 company that invoices normally has an empty Receivables report, empty ageing, no overdue tracking, and
 nothing for Ctrl+B to settle — with no error and no warning anywhere.** The corpus is explicit that the
@@ -668,11 +668,11 @@ says Enable Batches. Do not let this propagate into a requirement.
 
 | Anchor | Conditions |
 |---|---|
-| `VoucherEntryViewModel.cs:96-97,80,90,118,122` | C-33…C-37 |
-| `VoucherEntryViewModel.cs:214-215` | C-08, C-09 |
-| `VoucherEntryViewModel.cs:459-460,3424,2676-2688` | C-07 |
-| `VoucherEntryViewModel.cs:659` | C-47 |
-| `VoucherEntryViewModel.cs:3543-3547` vs `:2091-2097` | **C-21 / G-1** |
+| `VoucherEntryViewModel.cs:122-123,80,90,118,122` | C-33…C-37 |
+| `VoucherEntryViewModel.cs:240-241` | C-08, C-09 |
+| `VoucherEntryViewModel.cs:485-486,3424,2676-2688` | C-07 |
+| `VoucherEntryViewModel.cs:685` | C-47 |
+| `VoucherEntryViewModel.cs:3569-3573` vs `:2091-2097` | **C-21 / G-1** |
 | `VoucherValidator.cs:307-330` | **C-27 / G-2** |
 | `VoucherValidator.cs:289-299` | C-28 |
 | `VoucherLineViewModel.cs:167-187,275-299,403-418,461-495` | C-21…C-24 |

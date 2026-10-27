@@ -1033,8 +1033,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > layer *per report* (`help.tallysolutions.com/working-with-reports/`) — which is what census row **1.9** has
 > always described and why 1.9 is untouched. So: **retitle row 1.8 to the settings surface the vendor actually
 > ships, and build that.** 🔴 **AND GATE THE DEAD `F12` BUTTON** — `ButtonBar.Add(new ButtonBarItem("F12",
-> "Configure", F12Configure))`, which the ruling located at `MainWindowViewModel.cs:11351` and A12 re-measured
-> on `origin/main` `53d43a1` at **`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:11404`** (the only
+> "Configure", F12Configure))`, which the ruling located at `MainWindowViewModel.cs:11366` and A12 re-measured
+> on `origin/main` `53d43a1` at **`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:11419`** (the only
 > `"F12"` button in the file; only the line number drifted). It is **currently offered to the operator where it
 > does nothing**, which is register defect **IV-31**'s own shape — an enabled badge that fires nothing.
 >
@@ -4312,7 +4312,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     POS computes the tax it then posts).
   - **▶ CARRY-FORWARD (a) — `§206C(1H)` TCS IS ON THE PARTY LEG BUT NOT ON THE DOCUMENT.** Found while establishing
     the blast radius: `AcceptItemInvoice` builds the Sales party debit as `Σ item value + GST + cess + **TCS**`
-    (`VoucherEntryViewModel.cs:4766`), and `InvoicePrintData` **has no TCS field at all** — so on a TCS-bearing sale
+    (`VoucherEntryViewModel.cs:4792`), and `InvoicePrintData` **has no TCS field at all** — so on a TCS-bearing sale
     the printed Grand Total is short by the collected TCS, and W0-10 does **not** close it (it is not GST tax; the
     posted-legs switch cannot reach it). Needs a DTO field + an `InvoicePdf`/preview row, i.e. a slice of its own.
     **Until then the invariant "printed Grand Total == posted party leg" holds for every non-TCS sale, and the class
@@ -4871,8 +4871,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     "exactly one target" and `≥ 0`, persisted at `SqliteCompanyStore.cs:6596` · **2**
     `BillAllocationRowViewModel.cs:91-96` ⇒ `:88`, `BillAllocation.cs:40` (only `> 0`, name, days), `:6907` ·
     **3** `CostAllocationRowViewModel.cs:86-91` ⇒ `:84`, `CostAllocation.cs:26`, `:6930` · **4**
-    `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:3022`, `EntryLine.cs:127`, `:6698` · **5**
-    `PosBillingViewModel.cs:890-900` ⇒ `:715-716` and `:739-742`, `PosTender.cs:23-31` (a bare `record` with no
+    `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:3048`, `EntryLine.cs:127`, `:6698` · **5**
+    `PosBillingViewModel.cs:900-910` ⇒ `:715-716` and `:739-742`, `PosTender.cs:23-31` (a bare `record` with no
     body and no validation at all), `:6823`/`:6824`/`:6825` · **6** `SalaryStructureMasterViewModel.cs:290` ⇒
     `:295`, `SalaryStructure.cs:79`, with `SalaryStructureService.cs:129-130` checking only `< Money.Zero`, `:6015` ·
     **7** `PayHeadMasterViewModel.cs:331`/`:340`/`:366`, where `PayHeadService.ValidateComputation` (`:222-250`)
@@ -4884,7 +4884,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     (It is the loudest known instance, **not** the most dangerous: a silent wrong-figure divergence like the one
     `ApplyPt` used to produce is worse per-rupee and easier to miss — see the correction above.) **#2 and #3 DEFEAT
     THEIR OWN VALIDATION:** their only gate is an exact-sum check (`VoucherLineViewModel.cs:236`, `:377`;
-    `VoucherEntryViewModel.cs:379`) and **`33.335 + 66.665 == 100.00` passes it.** **GUARDED — do NOT touch:**
+    `VoucherEntryViewModel.cs:405`) and **`33.335 + 66.665 == 100.00` passes it.** **GUARDED — do NOT touch:**
     `PayHeadService.cs:156`, `PriceListService.cs:143`, `AdditionalCostRowViewModel.cs:70`,
     `AccountingInvoiceLineViewModel.cs:92`, `AdditionalCostLine.cs:24`, plus the **15 `src/Apex.Desktop` files
     (18 occurrences, measured)** that already call `IsPaisaExact`. **Genuinely out of scope:** forex amounts/rates
@@ -5027,7 +5027,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     planted duplicate-`CostCentre` PRIMARY KEY violation left `vouchersBefore=0 vouchersAfter=1` with the
     `SqliteException` escaping `Accept()` unhandled. So `#2`/`#3`/`#4` are CLASS C **through the plain Dr/Cr grid
     only**; through an invoice they were CLASS B. **Both now carry the S2b save guard**
-    (`VoucherEntryViewModel.cs:4291-4302` accounting, `:4848-4859` item), each pinned by a `DbException`-lever test
+    (`VoucherEntryViewModel.cs:4317-4328` accounting, `:4848-4859` item), each pinned by a `DbException`-lever test
     that fails when the restore line is removed.
   - **▶ PART 2 — WHY CLASS C IS NOT THE POISONING CLASS, MEASURED LINE BY LINE. This is the correction that
     matters most, because it removes work this row would otherwise have done twice.** `VoucherEntryViewModel`
@@ -5038,7 +5038,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     false; the `finally` at `:2879-2883` then pops the whole undo stack because `committed` never became true.
     **So a sub-paisa bill or cost allocation neither crashes nor poisons.** What survives is narrower and must be
     described as what it is: **`#2` and `#3` DEFEAT THEIR OWN VALIDATION** — the only gate is an exact-sum
-    equality (`VoucherLineViewModel.cs:236`, `:377`; `VoucherEntryViewModel.cs:379`) and **`33.335 + 66.665 ==
+    equality (`VoucherLineViewModel.cs:236`, `:377`; `VoucherEntryViewModel.cs:405`) and **`33.335 + 66.665 ==
     100.00` passes it**, because `decimal` equality ignores scale — so the figure reaches a POSTED voucher and the
     operator is refused only at save time, with the STORE's own words wrapped as `"Could not save the company:
     Amount 33.335 is not paisa-exact (more than 2 decimal places); cannot persist or serialise without loss. The
@@ -5054,7 +5054,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     in the entire file (measured)**, so a sub-paisa budget line is an **UNHANDLED `InvalidOperationException` in
     the UI** and the aggregate stays poisoned. (Loudest ≠ most dangerous — a silent wrong-figure divergence is
     worse per rupee; W0-12 established that distinction and this row keeps it.)
-    **`B5`** `PosBillingViewModel.cs:890-900` (`ParseMoney`) ⇒ `:715-716` (cash: `new Money(cashPayable)`,
+    **`B5`** `PosBillingViewModel.cs:900-910` (`ParseMoney`) ⇒ `:715-716` (cash: `new Money(cashPayable)`,
     `Tendered`, `Change`) and `:739`/`:740`/`:742` (gift voucher / card / cheque — the precise construction lines
     inside W0-12's `:739-742` bracket), `Domain/PosTender.cs:23-31` (a bare `record`, no body, **no validation at
     all**), persisted at `SqliteCompanyStore.cs:6823`/`:6824`/`:6825`. Saves at `:649` under the narrow filter at
@@ -5074,7 +5074,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     name and days only), persisted at `SqliteCompanyStore.cs:6907`.
     **`C3`** `CostAllocationRowViewModel.cs:86-91` ⇒ `:84`, `Domain/CostAllocation.cs:26` (ctor), persisted at
     `SqliteCompanyStore.cs:6930`.
-    **`C4`** `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:3022`, `Domain/EntryLine.cs:127`
+    **`C4`** `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:3048`, `Domain/EntryLine.cs:127`
     (ctor), persisted at `SqliteCompanyStore.cs:6698`.
   - **▶ THE PROVEN PATTERN — COPY IT, DO NOT INVENT A NEW ONE.** The front-line guard mirrors
     `TaxDeclarationViewModel.TryMoney` and `GstConfigViewModel.TryStatutoryRupees` (`:1407`). **The SHIPPED branch
@@ -5385,7 +5385,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     a different question ("given a posted tax leg and a live master that may since have been edited, what State
     may this document truthfully print?") and should stop being counted as a third copy; `EInvoiceJson.cs:267` is
     a **real** third derivation but a **statutorily mandated** one — see the refusal below. **Callers, re-counted at HEAD `7a35308`:** Form A (throwing) = **6** —
-    `VoucherPrintProjector.cs:285`, `PosBillingViewModel.cs:447`, `VoucherEntryViewModel.cs:3724`, `:3882`,
+    `VoucherPrintProjector.cs:285`, `PosBillingViewModel.cs:447`, `VoucherEntryViewModel.cs:3750`, `:3882`,
     `:4326`, `RcmService.cs:93`; Form B (private) = **1** — `EWayBillService.cs:69`.
     **▶ 🔴 A FOURTH COPY NOBODY COUNTED, AND IT CARRIES A WHITESPACE BUG.**
     `VoucherPrintProjector.ConsistentBuyerStateCode` (`:651-662`) re-derives the routing at `:656-658` using
@@ -6326,7 +6326,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   **cannot carry inventory lines at all**: `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws
   *"Item-invoice stock lines are only valid on a Purchase or Sales voucher"* on **every** post (reached from
   `src/Apex.Ledger/Services/VoucherValidator.cs:150-151`), and
-  `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:96-97` makes the item-invoice chord inert on that
+  `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:122-123` makes the item-invoice chord inert on that
   family. **That wall is census T0-10, not T0-11** — and flipping the print gate alone would route a note into
   the invoice projection and emit a **ZERO-ROW document**. ✅ **AND IT COSTS S4 NOTHING**, because CGST Rule 53
   is **value-level**: nature of the document, the corresponding invoice serial and date, and value, rate and
@@ -6500,7 +6500,7 @@ is half a day, needs no schema, blocks nothing and is blocked by nothing. **High
 | **W2-14 Go To (`Alt+G`) jump-anywhere overlay** — **`Key.G` is free, 0 hits** | 14.1 | no | — | M |
 | **W2-15 Voucher Duplicate (`Alt+2`) and Insert** | 5.4, 5.5 | no | — | M ⚠️ **chord ruling U-6** |
 | **W2-16 F11 Accounting Features group** | 1.7 | **YES** | — | **L → re-split** ⚠️ **ruling U-10 (`IntegrateAccountsWithInventory`)** |
-| **W2-17 Global settings — F1 (Help) → Settings** 🔴 **RETITLED 2026-09-09 BY RULING 21 (was "F12 global configuration tree"); the reference product REMOVED the global Configuration menu and the F12 menu-context button, so the old target did not exist. Scope now: the F1: Help → Settings surface, PLUS gating the dead `F12` button at `MainWindowViewModel.cs:11404`.** | 1.8 | **YES** | W2-16 | **L** |
+| **W2-17 Global settings — F1 (Help) → Settings** 🔴 **RETITLED 2026-09-09 BY RULING 21 (was "F12 global configuration tree"); the reference product REMOVED the global Configuration menu and the F12 menu-context button, so the old target did not exist. Scope now: the F1: Help → Settings surface, PLUS gating the dead `F12` button at `MainWindowViewModel.cs:11419`.** | 1.8 | **YES** | W2-16 | **L** |
 | **W2-18 Company menu, rename, delete** — `CompanyStorage.Delete` exists with **zero callers**; rename does not exist | 1.4, 14.9 | no | — | M ⚠️ **chord ruling U-6** |
 | **W2-19 Voucher Class** | 2.6 | **YES** | W2-03 | **L** |
 | **W2-20 Multi-master create (Multi Ledger / Multi Group)** | 2.12 | no | — | M |

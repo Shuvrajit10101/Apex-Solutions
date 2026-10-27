@@ -499,7 +499,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     ///
     /// <para>The shape is the app's own and the only reachable one (Gstr1.cs:246, "zero forward tax; sales ledger
     /// flagged ReverseChargeApplicable"): <c>ComputeItemInvoiceGst</c> does not consult
-    /// <c>ReverseChargeApplicable</c> (VoucherEntryViewModel.cs:3686 skips on <c>!res.IsTaxable</c>), so a Taxable
+    /// <c>ReverseChargeApplicable</c> (VoucherEntryViewModel.cs:3712 skips on <c>!res.IsTaxable</c>), so a Taxable
     /// ledger would post forward CGST/SGST the supplier must not charge, and an unclassified one is refused at Accept.
     /// </para>
     ///
@@ -727,7 +727,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     ///
     /// <para>Reached the way a real book reaches it — the item's GST classification is cleared after the sale was
     /// posted, so the reprint resolves against nothing. (Accept refuses to POST an unresolved taxable line outright,
-    /// VoucherEntryViewModel.cs:4748, so this is the reachable route.)</para>
+    /// VoucherEntryViewModel.cs:4774, so this is the reachable route.)</para>
     /// </summary>
     [Fact]
     public void An_unclassified_line_is_not_read_as_exempt_and_keeps_its_tax_invoice()
