@@ -883,6 +883,16 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
         if (!TryBuildTenders(billTotal.Amount, out var tenders, out var change))
             return null; // Message already set
 
+        // 🔴 w8 fix (review ec MEDIUM-2): a narration typed under a tender that posts NO leg would otherwise vanish
+        // without a word: an unused Gift/Card/Cheque row, the Cash row when the non-cash tenders cover the whole
+        // bill, or any non-cash row once Alt+I has switched the bill back to Single tender. The same rule the cost
+        // rows keep (AdditionalCostRowViewModel.IsBlank): the words are refused by name, never dropped silently.
+        if (UnpostedTenderNarrationError(tenders) is { } orphanNarration)
+        {
+            Message = orphanNarration;
+            return null;
+        }
+
         // 🔴 Census 5.11 wave 8 (IV-236): each tender debit carries its ROW's narration and the Sales leg its own.
         // The tender lines are BuildTenderDebitLines' lines (one per tender, in tender order) re-stamped, so the
         // posted shape is byte-identical when no narration is keyed (ER-13). One row per tender KIND, and a bill
@@ -1045,6 +1055,28 @@ public sealed partial class PosBillingViewModel : ViewModelBase, ISetsWorkingDat
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// w8 fix (review ec MEDIUM-2): names the first tender row that carries a narration but posts no tender leg on
+    /// this bill, or returns <c>null</c>. The message says why the row posts nothing in the operator's terms.
+    /// </summary>
+    private string? UnpostedTenderNarrationError(IReadOnlyCollection<PosTender> tenders)
+    {
+        foreach (var row in Tenders)
+        {
+            if (row.ToLineNarration() is null) continue;
+            if (tenders.Any(t => t.Type == row.Type)) continue;
+            if (row.Type == PosTenderType.Cash)
+                return "The Cash tender has a narration, but the other tenders pay the whole bill, so no cash is "
+                    + "received and that narration would be lost. Clear the Cash narration or reduce a tender.";
+            if (!IsMultiTender)
+                return $"The {row.Label} tender has a narration, but this bill is in Single tender mode, so that "
+                    + "narration would be lost. Switch to Multi tender (Alt+I) and enter an amount, or clear the narration.";
+            return $"The {row.Label} tender has a narration but no amount, so that narration would be lost. "
+                + "Enter an amount or clear the narration.";
+        }
+        return null;
     }
 
     private bool AddNonCash(PosTenderRowViewModel row, List<PosTender> tenders, ref decimal nonCash)

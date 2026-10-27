@@ -313,6 +313,186 @@ public sealed class LineNarrationPosBillTests : IDisposable
         finally { w.Close(); }
     }
 
+    // ============================== w8 fix (review ec MEDIUM-2 / MEDIUM-3): the NON-CASH tender legs
+
+    private sealed record TenderLedgers(DomainLedger Bank, DomainLedger Gift);
+
+    /// <summary>Adds a bank ledger (Card / Cheque) and a gift-voucher debtor BEFORE the bill opens, since each tender
+    /// row's ledger choices are fixed when the screen is built.</summary>
+    private static TenderLedgers AddTenderLedgers(Kit k)
+    {
+        var c = k.Vm.Company!;
+        var bank = new DomainLedger(Guid.NewGuid(), "Probe Bank", c.FindGroupByName("Bank Accounts")!.Id,
+            Money.Zero, openingIsDebit: true);
+        var gift = new DomainLedger(Guid.NewGuid(), "Gift Voucher Float", c.FindGroupByName("Sundry Debtors")!.Id,
+            Money.Zero, openingIsDebit: true);
+        c.AddLedger(bank);
+        c.AddLedger(gift);
+        return new TenderLedgers(bank, gift);
+    }
+
+    private static TextBox TenderNarrationBox(Window w, PosTenderRowViewModel row) =>
+        Boxes(w, "PosTenderNarrationBox").Single(b => ReferenceEquals(b.DataContext, row));
+
+    /// <summary>Types <paramref name="text"/> into <paramref name="row"/>'s REALISED narration box as text input.</summary>
+    private static void TypeTenderNarration(Window w, PosTenderRowViewModel row, string text)
+    {
+        TenderNarrationBox(w, row).Focus();
+        Pump(w);
+        w.KeyTextInput(text);
+        Pump(w);
+        Assert.Equal(text, row.LineNarration);
+    }
+
+    /// <summary>Switches the bill to Multi tender with the REAL Alt+I and keys a Card tender of 1,000.00.</summary>
+    private static PosTenderRowViewModel KeyCardTender(Window w, PosBillingViewModel pos, TenderLedgers t, string amount)
+    {
+        Key(w, PhysicalKey.I, RawInputModifiers.Alt);
+        Assert.True(pos.IsMultiTender);
+        var card = pos.Tenders.Single(r => r.Type == PosTenderType.Card);
+        card.SelectedLedger = card.LedgerChoices.Single(l => l.Id == t.Bank.Id);
+        card.AmountText = amount;
+        Pump(w);
+        return card;
+    }
+
+    /// <summary>
+    /// 🔴 <b>EVERY TENDER LEG, NOT JUST CASH (review ec MEDIUM-3).</b> A Multi-tender bill, Card 1,000.00 + Cash
+    /// residual 2,703.71, with a DIFFERENT narration typed under each row through the realised boxes, posts each
+    /// narration on ITS OWN leg of the RELOADED book. <b>Mutation (R1):</b> stamping every tender leg with
+    /// <c>Cash.ToLineNarration()</c> instead of its own row's words puts the cash words on the bank leg and reddens
+    /// the bank assertion.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_multi_tender_bill_posts_each_tenders_own_narration_on_its_own_leg()
+    {
+        var k = NewBook("LNP8 Multi Co", flag: true);
+        var t = AddTenderLedgers(k);
+        var w = new MainWindow { DataContext = k.Vm };
+        try
+        {
+            w.Show();
+            var pos = OpenBill(w, k);
+            var card = KeyCardTender(w, pos, t, "1000.00");
+            TypeTenderNarration(w, card, "Card slip 4417 settled");
+            TypeTenderNarration(w, pos.CashRow, "Cash residual at till 2");
+
+            Key(w, PhysicalKey.A, RawInputModifiers.Control);
+            var v = Reload("LNP8 Multi Co").Vouchers.Single();
+            var bankLeg = v.Lines.Single(l => l.LedgerId == t.Bank.Id);
+            Assert.Equal(1000.00m, bankLeg.Amount.Amount);
+            Assert.Equal("Card slip 4417 settled", bankLeg.Narration);
+            var cashLeg = v.Lines.Single(l => l.LedgerId == k.Cash.Id);
+            Assert.Equal(2703.71m, cashLeg.Amount.Amount);
+            Assert.Equal("Cash residual at till 2", cashLeg.Narration);
+        }
+        finally { w.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>MULTI-TENDER ALTERATION (review ec MEDIUM-3).</b> The posted Card + Cash bill re-opens with each
+    /// narration in ITS OWN row, an edit to the card narration reaches the RELOADED book, and the cash narration is
+    /// untouched. <b>Mutation (R2):</b> keying the loaded narration into the Cash row whatever the tender's kind in
+    /// <c>LoadLineNarrations</c> reddens the card-row assertion.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_multi_tender_alteration_reloads_each_tenders_narration_into_its_own_row()
+    {
+        var k = NewBook("LNP8 Multi Alter Co", flag: true);
+        var t = AddTenderLedgers(k);
+        var w = new MainWindow { DataContext = k.Vm };
+        try
+        {
+            w.Show();
+            var pos = OpenBill(w, k);
+            var card = KeyCardTender(w, pos, t, "1000.00");
+            card.LineNarration = "Card slip 4417 settled";
+            pos.CashRow.LineNarration = "Cash residual at till 2";
+            Assert.True(pos.Accept(), pos.Message);
+        }
+        finally { w.Close(); }
+
+        var c = k.Vm.Company!;
+        var open = PosBillingViewModel.ForAlter(c, c.Vouchers.Single().Id, new CompanyStorage(_dir), () => { }, () => { });
+        Assert.False(open.IsRefused, open.Refusal);
+        var alter = open.Entry!;
+        Assert.True(alter.IsMultiTender);
+        var alterCard = alter.Tenders.Single(r => r.Type == PosTenderType.Card);
+        Assert.Equal("Card slip 4417 settled", alterCard.LineNarration);
+        Assert.Equal("Cash residual at till 2", alter.CashRow.LineNarration);
+
+        alterCard.LineNarration = "Card slip 4417 re-swiped";
+        Assert.True(alter.AcceptAlteration(), alter.Message);
+
+        var v = Reload("LNP8 Multi Alter Co").Vouchers.Single();
+        Assert.Equal("Card slip 4417 re-swiped", v.Lines.Single(l => l.LedgerId == t.Bank.Id).Narration);
+        Assert.Equal("Cash residual at till 2", v.Lines.Single(l => l.LedgerId == k.Cash.Id).Narration);
+    }
+
+    /// <summary>
+    /// 🔴 <b>NO NARRATION IS DROPPED SILENTLY (review ec MEDIUM-2).</b> Three ways a typed tender narration used to
+    /// vanish from a bill that then posted: (gift) a narration under an UNUSED Gift row; (cash) a Cash narration
+    /// when the Card pays the whole bill so no cash leg is built; (single) a Card narration typed in Multi tender,
+    /// then Alt+I back to Single. Each is now REFUSED by name and NOTHING reaches the reloaded book; clearing the
+    /// orphaned narration (the operator's way out) lets the same bill post, so the refusal is not blanket.
+    /// <b>Mutation (R3):</b> deleting the <c>UnpostedTenderNarrationError</c> check in <c>BuildPosBill</c> posts the
+    /// bill on the first accept and reddens all three rows.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData("gift")]
+    [InlineData("cash")]
+    [InlineData("single")]
+    public void A_narration_under_a_tender_that_posts_no_leg_is_refused_by_name_not_dropped(string path)
+    {
+        var name = "LNP8 Orphan " + path;
+        var k = NewBook(name, flag: true);
+        var t = AddTenderLedgers(k);
+        var w = new MainWindow { DataContext = k.Vm };
+        try
+        {
+            w.Show();
+            var pos = OpenBill(w, k);
+            PosTenderRowViewModel orphan;
+            string label;
+            switch (path)
+            {
+                case "gift":
+                    KeyCardTender(w, pos, t, "1000.00");
+                    orphan = pos.Tenders.Single(r => r.Type == PosTenderType.GiftVoucher);
+                    TypeTenderNarration(w, orphan, "GIFT-NARR-UNUSED");
+                    label = "Gift Voucher";
+                    break;
+                case "cash":
+                    KeyCardTender(w, pos, t, "3703.71");
+                    orphan = pos.CashRow;
+                    TypeTenderNarration(w, orphan, "CASH-NARR-NO-CASH");
+                    label = "Cash";
+                    break;
+                default:
+                    var card = KeyCardTender(w, pos, t, "1000.00");
+                    TypeTenderNarration(w, card, "CARD-NARR-THEN-SINGLE");
+                    Key(w, PhysicalKey.I, RawInputModifiers.Alt);
+                    Assert.False(pos.IsMultiTender);
+                    orphan = card;
+                    label = "Credit/Debit Card";
+                    break;
+            }
+
+            Key(w, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Empty(Reload(name).Vouchers);
+            Assert.Empty(k.Vm.Company!.Vouchers);
+            Assert.Contains($"The {label} tender has a narration", pos.Message ?? string.Empty, StringComparison.Ordinal);
+            Assert.Contains("would be lost", pos.Message ?? string.Empty, StringComparison.Ordinal);
+
+            // The way out the message names: clear the narration, and the same bill posts.
+            orphan.LineNarration = string.Empty;
+            Pump(w);
+            Key(w, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Single(Reload(name).Vouchers);
+        }
+        finally { w.Close(); }
+    }
+
     public void Dispose()
     {
         try
