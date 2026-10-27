@@ -52,6 +52,23 @@ public sealed record OutstandingBill(
     /// this asks "has its date arrived".</para>
     /// </summary>
     public bool IsDueBy(DateOnly asOf) => DueDate.DayNumber <= asOf.DayNumber;
+
+    /// <summary>
+    /// Whether this bill is <b>overdue</b> as of <paramref name="asOf"/>: its due date is STRICTLY before the
+    /// report date, i.e. <see cref="OverdueDays"/> is at least 1. A bill falling due exactly on
+    /// <paramref name="asOf"/> is due (<see cref="IsDueBy"/>) but NOT overdue — the same boundary the ageing
+    /// buckets already draw ("Not due" holds zero overdue days). Census 11.13 Overdue Receivables / Payables
+    /// read this one predicate; the boundary is recorded as ours in <c>docs/invented-vs-cloned.md</c> IV-245,
+    /// because the vendor's TallyPrime page lists "overdue days" without defining the due-date day.
+    /// </summary>
+    public bool IsOverdue(DateOnly asOf) => OverdueDays(asOf) > 0;
+
+    /// <summary>
+    /// The voucher whose New-Ref / Advance allocation OPENED this bill (the latest such voucher when a bill was
+    /// re-opened), or <see cref="Guid.Empty"/> when only Agst-Ref allocations name it. Census 11.13: the drill
+    /// key the Overdue Receivables / Payables rows open, so Enter on a bill lands on the invoice that raised it.
+    /// </summary>
+    public Guid OpeningVoucherId { get; init; }
 }
 
 /// <summary>
@@ -220,10 +237,10 @@ public static class Outstandings
 
         foreach (var v in company.Vouchers)
         {
-            // 🔴 CountsForClosing, NOT CountsUnder: this is a CLOSING BALANCE, so it must drop the provisional
-            // base types (Memorandum / Reversing Journal) exactly as LedgerBalances.SignedClosing does. See the
-            // note on CountsForClosing for the two rendered figures the looser rule produced.
-            if (!CountsForClosing(company, v, asOf, scenario)) continue;
+            // 🔴 This is a CLOSING BALANCE, so it must drop the provisional base types (Memorandum / Reversing
+            // Journal) exactly as LedgerBalances.SignedClosing does — CountsUnder carries the base type. See its
+            // note for the rendered figures the looser rule produced.
+            if (!CountsUnder(company, v, asOf, scenario)) continue;
             foreach (var line in v.Lines)
                 if (closing.TryGetValue(line.LedgerId, out var running))
                     closing[line.LedgerId] = running + line.Signed;
@@ -232,19 +249,20 @@ public static class Outstandings
         // The cover: the pending amounts the projection itself holds for these ledgers, on the same basis.
         // One accumulation for the whole candidate set, exactly as Build does.
         //
-        // 🔴 closingRule: true — BOTH SIDES OF THIS COMPARISON MUST DROP THE SAME VOUCHERS. The closing side
-        // above uses CountsForClosing; the cover side used the looser CountsUnder, so a single Memorandum
+        // 🔴 BOTH SIDES OF THIS COMPARISON MUST DROP THE SAME VOUCHERS, and now do by construction: the closing
+        // side above and the cover side (Accumulate) share CountsUnder. Before the rule was unified the cover
+        // side used a looser rule with no base type, so a single Memorandum
         // voucher CARRYING A BILL ALLOCATION manufactured cover that the closing balance it is measured against
         // does not contain — the shortfall collapsed to 0, the guard went blind, and the rendered cell published
         // "91 days" over 1,00,000 of debtor money with no posting bill behind it. It is wrong in the other
         // direction too: a memo AgstRef knocking a real bill off removed cover the closing balance still held,
         // inventing a shortfall and withholding a publishable ratio. A Memorandum is non-posting by definition,
-        // so neither side of a closing-balance comparison may see it. This does NOT change which vouchers may
-        // open a bill in the shipped Outstandings projection — Build still uses the looser rule deliberately.
+        // so neither side of a closing-balance comparison may see it — and, since wave 8 (HIGH-1), neither may
+        // the bill projection itself: a memo bill is not a bill on Bills Receivable / Payable or Overdue either.
         var billWise = new List<Domain.Ledger>();
         foreach (var ledger in candidates)
             if (ledger.MaintainBillByBill) billWise.Add(ledger);
-        var sets = billWise.Count == 0 ? null : Accumulate(company, billWise, asOf, scenario, closingRule: true);
+        var sets = billWise.Count == 0 ? null : Accumulate(company, billWise, asOf, scenario);
 
         var total = 0m;
         foreach (var ledger in candidates)
@@ -260,30 +278,25 @@ public static class Outstandings
         return new Money(total);
     }
 
-    /// <summary>Whether a voucher counts as of a date, under a scenario when one is given.</summary>
-    private static bool CountsUnder(Company company, Voucher v, DateOnly asOf, Scenario? scenario)
-        => scenario is { } s
-            ? LedgerBalances.CountsAsOf(v, asOf, s, company)
-            : LedgerBalances.CountsAsOf(v, asOf);
-
     /// <summary>
-    /// Whether a voucher counts toward a <b>closing balance</b> as of a date — byte-for-byte the rule
+    /// Whether a voucher counts as of a date, under a scenario when one is given — byte-for-byte the rule
     /// <see cref="LedgerBalances.SignedClosing(Company, Domain.Ledger, DateOnly, Scenario?)"/> applies,
-    /// <b>base type included</b>.
-    /// <para>🔴 <b>THE BASE TYPE IS THE ENTIRE REASON THIS IS NOT <see cref="CountsUnder"/>.</b> Without it a
-    /// <b>Memorandum</b> or <b>Reversing Journal</b> — vouchers that by definition never touch the real books, and
-    /// which <c>SignedClosing</c> therefore drops — moved the closing figure
-    /// <see cref="ClosingNotCoveredByBills"/> measures its cover against, in BOTH directions, measured at the
-    /// rendered cell: a memo debit with no allocations invented a 50,000 shortfall and withheld the ratio on a
-    /// perfectly bill-wise, fully covered book that had rendered "91 days"; and a memo credit cancelled a real
-    /// uncovered opening balance out of the measure, so the guard went blind and a partial-basis "91 days"
-    /// published again over 1,00,000 of debtor money with no bill behind it. A guard that compares against the
-    /// Balance Sheet's closing balance has to use the Balance Sheet's own voucher rule.</para>
-    /// <para><see cref="CountsUnder"/> deliberately keeps the looser rule: it feeds <see cref="Accumulate"/>,
-    /// which is the pre-existing bill projection, and changing which vouchers may open a bill is a separate
-    /// decision about a shipped report — not this guard's business.</para>
+    /// <b>base type included</b>. This is the ONE voucher rule of the bill projection: <see cref="Build"/>,
+    /// <see cref="OpenBillsFor"/> and both sides of <see cref="ClosingNotCoveredByBills"/> all use it.
+    /// <para>🔴 <b>THE BASE TYPE IS THE POINT.</b> A <b>Memorandum</b> or <b>Reversing Journal</b> never touches
+    /// the real books. Vendor (TallyPrime, help.tallysolutions.com/accounting-entry-tally/, opened by content
+    /// 2026-10-27): <i>"Memorandum Vouchers are those vouchers that do not impact your books of accounts."</i>
+    /// and, of Reversing Journals, <i>"These are not posted to any books of accounts and cannot be included in
+    /// regular reports."</i> Their effect is seen only through a scenario, which the scenario branch keeps.</para>
+    /// <para>Measured before this rule was unified (wave 8 review, track ed, HIGH-1): the projection used the
+    /// looser rule with no base type, so one Memorandum Dr 50,000.01 carrying a NewRef against a bill-wise
+    /// debtor was listed as an overdue bill, and Overdue Receivables totalled 57,901.62 against a true 7,901.61
+    /// — more than five times the debtor's whole ledger balance. The same memo bill sat on Bills Receivable.
+    /// Earlier still, the looser rule had to be bypassed by a separate closing-only rule for the ratio guard
+    /// (a memo debit invented a 50,000 shortfall; a memo bill manufactured cover and published "91 days" over
+    /// 1,00,000 of uncovered debtor money). One rule now serves every caller, so they cannot drift apart.</para>
     /// </summary>
-    private static bool CountsForClosing(Company company, Voucher v, DateOnly asOf, Scenario? scenario)
+    private static bool CountsUnder(Company company, Voucher v, DateOnly asOf, Scenario? scenario)
         => scenario is { } s
             ? LedgerBalances.CountsAsOf(v, asOf, s, company)
             : LedgerBalances.CountsAsOf(v, asOf, company.FindVoucherType(v.TypeId)?.BaseType);
@@ -291,15 +304,11 @@ public static class Outstandings
     /// <summary>
     /// Accumulates bill state for <paramref name="ledgers"/> in a <b>single</b> pass over the voucher set.
     /// Every ledger asked for gets an entry, empty or not, so callers can index without a null check.
-    /// <para><paramref name="closingRule"/> selects the voucher rule. The default <c>false</c> is the shipped
-    /// bill projection's own rule (<see cref="CountsUnder"/>) and is what <see cref="Build"/> and
-    /// <see cref="OpenBillsFor"/> use — unchanged. <c>true</c> switches to <see cref="CountsForClosing"/> and
-    /// exists for <see cref="ClosingNotCoveredByBills"/> alone, whose result is COMPARED against a closing
-    /// balance and so must drop the same non-posting vouchers that balance drops.</para>
+    /// The voucher rule is <see cref="CountsUnder"/> — non-posting Memorandum and Reversing Journal vouchers
+    /// neither open nor settle a bill outside a scenario.
     /// </summary>
     private static Dictionary<Guid, LedgerBillSet> Accumulate(
-        Company company, IReadOnlyList<Domain.Ledger> ledgers, DateOnly asOf, Scenario? scenario,
-        bool closingRule = false)
+        Company company, IReadOnlyList<Domain.Ledger> ledgers, DateOnly asOf, Scenario? scenario)
     {
         var sets = new Dictionary<Guid, LedgerBillSet>();
         var byId = new Dictionary<Guid, Domain.Ledger>();
@@ -315,9 +324,7 @@ public static class Outstandings
 
         foreach (var v in company.Vouchers)
         {
-            if (!(closingRule
-                    ? CountsForClosing(company, v, asOf, scenario)
-                    : CountsUnder(company, v, asOf, scenario))) continue;
+            if (!CountsUnder(company, v, asOf, scenario)) continue;
             foreach (var line in v.Lines)
             {
                 if (!line.HasBillAllocations) continue;
@@ -360,6 +367,7 @@ public static class Outstandings
                         state.Date = v.Date;
                         state.DueDate = a.EffectiveDueDate(v.Date, ledger.DefaultCreditPeriodDays);
                         state.OpenedAs = a.RefType;
+                        state.OpeningVoucherId = v.Id;
                     }
                 }
             }
@@ -384,7 +392,7 @@ public static class Outstandings
                 s.DueDate,
                 new Money(s.Original == 0m ? s.Pending : s.Original),
                 new Money(s.Pending),
-                kind));
+                kind) { OpeningVoucherId = s.OpeningVoucherId });
         }
         return result;
     }
@@ -451,5 +459,6 @@ public static class Outstandings
         public DateOnly DueDate;
         public decimal Original;
         public decimal Pending;
+        public Guid OpeningVoucherId;
     }
 }

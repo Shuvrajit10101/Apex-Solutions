@@ -2961,6 +2961,52 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What changed** | The footnote used to say *"this book stores narration on the voucher, not on the line"*. After v68 that is false, so the reason now reads that an item invoice does not offer it and the Dr/Cr and service grids take it when the voucher type allows. The entry stays in the withheld list: the More Details panel itself still has no Ledger Narration row. Promoting it is census 14.4's work. |
 | **Tests** | `MoreDetailsTests.Per_line_narration_is_stored_but_the_footnote_still_names_what_this_panel_cannot_offer` (renamed from `Per_line_narration_genuinely_has_nowhere_to_be_stored`, which reddened on v68 as it was written to). |
 
+## 2P. ADDED 2026-10-26 — WAVE 8 TRACK `ed`: OVERDUE RECEIVABLES / OVERDUE PAYABLES (census row 11.13, IV-245..IV-254)
+
+> **This track's pre-assigned block is IV-245..IV-254.** It takes **IV-245 … IV-247** and leaves IV-248..254
+> unused. The section letter `2P` is this branch's guess at the next free letter; A12 renames it at merge if a
+> sibling track took it — the entry NUMBERS are the stable handle.
+>
+> **Vendor ground for the whole section** — `help.tallysolutions.com/manage-receivables-outstanding-tally/`
+> (TallyPrime; page title *"How to Manage Outstanding Receivables in TallyPrime"*), opened BY CONTENT on
+> 2026-10-26:
+> - **"Alternatively, you can use Alt+G (Go To) > Overdue Receivables."** — and the same sentence for
+>   **Overdue Payables** in the Payables section.
+> - **"To view only overdue bills, use Basis of Values to select Overdue Bills in Type of Bills."**
+> - **"Review the outstanding bills, party names, pending amounts, due dates, overdue days, and other details."**
+> - **"Select any outstanding line and press Enter to show/hide the transaction details."**
+>
+> The page does NOT mention Exception Reports, F2, an as-on date, or how the due date itself is treated. The
+> Tally.ERP 9 help pages that do describe an "Overdue by days" column were NOT used: Tally.ERP 9 is not ground
+> truth for this project.
+
+### IV-245 · **A bill due EXACTLY on the as-of date is not overdue** (wave 8, track ed)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours). Area: RPT.** It decides whether a bill appears on the report at all on one day in its life. |
+| **What TallyPrime does** | The page lists "overdue days" as a column and says nothing about the due day itself. No vendor or statutory source found speaks to it. |
+| **What we ship** | `OutstandingBill.IsOverdue(asOf)` = `OverdueDays(asOf) > 0`, i.e. due date strictly before the as-of date. A bill due ON the as-of date is "due" (`IsDueBy`, the existing "due till today" figure) but not listed as overdue; the next day it appears with **1 day overdue**. **OURS:** the boundary. It matches the boundary the existing ageing buckets already draw ("Not due" holds zero overdue days), so Bills Receivable's ageing and this report cannot disagree about the same bill. |
+| **Tests** | Mutating `IsOverdue` to `IsDueBy(asOf)` (measured 2026-10-26) reddens six by name: `OverdueBillsTests.A_bill_due_exactly_on_the_as_of_date_is_not_overdue_until_the_next_day`, `…An_earlier_as_of_date_lists_nothing_and_a_settled_bill_is_never_overdue`, `…Overdue_receivables_list_only_bills_past_due_with_odd_paisa_pending_and_the_opening_voucher`; `OverdueExceptionReportsTests.Overdue_receivables_figures_and_due_date_boundary_off_the_reloaded_book`, `…Overdue_receivables_export_csv_and_print_pdf_carry_the_figures_and_omit_the_boundary_bill`, `…A_period_ending_on_the_first_due_date_lists_nothing_and_says_so`. |
+
+### IV-246 · **Enter drills to the voucher (bill row) or the ledger (party row) in a NEW column, instead of showing/hiding details in place** (wave 8, track ed)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape divergence). Area: RPT.** |
+| **What TallyPrime does** | "Select any outstanding line and press Enter to show/hide the transaction details." Pressing Enter on those details then opens the voucher. |
+| **What we ship** | Party heading row → that party's ledger vouchers over the report's window; bill row → the voucher whose New-Ref/Advance allocation raised the bill (`OutstandingBill.OpeningVoucherId`). Each opens as a cascade column; Esc returns. The bill drill opens the read-only voucher DETAIL, where the vendor page opens the voucher in alteration mode. **OURS:** no in-place show/hide level — the accounting report grid has no expand/collapse row model, so the operator reaches the same voucher one level sooner. |
+| **Tests** | `OverdueExceptionReportsTests.Enter_on_a_bill_row_opens_its_voucher_and_on_a_party_row_opens_the_ledger` (real Enter on a shown window), `Enter_on_the_overdue_total_row_is_a_safe_no_op`. |
+
+### IV-247 · **The two views are ALSO menu rows under Gateway > Exception Reports, and they are separate reports rather than a Type-of-Bills filter on Bills Receivable / Payable** (wave 8, track ed)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B. Area: RPT / NAV.** |
+| **What TallyPrime does** | Reaches them by **Alt+G (Go To) > Overdue Receivables / Overdue Payables**, or by **Basis of Values > Type of Bills > Overdue Bills** on the Receivables / Payables report. |
+| **What we ship** | Two report kinds, `OverdueReceivables` / `OverduePayables`, listed under **Gateway > Exception Reports** (where census row 11.13 counts them). Go To's index is walked from the menu, so the same two rows are what make **Alt+G > Overdue Receivables / Overdue Payables** work — the vendor's route. Each carries the as-of (F2) and period (Alt+F2, as of the period's end) of the shared report surface, and prints / exports through the accounting report path (label = reference · overdue days, then due date · bill date; amount = pending). **OURS:** the Exception Reports menu placement and the row layout. **⚠️ NOT BUILT:** the *Basis of Values > Type of Bills > Overdue Bills* filter on Bills Receivable / Bills Payable, and an ageing (F6) basis switch on these views. |
+| **Tests** | `OverdueExceptionReportsTests.Alt_G_Go_To_opens_the_overdue_view_by_name` and `The_exception_reports_menu_reaches_the_overdue_view_by_keyboard` (both through the real key handlers, both kinds). Deleting either menu row reddens that kind's two cases by name. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
