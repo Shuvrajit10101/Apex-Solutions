@@ -148,7 +148,7 @@ Credit Note item-invoice, accounting-invoice and as-voucher `[CORPUS-BOOK pp.55,
 
 | | Option | Trade-off |
 |---|---|---|
-| **A** | **Full parity: all three modes on both notes, stock included.** Extend `CanBeItemInvoice` and `CanBeAccountingInvoice` to CN/DN, relax the validator carrier rule, extend `ItemInvoiceStock.Counts()`, and stamp the movement direction (Credit Note ⇒ Inward, Debit Note ⇒ Outward — the mirror of the existing Purchase⇒Inward / Sales⇒Outward stamp `[CODE: ItemInvoiceStock.cs Movement doc-comment]`). | The complete fix, and it also closes the "no invoice modes on CN/DN" gap in one pass. **This is not a small change**: it touches the posting validator, the inventory replay ordering, the stock valuation service and the GST CN/DN linkage that already exists `[CODE: VoucherEntryViewModel.cs:1326, 1338]`. Comparable in size to the numbering feature (five slices) or larger, plus a heavy regression burden — the Robert and Bright fixtures must stay byte-identical. Realistically **weeks, not days**. |
+| **A** | **Full parity: all three modes on both notes, stock included.** Extend `CanBeItemInvoice` and `CanBeAccountingInvoice` to CN/DN, relax the validator carrier rule, extend `ItemInvoiceStock.Counts()`, and stamp the movement direction (Credit Note ⇒ Inward, Debit Note ⇒ Outward — the mirror of the existing Purchase⇒Inward / Sales⇒Outward stamp `[CODE: ItemInvoiceStock.cs Movement doc-comment]`). | The complete fix, and it also closes the "no invoice modes on CN/DN" gap in one pass. **This is not a small change**: it touches the posting validator, the inventory replay ordering, the stock valuation service and the GST CN/DN linkage that already exists `[CODE: VoucherEntryViewModel.cs:1355, 1338]`. Comparable in size to the numbering feature (five slices) or larger, plus a heavy regression burden — the Robert and Bright fixtures must stay byte-identical. Realistically **weeks, not days**. |
 | **B** | **Stock only, via item-invoice mode on CN/DN. Skip accounting-invoice mode on the notes for now.** | Fixes the money-losing half. Smaller surface than A but touches the same four seams — the validator, `Counts()`, valuation, replay ordering — so it saves design time, not risk. Leaves CN/DN accounting-invoice (the credit-note-for-a-service-billing-error case) unbuilt. |
 | **C** | **Do not change posting. Add a hard block instead:** reject any attempt to enter a goods return, with a message telling the user to use a Sales/Purchase voucher with reversed quantities. | Cheap and honest — it stops the silent drift, which is the actual danger. But it is **not Tally**, it makes returns clumsy, and reversed-quantity sales corrupt the Sales Register and GSTR-1 the other way. A stopgap, not a fix. |
 | **D** | **Leave it.** | Free, and the books stay wrong. Not defensible for anyone running a business on this. |
@@ -167,7 +167,7 @@ holding action. **D is not** — the drift is silent and compounding, and silent
 ### D4. Purchase has no Accounting Invoice mode. Service purchases cannot be invoiced.
 
 **Verified by me this session.** `CanBeAccountingInvoice => _type.BaseType == VoucherBaseType.Sales`
-`[CODE: src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:80]`. TallyPrime documents the mode on Purchase
+`[CODE: src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:109]`. TallyPrime documents the mode on Purchase
 `[CORPUS-BOOK p.39 — "Press F9 … Ctrl+H (For Accounting Invoice)"]`.
 
 **Why it is gated off is important, and it is a point in favour of fixing it properly.** The XML comment at
@@ -701,7 +701,7 @@ Not a decision — a proposal, offered because several items unblock others.
 - `659947760-Tally-Prime-Short-Key.pdf` — **not machine-trustworthy, see X5**
 
 **In-repo, verified this session:** `src/Apex.Ledger/Services/ItemInvoiceStock.cs`,
-`src/Apex.Ledger/Services/VoucherValidator.cs`, `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:55-95`,
+`src/Apex.Ledger/Services/VoucherValidator.cs`, `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:55-124`,
 `src/Apex.Desktop/ViewModels/MasterCreateKind.cs`, `src/Apex.Ledger/Reports/` listing,
 `src/Apex.Desktop/ViewModels/` listing, `plan.md:14, 420-428, 434, 550, 595, 935-943, 1041, 1093, 1126`.
 

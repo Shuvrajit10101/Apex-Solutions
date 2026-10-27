@@ -411,7 +411,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     ///
     /// <para><b>FIX-W1i — this test used to assert a figure that CANNOT MOVE.</b> Its only money assertion was
     /// <c>TotalTaxable == 47,296.73 + 793.00</c>, and <c>TotalTaxable</c> is Σ of EVERY line value, rated and exempt
-    /// alike (VoucherPrintProjector.cs:488) — so it is identical whether the exempt line is taxed or not. Measured:
+    /// alike (VoucherPrintProjector.cs:498) — so it is identical whether the exempt line is taxed or not. Measured:
     /// mutating the projector to accumulate a non-taxable line into <c>taxableByRate</c> at 1800bp — i.e. charging
     /// 18% GST on exempt milk, raising the customer's demand above the posted party leg — left ALL SEVEN tests in
     /// this file green. The exempt line was also 12.5 × 63.44 = ₹793.00 exactly, a whole rupee, in a file whose own
@@ -499,7 +499,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     ///
     /// <para>The shape is the app's own and the only reachable one (Gstr1.cs:246, "zero forward tax; sales ledger
     /// flagged ReverseChargeApplicable"): <c>ComputeItemInvoiceGst</c> does not consult
-    /// <c>ReverseChargeApplicable</c> (VoucherEntryViewModel.cs:3657 skips on <c>!res.IsTaxable</c>), so a Taxable
+    /// <c>ReverseChargeApplicable</c> (VoucherEntryViewModel.cs:3686 skips on <c>!res.IsTaxable</c>), so a Taxable
     /// ledger would post forward CGST/SGST the supplier must not charge, and an unclassified one is refused at Accept.
     /// </para>
     ///
@@ -727,7 +727,7 @@ public sealed class BillOfSupplyRoutingTests : IDisposable
     ///
     /// <para>Reached the way a real book reaches it — the item's GST classification is cleared after the sale was
     /// posted, so the reprint resolves against nothing. (Accept refuses to POST an unresolved taxable line outright,
-    /// VoucherEntryViewModel.cs:4692, so this is the reachable route.)</para>
+    /// VoucherEntryViewModel.cs:4748, so this is the reachable route.)</para>
     /// </summary>
     [Fact]
     public void An_unclassified_line_is_not_read_as_exempt_and_keeps_its_tax_invoice()
