@@ -2799,12 +2799,17 @@ public sealed partial class ReportsViewModel : ViewModelBase
             // help.tallysolutions.com/manage-receivables-outstanding-tally/): "Select any outstanding line and press
             // Enter to show/hide the transaction details." The in-place show/hide is not cloned (IV-246). Without
             // THIS arm Enter would be a silent no-op whatever the rows carry — the switch has no default. ----
+            //
+            // 🔴 The party drill runs from BOOKS-BEGIN, not DrillFrom. This report is AS-AT (the period end is the
+            // as-of date) and lists an overdue bill whatever its bill date, so an Alt+F2 period starting after
+            // the invoice would otherwise open a ledger window that omits the very voucher that made the party
+            // overdue (wave 8 review, track ed, LOW-1).
             case ReportKind.OverdueReceivables:
             case ReportKind.OverduePayables:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
                 else if (row.DrillLedgerId != Guid.Empty)
-                    DrillToLedgerRequested?.Invoke(row.DrillLedgerId, DrillFrom, DrillTo, false);
+                    DrillToLedgerRequested?.Invoke(row.DrillLedgerId, _company.BooksBeginFrom, DrillTo, false);
                 break;
 
             // ---- Census 15.6 — THE TWO CST DECLARATION-FORMS REPORTS, the last two kinds in the tree with the
