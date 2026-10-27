@@ -28,6 +28,7 @@ public sealed class Gstr9Table18SurfaceTests : IDisposable
     private const string GstinMaharashtra = "27AAPFU0939F1ZV";
     private const string GstinSupplier = "27AAACC1206D1ZM";
     private const string InwardSac = "998719";
+    private const string Table18Heading = "18  HSN-wise summary of inward supplies";
     private static readonly DateOnly FyStart = new(2024, 4, 1);
 
     private readonly string _tempDir;
@@ -66,24 +67,39 @@ public sealed class Gstr9Table18SurfaceTests : IDisposable
         Assert.Equal("Form GSTR-9 — Annual Return", reports.Title);
 
         // On screen: the band-2 row and its foot.
-        var row = Assert.Single(reports.PayrollRows2.Where(r => r.Cells[0].Text == "18  " + InwardSac));
+        // W8 review F3: the HSN / SAC cell holds the BARE code (as Table 17's rows do), and the table is told apart
+        // by its own sub-heading row, which sits after Table 17's foot and before Table 18's rows and foot.
+        var band = reports.PayrollRows2.ToList();
+        var row = Assert.Single(band.Where(r => r.Cells[0].Text == InwardSac));
+        Assert.DoesNotContain(band, r => r.Cells[0].Text.StartsWith("18  " + InwardSac, StringComparison.Ordinal));
         Assert.Equal("Repairs", row.Cells[1].Text);
         Assert.Equal("12,345.67", row.Cells[4].Text);
         Assert.Equal("2,222.22", row.Cells[5].Text);
-        var foot = Assert.Single(reports.PayrollRows2.Where(r => r.Cells[0].Text == "18  Total"));
+        var foot = Assert.Single(band.Where(r => r.Cells[0].Text == "18  Total"));
         Assert.Equal("12,345.67", foot.Cells[4].Text);
         Assert.Equal("2,222.22", foot.Cells[5].Text);
+        var heading = Assert.Single(band.Where(r => r.Cells[0].Text == Table18Heading));
+        var foot17 = Assert.Single(band.Where(r => r.Cells[0].Text == "17  Total"));
+        Assert.True(band.IndexOf(foot17) < band.IndexOf(heading)
+                    && band.IndexOf(heading) < band.IndexOf(row)
+                    && band.IndexOf(row) < band.IndexOf(foot),
+            "Table 18's rows must sit between its own sub-heading and its own foot, after Table 17's foot.");
 
-        // The exported BYTES.
+        // The exported BYTES: the record's FIRST field is the bare SAC, and the sub-heading is its own record.
         var csv = Encoding.UTF8.GetString(CsvWriter.Write(ReportTabularProjector.Project(reports)));
-        var line = csv.Split('\n').Single(l => l.Contains("18  " + InwardSac));
+        var lines = csv.Split('\n').Select(l => l.TrimEnd('\r')).ToList();
+        var line = lines.Single(l => l.Contains(InwardSac));
+        Assert.StartsWith(InwardSac + ",", line);
         Assert.Contains("12345.67", line);
         Assert.Contains("2222.22", line);
+        Assert.Contains(lines, l => l.StartsWith(Table18Heading, StringComparison.Ordinal));
+        Assert.True(lines.FindIndex(l => l.StartsWith(Table18Heading, StringComparison.Ordinal)) < lines.IndexOf(line));
         Assert.Contains("18  Total", csv);
 
         // The printed document.
         var printed = ReportPrintProjector.Project(reports);
-        var printedRow = Assert.Single(printed.Rows.Where(r => r.Cells.Count > 0 && r.Cells[0] == "18  " + InwardSac));
+        Assert.Contains(printed.Rows, r => r.Cells.Count > 0 && r.Cells[0] == Table18Heading);
+        var printedRow = Assert.Single(printed.Rows.Where(r => r.Cells.Count > 0 && r.Cells[0] == InwardSac));
         Assert.Contains(printedRow.Cells, c => c.Contains("2,222.22"));
         Assert.Contains(printedRow.Cells, c => c.Contains("12,345.67"));
         Assert.DoesNotContain("tally", csv, StringComparison.OrdinalIgnoreCase);

@@ -8615,12 +8615,28 @@ public sealed partial class ReportsViewModel : ViewModelBase
         });
 
         // Part VI Table 18 — the INWARD HSN summary, signed (a purchase return nets its row down).
+        // 🔴 W8 review F3: the table is introduced by its own sub-heading row and each row's HSN / SAC cell holds the
+        // bare code, exactly as Table 17's rows do. Before, every Table 18 row wrote "18  <HSN>" INTO the HSN cell,
+        // so the exported "HSN / SAC" column held a value that is not an HSN for half its rows.
+        const string Table18Heading = "18  HSN-wise summary of inward supplies";
+        PayrollRows2.Add(new PayrollMatrixRowVm
+        {
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                WideCell2(0, Table18Heading),
+                WideCell2(1, string.Empty),
+                WideCell2(2, string.Empty),
+                WideCell2(3, string.Empty),
+                WideCell2(4, string.Empty),
+                WideCell2(5, string.Empty),
+            },
+        });
         foreach (var h in ret.Table18InwardHsn)
             PayrollRows2.Add(new PayrollMatrixRowVm
             {
                 Cells = new List<PayrollMatrixCellVm>
                 {
-                    WideCell2(0, "18  " + h.HsnSac),
+                    WideCell2(0, h.HsnSac),
                     WideCell2(1, h.Description),
                     WideCell2(2, h.Uqc ?? string.Empty),
                     WideCell2(3, h.Quantity.ToString("0.###", CultureInfo.InvariantCulture)),
