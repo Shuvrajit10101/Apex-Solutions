@@ -359,6 +359,126 @@ public sealed class BomNameListTests
         finally { Cleanup(window, dir); }
     }
 
+    // ================================================================= 3b. the caret starts in the new-name box (review F1)
+
+    /// <summary>Types <paramref name="text"/> as REAL keystrokes into whatever holds focus — no programmatic
+    /// <c>Focus()</c> — so the test sees exactly what an operator's fingers would.</summary>
+    private static void TypeIntoFocused(MainWindow window, string text)
+    {
+        foreach (var ch in text)
+        {
+            var key = (PhysicalKey)Enum.Parse(typeof(PhysicalKey), char.ToUpperInvariant(ch).ToString());
+            window.KeyPressQwerty(key, RawInputModifiers.None);
+            window.KeyTextInput(ch.ToString());
+            window.KeyReleaseQwerty(key, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+        }
+    }
+
+    private static object? Focused(MainWindow window) => window.FocusManager?.GetFocusedElement();
+
+    /// <summary>
+    /// Review F1 (MEDIUM). The vendor's literal step — <i>"enter the name of the new BOM and press Enter"</i> — must
+    /// create the typed BOM. Before the fix nothing held focus when the list opened, the letters went nowhere, and
+    /// Enter opened the HIGHLIGHTED "Standard" for ALTERATION. Asserted on the realised focus, and on the book
+    /// re-read through a fresh store: three BOMs, the new one under the typed name, Standard untouched.
+    /// </summary>
+    [AvaloniaFact]
+    public void The_list_opens_with_the_caret_in_the_new_name_box_so_typing_then_Enter_creates_the_typed_BOM()
+    {
+        const string company = "Eb Bom Names Caret Co";
+        var (window, vm, dir) = NewWindow(company);
+        try
+        {
+            var s = Seed(vm, dir);
+            var list = OpenNameListByKeyboard(window, vm);
+
+            var box = Named<TextBox>(window, "BomNameListNewName");
+            Assert.NotNull(box);
+            Assert.Same(box, Focused(window));
+
+            TypeIntoFocused(window, "Economy");
+            Assert.Equal("Economy", box!.Text);
+            Assert.Equal("Economy", list.NewName);
+            Key(window, PhysicalKey.Enter);
+
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            var bom = vm.BomMaster!;
+            Assert.False(bom.IsAltering);
+            Assert.Equal("Economy", bom.Name);
+            var line = bom.Lines[^1];
+            line.SelectedItem = line.ItemOptions.First(i => i.Id == s.Screw);
+            line.QuantityText = "0.125";
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+
+            var reloaded = LoadBack(dir, company);
+            Assert.Equal(3, reloaded.BomsFor(s.Table).Count());
+            var economy = reloaded.FindBomByName(s.Table, "Economy");
+            Assert.NotNull(economy);
+            Assert.Equal(0.125m, Assert.Single(economy!.Lines).QuantityPerBlock);
+            AssertStandardUntouched(reloaded, s);
+            Assert.Equal(3, reloaded.FindBillOfMaterials(s.ExportId)!.Lines.Count);
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// Review F1, second half: with the caret in the new-name box the arrows must STILL walk the existing names
+    /// (the shell's arrow arms skip a focused TextBox). ArrowDown moves the highlight to "Export" while focus stays
+    /// in the box, and Enter with nothing typed opens Export — not Standard — for alteration.
+    /// </summary>
+    [AvaloniaFact]
+    public void Arrows_walk_the_names_while_the_caret_is_in_the_new_name_box()
+    {
+        const string company = "Eb Bom Names Caret Arrows Co";
+        var (window, vm, dir) = NewWindow(company);
+        try
+        {
+            var s = Seed(vm, dir);
+            var list = OpenNameListByKeyboard(window, vm);
+            var box = Named<TextBox>(window, "BomNameListNewName");
+            Assert.Same(box, Focused(window));
+
+            Key(window, PhysicalKey.ArrowDown);
+            Assert.Equal("Export", list.HighlightedRow?.Name);
+            Assert.Same(box, Focused(window));
+            Key(window, PhysicalKey.ArrowUp);
+            Assert.Equal("Standard", list.HighlightedRow?.Name);
+            Key(window, PhysicalKey.ArrowDown);
+
+            Key(window, PhysicalKey.Enter);
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            Assert.True(vm.BomMaster!.IsAltering);
+            Assert.Equal(s.ExportId, vm.Company!.FindBomByName(s.Table, vm.BomMaster!.Name)!.Id);
+            Assert.Equal("Export", vm.BomMaster!.Name);
+        }
+        finally { Cleanup(window, dir); }
+    }
+
+    /// <summary>
+    /// Review F4 (LOW). <see cref="BomMasterViewModel.ForNewBomOfItem"/> asked for an item that is not a finished-good
+    /// candidate used to fall back to the FIRST item with the picker unlocked — a new BOM for one item defaulting to
+    /// an unrelated one. It now refuses.
+    /// </summary>
+    [AvaloniaFact]
+    public void ForNewBomOfItem_refuses_an_unknown_item_rather_than_defaulting_to_another()
+    {
+        const string company = "Eb Bom Names Unknown Item Co";
+        var (window, vm, dir) = NewWindow(company);
+        try
+        {
+            var s = Seed(vm, dir);
+            var known = BomMasterViewModel.ForNewBomOfItem(vm.Company!, new CompanyStorage(dir), s.Table, "Economy", () => { });
+            Assert.NotNull(known);
+            Assert.Equal(s.Table, known!.SelectedFinishedGood!.Id);
+            Assert.True(known.IsItemFixed);
+
+            var unknown = BomMasterViewModel.ForNewBomOfItem(vm.Company!, new CompanyStorage(dir), Guid.NewGuid(), "Economy", () => { });
+            Assert.Null(unknown);
+        }
+        finally { Cleanup(window, dir); }
+    }
+
     // ================================================================= 4. Escape leaves without writing
 
     [AvaloniaFact]
