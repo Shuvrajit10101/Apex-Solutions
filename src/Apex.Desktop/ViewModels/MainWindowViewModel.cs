@@ -2787,6 +2787,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Negative Cash / Bank", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Memorandum Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Reversing Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census 11.13 — the two overdue views. Vendor (TallyPrime, help.tallysolutions.com/
+        // manage-receivables-outstanding-tally/): "Alternatively, you can use Alt+G (Go To) > Overdue Receivables."
+        // and the same for Overdue Payables. Go To's index is WALKED from this menu (BuildGoToIndex), so these two
+        // rows are what put both labels in the Alt+G list — no second table to keep in step.
+        col.Add(new MenuItemViewModel("Overdue Receivables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Overdue Payables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -14198,6 +14204,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            case "Overdue Receivables": OpenReport(ReportKind.OverdueReceivables); break;
+            case "Overdue Payables": OpenReport(ReportKind.OverduePayables); break;
             // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
             // Census 14.3 — the three graphical dashboards, under Reports → Dashboard.
             case "Default Dashboard": OpenDashboard(DashboardKind.Default); break;

@@ -77,6 +77,11 @@ public enum ReportKind
     NegativeCashBank,
     MemorandumRegister,
     ReversingJournalRegister,
+    /// <summary>Census 11.13 — the open receivable bills whose due date has passed as of the report date
+    /// (vendor: "Alt+G (Go To) &gt; Overdue Receivables", help.tallysolutions.com/manage-receivables-outstanding-tally/).</summary>
+    OverdueReceivables,
+    /// <summary>Census 11.13 — the payable twin of <see cref="OverdueReceivables"/> ("Alt+G (Go To) &gt; Overdue Payables").</summary>
+    OverduePayables,
 
     // ---- POS (Phase 6 slice 7 — RQ-44): the day-close tender view of POS-flagged Sales vouchers (DP-6). ----
     PosRegister,
@@ -1963,6 +1968,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.NegativeCashBank: BuildNegativeCashBank(); break;
             case ReportKind.MemorandumRegister: BuildMemorandumRegister(); break;
             case ReportKind.ReversingJournalRegister: BuildReversingJournalRegister(); break;
+            case ReportKind.OverdueReceivables: BuildOverdueBills(OutstandingKind.Receivable); break;
+            case ReportKind.OverduePayables: BuildOverdueBills(OutstandingKind.Payable); break;
             case ReportKind.PosRegister: BuildPosRegister(); break;
 
             case ReportKind.JobWorkInOrderBook: BuildJobWorkOrderBook(JobWorkDirection.In); break;
@@ -2360,6 +2367,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         [ReportKind.NegativeCashBank] = "NegativeCashBank",
         [ReportKind.MemorandumRegister] = "MemorandumRegister",
         [ReportKind.ReversingJournalRegister] = "ReversingJournalRegister",
+        [ReportKind.OverdueReceivables] = "OverdueReceivables",
+        [ReportKind.OverduePayables] = "OverduePayables",
         [ReportKind.PosRegister] = "PosRegister",
         [ReportKind.JobWorkInOrderBook] = "JobWorkInOrderBook",
         [ReportKind.JobWorkOutOrderBook] = "JobWorkOutOrderBook",
@@ -2783,6 +2792,24 @@ public sealed partial class ReportsViewModel : ViewModelBase
             case ReportKind.ReversingJournalRegister:
                 if (row.DrillVoucherId != Guid.Empty)
                     DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                break;
+
+            // ---- Census 11.13 — OVERDUE RECEIVABLES / PAYABLES. A bill row opens the voucher that raised the bill;
+            // a party row opens that party's ledger vouchers over the report's window. Vendor (TallyPrime,
+            // help.tallysolutions.com/manage-receivables-outstanding-tally/): "Select any outstanding line and press
+            // Enter to show/hide the transaction details." The in-place show/hide is not cloned (IV-246). Without
+            // THIS arm Enter would be a silent no-op whatever the rows carry — the switch has no default. ----
+            //
+            // 🔴 The party drill runs from BOOKS-BEGIN, not DrillFrom. This report is AS-AT (the period end is the
+            // as-of date) and lists an overdue bill whatever its bill date, so an Alt+F2 period starting after
+            // the invoice would otherwise open a ledger window that omits the very voucher that made the party
+            // overdue (wave 8 review, track ed, LOW-1).
+            case ReportKind.OverdueReceivables:
+            case ReportKind.OverduePayables:
+                if (row.DrillVoucherId != Guid.Empty)
+                    DrillToVoucherRequested?.Invoke(row.DrillVoucherId);
+                else if (row.DrillLedgerId != Guid.Empty)
+                    DrillToLedgerRequested?.Invoke(row.DrillLedgerId, _company.BooksBeginFrom, DrillTo, false);
                 break;
 
             // ---- Census 15.6 — THE TWO CST DECLARATION-FORMS REPORTS, the last two kinds in the tree with the
@@ -5277,6 +5304,83 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
         if (report.Rows.Count == 0)
             Rows.Add(new ReportRow { Particulars = "No negative cash / bank balances as at this date.", IsHeader = true });
+    }
+
+    // --------------------------------------------------------------- Overdue Receivables / Payables (census 11.13)
+
+    /// <summary>
+    /// Census 11.13 — <b>Overdue Receivables</b> / <b>Overdue Payables</b>: the open bills on one side whose due
+    /// date has passed as of the report date (F2 as-of; with an Alt+F2 period the period's end), grouped under
+    /// their party.
+    ///
+    /// <para>Vendor (TallyPrime, help.tallysolutions.com/manage-receivables-outstanding-tally/, by content
+    /// 2026-10-26): <i>"Alternatively, you can use Alt+G (Go To) &gt; Overdue Receivables."</i> and <i>"Review the
+    /// outstanding bills, party names, pending amounts, due dates, overdue days, and other details."</i> Those
+    /// five facts are the five on each bill row: the reference, the party (its heading row), the pending amount,
+    /// the due date and the overdue days. The bill date rides beside the due date as one of the "other details".</para>
+    ///
+    /// <para><b>Drill.</b> The same page: <i>"Select any outstanding line and press Enter to show/hide the
+    /// transaction details."</i> A bill row's Enter opens the voucher that raised the bill; a party row's Enter
+    /// opens that party's ledger vouchers. Show/hide IN PLACE is not cloned — see IV-246.</para>
+    ///
+    /// <para>🔴 <b>A bill due exactly ON the as-of date is NOT listed</b> (<see cref="OutstandingBill.IsOverdue"/>,
+    /// IV-245). It has fallen due, it is not yet late.</para>
+    /// </summary>
+    private void BuildOverdueBills(OutstandingKind side)
+    {
+        var asOf = _asOf;
+        var report = OverdueBills.Build(_company, asOf, side);
+        var receivable = side == OutstandingKind.Receivable;
+        Title = receivable ? "Overdue Receivables" : "Overdue Payables";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}";
+        IsTwoColumn = false;
+
+        foreach (var party in report.Parties)
+        {
+            var count = party.Bills.Count;
+            Rows.Add(new ReportRow
+            {
+                Particulars = party.LedgerName,
+                Secondary = count == 1 ? "1 overdue bill" : $"{count.ToString(CultureInfo.InvariantCulture)} overdue bills",
+                Amount = IndianFormat.Amount(party.Total),
+                DrillLedgerId = party.LedgerId,
+            });
+
+            foreach (var b in party.Bills)
+            {
+                var days = b.OverdueDays(asOf);
+                Rows.Add(new ReportRow
+                {
+                    // The overdue days sit in Particulars, not Secondary: the grid trims the label as one run
+                    // with leftmost priority, so the fact this report exists for must not be the part trimmed.
+                    Particulars = $"{Or(b.Reference)}  ·  {days.ToString(CultureInfo.InvariantCulture)} "
+                                + (days == 1 ? "day overdue" : "days overdue"),
+                    Secondary = $"Due {FormatDate(b.DueDate)}  ·  Bill date {FormatDate(b.Date)}",
+                    Amount = IndianFormat.Amount(b.Pending),
+                    Indent = 18,
+                    DrillVoucherId = b.OpeningVoucherId,
+                });
+            }
+        }
+
+        if (report.Parties.Count == 0)
+        {
+            Rows.Add(new ReportRow
+            {
+                Particulars = receivable
+                    ? "No overdue receivable bills as at this date."
+                    : "No overdue payable bills as at this date.",
+                IsHeader = true,
+            });
+            return;
+        }
+
+        Rows.Add(new ReportRow
+        {
+            Particulars = receivable ? "Total Overdue Receivables" : "Total Overdue Payables",
+            Amount = IndianFormat.AmountAlways(report.Total),
+            IsTotal = true,
+        });
     }
 
     // --------------------------------------------------------------- Memorandum Register  (Date | Vch No | Party | Amount)
