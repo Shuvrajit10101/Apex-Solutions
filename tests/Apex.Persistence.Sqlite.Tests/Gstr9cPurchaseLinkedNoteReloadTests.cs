@@ -112,6 +112,23 @@ public sealed class Gstr9cPurchaseLinkedNoteReloadTests
         Assert.Equal(0.00m, r.Table12FUnreconciledItc.Amount);
     }
 
+    /// <summary>
+    /// 🔴 <b>The sibling walk (wave 9 review, fa).</b> <c>Gstr1Amendments.BuildTable9C</c> walks the same link list
+    /// <c>Gstr1.BuildTable9B</c> does, and listed the purchase-linked note as an amended outward CDN (CDNRA) for the
+    /// June return because its original purchase is in May. GSTR-1 is the statement of outward supplies in its
+    /// amendment tables too. The sales-linked guard keeps its CDNRA row.
+    /// </summary>
+    [Theory]
+    [InlineData(CdnType.Debit, false, 0)]
+    [InlineData(CdnType.Credit, false, 0)]
+    [InlineData(CdnType.Credit, true, 1)]
+    public void Gstr1_table_9C_lists_no_amended_cdn_for_a_purchase_linked_note(CdnType type, bool linkToSale, int rows)
+    {
+        var c = Reload(Book(type, linkToSale));
+        var june = Gstr1Amendments.Build(c, new DateOnly(2024, 6, 1), new DateOnly(2024, 6, 30));
+        Assert.Equal(rows, june.Table9C.Count);   // branch a380a2c: 1 CDNRA row for the purchase-linked note
+    }
+
     // ================================================================ helpers
 
     private static Company Book(CdnType type, bool linkToSale = false)
@@ -181,9 +198,12 @@ public sealed class Gstr9cPurchaseLinkedNoteReloadTests
             return c;
         }
 
-        // The voucher-entry shape for a note raised against a PURCHASE: INPUT legs on the reducing (CREDIT) side
-        // (VoucherEntryViewModel → ComputeInvoiceTax(Input, reverseSides: IsReturnNote)), and the §34 link record
-        // pointing at the purchase — the picker offers Purchase originals for both note types.
+        // A note that adjusts a PURCHASE's ITC: INPUT legs on the reducing (CREDIT) side, and the §34 link record
+        // pointing at the purchase. For a DEBIT note this is the voucher-entry shape (VoucherEntryViewModel →
+        // ComputeInvoiceTax(Input, reverseSides: IsReturnNote)). 🔴 For a CREDIT note it is NOT: voucher entry gives a
+        // Credit Note OUTPUT legs whatever it is linked to, and that shape is pinned separately by
+        // Apex.Desktop.Tests.PurchaseLinkedCreditNoteEntryReloadTests (wave 9 review, fa). The Input-legged credit
+        // note here is the imported / engine-built shape.
         var noteTax = gst.ComputeInvoiceTax(new[] { new GstService.TaxableLine(Money.FromRupees(2_000m), 1800) }, false, GstTaxDirection.Input, reverseSides: true);
         Assert.Equal(360.00m, noteTax.TotalTax.Amount);
         Assert.All(noteTax.TaxLines, l => Assert.Equal(DrCr.Credit, l.Side));

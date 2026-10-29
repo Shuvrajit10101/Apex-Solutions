@@ -2378,6 +2378,14 @@ public static class GstReportSupport
     /// a CONSOLIDATED (null) original is left to its own base type exactly as before: that shape is <c>T2-163</c>'s and
     /// is owned by another track this wave, and reading it off the posted legs here would re-file a wrong-posted
     /// outward debit note as an ITC reduction.</para>
+    ///
+    /// <para>🔴 <b>AND THE NOTE MUST NOT HAVE POSTED OUTPUT TAX (wave 9 review, fa).</b> Voucher entry gives a CREDIT
+    /// Note OUTPUT legs whatever original it is linked to (<c>VoucherEffects.IsPurchaseSideInvoice</c> is Purchase /
+    /// Debit Note only), so a credit note keyed against a purchase on the item-invoice screen books Output CGST/SGST
+    /// on the debit side. Re-reading that note as an ITC reduction took ₹36 off 4(A)(5) while the books still showed
+    /// OUTPUT tax reduced: GSTR-9C 12F +36.00 and Table 11 +36.00 on a reloaded book whose returns had reconciled
+    /// before this fix. A return must say what the books posted, so a note whose tax sits on an Output ledger keeps
+    /// its outward routing; the posting itself is the <c>T2-163</c> class (voucher-entry GST direction).</para>
     /// </summary>
     public static bool IsInwardLinkedCreditDebitNote(Company company, Voucher voucher)
     {
@@ -2386,6 +2394,8 @@ public static class GstReportSupport
         return CdnLinkFor(company, voucher) is { OriginalInvoiceVoucherId: Guid originalId }
             && company.FindVoucher(originalId) is { } original
             && company.FindVoucherType(original.TypeId)?.BaseType is { } originalBase
-            && DirectionOf(originalBase) == GstTaxDirection.Input;
+            && DirectionOf(originalBase) == GstTaxDirection.Input
+            && !voucher.Lines.Any(l => l.Gst is not null
+                && company.FindLedger(l.LedgerId)?.GstClassification is { Direction: GstTaxDirection.Output });
     }
 }
