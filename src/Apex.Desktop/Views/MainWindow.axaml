@@ -12857,6 +12857,53 @@
                                       </ComboBox>
                                     </Grid>
                                   </StackPanel>
+
+                                  <!-- census 6.4 (iii) — THE TWO SOURCE ORDERS. The vendor's own path is "F11 (Company
+                                       Features) > Set/Alter Company GST Rate and other details > Additional
+                                       Configurations, select the source of GST Rate & HSN/SAC", default Ledger
+                                       (help.tallysolutions.com, HSN/SAC & GST Rate Hierarchy, opened by content
+                                       2026-10-29). GstConfig.SourceOfGstRate and SourceOfHsnSacDetails both existed
+                                       since v51 with no screen able to write them. Two pickers, not one, is ours
+                                       (IV-252). -->
+                                  <StackPanel Spacing="10">
+                                    <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,1,0,0" Margin="0,2,0,0"/>
+                                    <TextBlock Text="ADDITIONAL CONFIGURATIONS" FontSize="11" FontWeight="Bold"
+                                               Foreground="#9098A8" LetterSpacing="1.5"/>
+                                    <Grid ColumnDefinitions="260,*">
+                                      <TextBlock Grid.Column="0" Text="Source of GST Rates in transactions"
+                                                 FontWeight="SemiBold" VerticalAlignment="Center"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" Name="SourceOfGstRateChoice"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding SourceOptions}"
+                                                SelectedItem="{Binding SelectedSourceOfGstRate, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:GstDetailSourceOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="260,*">
+                                      <TextBlock Grid.Column="0" Text="Source of HSN/SAC details in transactions"
+                                                 FontWeight="SemiBold" VerticalAlignment="Center"
+                                                 TextTrimming="CharacterEllipsis"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="1" Name="SourceOfHsnSacChoice"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding SourceOptions}"
+                                                SelectedItem="{Binding SelectedSourceOfHsnSac, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:GstDetailSourceOption">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <TextBlock Text="Ledger: a rate or HSN/SAC on the sales/purchase ledger or its group wins over the stock item's. Stock Item: the stock item and its stock group win. The company default is consulted last either way."
+                                               FontSize="11" Foreground="#777777" TextWrapping="Wrap"/>
+                                  </StackPanel>
                                 </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
