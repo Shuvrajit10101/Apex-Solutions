@@ -343,7 +343,7 @@ public sealed class Section34NoteAlterationTests : IDisposable
 
     /// <summary>
     /// 🔴 <b>THE PURCHASE MIRROR, ASSERTED SEPARATELY AND NEVER INFERRED FROM THE CREDIT-NOTE CASE.</b> A §34
-    /// DEBIT note is signed the OTHER way in Table 9B (it increases the declared tax) and credits INPUT tax, so
+    /// DEBIT note on a purchase credits INPUT tax and reduces ITC (wave 9, T2-162: it is not a Table 9B row), so
     /// a "by symmetry" argument is exactly what would get it wrong.
     /// </summary>
     [Fact]
@@ -370,11 +370,14 @@ public sealed class Section34NoteAlterationTests : IDisposable
         Assert.Equal(purchase.Id, link.OriginalInvoiceVoucherId);
         Assert.Equal("04 Correction in invoice", link.ReasonCode);
 
-        // 6 @ 150 = 900 ⇒ CGST/SGST 81 each, and the row is POSITIVE — a debit note increases the declaration.
-        var row = Assert.Single(Return(reloaded).Table9B);
-        Assert.Equal(CdnType.Debit, row.NoteType);
-        Assert.Equal(900m, row.TaxableValue.Amount);
-        Assert.Equal(81m, row.Cgst.Amount);
+        // 🔴 Wave 9, T2-162: this note is linked to a PURCHASE, so it is the supplier's document — it is NOT one of
+        // our outward notes and has no GSTR-1 Table 9B row. (This test used to pin a positive 9B row of 900 / 81,
+        // which is the defect: the same note also moved GSTR-3B 3.1(a) up by ₹81 per head and left ITC gross.)
+        // 6 @ 150 = 900 ⇒ CGST 81, and it REDUCES the ITC the purchase availed: 10 @ 150 = 1,500 ⇒ 135 − 81 = 54.
+        Assert.Empty(Return(reloaded).Table9B);
+        var g3b = Gstr3b.Build(reloaded, reloaded.FinancialYearStart, reloaded.FinancialYearStart.AddYears(1).AddDays(-1));
+        Assert.Equal(54m, g3b.ItcCgst.Amount);
+        Assert.Equal(0m, g3b.OutwardCgst.Amount);
 
         // The head did not flip with the amendment: a purchase return still CREDITS Input tax.
         var inputCgst = reloaded.FindLedgerByName(
