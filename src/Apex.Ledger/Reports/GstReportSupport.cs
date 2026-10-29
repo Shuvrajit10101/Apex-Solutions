@@ -296,7 +296,7 @@ public static class GstReportSupport
     /// <para>These are four correct answers to four different questions, so unifying the <i>sentinel</i> would
     /// break three of them. What was genuinely duplicated — and is now unified — is the <i>resolution order</i>.</para>
     /// </summary>
-    public static string? HsnSacOf(StockItem? item) => item?.Gst?.HsnSac ?? item?.HsnSacCode;
+    public static string? ItemRungHsnSacOf(StockItem? item) => item?.Gst?.HsnSac ?? item?.HsnSacCode;
 
     /// <summary>
     /// True iff a GST state code denotes an <b>overseas</b> place of supply — i.e. the supply leaves India, so it is an
@@ -2340,5 +2340,24 @@ public static class GstReportSupport
             company.FindStockItem(line.StockItemId), valueLedger, voucher.Date);
         if (GstService.IsUnresolved(res)) return false;  // ER-5: silence is not an exemption
         return !res.IsTaxable;                           // Exempt / Nil-rated / Non-GST
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HSN/SAC A DOCUMENT FILES FOR A STOCK LINE — the ONE resolver every HSN consumer calls</b> (GSTR-1
+    /// Table 12 and so GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01). Walks the five-rung hierarchy in
+    /// the order <see cref="GstConfig.SourceOfHsnSacDetails"/> names; see
+    /// <see cref="GstService.ResolveDocumentHsnSac"/>. <c>null</c> means no rung declares one, and each consumer
+    /// spells that absence its own way, as the note on <see cref="ItemRungHsnSacOf"/> explains.
+    ///
+    /// <para>🔴 <b>Wave 9: <see cref="ItemRungHsnSacOf"/> used to be called <c>HsnSacOf(StockItem)</c> and was what all
+    /// four consumers read</b>, which made the stock item the whole answer and left the source option with no reader.
+    /// It was renamed so no consumer keeps calling it; drift lock D7b keeps it inside the walk.</para>
+    /// </summary>
+    /// <param name="valueLedger">The voucher's value ledger, from <see cref="BucketingValueLedger"/> — hoisted by
+    /// the caller because it is a per-voucher fact.</param>
+    public static string? HsnSacOf(Company company, StockItem? item, Domain.Ledger? valueLedger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        return new GstService(company).ResolveDocumentHsnSac(item, valueLedger);
     }
 }

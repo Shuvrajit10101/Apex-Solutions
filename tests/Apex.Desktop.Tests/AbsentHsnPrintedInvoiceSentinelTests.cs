@@ -59,7 +59,7 @@ public sealed class AbsentHsnPrintedInvoiceSentinelTests
         var widget = inv.CreateStockItem("Widget", grp.Id, nos.Id);
         // Rated and taxable, but NO HsnSac — and the legacy HsnSacCode is left null.
         widget.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
-        Assert.Null(GstReportSupport.HsnSacOf(widget)); // the fixture's premise, asserted not assumed
+        Assert.Null(GstReportSupport.ItemRungHsnSacOf(widget)); // the fixture's premise, asserted not assumed
         inv.AddOpeningBalance(widget.Id, c.MainLocation!.Id, 100m, Money.FromRupees(500m));
 
         var sales = Add(c, "Sales", "Sales Accounts", false);

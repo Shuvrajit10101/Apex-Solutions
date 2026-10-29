@@ -889,6 +889,9 @@ public sealed record Gstr1(
         Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign, Func<EntryLine, bool>? keep = null)
     {
         var invoiceTax = invoice.Cgst == 0m && invoice.Sgst == 0m && invoice.Igst == 0m;
+        // Census 6.4 (ii): the value ledger is the Ledger rung of the HSN walk, so the whole-invoice exempt branch
+        // needs it too. A per-VOUCHER fact, resolved once (see BucketingValueLedger).
+        var valueLedger = GstReportSupport.BucketingValueLedger(company, voucher);
         if (invoiceTax)
         {
             // An all-exempt/nil outward supply: record its value against exempt + its HSN row (zero tax).
@@ -897,7 +900,7 @@ public sealed record Gstr1(
                 exempt += sign * il.Value.Amount;
                 // An exempt/nil supply bears no cess either — ResolveCess short-circuits on a non-taxable block
                 // ("cess never over-collects on an exempt supply"), so a zero here is the engine's own answer.
-                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc, sign);
+                AddHsnRow(company, il, valueLedger, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc, sign);
             }
 
             // Accounting (service) invoice with no stock lines: attribute the service-income LEDGER legs to the exempt
@@ -933,10 +936,9 @@ public sealed record Gstr1(
         // The posted per-(integrated rate) tax groups for this invoice (from its tax lines).
         var rateGroups = ReadInvoiceRateGroups(voucher, keep);
 
-        // Per-VOUCHER, so it is resolved once rather than per line (see BucketingValueLedger). 🔴 T1-59: this is now
-        // resolved UNCONDITIONALLY, not only on the multi-rate path — the per-line taxability discriminator below
-        // needs it on every invoice, and it is one ancestry climb per voucher.
-        var valueLedger = GstReportSupport.BucketingValueLedger(company, voucher);
+        // `valueLedger` (resolved once at the top of this method) is per-VOUCHER (see BucketingValueLedger). 🔴 T1-59:
+        // it is resolved UNCONDITIONALLY, not only on the multi-rate path — the per-line taxability discriminator
+        // below needs it on every invoice, and it is one ancestry climb per voucher.
 
         // 🔴 T1-59 — SPLIT FIRST: a NON-TAXABLE stock line is never a member of a posted rate group. It posted no tax
         // and contributed no taxable value to the tax the screen computed (ComputeItemInvoiceGst skips it), so it must
@@ -950,7 +952,7 @@ public sealed record Gstr1(
             if (GstReportSupport.IsNonTaxableStockLine(company, voucher, valueLedger, il))
             {
                 exempt += sign * il.Value.Amount;
-                AddHsnRow(company, il, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc, sign);
+                AddHsnRow(company, il, valueLedger, il.Value.Amount, 0m, 0m, 0m, 0m, hsnAcc, sign);
                 continue;
             }
             taxableLines.Add(il);
@@ -1013,7 +1015,7 @@ public sealed record Gstr1(
                     igst = Apportion(group.Igst, value, groupValue);
                     runCgst += cgst; runSgst += sgst; runIgst += igst;
                 }
-                AddHsnRow(company, il, value, cgst, sgst, igst, cessPerLine[i], hsnAcc, sign);
+                AddHsnRow(company, il, valueLedger, value, cgst, sgst, igst, cessPerLine[i], hsnAcc, sign);
             }
         }
     }
@@ -1154,13 +1156,14 @@ public sealed record Gstr1(
     /// NEGATIVE quantity into <c>UqcResolver.Declare</c> would push a sign through a resolver that has no business
     /// seeing one.</param>
     private static void AddHsnRow(
-        Company company, VoucherInventoryLine il, decimal value, decimal cgst, decimal sgst, decimal igst,
-        decimal cess, Dictionary<string, HsnAcc> hsnAcc, decimal sign)
+        Company company, VoucherInventoryLine il, Domain.Ledger? valueLedger, decimal value, decimal cgst,
+        decimal sgst, decimal igst, decimal cess, Dictionary<string, HsnAcc> hsnAcc, decimal sign)
     {
         var item = company.FindStockItem(il.StockItemId);
-        // Resolution order is the ONE rule (GstReportSupport.HsnSacOf, drift lock D7); the "(none)" bucket label
-        // is this report's own rendering of absence — see that method's note on why the sentinels differ.
-        var hsn = GstReportSupport.HsnSacOf(item) ?? "(none)";
+        // Census 6.4 (ii): the HSN is the ONE hierarchy walk under SourceOfHsnSacDetails (GstReportSupport.HsnSacOf),
+        // not the stock item alone; the "(none)" bucket label is this report's own rendering of absence — see
+        // GstReportSupport.ItemRungHsnSacOf's note on why the sentinels differ.
+        var hsn = GstReportSupport.HsnSacOf(company, item, valueLedger) ?? "(none)";
         // WI-10 Gap 2 follow-on: declare the quantity in the unit the LINE is stated in when that unit maps to a
         // valid UQC ("2 DOZ"), exactly as the printed invoice already does — NOT the line quantity beside the
         // item's BASE UQC, which would file "2 NOS" for a Table-12 row in which 24 Nos were actually supplied.
