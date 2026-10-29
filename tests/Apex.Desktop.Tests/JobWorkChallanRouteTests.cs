@@ -53,7 +53,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
     private sealed record Kit(MainWindowViewModel Vm, StockItem Flange, StockItem Fg, Godown Main, Godown Worker,
         Domain.Ledger JobWorker);
 
-    private Kit Seed(string name)
+    private Kit Seed(string name, string workerState = "27", string workerGstin = WorkerGstin)
     {
         var vm = new MainWindowViewModel(new CompanyStorage(_dir));
         vm.NewCompanyName = name;
@@ -85,7 +85,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
         var jobWorker = new Domain.Ledger(Guid.NewGuid(), WorkerName, c.FindGroupByName("Sundry Creditors")!.Id,
             Money.Zero, openingIsDebit: false)
         {
-            PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = WorkerGstin, StateCode = "27" },
+            PartyGst = new PartyGstDetails { RegistrationType = GstRegistrationType.Regular, Gstin = workerGstin, StateCode = workerState },
             Mailing = new PartyMailingDetails { Address = "Plot 7, MIDC\nThane", Pincode = "400601" },
         };
         c.AddLedger(jobWorker);
@@ -266,7 +266,8 @@ public sealed class JobWorkChallanRouteTests : IDisposable
     /// <summary>
     /// A Material Out that names no job worker (neither its own party nor its order's) is REFUSED BY NAME rather than
     /// addressed to nobody, and opens no preview. <b>Mutation (M4):</b> deleting the <c>Consignee(...) is not</c>
-    /// refusal in <c>JobWorkChallanPrintProjector.Project</c> throws/produces a document and reddens this.
+    /// refusal in <c>JobWorkChallanPrintProjector.Project</c> (run as: falling back to the company's first ledger)
+    /// opens a preview and reddens this.
     /// </summary>
     [AvaloniaFact]
     public void A_material_out_naming_no_job_worker_is_refused_by_name()
@@ -281,6 +282,33 @@ public sealed class JobWorkChallanRouteTests : IDisposable
             KeyMaterialOut(w, k, withParty: false);
             Assert.Null(k.Vm.PrintPreview);
             Assert.Equal(JobWorkChallanPrintProjector.NoJobWorker, k.Vm.Notice);
+        }
+        finally { w.Close(); }
+    }
+
+    /// <summary>
+    /// Rule 55(h) asks for the place of supply "in case of inter-State movement" — the case this test builds: the job
+    /// worker is in Karnataka (29), the principal in Maharashtra (27). The tax is then wholly INTEGRATED tax, 119.99,
+    /// and the place of supply is marked inter-State. <b>Mutation (M5):</b> computing the line tax with
+    /// <c>interState: false</c> regardless reddens this at the Integrated-tax Tj.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_inter_state_material_out_states_its_place_of_supply_and_integrated_tax()
+    {
+        var k = Seed("JW Challan IGST Co", workerState: "29", workerGstin: "29AAACR5055K1Z1");
+        TypeOf(k, VoucherBaseType.MaterialOut).PrintAfterSaving = true;
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        try
+        {
+            w.Show();
+            KeyOutOrder(w, k);
+            KeyMaterialOut(w, k);
+            var s = Encoding.Latin1.GetString(k.Vm.PrintPreview!.PdfBytes);
+            Assert.Contains("(Place of Supply: Karnataka \\(29\\)  \\(inter-State\\)) Tj", s, StringComparison.Ordinal);
+            Assert.Contains("(Integrated tax: 119.99) Tj", s, StringComparison.Ordinal);
+            Assert.Contains("(119.99) Tj", s, StringComparison.Ordinal);
+            Assert.DoesNotContain("Central tax", s, StringComparison.Ordinal);
+            Assert.Contains("(GSTIN/UIN: 29AAACR5055K1Z1) Tj", s, StringComparison.Ordinal);
         }
         finally { w.Close(); }
     }
