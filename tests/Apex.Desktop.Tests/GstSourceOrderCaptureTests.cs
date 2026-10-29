@@ -197,4 +197,37 @@ public sealed class GstSourceOrderCaptureTests
         }
         finally { Close(w, dir); }
     }
+    /// <summary>
+    /// 🔴 <b>A FAILED SAVE PUTS BOTH ORDERS BACK.</b> They are wrong-figures fields — one picks the rate every new line
+    /// resolves, the other the HSN every document files — and <c>Apply</c> writes them IN PLACE on the shared config
+    /// before the store is reached. The lever is the sibling rollback suite's (a sub-paisa ledger opening the store
+    /// refuses after the company row is written). Memory and disk must both still say ledger-first.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_failed_save_leaves_both_orders_the_way_the_book_holds_them()
+    {
+        const string name = "Source Order Rollback Co";
+        var (w, vm, dir) = Open(name);
+        try
+        {
+            var page = OpenF11(w, vm);
+            page.GstEnabled = true;
+            page.Gstin = GstinMaharashtra;
+            page.HomeState = page.HomeStates.First(s => s.Code == "27");
+            Assert.True(page.Apply(), page.Message);
+
+            vm.Company!.Ledgers.First().OpeningBalance = new Apex.Ledger.Money(10.005m);   // the next save fails
+            page.SelectedSourceOfGstRate = page.SourceOptions.Single(o => o.Value == GstDetailSource.StockItemFirst);
+            page.SelectedSourceOfHsnSac = page.SourceOptions.Single(o => o.Value == GstDetailSource.StockItemFirst);
+            Assert.False(page.Apply());
+
+            Assert.Equal(GstDetailSource.LedgerFirst, vm.Company.Gst!.SourceOfGstRate);
+            Assert.Equal(GstDetailSource.LedgerFirst, vm.Company.Gst.SourceOfHsnSacDetails);
+            vm.Company.Ledgers.First().OpeningBalance = Apex.Ledger.Money.Zero;
+            var onDisk = ReloadFresh(dir, name);
+            Assert.Equal(GstDetailSource.LedgerFirst, onDisk.Gst!.SourceOfGstRate);
+            Assert.Equal(GstDetailSource.LedgerFirst, onDisk.Gst.SourceOfHsnSacDetails);
+        }
+        finally { Close(w, dir); }
+    }
 }
