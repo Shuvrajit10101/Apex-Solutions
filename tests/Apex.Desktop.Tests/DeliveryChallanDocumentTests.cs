@@ -290,6 +290,43 @@ public sealed class DeliveryChallanDocumentTests
     }
 
     /// <summary>
+    /// 🔴 <b>w8 fix (review ec MEDIUM-1) — A MATERIAL OUT IS NEVER TOLD IT HAS "NO PRINTED DOCUMENT".</b> It is the
+    /// principal's dispatch to a job worker, and CBIC Circular No. 38/12/2018 para 8.4(i)
+    /// (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened by content 2026-10-27) requires a challan "in terms of
+    /// rules 45 and 55" for it. We do not build that challan, so the refusal names it and says so. The job-work
+    /// ORDERS and Material In are not the principal's dispatch documents and keep the generic notice: the control
+    /// rows. <b>Mutation:</b> removing the Material Out arm in <c>DeliveryChallanPrintProjector.Project</c> reddens
+    /// the MaterialOut row.
+    /// </summary>
+    [Theory]
+    [InlineData(VoucherBaseType.MaterialOut, true)]
+    [InlineData(VoucherBaseType.MaterialIn, false)]
+    [InlineData(VoucherBaseType.JobWorkOutOrder, false)]
+    [InlineData(VoucherBaseType.JobWorkInOrder, false)]
+    public void A_material_out_refusal_names_the_job_work_challan_rather_than_denying_a_document(
+        VoucherBaseType baseType, bool namesTheJobWorkChallan)
+    {
+        var k = Seed();
+        var party = Party(k, "Worker Fabricators");
+        var item = Item(k, "Bolt M8");
+        var v = Post(k, baseType, party.Id, Outward(item, k.GodownId, 5m, 20m));
+
+        var p = DeliveryChallanPrintProjector.Project(k.C, v);
+
+        Assert.Null(p.Document);
+        if (namesTheJobWorkChallan)
+        {
+            Assert.Equal(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, p.Refusal);
+            Assert.DoesNotContain("no printed document", p.Refusal!, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Rules 45 and 55", p.Refusal!, StringComparison.Ordinal);
+        }
+        else
+        {
+            Assert.Equal(DeliveryChallanPrintProjector.NotAChallan, p.Refusal);
+        }
+    }
+
+    /// <summary>
     /// A Delivery Note may be posted with no party — our entry screen offers "(none)". A challan is handed to a
     /// consignee, so one that names nobody is refused rather than produced headed <c>"To: "</c> with nothing
     /// after it. Same direction <c>MultiAccountPrintProjector.MayProduce</c> takes for this row's other two

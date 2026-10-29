@@ -1033,8 +1033,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 > layer *per report* (`help.tallysolutions.com/working-with-reports/`) — which is what census row **1.9** has
 > always described and why 1.9 is untouched. So: **retitle row 1.8 to the settings surface the vendor actually
 > ships, and build that.** 🔴 **AND GATE THE DEAD `F12` BUTTON** — `ButtonBar.Add(new ButtonBarItem("F12",
-> "Configure", F12Configure))`, which the ruling located at `MainWindowViewModel.cs:11245` and A12 re-measured
-> on `origin/main` `53d43a1` at **`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:11298`** (the only
+> "Configure", F12Configure))`, which the ruling located at `MainWindowViewModel.cs:11366` and A12 re-measured
+> on `origin/main` `53d43a1` at **`src/Apex.Desktop/ViewModels/MainWindowViewModel.cs:11419`** (the only
 > `"F12"` button in the file; only the line number drifted). It is **currently offered to the operator where it
 > does nothing**, which is register defect **IV-31**'s own shape — an enabled badge that fires nothing.
 >
@@ -3901,7 +3901,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     writes the field. **The day W0-2b's screen ships, that stops being true**, so W0-2b must call
     `Company.EnsureValid()` on its save path (or the store must), and it must ship the test that proves a bad PIN
     typed into the screen is refused. Recorded here rather than left to be discovered.
-    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1207-1210`).** Country/PIN
+    **▶ The load-bearing guard — `SupplierPostalAddressText` (`VoucherPrintProjector.cs:1220-1223`).** Country/PIN
     are appended **only when a postal `Address` was captured**. Without it every book on disk regresses:
     `companies.country` is `TEXT NOT NULL`, `Company.Country` defaults to `"India"`, and **nothing in
     `src/Apex.Desktop` ever assigns it** — so every historical invoice and every reprint would gain a supplier
@@ -4022,7 +4022,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `mailing_state`"*, because a second stored State could contradict the GST one and **silently produce the
     wrong tax head**. The **company** side **already has exactly that duplication**: postal `companies.state`
     alongside GST `companies.gst_home_state` (both in the `companies` DDL), **with the printer reading ONLY the
-    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1193` is
+    GST one** — `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1206` is
     `StateText = StateText(company.Gst?.HomeStateCode)`.
     **🔴 CORRECTION 2026-08-15 — this gate previously told you the column was DEAD. It is not.** The sentence
     *"a postal State typed into `Company.State` goes nowhere"* was **wrong**, and it is the sentence the choice
@@ -4202,7 +4202,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     overseas**; **99** is the real export code. `EInvoiceService.cs:96-98` and `B2cQrService.cs:85` classify 97 as
     Export and `BillOfSupplyRoutingTests.cs:894 PINNED_GAP_…overseas…` pins it. Re-cut the pin. **Schema-clean.**
   - **▶ NOT CLOSED BY THIS ROW (standing carry-forwards, restated so it is not mistaken for closing them):**
-    the **printed-vs-posted money defect** (`VoucherPrintProjector.cs:489` — a party debit understated by the
+    the **printed-vs-posted money defect** (`VoucherPrintProjector.cs:499` — a party debit understated by the
     whole **₹8,513.41**) · the missing **zero-rated / SEZ** concept, the other half of the pin above · the
     **`CostAllocationStrictness`** naming debt.
   - **W0-9 (W0-1 follow-up) ONE bill-of-supply rule — collapse the two predicates that disagree** — **DONE.**
@@ -4257,7 +4257,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
 
     There are **TWO `IsBillOfSupply` predicates and they do not agree.** `GstReportSupport.IsBillOfSupply`
     (`src/Apex.Ledger/Reports/GstReportSupport.cs:175` — the **ENGINE** rule) covers the **CGST §10 COMPOSITION limb
-    only**; `VoucherPrintProjector.IsBillOfSupply` (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:343` — the
+    only**; `VoucherPrintProjector.IsBillOfSupply` (`src/Apex.Desktop/Services/VoucherPrintProjector.cs:353` — the
     **DESKTOP** rule) calls the engine one and then **adds the §31(3)(c) EXEMPT limb** on top. The **e-Way Bill
     engine reads the ENGINE rule** (`EWayBillService.cs:441`, `IsBillOfSupply(…) ? "BIL" : "INV"`); the **printed
     title reads the DESKTOP rule**. **Consequence: a wholly-exempt supply by a REGULAR dealer prints BILL OF SUPPLY
@@ -4274,7 +4274,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     POSTED DEBT** — **~1–2 days. A money slice — NOT UI over finished plumbing** (it wrote "the one row here"
     that is; W0-8 and W0-9 before it and W0-11 / F14 after it are engine rows — see the amended Goals sentence).
     `VoucherPrintProjector.ProjectInvoice` takes the **ITEM** path's head totals from a **LIVE
-    `GstService.ComputeInvoiceTax`** (`VoucherPrintProjector.cs:609`), while `ProjectServiceInvoice` reads the
+    `GstService.ComputeInvoiceTax`** (`VoucherPrintProjector.cs:619`), while `ProjectServiceInvoice` reads the
     **POSTED legs** via `ReadPostedRateGroups` (`:718`). **One projector, two sources of truth for money.** Where
     they disagree **the printed Grand Total is not the debt the general ledger recorded** — the document misstates
     the liability it is evidence of.
@@ -4312,7 +4312,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     POS computes the tax it then posts).
   - **▶ CARRY-FORWARD (a) — `§206C(1H)` TCS IS ON THE PARTY LEG BUT NOT ON THE DOCUMENT.** Found while establishing
     the blast radius: `AcceptItemInvoice` builds the Sales party debit as `Σ item value + GST + cess + **TCS**`
-    (`VoucherEntryViewModel.cs:4710`), and `InvoicePrintData` **has no TCS field at all** — so on a TCS-bearing sale
+    (`VoucherEntryViewModel.cs:4792`), and `InvoicePrintData` **has no TCS field at all** — so on a TCS-bearing sale
     the printed Grand Total is short by the collected TCS, and W0-10 does **not** close it (it is not GST tax; the
     posted-legs switch cannot reach it). Needs a DTO field + an `InvoicePdf`/preview row, i.e. a slice of its own.
     **Until then the invariant "printed Grand Total == posted party leg" holds for every non-TCS sale, and the class
@@ -4625,7 +4625,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `GstConfig.HomeStateCode` is `string?`: `GstService.cs:332-339` **throws** `InvalidOperationException` when there
     is no home state, while `EWayBillService.cs:145-150` **returns false** (i.e. routes it intra-state) for that
     book. Six `src/` callers reach the throwing form. **Three place-of-supply derivations:**
-    `GstReportSupport.cs:74-79` (party state, else company home), `VoucherPrintProjector.cs:787-792` (home-state
+    `GstReportSupport.cs:74-79` (party state, else company home), `VoucherPrintProjector.cs:798-803` (home-state
     fallback **only** on an intra-state supply — on an inter-state one it deliberately returns **blank**), and
     `EInvoiceJson.cs:267` (`"96"` for export/SEZ, else party, else home). **For a B2C inter-state supply with no
     recorded party state the first two answer differently — home code versus blank.** Deciding these is a
@@ -4811,7 +4811,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **(i)** The justification for behaviour change (b) was "the property docs, the three messages **and all three
     XAML placeholders** promise a whole-rupee amount". Opened all six: `GratuityCapText` (`:321-323`) and
     `BonusCalculationCeilingText` (`:354`) say it, `BonusMinimumWageText` (`:357`) did **not**, and the three
-    placeholders (`MainWindow.axaml:10053`, `:10116`, `:10123`) are **example VALUES**, not constraints — the
+    placeholders (`MainWindow.axaml:10076`, `:10116`, `:10123`) are **example VALUES**, not constraints — the
     domain's own `BonusConfig.MinimumWage` (`src/Apex.Ledger/Domain/BonusConfig.cs:35-37`) validates only `< 0m`, so
     a fractional minimum wage is domain-legal. The contract therefore rests on the **property docs and the three
     messages**; the `:357` doc has been amended to state it explicitly and the shipped comment no longer cites the
@@ -4871,8 +4871,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     "exactly one target" and `≥ 0`, persisted at `SqliteCompanyStore.cs:6596` · **2**
     `BillAllocationRowViewModel.cs:91-96` ⇒ `:88`, `BillAllocation.cs:40` (only `> 0`, name, days), `:6907` ·
     **3** `CostAllocationRowViewModel.cs:86-91` ⇒ `:84`, `CostAllocation.cs:26`, `:6930` · **4**
-    `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:2993`, `EntryLine.cs:127`, `:6698` · **5**
-    `PosBillingViewModel.cs:848-851` ⇒ `:715-716` and `:739-742`, `PosTender.cs:23-31` (a bare `record` with no
+    `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:3048`, `EntryLine.cs:127`, `:6698` · **5**
+    `PosBillingViewModel.cs:900-910` ⇒ `:715-716` and `:739-742`, `PosTender.cs:23-31` (a bare `record` with no
     body and no validation at all), `:6823`/`:6824`/`:6825` · **6** `SalaryStructureMasterViewModel.cs:290` ⇒
     `:295`, `SalaryStructure.cs:79`, with `SalaryStructureService.cs:129-130` checking only `< Money.Zero`, `:6015` ·
     **7** `PayHeadMasterViewModel.cs:331`/`:340`/`:366`, where `PayHeadService.ValidateComputation` (`:222-250`)
@@ -4884,8 +4884,8 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     (It is the loudest known instance, **not** the most dangerous: a silent wrong-figure divergence like the one
     `ApplyPt` used to produce is worse per-rupee and easier to miss — see the correction above.) **#2 and #3 DEFEAT
     THEIR OWN VALIDATION:** their only gate is an exact-sum check (`VoucherLineViewModel.cs:236`, `:377`;
-    `VoucherEntryViewModel.cs:350`) and **`33.335 + 66.665 == 100.00` passes it.** **GUARDED — do NOT touch:**
-    `PayHeadService.cs:156`, `PriceListService.cs:143`, `AdditionalCostRowViewModel.cs:55`,
+    `VoucherEntryViewModel.cs:405`) and **`33.335 + 66.665 == 100.00` passes it.** **GUARDED — do NOT touch:**
+    `PayHeadService.cs:156`, `PriceListService.cs:143`, `AdditionalCostRowViewModel.cs:70`,
     `AccountingInvoiceLineViewModel.cs:92`, `AdditionalCostLine.cs:24`, plus the **15 `src/Apex.Desktop` files
     (18 occurrences, measured)** that already call `IsPaisaExact`. **Genuinely out of scope:** forex amounts/rates
     and the TDS/TCS thresholds persist as **micros** and never pass through `Paisa.From*`.
@@ -5012,7 +5012,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     first cut gave the S2b shape to `SalaryStructureMasterViewModel.cs:356-364` and `PayHeadMasterViewModel.cs
     :523-531` and left POS `Accept` on its narrow filter with no restore, with a source comment that named the
     mechanism and then left it standing — which reads as CLOSURE, not deferral, and is the failure mode this whole
-    row exists to retire. **`PosBillingViewModel.cs:718-728` now carries it too:** the save gets its own inner
+    row exists to retire. **`PosBillingViewModel.cs:756-766` now carries it too:** the save gets its own inner
     `try`, `_company.RemoveVoucher(posted)` runs FIRST and UNCONDITIONALLY, and only then does
     `SaveFailure.IsReportable` decide message-vs-rethrow. The three CLASS-B screens now read alike. The one
     surviving narrow filter in that file, `:651`, guards `ComputeGst()` — an in-memory computation that mutates no
@@ -5027,7 +5027,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     planted duplicate-`CostCentre` PRIMARY KEY violation left `vouchersBefore=0 vouchersAfter=1` with the
     `SqliteException` escaping `Accept()` unhandled. So `#2`/`#3`/`#4` are CLASS C **through the plain Dr/Cr grid
     only**; through an invoice they were CLASS B. **Both now carry the S2b save guard**
-    (`VoucherEntryViewModel.cs:4261-4272` accounting, `:4848-4859` item), each pinned by a `DbException`-lever test
+    (`VoucherEntryViewModel.cs:4317-4328` accounting, `:4848-4859` item), each pinned by a `DbException`-lever test
     that fails when the restore line is removed.
   - **▶ PART 2 — WHY CLASS C IS NOT THE POISONING CLASS, MEASURED LINE BY LINE. This is the correction that
     matters most, because it removes work this row would otherwise have done twice.** `VoucherEntryViewModel`
@@ -5038,7 +5038,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     false; the `finally` at `:2879-2883` then pops the whole undo stack because `committed` never became true.
     **So a sub-paisa bill or cost allocation neither crashes nor poisons.** What survives is narrower and must be
     described as what it is: **`#2` and `#3` DEFEAT THEIR OWN VALIDATION** — the only gate is an exact-sum
-    equality (`VoucherLineViewModel.cs:236`, `:377`; `VoucherEntryViewModel.cs:350`) and **`33.335 + 66.665 ==
+    equality (`VoucherLineViewModel.cs:236`, `:377`; `VoucherEntryViewModel.cs:405`) and **`33.335 + 66.665 ==
     100.00` passes it**, because `decimal` equality ignores scale — so the figure reaches a POSTED voucher and the
     operator is refused only at save time, with the STORE's own words wrapped as `"Could not save the company:
     Amount 33.335 is not paisa-exact (more than 2 decimal places); cannot persist or serialise without loss. The
@@ -5054,7 +5054,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     in the entire file (measured)**, so a sub-paisa budget line is an **UNHANDLED `InvalidOperationException` in
     the UI** and the aggregate stays poisoned. (Loudest ≠ most dangerous — a silent wrong-figure divergence is
     worse per rupee; W0-12 established that distinction and this row keeps it.)
-    **`B5`** `PosBillingViewModel.cs:848-851` (`ParseMoney`) ⇒ `:715-716` (cash: `new Money(cashPayable)`,
+    **`B5`** `PosBillingViewModel.cs:900-910` (`ParseMoney`) ⇒ `:715-716` (cash: `new Money(cashPayable)`,
     `Tendered`, `Change`) and `:739`/`:740`/`:742` (gift voucher / card / cheque — the precise construction lines
     inside W0-12's `:739-742` bracket), `Domain/PosTender.cs:23-31` (a bare `record`, no body, **no validation at
     all**), persisted at `SqliteCompanyStore.cs:6823`/`:6824`/`:6825`. Saves at `:649` under the narrow filter at
@@ -5074,7 +5074,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     name and days only), persisted at `SqliteCompanyStore.cs:6907`.
     **`C3`** `CostAllocationRowViewModel.cs:86-91` ⇒ `:84`, `Domain/CostAllocation.cs:26` (ctor), persisted at
     `SqliteCompanyStore.cs:6930`.
-    **`C4`** `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:2993`, `Domain/EntryLine.cs:127`
+    **`C4`** `VoucherLineViewModel.cs:626-631` ⇒ `VoucherEntryViewModel.cs:3048`, `Domain/EntryLine.cs:127`
     (ctor), persisted at `SqliteCompanyStore.cs:6698`.
   - **▶ THE PROVEN PATTERN — COPY IT, DO NOT INVENT A NEW ONE.** The front-line guard mirrors
     `TaxDeclarationViewModel.TryMoney` and `GstConfigViewModel.TryStatutoryRupees` (`:1407`). **The SHIPPED branch
@@ -5121,7 +5121,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     because the STORE's own message contains "paisa". **Every message assertion must discriminate:** assert the
     field label AND assert the text is not the store's "cannot persist or serialise without loss" wording.
   - **▶ ALREADY GUARDED — CONFIRMED AT `c56e5c3`, DO NOT TOUCH:** `PayHeadService.cs:156` (rounding limit),
-    `PriceListService.cs:143` (price-list slab rate), `AdditionalCostRowViewModel.cs:55`,
+    `PriceListService.cs:143` (price-list slab rate), `AdditionalCostRowViewModel.cs:70`,
     `AccountingInvoiceLineViewModel.cs:92`, `Domain/AdditionalCostLine.cs:24`. **⚠️ THE COUNT OF THE REST HAS
     DRIFTED AND IS CORRECTED HERE:** W0-12 wrote "**15** `src/Apex.Desktop` files (**18** occurrences, measured)".
     Re-measured over `src/Apex.Desktop/**/*.cs` excluding `bin/` and `obj/`: **21 raw hits across 16 files**, of
@@ -5151,7 +5151,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `:77` / `:149-150`). **TWO NON-LINE FACTS DID NOT HOLD, both corrected above rather than quietly dropped:**
     the **severity ranking** of the seven paths (`#2`/`#3`/`#4` already unwind — the CLASS A/B/C split), and the
     **guarded-screen file count** (16, not 15). **One bracket sharpened rather than corrected:**
-    `PosBillingViewModel.cs:739-742` spans three `new Money(amt)` constructions, at `:739`, `:740` and `:742`.
+    `PosBillingViewModel.cs:777-780` spans three `new Money(amt)` constructions, at `:739`, `:740` and `:742`.
   - **▶ AS SHIPPED — WHERE THE CODE DIFFERS FROM THIS ROW, AND HOW EVERY GUARD AND EVERY RESTORE IS PINNED.**
     This block is authoritative over the design text above wherever the two disagree; the disagreements are named
     in place (the `:736` reversal, the CLASS-B/CLASS-C correction, the shared-vs-per-field ceiling) and repeated
@@ -5175,7 +5175,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     `PosTender.cs:81`, `SalaryStructure.cs:92`. Exactness alone was worse than a missing ceiling: on a 1e27 `Money`
     the predicate SCALES BY A HUNDRED and overflows `decimal` before it can answer, so each guard raised an
     `ArithmeticException` that no filter in the app treats as a refusal. `FitsPaisaStore` orders magnitude before
-    exactness for exactly that reason and cannot itself throw. (4) The POS **rate** (`PosBillingViewModel.cs:630`)
+    exactness for exactly that reason and cannot itself throw. (4) The POS **rate** (`PosBillingViewModel.cs:668`)
     and the DERIVED **bill total** (`:669`) got their own front-line ceilings — the bill total is a PRODUCT, so two
     individually storable rates can still foot past the carrier, and the "the cash residual is storable by
     construction" claim on `UnstorableTenderError` rests on both existing. The doc comment at `:928-939` was
@@ -5204,7 +5204,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **(d) The front-line `ErrorFor` sites — ⚠️ NINE GUARDS NAMED BELOW, BUT THIRTEEN CALL SITES EXIST, AND THE
     ENUMERATION ACCOUNTS FOR ELEVEN (corrected 2026-08-15 by the main loop, re-counted from source).** "The slab"
     below collapses **three** PayHead sites (`:335` over, `:349` up-to, `:380` value-slab), which is why nine names
-    cover eleven sites. **🔴 THE TWO IT DOES NOT NAME ARE `PosBillingViewModel.cs:91` (the tender amount) and
+    cover eleven sites. **🔴 THE TWO IT DOES NOT NAME ARE `PosBillingViewModel.cs:101` (the tender amount) and
     `:100` (the cash tendered)** — they are guarded in source but NO PINNING EVIDENCE IS RECORDED FOR THEM HERE, so
     they must be treated as UNPROVEN until someone neutralises each and shows a red. This is the dead-restore class
     the same slice caught twice; it is stated rather than rounded away. Neutralised individually: the POS rate guard, the POS bill-total
@@ -5381,11 +5381,11 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     supply. **A figure derived from a fact the book does not have is the definition of a wrong figure.**
     **(e) is filed as THREE place-of-supply derivations, and one of the three is not a derivation at all.**
     `GstReportSupport.cs:74-79` (party State, else company home) **IS** the s.10(1)(ca) ladder and is the one to
-    unify on; `VoucherPrintProjector.cs:787-792` is a **posted-tax RECONCILIATION, not a derivation** — it answers
+    unify on; `VoucherPrintProjector.cs:798-803` is a **posted-tax RECONCILIATION, not a derivation** — it answers
     a different question ("given a posted tax leg and a live master that may since have been edited, what State
     may this document truthfully print?") and should stop being counted as a third copy; `EInvoiceJson.cs:267` is
     a **real** third derivation but a **statutorily mandated** one — see the refusal below. **Callers, re-counted at HEAD `7a35308`:** Form A (throwing) = **6** —
-    `VoucherPrintProjector.cs:275`, `PosBillingViewModel.cs:409`, `VoucherEntryViewModel.cs:3695`, `:3882`,
+    `VoucherPrintProjector.cs:285`, `PosBillingViewModel.cs:447`, `VoucherEntryViewModel.cs:3750`, `:3882`,
     `:4326`, `RcmService.cs:93`; Form B (private) = **1** — `EWayBillService.cs:69`.
     **▶ 🔴 A FOURTH COPY NOBODY COUNTED, AND IT CARRIES A WHITESPACE BUG.**
     `VoucherPrintProjector.ConsistentBuyerStateCode` (`:651-662`) re-derives the routing at `:656-658` using
@@ -5414,7 +5414,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     'no tax leg' collapsing into 'intra-state'. That is a falsehood, not a default."* **No `Unknown`/
     `Indeterminate` enum member exists anywhere in `src/`** — re-verified by grep this session; every `Unknown`
     hit is a string literal inside an exception message or a comment — and a `bool?` composes at
-    `VoucherPrintProjector.cs:644` (`postedRouting ?? livePartyInterState`) with no conversion layer.
+    `VoucherPrintProjector.cs:655` (`postedRouting ?? livePartyInterState`) with no conversion layer.
     **▶ THE DELIVERABLE (12 items; every `file:line` re-verified at HEAD `7a35308` — see the DRIFT note below).**
     **1.** `GstReportSupport`: add `static bool? RoutingOf(Company, string? partyStateCode)` + a `Voucher`
     overload + a private `PartyStateCodeOf`; re-express `PlaceOfSupply` as `PartyStateCodeOf(...) ?? home`
@@ -5482,7 +5482,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     occurrences in `tests/`, none of them null). **Nothing depends on the print path throwing** — the only two
     `Assert.Throws` on `ProjectInvoice` are `BillOfSupplyPosAndPostingGuardTests.cs:513` (test method at `:506`)
     and `OneBillOfSupplyRuleDelegationTests.cs:434`, and **both are the section-10 composition refusal**
-    (`VoucherPrintProjector.cs:267-268`), which this slice does not touch. **Expected to stay green unchanged:**
+    (`VoucherPrintProjector.cs:277-278`), which this slice does not touch. **Expected to stay green unchanged:**
     `GstTests.cs:551-592` (four `IsInterState` facts), `EWayValueTests.cs:244-252` and the threshold suite,
     `ServiceAccountingInvoicePrintFixTests.cs:209`, `GstReportsViewModelTests.cs:335-351`.
     **▶ ONE COMPILE-SURFACE TRAP TO CHECK RATHER THAN ASSUME.** `ServiceAccountingInvoicePrintFixTests.cs:206` is
@@ -6016,7 +6016,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     **▶ WHAT SHIPPED.** `src/Apex.Ledger/Reports/PrintedDocumentClass.cs` (new — the record plus the
     `DocumentRole` and `PartyOrientation` enums); `GstReportSupport.ClassifyPrintedDocument` at
     `src/Apex.Ledger/Reports/GstReportSupport.cs:435` beside the title constants, plus two screen-label
-    constants; `VoucherPrintProjector.cs:402` (item pass) and `:539` (service pass) read the record instead
+    constants; `VoucherPrintProjector.cs:412` (item pass) and `:539` (service pass) read the record instead
     of the bare `billOfSupply` boolean.
     **▶ 🔴 THREE CORRECTIONS TO THIS PLAN ENTRY AS WRITTEN, ALL MADE DELIBERATELY.**
     *(1) The gate is NOT "an equivalence matrix asserting the classifier agrees with the shipped
@@ -6055,7 +6055,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
     recipient blocks SWAPPED** so the supplier heads the document; place of supply, our declaration and our
     signature **suppressed** (all CGST Rule 46 *supplier* particulars); the supplier's number through the
     existing *"Supplier Invoice No."* caption at
-    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1125-1126`, and **our** number under its own caption
+    `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1138-1139`, and **our** number under its own caption
     reading *"Our Record Ref."* — never *"Invoice No."*, which under the supplier's identity is a false
     statement. **Closes census row 4.6 and the purchase half of 12.2 / T0-11.**
     **▶ WHAT SHIPPED.** `GstReportSupport.ClassifyPrintedDocument`
@@ -6326,7 +6326,7 @@ itself a fixture-backed unit test** (a fresh company must contain exactly these)
   **cannot carry inventory lines at all**: `src/Apex.Ledger/Services/VoucherValidator.cs:278-280` throws
   *"Item-invoice stock lines are only valid on a Purchase or Sales voucher"* on **every** post (reached from
   `src/Apex.Ledger/Services/VoucherValidator.cs:150-151`), and
-  `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:67-68` makes the item-invoice chord inert on that
+  `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:122-123` makes the item-invoice chord inert on that
   family. **That wall is census T0-10, not T0-11** — and flipping the print gate alone would route a note into
   the invoice projection and emit a **ZERO-ROW document**. ✅ **AND IT COSTS S4 NOTHING**, because CGST Rule 53
   is **value-level**: nature of the document, the corresponding invoice serial and date, and value, rate and
@@ -6500,7 +6500,7 @@ is half a day, needs no schema, blocks nothing and is blocked by nothing. **High
 | **W2-14 Go To (`Alt+G`) jump-anywhere overlay** — **`Key.G` is free, 0 hits** | 14.1 | no | — | M |
 | **W2-15 Voucher Duplicate (`Alt+2`) and Insert** | 5.4, 5.5 | no | — | M ⚠️ **chord ruling U-6** |
 | **W2-16 F11 Accounting Features group** | 1.7 | **YES** | — | **L → re-split** ⚠️ **ruling U-10 (`IntegrateAccountsWithInventory`)** |
-| **W2-17 Global settings — F1 (Help) → Settings** 🔴 **RETITLED 2026-09-09 BY RULING 21 (was "F12 global configuration tree"); the reference product REMOVED the global Configuration menu and the F12 menu-context button, so the old target did not exist. Scope now: the F1: Help → Settings surface, PLUS gating the dead `F12` button at `MainWindowViewModel.cs:11298`.** | 1.8 | **YES** | W2-16 | **L** |
+| **W2-17 Global settings — F1 (Help) → Settings** 🔴 **RETITLED 2026-09-09 BY RULING 21 (was "F12 global configuration tree"); the reference product REMOVED the global Configuration menu and the F12 menu-context button, so the old target did not exist. Scope now: the F1: Help → Settings surface, PLUS gating the dead `F12` button at `MainWindowViewModel.cs:11419`.** | 1.8 | **YES** | W2-16 | **L** |
 | **W2-18 Company menu, rename, delete** — `CompanyStorage.Delete` exists with **zero callers**; rename does not exist | 1.4, 14.9 | no | — | M ⚠️ **chord ruling U-6** |
 | **W2-19 Voucher Class** | 2.6 | **YES** | W2-03 | **L** |
 | **W2-20 Multi-master create (Multi Ledger / Multi Group)** | 2.12 | no | — | M |

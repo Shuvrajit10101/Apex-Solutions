@@ -27,6 +27,17 @@ public sealed partial class AdditionalCostRowViewModel : ViewModelBase
     [ObservableProperty] private DomainLedger? _selectedLedger;
     [ObservableProperty] private string _amountText = string.Empty;
 
+    /// <summary>Census 5.11, wave 8 (IV-235): this cost leg's own narration, offered when the voucher type has
+    /// <i>Provide narration for each ledger in voucher</i> on (help.tallysolutions.com/voucher-types-tally/).</summary>
+    [ObservableProperty] private string _lineNarration = string.Empty;
+
+    /// <summary>Whether the narration field under this row is shown (the type's flag, or a posted narration loaded on
+    /// alteration).</summary>
+    [ObservableProperty] private bool _showLineNarration;
+
+    /// <summary>The narration as it posts: trimmed, blank ⇒ <c>null</c> (IV-198).</summary>
+    public string? ToLineNarration() => string.IsNullOrWhiteSpace(LineNarration) ? null : LineNarration.Trim();
+
     public AdditionalCostRowViewModel(IReadOnlyList<DomainLedger> additionalCostLedgers, Action onChanged)
     {
         AdditionalCostLedgers = additionalCostLedgers ?? throw new ArgumentNullException(nameof(additionalCostLedgers));
@@ -35,6 +46,7 @@ public sealed partial class AdditionalCostRowViewModel : ViewModelBase
 
     partial void OnSelectedLedgerChanged(DomainLedger? value) => _onChanged();
     partial void OnAmountTextChanged(string value) => _onChanged();
+    partial void OnLineNarrationChanged(string value) => _onChanged();   // keeps one trailing blank row
 
     /// <summary>The parsed amount (null when blank/unparsable).</summary>
     public decimal? ParsedAmount =>
@@ -44,8 +56,11 @@ public sealed partial class AdditionalCostRowViewModel : ViewModelBase
                 NumberStyles.AllowDecimalPoint | NumberStyles.AllowThousands | NumberStyles.AllowLeadingSign,
                 CultureInfo.InvariantCulture, out var a) ? a : null;
 
-    /// <summary>True once the row has been touched at all — a wholly blank trailing row is ignored by the parent.</summary>
-    public bool IsBlank => SelectedLedger is null && string.IsNullOrWhiteSpace(AmountText);
+    /// <summary>True once the row has been touched at all — a wholly blank trailing row is ignored by the parent.
+    /// <para>A row carrying only a narration is NOT blank (census 5.11 wave 8): it is refused as incomplete rather
+    /// than its words being dropped silently.</para></summary>
+    public bool IsBlank => SelectedLedger is null && string.IsNullOrWhiteSpace(AmountText)
+                           && string.IsNullOrWhiteSpace(LineNarration);
 
     /// <summary>True when the row is a valid, complete additional cost: a ledger picked and a paisa-exact
     /// amount &gt; 0. The parent apportions only complete rows.</summary>

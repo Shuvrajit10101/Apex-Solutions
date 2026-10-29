@@ -115,6 +115,11 @@ public sealed class PosReceiptData
     /// <summary>The tender lines (in stable Gift, Card, Cheque, Cash order).</summary>
     public IReadOnlyList<PosReceiptTender> Tenders { get; init; } = Array.Empty<PosReceiptTender>();
 
+    /// <summary>Census 5.11, wave 8 (IV-237): the bill's per-ledger narrations (Sales and tender legs), printed in a
+    /// "Ledger Narrations" block under the payment lines. Default empty means nothing prints and the slip is
+    /// byte-identical (ER-13). The placement is ours; the vendor page is silent on printing them.</summary>
+    public IReadOnlyList<InvoiceLedgerNarration> LedgerNarrations { get; init; } = Array.Empty<InvoiceLedgerNarration>();
+
     /// <summary>Σ taxable value over all item rows.</summary>
     public Money TotalTaxable { get; init; }
 

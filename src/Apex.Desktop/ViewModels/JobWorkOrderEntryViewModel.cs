@@ -161,6 +161,11 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
     /// <summary>The number assigned once accepted (0 until then).</summary>
     [ObservableProperty] private int _savedNumber;
 
+    /// <summary>The id of the voucher this screen last CREATED (census 5.11 wave 8, <i>Print voucher after
+    /// saving</i>; IV-238); <see cref="Guid.Empty"/> until an accept succeeds. Written only after the save returned,
+    /// so a refused save prints nothing.</summary>
+    [ObservableProperty] private Guid _savedVoucherId;
+
     /// <summary>True while Accept is allowed (order no. + finished good + at least one complete component line).</summary>
     [ObservableProperty] private bool _canAccept;
 
@@ -421,6 +426,7 @@ public sealed partial class JobWorkOrderEntryViewModel : ViewModelBase, ISetsWor
             var posted = _service.Post(voucher);
             _storage.Save(_company);
             SavedNumber = posted.Number;
+            SavedVoucherId = posted.Id;          // census 5.11 wave 8 — see SavedVoucherId
             Message = $"{_type.Name} No. {_company.FormatVoucherNumber(posted)} accepted — order {order.OrderNo}.";
             _onSaved();
             return true;

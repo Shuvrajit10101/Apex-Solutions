@@ -911,6 +911,10 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
             string.Empty, IndianFormat.AmountAlways(inv.GrandTotal)));
         if (cfg.ShowNarration && !string.IsNullOrWhiteSpace(inv.Narration))
             rows.Add(PrintRow.Header("Narration: " + inv.Narration, string.Empty, string.Empty));
+        // Census 5.11 wave 8 (IV-237): the per-ledger narrations, mirroring InvoicePdf's closing block.
+        if (cfg.ShowNarration)
+            foreach (var ln in inv.LedgerNarrations)
+                rows.Add(new PrintRow(new[] { "    " + ln.Ledger + ": " + ln.Narration, string.Empty, string.Empty }));
 
         // The title override cannot re-title a bill of supply — mirroring InvoicePdf.Render, so the preview and the
         // bytes can never differ on what document this is.
@@ -1016,6 +1020,13 @@ public sealed partial class PrintPreviewViewModel : ViewModelBase
         {
             rows.Add(new PrintRow(new[] { "  Cash Tendered", string.Empty, IndianFormat.AmountAlways(r.CashTendered) }));
             rows.Add(new PrintRow(new[] { "  Change", string.Empty, IndianFormat.AmountAlways(r.Change) }));
+        }
+        // Census 5.11 wave 8 (IV-237): mirrors PosReceiptPdf's "Ledger Narrations" block.
+        if (r.LedgerNarrations.Count > 0)
+        {
+            rows.Add(PrintRow.Header("Ledger Narrations", string.Empty, string.Empty));
+            foreach (var ln in r.LedgerNarrations)
+                rows.Add(new PrintRow(new[] { "  " + ln.Ledger + ": " + ln.Narration, string.Empty, string.Empty }));
         }
         // 🔴 RULING 18 + the mirror contract: the two store messages and the declaration are OURS, and
         // PosReceiptPdf.Note de-brands each of them before printing. A body cell is drawn verbatim now, so the
