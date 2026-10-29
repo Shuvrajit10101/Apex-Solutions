@@ -1553,9 +1553,11 @@ public partial class MainWindow : Window
         // only on IsReportContext would leave the arm consuming Ctrl+B on a report that cannot scale, i.e. a key
         // that is swallowed and fires nothing beside a badge that is honestly dimmed — the two would disagree,
         // which is the defect SettlementFromOutstandingsTests exists to keep out. Here they cannot.
+        // Census 11.13: the gate is SupportsBasisOfValues (Scale Factor OR Type of Bills), so Ctrl+B also opens the
+        // panel on Bills Receivable / Payable, where it carries Type of Bills > Overdue Bills.
         if (e.Key == Key.B && e.KeyModifiers.HasFlag(KeyModifiers.Control)
             && !e.KeyModifiers.HasFlag(KeyModifiers.Alt)
-            && vm.IsReportContext && vm.Reports is { SupportsScaleFactor: true })
+            && vm.IsReportContext && vm.Reports is { SupportsBasisOfValues: true })
         {
             vm.OpenBasisOfValues();
             e.Handled = true;

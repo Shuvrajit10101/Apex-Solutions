@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using Apex.Ledger.Reports;
 using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Apex.Desktop.ViewModels;
@@ -24,6 +25,15 @@ namespace Apex.Desktop.ViewModels;
 /// options and this slice delivers two of them; the row stays open with the residual named in the slice
 /// artefact.</para>
 ///
+/// <para>🟢 <b>TYPE OF BILLS (census 11.13, wave 9 track fd).</b> On Bills Receivable / Bills Payable the panel
+/// carries <i>Type of Bills</i> with <i>All Bills</i> and <i>Overdue Bills</i>. Vendor
+/// (help.tallysolutions.com/manage-receivables-outstanding-tally/, opened by content 2026-10-29): <i>"To view only
+/// overdue bills, use Basis of Values to select Overdue Bills in Type of Bills."</i> The choice is handed to the
+/// engine (<c>Outstandings.Build</c>), which applies the one overdue predicate <c>OverdueBills</c> also uses. The
+/// vendor's other bill types ("Range of Bills Type", help.tallysolutions.com/tally-prime/analysis-verification/
+/// outstandings-tally/) are not built (IV-287). Bills Receivable carries no Scale Factor, so on it the panel
+/// shows Type of Bills alone.</para>
+///
 /// <para>It edits only the DISPLAY of the live <see cref="ReportsViewModel"/>: on <see cref="Apply"/> the
 /// projection re-runs through the engine unchanged and the divide is applied on the way into each row cell,
 /// so the figures stay engine-computed and are never mutated here.</para>
@@ -44,6 +54,18 @@ public sealed partial class BasisOfValuesViewModel : ViewModelBase
     /// <summary>The chosen Scale Factor; seeded from the report so a no-edit apply is a no-op.</summary>
     [ObservableProperty] private ReportScaleOption? _selectedScale;
 
+    /// <summary>Whether the Scale Factor section applies to this report (Trial Balance / Balance Sheet / P&amp;L).</summary>
+    public bool ShowScaleFactor => _report.SupportsScaleFactor;
+
+    /// <summary>Whether the Type of Bills section applies to this report (Bills Receivable / Payable).</summary>
+    public bool ShowTypeOfBills => _report.SupportsTypeOfBills;
+
+    /// <summary>The Type of Bills options offered: All Bills first, then Overdue Bills.</summary>
+    public ObservableCollection<TypeOfBillsOption> TypeOfBillsOptions { get; } = new();
+
+    /// <summary>The chosen Type of Bills; seeded from the report so a no-edit apply is a no-op.</summary>
+    [ObservableProperty] private TypeOfBillsOption? _selectedTypeOfBills;
+
     /// <summary>A short status line shown after applying (feedback that the projection re-ran).</summary>
     [ObservableProperty] private string _status = string.Empty;
 
@@ -53,6 +75,9 @@ public sealed partial class BasisOfValuesViewModel : ViewModelBase
 
         foreach (var scale in ReportScales.All)
             ScaleOptions.Add(new ReportScaleOption(scale));
+        if (_report.SupportsTypeOfBills)
+            foreach (var type in new[] { TypeOfBills.AllBills, TypeOfBills.OverdueBills })
+                TypeOfBillsOptions.Add(new TypeOfBillsOption(type, ReportsViewModel.TypeOfBillsLabel(type)));
 
         SeedFromReport();
     }
@@ -64,7 +89,13 @@ public sealed partial class BasisOfValuesViewModel : ViewModelBase
             if (option.Scale == _report.Scale)
             {
                 SelectedScale = option;
-                return;
+                break;
+            }
+        foreach (var option in TypeOfBillsOptions)
+            if (option.Value == _report.TypeOfBills)
+            {
+                SelectedTypeOfBills = option;
+                break;
             }
     }
 
@@ -75,6 +106,14 @@ public sealed partial class BasisOfValuesViewModel : ViewModelBase
     /// </summary>
     public void Apply()
     {
+        if (ShowTypeOfBills)
+        {
+            var type = SelectedTypeOfBills?.Value ?? _report.TypeOfBills;
+            _report.SetTypeOfBills(type);
+            Status = $"Applied — Type of Bills: {ReportsViewModel.TypeOfBillsLabel(type)}.";
+            return;
+        }
+
         var scale = SelectedScale?.Scale ?? _report.Scale;
         _report.ApplyScale(scale);
 
@@ -82,4 +121,11 @@ public sealed partial class BasisOfValuesViewModel : ViewModelBase
             ? "Applied — figures shown in rupees."
             : $"Applied — figures shown in {ReportScales.Label(scale)}.";
     }
+}
+
+/// <summary>One Type of Bills row of the Ctrl+B panel (census 11.13).</summary>
+public sealed record TypeOfBillsOption(TypeOfBills Value, string Display)
+{
+    /// <inheritdoc />
+    public override string ToString() => Display;
 }

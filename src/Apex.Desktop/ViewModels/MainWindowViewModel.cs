@@ -61,6 +61,12 @@ public enum Screen
     // narrowed to, and an active type with no voucher in the window IS offered and opens an empty book.
     VoucherTypeFilterPicker,
 
+    // Census 11.13 / 11.9 (T2-24) — the F6 AGEING METHOD picker over a live Bills Receivable / Payable or Overdue
+    // Receivables / Payables report: "Select the appropriate Ageing Methods from Ageing by Bill Date or Ageing by
+    // Due Date and press Enter." (help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/).
+    // Same menu-column shape as the F4 picker above: pushed by PushMenuColumn, so the report stays bound beneath.
+    AgeingMethodPicker,
+
     // 🔴 census 6.23 / T2-121(i) — the voucher-entry "Company/Tax Registration" (F3) picker: a menu column of
     // every registration the company holds, appended to the RIGHT of the LIVE voucher-entry screen exactly like
     // the three pickers above sit over a live report (the entry column stays bound beneath, so Esc pops back to
@@ -3653,7 +3659,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     public void OpenBasisOfValues()
     {
         if (!IsReportContext) return;                 // a column is drawn over the report — see IsActionMenuColumn
-        if (Reports is not { SupportsScaleFactor: true }) return;
+        // Census 11.13: Bills Receivable / Payable carry Type of Bills and no Scale Factor, so the door is the union.
+        if (Reports is not { SupportsBasisOfValues: true }) return;
         if (BasisOfValues is not null) return;        // panel already open — don't stack a second one
 
         var panel = new BasisOfValuesViewModel(Reports);
@@ -6774,6 +6781,51 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // The column's own caption carries the report title, and the title does not change — but the SUBTITLE
         // does ("— Purchase only"), and the button-bar hint names the active filter, so both are re-synced.
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// <b>F6 — Ageing Method</b> (census 11.13 / 11.9, T2-24) over a live Bills Receivable / Payable or Overdue
+    /// Receivables / Payables report. Vendor (help.tallysolutions.com/tally-prime/analysis-verification/
+    /// outstandings-tally/, opened by content 2026-10-29): <i>"Press F6 (Ageing Method)."</i> then <i>"Select the
+    /// appropriate Ageing Methods from Ageing by Bill Date or Ageing by Due Date and press Enter."</i> The two rows
+    /// carry those words; the highlight lands on the basis in force. The vendor's next step, <i>"Specify the required
+    /// ageing criteria and press Enter."</i>, is NOT built — the windows are fixed per basis (IV-286).
+    /// </summary>
+    public void OpenAgeingMethodPicker()
+    {
+        if (!IsReportContext) return;
+        if (Reports is not { SupportsAgeingMethod: true } report) return;
+        if (CurrentScreen == Screen.AgeingMethodPicker) return;
+
+        var picker = new GatewayColumn("Ageing Method") { Kind = GatewayColumnKind.DataDriven };
+        picker.Add(MenuItemViewModel.Header("Select Ageing Method"));
+        foreach (var method in new[] { Apex.Ledger.Reports.AgeingMethod.ByBillDate, Apex.Ledger.Reports.AgeingMethod.ByDueDate })
+        {
+            var chosen = method;
+            picker.Add(new MenuItemViewModel(
+                ReportsViewModel.AgeingMethodLabel(method),
+                () => PickAgeingMethod(chosen),
+                string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+
+        PushMenuColumn(picker, Screen.AgeingMethodPicker);
+        // Land on the basis in force, so Enter straight away is a no-change re-apply rather than a silent switch.
+        var current = ReportsViewModel.AgeingMethodLabel(report.AgeingMethod);
+        for (var i = 0; i < picker.Items.Count; i++)
+            if (picker.Items[i].Label == current) { picker.SetSelected(i); break; }
+        SyncActiveColumn();
+    }
+
+    /// <summary>A row of the F6 picker was taken: pop the picker FIRST (see <see cref="PickVoucherTypeFilter"/>),
+    /// then re-project the live report on the chosen basis.</summary>
+    private void PickAgeingMethod(Apex.Ledger.Reports.AgeingMethod method)
+    {
+        var report = Reports;
+        PopMenuColumn(Screen.AgeingMethodPicker);
+        report?.SetAgeingMethod(method);
         BuildButtonBar();
     }
 
@@ -15140,8 +15192,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // On a LEDGER BOOK the vendor's F6 is MONTHLY (census 11.5): "Press F6 (Monthly) to view the monthly
         // summary" (help.tallysolutions.com/accounting-faq/), reached from Accounts Books > Ledger. Everywhere
         // else F6 stays the Receipt voucher. The two contexts are disjoint, so neither side is rebound.
+        //
+        // On Bills Receivable / Payable and Overdue Receivables / Payables the vendor's F6 is AGEING METHOD (census
+        // 11.13 / 11.9, T2-24): "Press F6 (Ageing Method) to configure the report view as per ageing by bill dates
+        // or by due dates and set the ageing windows." (help.tallysolutions.com/manage-receivables-outstanding-tally/).
+        // Gated on IsReportContext — the exact condition OpenAgeingMethodPicker accepts — so the badge is never lit
+        // over a column that would refuse it. The three contexts are disjoint (a ledger book is not a report page).
         if (IsLedgerBookPage)
             ButtonBar.Add(new ButtonBarItem("F6", "Monthly", OpenMonthlySummaryForLedgerBook, true));
+        else if (IsReportContext && Reports is { SupportsAgeingMethod: true })
+            ButtonBar.Add(new ButtonBarItem("F6", "Ageing Method", OpenAgeingMethodPicker, true));
         else
             ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), hasCompany));
@@ -15269,7 +15329,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // OpenBasisOfValues enforces on its first two lines, which is the rule the Alt+I / Alt+A / Ctrl+J rows
         // below already follow: a badge is enabled on exactly what its own door accepts, never on more.
         ButtonBar.Add(new ButtonBarItem("Ctrl+B", "Basis of Values", OpenBasisOfValues,
-            IsReportContext && Reports is { SupportsScaleFactor: true }));
+            IsReportContext && Reports is { SupportsBasisOfValues: true }));
 
         // Ctrl+J EXCEPTION REPORTS — CONTEXT-SENSITIVE, and exactly ONE row is emitted.
         //
