@@ -97,7 +97,7 @@ public sealed class Section34OutwardDebitNoteTests : IDisposable
     }
 
     /// <summary>Alt+F5, Ctrl+H, a 4 × ₹150 Widget line, §34 on against a CONSOLIDATED reference, then Ctrl+A.</summary>
-    private static void KeyDebitNote(MainWindow w, Kit k, Guid partyId)
+    private static void KeyDebitNote(MainWindow w, Kit k, Guid partyId, Guid? linkedOriginalId = null)
     {
         w.KeyPressQwerty(PhysicalKey.F5, RawInputModifiers.Alt);
         Pump(w);
@@ -115,8 +115,13 @@ public sealed class Section34OutwardDebitNoteTests : IDisposable
         line.QuantityText = "4";
         line.RateText = "150.00";
         e.IsSection34Note = true;
-        e.SelectedCdnOriginalInvoice = e.CdnOriginalInvoices.Single(o => o.IsConsolidated);
-        e.CdnOriginalInvoiceNumber = "INV-77";
+        if (linkedOriginalId is { } originalId)
+            e.SelectedCdnOriginalInvoice = e.CdnOriginalInvoices.Single(o => o.Invoice?.Id == originalId);
+        else
+        {
+            e.SelectedCdnOriginalInvoice = e.CdnOriginalInvoices.Single(o => o.IsConsolidated);
+            e.CdnOriginalInvoiceNumber = "INV-77";
+        }
         e.SelectedCdnReasonCode = "04 Correction in invoice";
         Pump(w);
 
@@ -224,6 +229,68 @@ public sealed class Section34OutwardDebitNoteTests : IDisposable
         Assert.Equal(54.00m, cg.Amount.Amount);
         var outCgst = TaxLedger(c, GstTaxHead.Central, GstTaxDirection.Output);
         Assert.DoesNotContain(note.Lines, l => outCgst != Guid.Empty && l.LedgerId == outCgst);
+    }
+
+    /// <summary>
+    /// w9 review (fc): the OTHER limb of <c>IsOutwardSection34DebitNote</c> — the note LINKED to a posted SALES
+    /// invoice, the commonest shape of a §34(3) debit note. The builder's tests reach only the consolidated limb, so
+    /// pointing the linked limb at <c>VoucherBaseType.Purchase</c> passed them all (review mutation M10). Sale: 10 ×
+    /// ₹150 to the customer, accepted with the real Ctrl+A on the Sales screen. The note: the same keys as above,
+    /// linked to that sale. On the RELOADED book it credits Output CGST/SGST 54/54, touches no Input ledger, and its
+    /// link names the sale.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_section_34_debit_note_linked_to_a_sale_posts_output_tax()
+    {
+        const string name = "S34 Linked DN Co";
+        var k = Seed(name);
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        Guid saleId;
+        try
+        {
+            w.Show();
+            Pump(w);
+            var c0 = k.Vm.Company!;
+            k.Vm.OpenVoucher(c0.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Sales && t.IsActive));
+            Pump(w);
+            var s = k.Vm.VoucherEntry!;
+            w.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(w);
+            Assert.True(s.IsItemInvoice);
+            s.SelectedParty = s.Parties.Single(p => p.Ledger?.Id == k.CustomerId);
+            s.SelectedStockLedger = s.StockLedgers.Single(l => l.Name == "Sales");
+            var sl = s.InventoryLines[0];
+            sl.SelectedItem = s.StockItems.Single(i => i.Id == k.ItemId);
+            sl.SelectedGodown = s.Godowns.Single(g => g.Id == k.GodownId);
+            sl.QuantityText = "10";
+            sl.RateText = "150.00";
+            Pump(w);
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            saleId = Assert.Single(c0.Vouchers, v => c0.FindVoucherType(v.TypeId)!.BaseType == VoucherBaseType.Sales).Id;
+            k.Vm.Back();
+            Pump(w);
+
+            KeyDebitNote(w, k, k.CustomerId, linkedOriginalId: saleId);
+        }
+        finally { w.Close(); }
+
+        var c = Reload(name);
+        var note = TheNote(c);
+        var outCgst = TaxLedger(c, GstTaxHead.Central, GstTaxDirection.Output);
+        var outSgst = TaxLedger(c, GstTaxHead.State, GstTaxDirection.Output);
+        var inCgst = TaxLedger(c, GstTaxHead.Central, GstTaxDirection.Input);
+        var inSgst = TaxLedger(c, GstTaxHead.State, GstTaxDirection.Input);
+        var cg = Assert.Single(note.Lines, l => l.LedgerId == outCgst);
+        Assert.Equal(DrCr.Credit, cg.Side);
+        Assert.Equal(54.00m, cg.Amount.Amount);
+        var sg = Assert.Single(note.Lines, l => l.LedgerId == outSgst);
+        Assert.Equal(DrCr.Credit, sg.Side);
+        Assert.Equal(54.00m, sg.Amount.Amount);
+        Assert.DoesNotContain(note.Lines, l => l.LedgerId == inCgst || l.LedgerId == inSgst);
+        var link = Assert.Single(c.CreditDebitNoteLinks);
+        Assert.Equal(CdnType.Debit, link.CdnType);
+        Assert.Equal(saleId, link.OriginalInvoiceVoucherId);
     }
 
     public void Dispose()
