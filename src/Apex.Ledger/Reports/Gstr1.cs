@@ -442,21 +442,7 @@ public sealed record Gstr1(
             .Select(kv => new Gstr1RateRow(kv.Key, new Money(kv.Value.Taxable), new Money(kv.Value.Tax)))
             .ToList();
 
-        var hsnRows = hsnAcc.Values
-            .OrderBy(h => h.HsnSac, StringComparer.Ordinal)
-            .Select(h => new Gstr1HsnRow(
-                h.HsnSac, h.Description,
-                h.MixedUnits ? h.BaseUqc : h.Uqc,
-                h.MixedUnits ? h.BaseQuantity : h.Quantity,
-                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst), new Money(h.Cess),
-                // The RAW accumulators, deliberately NOT collapsed through MixedUnits: a downstream aggregator
-                // must be able to degrade an ALREADY-degraded row further, which it can only do if the base
-                // measure survives the projection intact.
-                h.BaseQuantity, h.BaseUqc,
-                // A degraded row declares the BASE unit, so its declared identity IS the base identity — which
-                // keeps the row self-consistent and makes a second degrade the identity operation.
-                h.MixedUnits ? h.BaseUnitId : h.DeclaredUnitId, h.BaseUnitId, h.MixedBases))
-            .ToList();
+        var hsnRows = ToHsnRows(hsnAcc);
 
         // Phase 9 slice 2b: Table 9B (§34 CDN) — signed by note type — is folded into the output totals; 11A/11B are
         // projected off the advance records. All skipped byte-identically when the collections are empty (ER-13).
@@ -719,6 +705,100 @@ public sealed record Gstr1(
         return new Money(total);
     }
 
+    /// <summary>Projects the HSN accumulators to filed rows, ordered by HSN (shared by Table 12 and the inward
+    /// Table-18 summary so the two cannot drift).</summary>
+    private static List<Gstr1HsnRow> ToHsnRows(Dictionary<string, HsnAcc> hsnAcc) =>
+        hsnAcc.Values
+            .OrderBy(h => h.HsnSac, StringComparer.Ordinal)
+            .Select(h => new Gstr1HsnRow(
+                h.HsnSac, h.Description,
+                h.MixedUnits ? h.BaseUqc : h.Uqc,
+                h.MixedUnits ? h.BaseQuantity : h.Quantity,
+                new Money(h.Taxable), new Money(h.Cgst), new Money(h.Sgst), new Money(h.Igst), new Money(h.Cess),
+                // The RAW accumulators, deliberately NOT collapsed through MixedUnits: a downstream aggregator
+                // must be able to degrade an ALREADY-degraded row further, which it can only do if the base
+                // measure survives the projection intact.
+                h.BaseQuantity, h.BaseUqc,
+                // A degraded row declares the BASE unit, so its declared identity IS the base identity — which
+                // keeps the row self-consistent and makes a second degrade the identity operation.
+                h.MixedUnits ? h.BaseUnitId : h.DeclaredUnitId, h.BaseUnitId, h.MixedBases))
+            .ToList();
+
+    /// <summary>
+    /// 🔴 <b>Census 6.12 — the HSN-wise summary of INWARD supplies (GSTR-9 Table 18)</b> over <c>[from, to]</c>, for
+    /// the registration <paramref name="registrationId"/>. The inward mirror of <see cref="HsnSummary"/> and built by
+    /// the SAME accumulation (<see cref="AccumulateHsn"/>), so per-rate-group apportionment, the non-taxable line
+    /// split, cess attribution and UQC degradation are one rule on both sides rather than two that can drift.
+    ///
+    /// <para><b>Grounding.</b> The GST portal's own GSTR-9 manual (tutorial.gst.gov.in, Manual &gt; GSTR-9, Table 18)
+    /// names the cells: HSN, UQC ("OTH-Others" for services), Total Quantity ("zero" for services), Total Taxable
+    /// Value, Rate, and Central / Integrated / State-UT tax and Cess. The vendor documents an "HSN/SAC Summary of
+    /// Inward Supplies" for the whole year in its GST Annual Computation report
+    /// (help.tallysolutions.com/tally-prime/gst-reports/gst-annual-computation-tally/).</para>
+    ///
+    /// <para><b>Sign.</b> Each document is signed by <see cref="GstReportSupport.SignOf"/> for the INWARD side: a
+    /// purchase adds, a purchase-return Debit Note (linked or not) subtracts, and a note that belongs to the outward
+    /// side contributes nothing. Unlike the GSTR-3B sweep, a §34-LINKED note is NOT excluded here — there is no
+    /// separate document table for it in Table 18, so the aggregate must net it.</para>
+    ///
+    /// <para><b>Reverse charge.</b> An RCM purchase posts BOTH the recipient's Input (ITC) legs and the §49(4) RCM
+    /// Output LIABILITY legs, each carrying a <see cref="GstLineTax"/>. Only the former is the tax ON the inward
+    /// supply; reading both would double its tax. So the liability legs (ledgers classified
+    /// <c>IsReverseCharge</c>) are filtered out and the RCM-flagged Input legs are KEPT — which the outward reader
+    /// <see cref="ReadInvoiceHeads"/> would have dropped.</para>
+    /// </summary>
+    public static IReadOnlyList<Gstr1HsnRow> InwardHsnSummary(
+        Company company, DateOnly from, DateOnly to, Guid? registrationId = null)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        var hsnAcc = new Dictionary<string, HsnAcc>();
+        if (company.Gst?.RegistrationType == GstRegistrationType.Composition) return [];
+
+        bool Keep(EntryLine line) =>
+            company.FindLedger(line.LedgerId)?.GstClassification is not { IsReverseCharge: true };
+
+        var ignoredExempt = 0m;   // Table 18 has no exempt cell; the bucket is the outward Table 12's concern
+        foreach (var (voucher, voucherType) in GstReportSupport.PostedDirectionalVouchers(
+                     company, from, to, GstTaxDirection.Input, registrationId))
+        {
+            // 🔴 W8 review F1 — AN OUTWARD DOCUMENT ON AN INWARD BASE TYPE. A §34(3) Debit Note raised to a CUSTOMER
+            // against a CONSOLIDATED original reference (OriginalInvoiceVoucherId null, so SignOf's linked-original
+            // escape cannot fire), or an unlinked Debit Note to a customer, is a DebitNote base type and so reaches
+            // this inward sweep — but it posts ORDINARY OUTPUT tax legs and adjusts OUR sale. Measured before the
+            // fix on a reloaded book: sale ₹10,000 @ 18% (SAC 998311) + a consolidated §34 debit note ₹2,000 filed
+            // Table 18 = 998311 taxable −2,000.00, tax −360.00 against a true EMPTY table. The discriminator is the
+            // posted legs themselves: a document carrying a non-RCM Output leg is not an inward supply. An RCM
+            // purchase is unaffected — its Output legs are the IsReverseCharge liability pair (pinned by
+            // A_reverse_charge_inward_service_files_its_tax_once, which must stay green).
+            if (IsOutwardTaxDocument(company, voucher)) continue;
+
+            var sign = (decimal)GstReportSupport.SignOf(company, voucher, voucherType.BaseType);
+            if (sign == 0m) continue;
+
+            var cgst = 0m; var sgst = 0m; var igst = 0m;
+            foreach (var line in voucher.Lines)
+            {
+                if (line.Gst is not { } g || !Keep(line)) continue;
+                switch (g.TaxHead)
+                {
+                    case GstTaxHead.Central: cgst += line.Amount.Amount; break;
+                    case GstTaxHead.State: sgst += line.Amount.Amount; break;
+                    case GstTaxHead.Integrated: igst += line.Amount.Amount; break;
+                }
+            }
+            AccumulateHsn(company, voucher, (cgst, sgst, igst), hsnAcc, ref ignoredExempt, sign, Keep);
+        }
+        return ToHsnRows(hsnAcc);
+    }
+
+    /// <summary>W8 review F1: true when <paramref name="voucher"/> posts an ordinary (non-RCM) OUTPUT-direction tax
+    /// leg — an outward document, whatever its base type. An inward document never does: a purchase or purchase
+    /// return posts Input legs, and an RCM purchase's Output legs are the <c>IsReverseCharge</c> liability pair.</summary>
+    private static bool IsOutwardTaxDocument(Company company, Voucher voucher) =>
+        voucher.Lines.Any(line => line.Gst is not null
+            && company.FindLedger(line.LedgerId)?.GstClassification
+                is { Direction: GstTaxDirection.Output, IsReverseCharge: false });
+
     /// <summary>Reads a voucher's posted forward tax by head off its <see cref="GstLineTax"/> tax lines. Reverse-charge
     /// lines are excluded (finding #7): they are their own 3.1(d)/4A buckets, so folding an identical head set here keeps
     /// Table 9B aligned with GSTR-3B <c>ReadCdn</c> (which already skips them) and consistent with
@@ -748,12 +828,14 @@ public sealed record Gstr1(
     /// rate-wise summary / B2C consolidation attribute each rate correctly; an all-exempt sale yields none.
     /// Ordered by rate for determinism.
     /// </summary>
-    private static IReadOnlyList<(int Rate, HeadAmounts Amounts)> ReadInvoiceRateGroups(Voucher voucher)
+    private static IReadOnlyList<(int Rate, HeadAmounts Amounts)> ReadInvoiceRateGroups(
+        Voucher voucher, Func<EntryLine, bool>? keep = null)
     {
         var byRate = new Dictionary<int, HeadAmounts>();
         foreach (var line in voucher.Lines)
         {
             if (line.Gst is not { } g) continue;
+            if (keep is not null && !keep(line)) continue;   // inward Table 18: the RCM LIABILITY leg is not the supply's tax
             // Phase 9 slice 1: a Compensation-Cess line is ring-fenced (own column/total, ER-2), NOT a CGST/SGST/IGST
             // rate group. Its (doubled) cess-rate key would otherwise inject a phantom rate row into the rate-wise /
             // B2C consolidation and duplicate the group's taxable value. Skip it here; reports read cess separately.
@@ -804,7 +886,7 @@ public sealed record Gstr1(
     /// the posted SIDE is never read — which is precisely why the sign has to be carried in.</param>
     private static void AccumulateHsn(
         Company company, Voucher voucher, (decimal Cgst, decimal Sgst, decimal Igst) invoice,
-        Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign)
+        Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign, Func<EntryLine, bool>? keep = null)
     {
         var invoiceTax = invoice.Cgst == 0m && invoice.Sgst == 0m && invoice.Igst == 0m;
         if (invoiceTax)
@@ -844,12 +926,12 @@ public sealed record Gstr1(
             // existing item invoice's HSN summary is never double-counted (its stock lines carry the tax below). A
             // plain As-Voucher sale with posted tax legs (unusual) still finds no SAC-bearing service leg here and is
             // simply not attributed to HSN, exactly as before.
-            AccumulateServiceHsn(company, voucher, hsnAcc, ref exempt, sign);
+            AccumulateServiceHsn(company, voucher, hsnAcc, ref exempt, sign, keep);
             return;
         }
 
         // The posted per-(integrated rate) tax groups for this invoice (from its tax lines).
-        var rateGroups = ReadInvoiceRateGroups(voucher);
+        var rateGroups = ReadInvoiceRateGroups(voucher, keep);
 
         // Per-VOUCHER, so it is resolved once rather than per line (see BucketingValueLedger). 🔴 T1-59: this is now
         // resolved UNCONDITIONALLY, not only on the multi-rate path — the per-line taxability discriminator below
@@ -892,7 +974,7 @@ public sealed record Gstr1(
         // number drifts, so it is named rather than cited) and that skip stays load-bearing: a cess leg's
         // rate key is derived from the CESS amount, so admitting it there would invent a phantom rate row and
         // double-count the group's taxable value. Reading cess on its own keeps both facts true at once.
-        var postedCess = ReadPostedCessByRate(voucher);
+        var postedCess = ReadPostedCessByRate(voucher, keep);
         // Resolved ONCE per voucher and only when this voucher actually posted cess, so a book with no cess at all
         // does exactly the work it did before.
         // valueLedger is now resolved unconditionally above (T1-59), so there is never a second ancestry climb here.
@@ -950,7 +1032,7 @@ public sealed record Gstr1(
     /// <c>EWayBillJson.ReadRateGroups</c> already ships on. A leg seen before any head (defensive; no such ordering
     /// exists today) is held and attached to the first head that follows.</para>
     /// </summary>
-    private static Dictionary<int, decimal> ReadPostedCessByRate(Voucher voucher)
+    private static Dictionary<int, decimal> ReadPostedCessByRate(Voucher voucher, Func<EntryLine, bool>? keep = null)
     {
         var byRate = new Dictionary<int, decimal>();
         int? lastRate = null;
@@ -959,6 +1041,7 @@ public sealed record Gstr1(
         foreach (var line in voucher.Lines)
         {
             if (line.Gst is not { } g) continue;
+            if (keep is not null && !keep(line)) continue;
 
             if (g.TaxHead == GstTaxHead.Cess)
             {
@@ -1245,9 +1328,10 @@ public sealed record Gstr1(
     /// <see cref="AccumulateHsn"/>. Threaded through to <see cref="AddServiceHsnRow"/> and the exempt bucket so a
     /// service credit note nets its SAC row and its exempt turnover down.</param>
     private static void AccumulateServiceHsn(
-        Company company, Voucher voucher, Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign)
+        Company company, Voucher voucher, Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt, decimal sign,
+        Func<EntryLine, bool>? keep = null)
     {
-        var rateGroups = ReadInvoiceRateGroups(voucher);
+        var rateGroups = ReadInvoiceRateGroups(voucher, keep);
 
         // Split first: exempt/nil/non-GST legs out of the rate machinery entirely, taxable legs into it.
         //

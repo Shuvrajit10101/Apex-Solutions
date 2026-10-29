@@ -3125,6 +3125,47 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Tests** | `AddVoucherInactiveTypeTests` (list, Yes, No — real Alt+A / arrows / Enter, activation read off a reloaded book); `DayBookAddVoucherKeyboardTests.AltA_picker_lists_all_active_types_including_credit_and_debit_note` still pins the default book's list (no feature-gated inactive type leaks in). Mutations A1–A7, A6b. |
 | **AMENDED 2026-10-27 (w8 fix, review ec LOW-1)** | *Yes - activate and enter* on a type whose identity means a dedicated screen (Job Work In/Out Order, Material In/Out, POS, Manufacturing Journal) now opens **that type**: `PickAddVoucherType` hands the chosen `VoucherType` to `OpenJobWorkOrder` / `OpenMaterialMovement` / `OpenPosBilling` / `OpenManufacturingJournal`, which use it when it is active and of the right base and otherwise resolve as before. Before, a second series (e.g. *Material Out - Site B*) was activated and then the seeded series opened, with Site B's numbering and flags ignored. Test: `AddVoucherInactiveTypeTests.Yes_on_an_inactive_second_material_out_series_opens_that_series`. Mutation L1. Only the Material Out door is pinned by a test; the other three take the same one-line hand-off. |
 
+## 2S. ADDED 2026-10-26 — WAVE 8 TRACK `ea`: GSTR-9 TABLE 18 AND THE GSTR-9C BOOKS ANCHORS (census row 6.12)
+
+> **This track's pre-assigned block is IV-215..IV-224.** It takes **IV-215 … IV-217** and leaves IV-218..224
+> unused. The section letter was drafted as `2P`; A12 renamed it to `2S` at merge because tracks ed/eb/ec took 2P/2Q/2R.
+>
+> **Ground for the section, opened BY CONTENT on 2026-10-26:**
+> - Vendor, `help.tallysolutions.com/tally-prime/gst-reports/gst-annual-computation-tally/`: the GST Annual
+>   Computation report shows an HSN/SAC Summary of inward supplies "for the whole year"; F5 switches between
+>   Summary View and Registration Period View; drill-down from a section reaches the monthly summary, register and
+>   vouchers. **None of the last three is built by this track** (see the census row).
+> - GST portal, `tutorial.gst.gov.in/userguide/returns/Manual_gstr9.htm`, Table 18 "HSN wise summary of Inward
+>   Supplies": the cells are HSN, UQC, Total Quantity, Total Taxable Value, Rate, Central / Integrated / State-UT
+>   tax and Cess. **cbic-gst.gov.in was searched and did not return the form text for Table 18**; the GSTN portal
+>   manual is the official source actually opened.
+
+### IV-215 · GSTR-9 Table 18 NETS a purchase return, including a §34-linked one
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C. Area: GST (census 6.12).** A filed annual-return table. |
+| **What the sources say** | The portal manual names Table 18's cells; neither it nor the vendor page says how a purchase-return debit note is treated in the inward HSN summary. |
+| **What we ship** | **OURS.** `Gstr1.InwardHsnSummary` signs each inward document with `GstReportSupport.SignOf`: a purchase adds, a Debit Note (linked or not) SUBTRACTS its value, tax and quantity from its HSN row, and a note belonging to the outward side contributes nothing. Unlike the GSTR-3B sweep a §34-linked note is not excluded, because Table 18 has no separate document table to project it into. Chosen because it is the only reading under which Table 18's tax equals the Input tax ledgers' net movement, which the tests assert against the books. **Known limit:** a Credit Note recorded against a PURCHASE is outward-direction and is not swept, so it does not reduce Table 18. **W8 fix pass (review F1):** a voucher that posts an ordinary (non-RCM) OUTPUT tax leg is an outward document whatever its base type, and is skipped — a §34 Debit Note to a customer against a CONSOLIDATED reference (no linked original, so `SignOf` cannot see its side) or an unlinked Debit Note to a customer used to file a NEGATIVE inward row (measured: `998311 −2,000.00 / −360.00` against a true empty table). |
+| **Tests** | `Gstr9Table18InwardHsnReloadTests` (reloaded book; JSON bytes). Forcing the sign to +1 reddens `Table_18_lists_each_inward_hsn_…`, `Table_18_tax_equals_the_input_tax_ledgers_net_movement` and `The_emitted_gstr9_json_carries_table_18_in_paisa`. Removing the outward-document skip reddens `A_consolidated_outward_debit_note_files_no_inward_row_on_the_reloaded_book` and `An_unlinked_debit_note_to_a_customer_files_no_inward_row_on_the_reloaded_book`; dropping its RCM exemption reddens `A_reverse_charge_inward_service_files_its_tax_once`. |
+
+### IV-216 · Table 18 reads the RCM Input legs and drops the RCM LIABILITY legs; it applies no 10% threshold
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C. Area: GST (census 6.12).** |
+| **What we ship** | **OURS.** A reverse-charge purchase posts both the recipient's Input (ITC) pair and the §49(4) RCM Output liability pair, each with GST metadata; Table 18 counts the former only, so the supply's tax is filed once. Every inward HSN is listed: the historical "10% of inward value" relaxation (a 2018 GST Council recommendation, not verified as enacted for GSTR-9) is NOT applied, and Table 18's optional status for small filers is not modelled — a filer may leave the table out. ITC-ineligible tax booked to an expense ledger is not a GST leg and reads as zero tax on its HSN row. |
+| **Tests** | `Gstr9Table18InwardHsnReloadTests.A_reverse_charge_inward_service_files_its_tax_once`; disabling the liability-leg filter reddens it by name (₹3,600 filed against ₹1,800). |
+
+### IV-217 · GSTR-9C books anchors subtract return-note legs; Table 18 shares the GSTR-9 report's HSN band
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM (9C) / LOW (layout). Class C. Area: GST (census 6.12).** |
+| **What we ship** | **OURS (9C).** Tax per books (Table 9) and ITC per books (Table 12A) remain FY accrual sums, now LESS the opposite-side legs a Credit Note / Debit Note posted on the same tax ledger. Set-off journals and cash-discharge payments stay excluded. Before this, a reconciled book with an unlinked sales return and purchase return filed Table 11 −₹1,399.86 and 12F +₹399.96; both now read ₹0.00. The rule is ours because the 9C instructions name the reconciliation, not the ledger mechanics. **OURS (layout).** The vendor shows the inward HSN summary inside its GST Annual Computation report; here it is printed and exported under Table 17, in the GSTR-9 report's second band, retitled "Part VI Tables 17 and 18 — Outward and Inward HSN Summary": a sub-heading row `18  HSN-wise summary of inward supplies`, then one row per HSN with the BARE code in the HSN / SAC cell (as Table 17's rows), then `18  Total`. (W8 review F3: the rows first shipped as `18  <HSN>` inside the HSN cell, so the exported column was not uniformly an HSN.) |
+| **Known residual (W8 review F5 — NOT fixed, pre-existing root)** | A §34 note LINKED to a PURCHASE original (the picker offers Purchase originals for both note types) is walked by `Gstr3b.ReadCdn`, which folds the note's INPUT legs into OUTWARD 3.1(a) (signed by note type) and never into ITC; `ReadSide` excludes it as a linked note. Measured on this branch (purchase ₹10,000 @ 18%, note ₹2,000 ⇒ ₹360): purchase-linked **Credit Note** ⇒ 3.1(a) CGST/SGST −180/−180, ITC 900/900 (gross), 9C Table 11 −360, 12A 1,440, 12E 1,800, **12F −360**; purchase-linked **Debit Note** (an ordinary linked purchase return) ⇒ 3.1(a) +180/+180, ITC gross, Table 11 +360, **12F −360**. The new 12A anchor is the correct books figure; it is GSTR-3B's routing that is wrong, and GSTR-1 Table 9B also lists such a note as an outward CDN. The fix spans `ReadCdn`/`ReadSide`, GSTR-1 Table 9B and GSTR-9 Tables 4/6 together (the portal cross-checks 3B against GSTR-1), so it is filed rather than half-fixed here. **The T2-114 closure ("Table 11 / 12F = 0 on a reconciled book") holds for unlinked notes and SALES-linked / consolidated notes only.** |
+| **Tests** | `Gstr9cReturnNoteBooksAnchorReloadTests` (reloaded; JSON bytes): reverting the fix reddens five of seven, including the W8 `Table_11_nets_a_linked_section_34_credit_note_on_the_reloaded_book`; signing every return-note leg by base type instead of posted side reddens `Table_11_adds_a_linked_section_34_debit_note_on_the_reloaded_book`; subtracting EVERY opposite-side leg reddens `Set_off_and_cash_discharge_legs_still_do_not_drain_the_books_anchors`. `Gstr9Table18SurfaceTests` (reopened book, arrow-reached, CSV bytes and print rows) reddens when the band drops the Table 18 rows, when the `18  ` prefix is put back into the HSN cell, or when the sub-heading row is dropped. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

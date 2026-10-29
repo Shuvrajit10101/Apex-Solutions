@@ -8680,7 +8680,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Line("9  Paid in cash", ret.Table9PaidInCash);
 
         // Part VI Table 17 — the outward HSN summary, in its own band with its own columns.
-        PayrollSection2Title = "Part VI Table 17 — Outward HSN Summary";
+        // Census 6.12 — Table 18 (inward HSN) shares this band, below Table 17 and its own total, because the two
+        // tables carry identical columns on the form; one band keeps them in one spreadsheet block and one print.
+        PayrollSection2Title = "Part VI Tables 17 and 18 — Outward and Inward HSN Summary";
         WideCol2("HSN / SAC", WideRefWidth, false);
         WideCol2("Description", WideNameWidth, false);
         WideCol2("UQC", WideDaysWidth, false);
@@ -8713,6 +8715,51 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 WideCell2(3, string.Empty),
                 WideCell2(4, IndianFormat.AmountAlways(ret.Table17TaxableValue)),
                 WideCell2(5, IndianFormat.AmountAlways(ret.Table17TotalTax)),
+            },
+        });
+
+        // Part VI Table 18 — the INWARD HSN summary, signed (a purchase return nets its row down).
+        // 🔴 W8 review F3: the table is introduced by its own sub-heading row and each row's HSN / SAC cell holds the
+        // bare code, exactly as Table 17's rows do. Before, every Table 18 row wrote "18  <HSN>" INTO the HSN cell,
+        // so the exported "HSN / SAC" column held a value that is not an HSN for half its rows.
+        const string Table18Heading = "18  HSN-wise summary of inward supplies";
+        PayrollRows2.Add(new PayrollMatrixRowVm
+        {
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                WideCell2(0, Table18Heading),
+                WideCell2(1, string.Empty),
+                WideCell2(2, string.Empty),
+                WideCell2(3, string.Empty),
+                WideCell2(4, string.Empty),
+                WideCell2(5, string.Empty),
+            },
+        });
+        foreach (var h in ret.Table18InwardHsn)
+            PayrollRows2.Add(new PayrollMatrixRowVm
+            {
+                Cells = new List<PayrollMatrixCellVm>
+                {
+                    WideCell2(0, h.HsnSac),
+                    WideCell2(1, h.Description),
+                    WideCell2(2, h.Uqc ?? string.Empty),
+                    WideCell2(3, h.Quantity.ToString("0.###", CultureInfo.InvariantCulture)),
+                    WideCell2(4, IndianFormat.AmountAlways(h.TaxableValue)),
+                    WideCell2(5, IndianFormat.AmountAlways(h.TotalTax)),
+                },
+            });
+
+        PayrollRows2.Add(new PayrollMatrixRowVm
+        {
+            IsTotal = true,
+            Cells = new List<PayrollMatrixCellVm>
+            {
+                WideCell2(0, "18  Total"),
+                WideCell2(1, string.Empty),
+                WideCell2(2, string.Empty),
+                WideCell2(3, string.Empty),
+                WideCell2(4, IndianFormat.AmountAlways(ret.Table18TaxableValue)),
+                WideCell2(5, IndianFormat.AmountAlways(ret.Table18TotalTax)),
             },
         });
         HasPayrollSection2 = PayrollRows2.Count > 0;

@@ -98,6 +98,11 @@ public sealed record Gstr9(
     /// <summary>Table 17 — the year's outward HSN summary (Σ each month's <see cref="Gstr1.HsnSummary"/>, merged by HSN).</summary>
     public IReadOnlyList<Gstr1HsnRow> Table17Hsn { get; init; } = [];
 
+    // ---- Part VI Table 18 — HSN summary of INWARD supplies (census 6.12). ----
+    /// <summary>Table 18 — the year's inward HSN summary (<see cref="Gstr1.InwardHsnSummary"/> over the FY), signed so a
+    /// purchase return nets its HSN row down.</summary>
+    public IReadOnlyList<Gstr1HsnRow> Table18InwardHsn { get; init; } = [];
+
     // ---- Computed foot-checks / derived figures ----
 
     /// <summary>Table 4 total tax payable (forward outward + inward-RCM, GST heads; cess ring-fenced, ER-2).</summary>
@@ -133,6 +138,12 @@ public sealed record Gstr9(
 
     /// <summary>Table 17 — Σ tax across the outward HSN rows.</summary>
     public Money Table17TotalTax => new(Table17Hsn.Sum(h => h.TotalTax.Amount));
+
+    /// <summary>Table 18 — Σ taxable value across the inward HSN rows.</summary>
+    public Money Table18TaxableValue => new(Table18InwardHsn.Sum(h => h.TaxableValue.Amount));
+
+    /// <summary>Table 18 — Σ tax across the inward HSN rows (cess ring-fenced, ER-2).</summary>
+    public Money Table18TotalTax => new(Table18InwardHsn.Sum(h => h.TotalTax.Amount));
 
     /// <summary>
     /// Builds GSTR-9 for a regular company over the FY <c>[fyFrom, fyTo]</c>; a Composition dealer (files 9A) and a
@@ -243,6 +254,7 @@ public sealed record Gstr9(
             Table8A = new Money(a8Gst), Table8ACess = new Money(a8Cess),
             Table9PaidThroughItc = new Money(paidItc), Table9PaidInCash = new Money(paidCash),
             Table17Hsn = hsnRows,
+            Table18InwardHsn = Gstr1.InwardHsnSummary(company, fyFrom, fyTo, registrationId),
         };
     }
 

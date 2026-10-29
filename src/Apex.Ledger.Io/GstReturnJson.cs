@@ -167,6 +167,16 @@ public static class GstReturnJson
                 IgstPaisa = MoneyCodec.ToPaisa(h.Igst),
                 CessPaisa = MoneyCodec.ToPaisa(h.Cess),
             }).ToList(),
+            // Census 6.12 — Table 18, the inward HSN summary, in the same row shape as Table 17.
+            Tbl18Hsn = r.Table18InwardHsn.Select(h => new Gstr9HsnDto
+            {
+                HsnSac = h.HsnSac,
+                TaxableValuePaisa = MoneyCodec.ToPaisa(h.TaxableValue),
+                CgstPaisa = MoneyCodec.ToPaisa(h.Cgst),
+                SgstPaisa = MoneyCodec.ToPaisa(h.Sgst),
+                IgstPaisa = MoneyCodec.ToPaisa(h.Igst),
+                CessPaisa = MoneyCodec.ToPaisa(h.Cess),
+            }).ToList(),
             SchemaStatus = SchemaStatusFlag,
         };
         return Serialize(dto);
@@ -579,6 +589,7 @@ public static class GstReturnJson
         [JsonPropertyName("tbl9_paid_through_itc_paisa")] public long Tbl9PaidThroughItc { get; init; }
         [JsonPropertyName("tbl9_paid_in_cash_paisa")] public long Tbl9PaidInCash { get; init; }
         [JsonPropertyName("tbl17_hsn")] public required IReadOnlyList<Gstr9HsnDto> Tbl17Hsn { get; init; }
+        [JsonPropertyName("tbl18_hsn")] public required IReadOnlyList<Gstr9HsnDto> Tbl18Hsn { get; init; }
         [JsonPropertyName("schemaStatus")] public required string SchemaStatus { get; init; }
     }
 
