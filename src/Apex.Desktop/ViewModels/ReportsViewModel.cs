@@ -7873,8 +7873,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 Outstandings.BucketLabel(b, asOf, method)));
         }
 
+        // Census 11.13 (wave 9 review): under Type of Bills = Overdue Bills the total is the OVERDUE total, and the
+        // row says so. The CSV carries no subtitle, so a bare "Total Receivable" there would read as the whole
+        // receivable while it is only the overdue part. The label is the one Overdue Receivables / Payables uses.
         PayrollRows.Add(WideRow(true,
-            receivable ? "Total Receivable" : "Total Payable",
+            typeOfBills == TypeOfBills.OverdueBills
+                ? (receivable ? "Total Overdue Receivables" : "Total Overdue Payables")
+                : (receivable ? "Total Receivable" : "Total Payable"),
             string.Empty, string.Empty, string.Empty, string.Empty,
             IndianFormat.AmountAlways(total),
             string.Empty, string.Empty));

@@ -270,6 +270,55 @@ public sealed class AgeingMethodAndTypeOfBillsTests : IDisposable
         Assert.Equal("8,901.60", r.Rows.Single(x => x.IsTotal).Amount);
     }
 
+    /// <summary>
+    /// Review addition (wave 9): the Overdue PAYABLES ageing band, read off the reloaded book under both bases. The
+    /// builder's tests read only the receivable side of OverdueBills.Ageing; a build that handed the payables view the
+    /// receivables' buckets stayed green. PB-9 7,777.77 is 20 days overdue and 70 days old; PB-10 is not overdue.
+    /// </summary>
+    [Fact]
+    public void Overdue_payables_ageing_band_is_the_payables_own_under_both_bases_off_the_reloaded_book()
+    {
+        var f = Build("Ageing Overdue Payables");
+        var r = new ReportsViewModel(Reload(f.Company), ReportKind.OverduePayables);
+        r.SetAsOf(f.AsOf);
+
+        Assert.DoesNotContain(r.Rows, x => x.Particulars.StartsWith("PB-10", StringComparison.Ordinal));
+        Assert.Equal("7,777.77", r.Rows.Single(x => x.IsTotal).Amount);
+        Assert.Equal(new[] { "Not due=0.00", "0-30 days=7,777.77", "31-60 days=0.00", "61-90 days=0.00", "90+ days=0.00" },
+            OverdueBand(r));
+
+        r.SetAgeingMethod(AgeingMethod.ByBillDate);
+        Assert.Equal(new[] { "0-30 days=0.00", "31-60 days=0.00", "61-90 days=7,777.77", "90+ days=0.00" },
+            OverdueBand(r));
+        Assert.EndsWith("61-90 days", r.Rows.Single(x => x.Particulars.StartsWith("PB-9", StringComparison.Ordinal)).Secondary);
+    }
+
+    /// <summary>
+    /// Review addition (wave 9): under Type of Bills = Overdue Bills the total row names the OVERDUE total, on screen
+    /// and in the CSV bytes — the CSV carries no subtitle, so "Total Receivable 8901.60" would read as the whole
+    /// receivable (11,401.61) while it is only the overdue part.
+    /// </summary>
+    [Fact]
+    public void Type_of_bills_overdue_total_row_names_the_overdue_total_on_screen_and_in_the_csv()
+    {
+        var f = Build("Ageing Overdue Total Label");
+        var r = new ReportsViewModel(Reload(f.Company), ReportKind.ReceivablesOutstanding);
+        r.SetAsOf(f.AsOf);
+        Assert.Equal("Total Receivable", r.PayrollRows.Single(x => x.IsTotal).Cells[0].Text);
+
+        r.SetTypeOfBills(TypeOfBills.OverdueBills);
+        Assert.Equal("Total Overdue Receivables", r.PayrollRows.Single(x => x.IsTotal).Cells[0].Text);
+        var csv = Encoding.UTF8.GetString(CsvWriter.Write(ReportTabularProjector.Project(r)));
+        Assert.Contains("Total Overdue Receivables,,,,,8901.60", csv);
+        Assert.DoesNotContain("Total Receivable,", csv);
+
+        var p = new ReportsViewModel(Reload(f.Company), ReportKind.PayablesOutstanding);
+        p.SetAsOf(f.AsOf);
+        p.SetTypeOfBills(TypeOfBills.OverdueBills);
+        Assert.Equal("Total Overdue Payables", p.PayrollRows.Single(x => x.IsTotal).Cells[0].Text);
+        Assert.Equal("7,777.77", p.PayrollRows.Single(x => x.IsTotal).Cells[5].Text);
+    }
+
     // ================================================================ egress: CSV and PDF bytes
 
     private static PageConfig ShippedDefault() => new()
