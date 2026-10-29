@@ -539,4 +539,38 @@ public sealed class BomCopyAndReturnTests
         }
         finally { Cleanup(window, dir); }
     }
+
+    /// <summary>
+    /// Review W9-fb F1: Left is Escape's pair (the same Back() arm shape), and the components screen opens with focus
+    /// on its root, which is exactly where Left pops a column. Before the fix Left landed on the M BOM list with NO
+    /// focused element, so a new BOM name typed there was silently dropped.
+    /// </summary>
+    [AvaloniaFact]
+    public void Left_from_the_components_screen_returns_to_the_M_BOM_list_with_the_caret_in_the_new_name_box()
+    {
+        const string company = "Fb Return Left Co";
+        var (window, vm, dir) = NewWindow(company);
+        try
+        {
+            var s = Seed(vm, dir, defineType: true);
+            var list = OpenNameListByKeyboard(window, vm);
+            Key(window, PhysicalKey.Enter);                       // Standard
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            Assert.IsNotType<TextBox>(Focused(window));            // Left only pops when not typing
+
+            Key(window, PhysicalKey.ArrowLeft);
+            Assert.Equal(Screen.BomNameList, vm.CurrentScreen);
+            Assert.Same(list, vm.BomNameList);
+            Assert.Same(Named<TextBox>(window, "BomNameListNewName"), Focused(window));
+
+            TypeIntoFocused(window, "Night");
+            Assert.Equal("Night", Named<TextBox>(window, "BomNameListNewName")?.Text);
+            Key(window, PhysicalKey.Enter);
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            Assert.False(vm.BomMaster!.IsAltering);
+            Assert.Equal("Night", vm.BomMaster!.Name);
+            Assert.Null(LoadBack(dir, company).FindBomByName(s.Table, "Night"));   // nothing saved by navigation
+        }
+        finally { Cleanup(window, dir); }
+    }
 }

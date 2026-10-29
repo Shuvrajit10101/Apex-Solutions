@@ -2141,6 +2141,10 @@ public partial class MainWindow : Window
             // (Left_on_a_CLOSED_picker_still_pops_the_column_in_one_press locks it).
             case Key.Left when !IsTyping(e) && !IsPickerOpen(e):
                 vm.Back();
+                // Census 3.9 (IV-227), the same refocus as the Escape arm below: the components screen opens with
+                // focus on its root, which is exactly where Left pops, so without this the M BOM list came back
+                // with no focused element and a typed new BOM name was dropped (review W9-fb F1).
+                if (vm.CurrentScreen == Screen.BomNameList) FocusBomNameListNewName();
                 e.Handled = true;
                 break;
             // The !IsPickerOpen guard is the D2 fix. This arm was completely unguarded, so ONE Escape aimed at
