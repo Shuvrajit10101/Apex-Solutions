@@ -29,12 +29,13 @@ namespace Apex.Desktop.Tests;
 /// mention no printing), so the flag raises that door's NAMED notice rather than being silently ignored. Each door
 /// has a flag-off CONTROL so the notice cannot pass by being raised on every save.</para>
 ///
-/// <para>🔴 <b>MATERIAL OUT IS THE EXCEPTION (w8 fix, review ec MEDIUM-1).</b> The vendor pages are silent, but
-/// the statutory source is not: CBIC Circular No. 38/12/2018 (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened
-/// by content 2026-10-27) para 8.4(i) requires the principal to prepare a challan "in terms of rules 45 and 55"
-/// when sending goods to a job worker. So a Material Out raises
-/// <c>DeliveryChallanPrintProjector.JobWorkChallanNotBuilt</c>, which names that challan and says this product
-/// does not print it, and never the "no printed document" notice. The challan itself is an OPEN gap (IV-238).</para>
+/// <para>🔴 <b>MATERIAL OUT IS THE EXCEPTION.</b> The vendor pages are silent, but the statutory source is not:
+/// CBIC Circular No. 38/12/2018 (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened by content 2026-10-29) para
+/// 8.4(i) requires the principal to prepare a challan "in terms of rules 45 and 55" when sending goods to a job
+/// worker. Since wave 9 (census 5.11, IV-260) the product PRINTS that challan (<c>JobWorkChallanPrintProjector</c>;
+/// its bytes are asserted in <c>JobWorkChallanRouteTests</c>). This file's Material Out names no job worker, so the
+/// flag raises the challan's own named refusal (<c>JobWorkChallanPrintProjector.NoJobWorker</c>) and never the "no
+/// printed document" notice.</para>
 /// </summary>
 public sealed class PrintAfterSavingJobWorkDoorsTests : IDisposable
 {
@@ -183,20 +184,19 @@ public sealed class PrintAfterSavingJobWorkDoorsTests : IDisposable
             Assert.Equal(movement.Id, mo.SavedVoucherId);
             if (flag)
             {
-                // w8 fix (review ec MEDIUM-1): a Material Out HAS a statutory document (CBIC Circular 38/12/2018
-                // para 8.4(i): the principal "shall prepare in triplicate, the challan in terms of rules 45 and
-                // 55"), so the notice must never claim "no printed document". It names the challan and says this
-                // product does not print it, and that wording is REALISED in the window, not just on a property.
-                Assert.Equal(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, k.Vm.Notice);
+                // A Material Out HAS a statutory document (CBIC Circular 38/12/2018 para 8.4(i)), and since w9 the
+                // product prints it. This movement names no job worker, so the challan's OWN refusal is raised, and
+                // that wording is REALISED in the window, not just on a property. It never says "no printed document".
+                Assert.Equal(JobWorkChallanPrintProjector.NoJobWorker, k.Vm.Notice);
                 Assert.DoesNotContain("no printed document", k.Vm.Notice ?? string.Empty, StringComparison.OrdinalIgnoreCase);
                 Assert.Contains(RenderedText(w),
-                    t => t.Contains(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, StringComparison.Ordinal));
+                    t => t.Contains(JobWorkChallanPrintProjector.NoJobWorker, StringComparison.Ordinal));
                 Assert.DoesNotContain(RenderedText(w),
                     t => t.Contains(DeliveryChallanPrintProjector.NotAChallan, StringComparison.Ordinal));
             }
             else
             {
-                Assert.NotEqual(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, k.Vm.Notice);
+                Assert.NotEqual(JobWorkChallanPrintProjector.NoJobWorker, k.Vm.Notice);
                 Assert.NotEqual(DeliveryChallanPrintProjector.NotAChallan, k.Vm.Notice);
             }
             Assert.Null(k.Vm.PrintPreview);
