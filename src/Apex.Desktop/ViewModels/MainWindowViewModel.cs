@@ -239,6 +239,7 @@ public enum Screen
     BatchMaster,
     BatchAllocation,
     BomMaster,
+    BomNameList,
     ManufacturingJournalEntry,
     JobWorkOrderEntry,
     MaterialMovementEntry,
@@ -592,6 +593,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Bill-of-Materials master view model (Phase 6 Cluster 2; RQ-9), non-null only while that page is open.</summary>
     [ObservableProperty] private BomMasterViewModel? _bomMaster;
+
+    /// <summary>Census 3.9 — the Stock Item Multi Components (M BOM) name list, non-null only while that page is open.</summary>
+    [ObservableProperty] private BomNameListViewModel? _bomNameList;
 
     /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
     [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
@@ -968,7 +972,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && VoucherTypeMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
-        && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
+        && BomMaster is null && BomNameList is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
@@ -1034,6 +1038,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBomNameListChanged(BomNameListViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnJobWorkOrderEntryChanged(JobWorkOrderEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2782,6 +2787,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Negative Cash / Bank", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Memorandum Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Reversing Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census 11.13 — the two overdue views. Vendor (TallyPrime, help.tallysolutions.com/
+        // manage-receivables-outstanding-tally/): "Alternatively, you can use Alt+G (Go To) > Overdue Receivables."
+        // and the same for Overdue Payables. Go To's index is WALKED from this menu (BuildGoToIndex), so these two
+        // rows are what put both labels in the Alt+G list — no second table to keep in step.
+        col.Add(new MenuItemViewModel("Overdue Receivables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Overdue Payables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -7773,35 +7784,66 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Census 3.9 — the target of the Stock Item Alteration screen's <i>Alter Components (BOM)</i> option. Opens
-    /// the item's BOM pre-filled for an IN-PLACE alteration (<see cref="BomMasterViewModel.ForAlter"/>, which keeps
-    /// the BOM's id). An item with several BOMs opens its FIRST BOM by name; an item with none opens the BOM
-    /// creation screen with the item already chosen as the finished good — the vendor's same option adds a BOM to
-    /// an item that has none. Both shapes are labelled OURS (IV-186). A no-op while the BOM feature is off.
+    /// Census 3.9 — the target of the Stock Item Alteration screen's <i>Alter Components (BOM)</i> option. Opens the
+    /// <b>Stock Item Multi Components (M BOM)</b> name list for the item (<see cref="BomNameListViewModel"/>):
+    /// <i>"In the Stock Item Multi Components (M BOM) screen, enter the name of the new BOM and press Enter."</i>
+    /// (help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-26). Enter there goes on to the components screen through
+    /// <see cref="OpenBomFromNameList"/>.
+    /// <para>🔴 This used to open the item's FIRST BOM by name directly (the old IV-186 shape), which left an item's
+    /// second and later BOMs unalterable anywhere and gave no way to add a further BOM from the item.</para>
+    /// A no-op while the BOM feature is off.
     /// </summary>
     public void ShowComponentsBomForItem(Guid itemId)
     {
         if (Company is null) return;
         if (!Company.SetComponentsBom) return;   // gated by the same F12 config as every BOM surface
-        if (Company.FindStockItem(itemId) is not { } item) return;
+        if (Company.FindStockItem(itemId) is null) return;
 
-        var first = Company.BomsFor(itemId)
-            .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        var list = new BomNameListViewModel(Company, itemId);
+        OpenPageColumn(new GatewayColumn(list.Caption, list), Screen.BomNameList, list.Caption,
+            () => BomNameList = list);
+    }
+
+    /// <summary>
+    /// Census 3.9 — Enter (or Ctrl+A) on the M BOM name list. A listed or typed EXISTING name opens the components
+    /// screen over THAT BOM for an in-place alteration (<see cref="BomMasterViewModel.ForAlter"/>, id kept; saved
+    /// through <c>BomService.AlterBom</c>); a new name opens the creation screen with the item fixed as the
+    /// finished good and the name filled in. Returns false (leaving the list up, its message set) when there is
+    /// nothing to open.
+    /// </summary>
+    public bool OpenBomFromNameList()
+    {
+        if (Company is null || CurrentScreen != Screen.BomNameList || BomNameList is not { } list) return false;
+        if (list.Choose() is not { } choice) return false;
+
         BomMasterViewModel master;
-        if (first is not null && BomMasterViewModel.ForAlter(Company, _storage, first.Id, onChanged: () => { }) is { } alter)
+        switch (choice)
         {
-            master = alter;
-        }
-        else
-        {
-            master = new BomMasterViewModel(Company, _storage, onChanged: () => { });
-            master.SelectedFinishedGood = master.FinishedGoods.FirstOrDefault(i => i.Id == item.Id)
-                ?? master.SelectedFinishedGood;
+            case BomNameChoice.AlterExisting alter:
+                if (BomMasterViewModel.ForAlter(Company, _storage, alter.BomId, onChanged: () => { }) is not { } m)
+                {
+                    list.Message = "That BOM no longer exists.";
+                    return false;
+                }
+                master = m;
+                break;
+            case BomNameChoice.CreateNew create:
+                if (BomMasterViewModel.ForNewBomOfItem(Company, _storage, list.StockItemId, create.Name,
+                        onChanged: () => { }) is not { } fresh)
+                {
+                    list.Message = "That stock item no longer exists.";
+                    return false;
+                }
+                master = fresh;
+                break;
+            default:
+                return false;
         }
 
         OpenPageColumn(new GatewayColumn(master.Caption, master), Screen.BomMaster, master.Caption,
             () => BomMaster = master);
+        return true;
     }
 
     /// <summary>
@@ -9648,6 +9690,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BatchMaster = null;
         BatchAllocation = null;
         BomMaster = null;
+        BomNameList = null;
         ManufacturingJournalEntry = null;
         JobWorkOrderEntry = null;
         MaterialMovementEntry = null;
@@ -13138,6 +13181,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void StepActive(int direction)
     {
+        // Census 3.9: on the M BOM name list the arrows move the BOM-name highlight Enter opens.
+        if (CurrentScreen == Screen.BomNameList && BomNameList is { } bomNames)
+        {
+            bomNames.MoveHighlight(direction);
+            return;
+        }
+
         // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Alt+A settle).
         if (IsOutstandingsScreen)
         {
@@ -13470,6 +13520,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BatchAllocation:
                 // Ctrl+A commits the batch allocation; on success pop the sub-screen back to the voucher.
                 if (BatchAllocation?.Apply() == true) BackFromPage();
+                return;
+            case Screen.BomNameList:
+                // Census 3.9: Enter (and Ctrl+A) on the M BOM name list goes on to the components screen.
+                OpenBomFromNameList();
                 return;
             case Screen.BomMaster:
                 // Census 3.9: the item-side "Alter Components (BOM)" route opens this screen over an EXISTING BOM,
@@ -14271,6 +14325,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            case "Overdue Receivables": OpenReport(ReportKind.OverdueReceivables); break;
+            case "Overdue Payables": OpenReport(ReportKind.OverduePayables); break;
             // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
             // Census 14.3 — the three graphical dashboards, under Reports → Dashboard.
             case "Default Dashboard": OpenDashboard(DashboardKind.Default); break;

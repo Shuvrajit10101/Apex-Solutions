@@ -293,6 +293,8 @@ public sealed partial class MainWindowViewModel
             [ReportKind.NegativeCashBank] = ReportFeatureGate.None,
             [ReportKind.MemorandumRegister] = ReportFeatureGate.None,
             [ReportKind.ReversingJournalRegister] = ReportFeatureGate.None,
+            [ReportKind.OverdueReceivables] = ReportFeatureGate.None,
+            [ReportKind.OverduePayables] = ReportFeatureGate.None,
 
             // ---- BuildStatutoryReportsColumn → TDS / TCS groups.
             [ReportKind.TdsOutstanding] = ReportFeatureGate.Tds,

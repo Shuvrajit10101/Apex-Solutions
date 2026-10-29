@@ -166,8 +166,42 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     /// master. While true, Alt+D is refused by the shell and Ctrl+A runs <see cref="Alter"/>.</remarks>
     public bool IsAltering => _editingId != Guid.Empty;
 
+    /// <summary>Census 3.9: true when this creation screen was opened from an item's M BOM name list with a NEW
+    /// name — the BOM belongs to that item, so the finished good is fixed exactly as it is on alteration.
+    /// Set only by <see cref="ForNewBomOfItem"/>.</summary>
+    public bool IsItemFixed { get; private set; }
+
+    /// <summary>Whether the finished-good picker may be changed (a create from the standalone master only).</summary>
+    public bool CanChangeFinishedGood => !IsAltering && !IsItemFixed;
+
     /// <summary>The page caption — names the verb Ctrl+A will run.</summary>
-    public string Caption => IsAltering ? "Stock Item Components (BOM) Alteration" : "Bill of Materials Creation";
+    public string Caption => IsAltering
+        ? "Stock Item Components (BOM) Alteration"
+        : IsItemFixed ? "Stock Item Components (BOM) Creation" : "Bill of Materials Creation";
+
+    /// <summary>
+    /// Census 3.9 — opens this screen to CREATE a further BOM of <paramref name="stockItemId"/> under
+    /// <paramref name="name"/>, as typed on the item's M BOM name list. <i>"In the Stock Item Multi Components
+    /// (M BOM) screen, enter the name of the new BOM and press Enter."</i> — help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-26. The finished good is fixed to the item; Ctrl+A runs <see cref="Create"/>.
+    /// <para>Returns <c>null</c> when <paramref name="stockItemId"/> is not a finished-good candidate (wave-8 review
+    /// F4). It used to fall back to the FIRST item with the picker unlocked, so a new BOM typed for one item would
+    /// have defaulted to an unrelated one — refusing is the only safe answer.</para>
+    /// </summary>
+    public static BomMasterViewModel? ForNewBomOfItem(
+        Company company, CompanyStorage storage, Guid stockItemId, string name, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        var vm = new BomMasterViewModel(company, storage, onChanged);
+        if (vm.FinishedGoods.FirstOrDefault(i => i.Id == stockItemId) is not { } item) return null;
+        vm.SelectedFinishedGood = item;
+        vm.IsItemFixed = true;
+        vm.Name = (name ?? string.Empty).Trim();
+        vm.OnPropertyChanged(nameof(IsItemFixed));
+        vm.OnPropertyChanged(nameof(CanChangeFinishedGood));
+        vm.OnPropertyChanged(nameof(Caption));
+        return vm;
+    }
 
     /// <summary>The commit button's label, matching <see cref="Caption"/>.</summary>
     public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
@@ -180,8 +214,8 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
     /// <para><b>FIDELITY (R7, ruling 14).</b> <i>"In the Stock Item Alteration screen, enable the option Alter
     /// Components (BOM)"</i> — help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
     /// opened BY CONTENT 2026-10-25. That page then shows a BOM-name list (<i>"Stock Item Multi Components
-    /// (M BOM)"</i>) before the components screen; we open the item's first BOM by name directly — labelled ours,
-    /// IV-186.</para>
+    /// (M BOM)"</i>) before the components screen; census 3.9 (wave 8) builds it as <see cref="BomNameListViewModel"/>,
+    /// and this factory is what Enter on a listed name opens — whichever of the item's BOMs it is.</para>
     /// </summary>
     public static BomMasterViewModel? ForAlter(Company company, CompanyStorage storage, Guid bomId, Action onChanged)
     {
@@ -218,6 +252,7 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
         vm.EnsureTrailingBlank();
 
         vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(CanChangeFinishedGood));
         vm.OnPropertyChanged(nameof(Caption));
         vm.OnPropertyChanged(nameof(CommitLabel));
         return vm;
