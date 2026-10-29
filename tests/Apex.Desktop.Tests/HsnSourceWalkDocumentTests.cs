@@ -48,9 +48,11 @@ public sealed class HsnSourceWalkDocumentTests
     private const string ItemHsn = "84713010";
     private const string LedgerHsn = "847130";
     private const string GroupHsn = "847141";
+    private const string StockGroupHsn = "847150";
+    private const string CompanyHsn = "847160";
 
     /// <summary>Which master carries the HSN on the fixture.</summary>
-    public enum Carrier { Ledger, Group }
+    public enum Carrier { Ledger, Group, StockGroup, Company }
 
     /// <summary>
     /// An item with NO HSN whose sales ledger (or that ledger's accounting group) declares one files THAT code on every
@@ -62,6 +64,12 @@ public sealed class HsnSourceWalkDocumentTests
     [InlineData(GstDetailSource.StockItemFirst, Carrier.Ledger, LedgerHsn)]
     [InlineData(GstDetailSource.LedgerFirst, Carrier.Group, GroupHsn)]
     [InlineData(GstDetailSource.StockItemFirst, Carrier.Group, GroupHsn)]
+    // Wave 9 review (fa): the Stock Group and Company rungs were reached by no test (emptying either rung in the walk
+    // left the whole suite green).
+    [InlineData(GstDetailSource.LedgerFirst, Carrier.StockGroup, StockGroupHsn)]
+    [InlineData(GstDetailSource.StockItemFirst, Carrier.StockGroup, StockGroupHsn)]
+    [InlineData(GstDetailSource.LedgerFirst, Carrier.Company, CompanyHsn)]
+    [InlineData(GstDetailSource.StockItemFirst, Carrier.Company, CompanyHsn)]
     public void An_item_with_no_hsn_files_its_ledger_or_group_hsn_on_every_document(
         GstDetailSource order, Carrier carrier, string expected)
     {
@@ -168,7 +176,7 @@ public sealed class HsnSourceWalkDocumentTests
             InvoicePdf.Render(VoucherPrintProjector.ProjectInvoice(c, sale), new PrintConfig(), new PageConfig()));
         Assert.Contains("TAX INVOICE", pdf, StringComparison.OrdinalIgnoreCase);
         Assert.Contains($"({expected}) Tj", pdf, StringComparison.Ordinal);
-        foreach (var other in new[] { ItemHsn, LedgerHsn, GroupHsn }.Where(h => h != expected))
+        foreach (var other in new[] { ItemHsn, LedgerHsn, GroupHsn, StockGroupHsn, CompanyHsn }.Where(h => h != expected))
             Assert.DoesNotContain($"({other}) Tj", pdf, StringComparison.Ordinal);
     }
 
@@ -199,9 +207,15 @@ public sealed class HsnSourceWalkDocumentTests
         if (carrier == Carrier.Ledger)
             sales.SalesPurchaseGst = new StockItemGstDetails
             { HsnSac = LedgerHsn, Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
-        else
+        else if (carrier == Carrier.Group)
             c.FindGroupByName("Sales Accounts")!.Gst = new MasterGstDetails
             { HsnSac = GroupHsn, Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        else if (carrier == Carrier.StockGroup)
+            grp.Gst = new MasterGstDetails
+            { HsnSac = StockGroupHsn, Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        else
+            c.Gst!.DefaultGst = new MasterGstDetails
+            { HsnSac = CompanyHsn, Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
 
         var party = Add(c, "Buyer", "Sundry Debtors", true);
         party.PartyGst = new PartyGstDetails
