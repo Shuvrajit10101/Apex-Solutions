@@ -293,6 +293,74 @@ public sealed class Section34OutwardDebitNoteTests : IDisposable
         Assert.Equal(saleId, link.OriginalInvoiceVoucherId);
     }
 
+    /// <summary>
+    /// w9 verifier (fc): the §34 TOGGLE's own recalculation, on its own. The operator ticks §34 and picks
+    /// "Consolidated…", unticks it, keys the item line, then ticks §34 again. The re-tick changes no other field, so
+    /// only <c>OnIsSection34NoteChanged</c>'s recalculation can move the derived-legs line to the head the note will
+    /// post. <b>Mutation V-M8a</b> (that one call dropped, the original-invoice handler's kept) left the realised
+    /// line reading "Input" on a note that posts Output, and passed every note test before this one.
+    /// </summary>
+    [AvaloniaFact]
+    public void Re_ticking_section_34_alone_moves_the_derived_legs_to_output()
+    {
+        const string name = "S34 Retick DN Co";
+        var k = Seed(name);
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        try
+        {
+            w.Show();
+            Pump(w);
+            w.KeyPressQwerty(PhysicalKey.F5, RawInputModifiers.Alt);
+            Pump(w);
+            var e = k.Vm.VoucherEntry!;
+            Assert.Equal(VoucherBaseType.DebitNote, e.Type.BaseType);
+            w.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(w);
+            Assert.True(e.IsItemInvoice);
+            e.SelectedParty = e.Parties.Single(p => p.Ledger?.Id == k.CustomerId);
+            e.SelectedStockLedger = e.StockLedgers.Single(l => l.Id == k.PurchaseReturnsId);
+
+            e.IsSection34Note = true;
+            e.SelectedCdnOriginalInvoice = e.CdnOriginalInvoices.Single(o => o.IsConsolidated);
+            e.CdnOriginalInvoiceNumber = "INV-77";
+            e.SelectedCdnReasonCode = "04 Correction in invoice";
+            e.IsSection34Note = false;
+            Pump(w);
+
+            var line = e.InventoryLines[0];
+            line.SelectedItem = e.StockItems.Single(i => i.Id == k.ItemId);
+            line.SelectedGodown = e.Godowns.Single(g => g.Id == k.GodownId);
+            line.QuantityText = "4";
+            line.RateText = "150.00";
+            Pump(w);
+
+            e.IsSection34Note = true;
+            Pump(w);
+            var preview = w.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>()
+                .Select(t => t.Text ?? string.Empty)
+                .Single(t => t.StartsWith("Dr Beta Buyers 708.00", StringComparison.Ordinal));
+            Assert.Contains("Cr Output CGST 54.00", preview, StringComparison.Ordinal);
+            Assert.Contains("Cr Output SGST 54.00", preview, StringComparison.Ordinal);
+            Assert.DoesNotContain("Input", preview, StringComparison.Ordinal);
+
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            Assert.Single(k.Vm.Company!.Vouchers);
+        }
+        finally { w.Close(); }
+
+        // The posting the line described, read off the RELOADED book.
+        var c = Reload(name);
+        var note = TheNote(c);
+        var outCgst = TaxLedger(c, GstTaxHead.Central, GstTaxDirection.Output);
+        var cg = Assert.Single(note.Lines, l => l.LedgerId == outCgst);
+        Assert.Equal(DrCr.Credit, cg.Side);
+        Assert.Equal(54.00m, cg.Amount.Amount);
+        var inCgst = TaxLedger(c, GstTaxHead.Central, GstTaxDirection.Input);
+        var inSgst = TaxLedger(c, GstTaxHead.State, GstTaxDirection.Input);
+        Assert.DoesNotContain(note.Lines, l => l.LedgerId == inCgst || l.LedgerId == inSgst);
+    }
+
     public void Dispose()
     {
         try
