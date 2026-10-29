@@ -3050,6 +3050,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | The M BOM list and the components screen are each a page column. `OpenPageColumn` REPLACES the page, so Escape on the components screen goes back to the menu column. To reach another BOM of the same item, the operator re-opens Stock Item Alteration and ticks the option again. The same holds after a create from the list (wave-8 review F3): the screen stays a creation screen with the item fixed, and there is no route back to the list short of re-navigating. No data is at risk. Escape on the M BOM list writes nothing (`BomNameListTests.Escape_on_the_name_list_leaves_it_and_writes_nothing`). |
 | **Why** | The shell keeps at most one page column; stacking the components screen over the list would need a new column shape. |
 | **Fix** | Optional: stack the components screen beside the list (as the batch-allocation sub-screen does), so Escape returns to the list. |
+| **Status** | 🟢 **BUILT 2026-10-29 (wave 9, track `fb`) — PROPOSED FOR CLOSURE, A12 GRADES.** The fix above is the one taken: the components screen is stacked beside the list, and Escape after a create or an alteration returns to the M BOM list, re-read from the book and with the caret back in the new-name box. See §2U and `BomCopyAndReturnTests`. The "What we ship" cell above describes the wave-8 shape and is kept as history. |
 
 ## 2R. ADDED 2026-10-26 — WAVE 8 TRACK `ec`: THE REST OF THE VOUCHER-TYPE FLAGS (census rows 5.11 and 5.6(b))
 
@@ -3165,6 +3166,71 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | **OURS (9C).** Tax per books (Table 9) and ITC per books (Table 12A) remain FY accrual sums, now LESS the opposite-side legs a Credit Note / Debit Note posted on the same tax ledger. Set-off journals and cash-discharge payments stay excluded. Before this, a reconciled book with an unlinked sales return and purchase return filed Table 11 −₹1,399.86 and 12F +₹399.96; both now read ₹0.00. The rule is ours because the 9C instructions name the reconciliation, not the ledger mechanics. **OURS (layout).** The vendor shows the inward HSN summary inside its GST Annual Computation report; here it is printed and exported under Table 17, in the GSTR-9 report's second band, retitled "Part VI Tables 17 and 18 — Outward and Inward HSN Summary": a sub-heading row `18  HSN-wise summary of inward supplies`, then one row per HSN with the BARE code in the HSN / SAC cell (as Table 17's rows), then `18  Total`. (W8 review F3: the rows first shipped as `18  <HSN>` inside the HSN cell, so the exported column was not uniformly an HSN.) |
 | **Known residual (W8 review F5 — NOT fixed, pre-existing root)** | A §34 note LINKED to a PURCHASE original (the picker offers Purchase originals for both note types) is walked by `Gstr3b.ReadCdn`, which folds the note's INPUT legs into OUTWARD 3.1(a) (signed by note type) and never into ITC; `ReadSide` excludes it as a linked note. Measured on this branch (purchase ₹10,000 @ 18%, note ₹2,000 ⇒ ₹360): purchase-linked **Credit Note** ⇒ 3.1(a) CGST/SGST −180/−180, ITC 900/900 (gross), 9C Table 11 −360, 12A 1,440, 12E 1,800, **12F −360**; purchase-linked **Debit Note** (an ordinary linked purchase return) ⇒ 3.1(a) +180/+180, ITC gross, Table 11 +360, **12F −360**. The new 12A anchor is the correct books figure; it is GSTR-3B's routing that is wrong, and GSTR-1 Table 9B also lists such a note as an outward CDN. The fix spans `ReadCdn`/`ReadSide`, GSTR-1 Table 9B and GSTR-9 Tables 4/6 together (the portal cross-checks 3B against GSTR-1), so it is filed rather than half-fixed here. **The T2-114 closure ("Table 11 / 12F = 0 on a reconciled book") holds for unlinked notes and SALES-linked / consolidated notes only.** |
 | **Tests** | `Gstr9cReturnNoteBooksAnchorReloadTests` (reloaded; JSON bytes): reverting the fix reddens five of seven, including the W8 `Table_11_nets_a_linked_section_34_credit_note_on_the_reloaded_book`; signing every return-note leg by base type instead of posted side reddens `Table_11_adds_a_linked_section_34_debit_note_on_the_reloaded_book`; subtracting EVERY opposite-side leg reddens `Set_off_and_cash_discharge_legs_still_do_not_drain_the_books_anchors`. `Gstr9Table18SurfaceTests` (reopened book, arrow-reached, CSV bytes and print rows) reddens when the band drops the Table 18 rows, when the `18  ` prefix is put back into the HSN cell, or when the sub-heading row is dropped. |
+
+## 2U. ADDED 2026-10-29 — WAVE 9 TRACK `fb`: Ctrl+C COPY BoM AND ESCAPE BACK TO THE M BOM LIST (census row 3.9, IV-265..IV-268)
+
+> **This track's block is IV-265..IV-274.** That is the range in the track's computed task header. The wave plan's
+> table lists `fb` as IV-255..259 and `fd` as IV-265..269, so A12 may need to renumber at merge. The track takes
+> **IV-265 … IV-268** and leaves IV-269..274 unused.
+>
+> **Ground for the section, opened BY CONTENT on 2026-10-29:**
+> `help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/`, section
+> *Copy components of BOM*. Each entry rests on sentences read on that page: *"In the Stock Item Components
+> (BOM) screen, press Ctrl+C (Copy BoM)."*; *"In the Copy BoM Details screen, select the stock item and component of
+> BoM."*; *"Stock Item: Select the Stock Item from which the BOM is to be copied, You can select a different stock
+> item from the list of Items, in which BOM is defined."*; *"Component of BOM: Select the BOM from which the
+> components are to be copied for the selected Item."*; *"The components of Standard BoM will get copied to Customer
+> B BoM."*; *"Copy BOM option copies only the components of one BOM to another. Users have to define the Unit of
+> Manufacture and Quantity of inputs (components)."* The page's screenshots were also read.
+> `copy-of-bom-selecting-another-bom-tally.gif` shows a *Copy From* panel, with Stock Item pre-set to the item being
+> edited and a *List of BoM* beside it. `copy-of-bom-bom-screen-tally.gif` shows the result: every line has Godown,
+> Type of Item and Quantity filled in, and the *Unit of manufacture* field is EMPTY with the cursor on it.
+> **CLONED:** Ctrl+C on the components screen; the two fields and their lists; the copied lines carrying item, godown,
+> type, quantity and carve-out rate or percent; the unit of manufacture left for the operator, with the caret on it
+> (added by the review, W9-fb F2); Ctrl+A to save. On an
+> alteration the save is in place (`BomService.AlterBom`, id kept). Locked by `BomCopyAndReturnTests`.
+> **IV-188 evidence only (no change to that entry):** the standalone *Bill of Materials* creation master is the same
+> `Screen.BomMaster`, so Ctrl+C also reaches Copy BoM from there. It is still create-only; no alter arm was added.
+
+### IV-265 · **Ctrl+C on the components screen fires from inside its text boxes, so it is not the clipboard copy there**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: KEY SHADOWING, one screen.** |
+| **What TallyPrime does** | The page says only *"In the Stock Item Components (BOM) screen, press Ctrl+C (Copy BoM)."* It does not say what happens to a text selection. |
+| **What we ship** | The arm in `MainWindow.OnKeyDown` matches `Ctrl+C` exactly, only on `Screen.BomMaster`, and yields to an open dropdown. It fires whatever holds focus, including the quantity and rate boxes, so a selected value on this screen cannot be copied to the clipboard with Ctrl+C. The chord was checked free before it was taken: every other `Key.C` arm carries Alt or is an exact bare C, and `ShellChordTable` has no C chord. Locked by `BomCopyAndReturnTests.CtrlC_is_scoped_to_the_components_screen_and_fires_from_its_text_boxes`, which also shows that Ctrl+C on the M BOM list does nothing. |
+| **Why** | Almost every focusable control on the screen is a text box or a picker. A guard that yielded while typing would leave the vendor's chord unreachable in practice. |
+| **Fix** | None proposed. |
+
+### IV-266 · **Copy BoM Details is walked with Up/Down and Enter, not with pop-up lists**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: INPUT SHAPE.** |
+| **What TallyPrime does** | The screenshots show the active field with its list (*List of Stock Items*, *List of BoM*) beside the panel. |
+| **What we ship** | `CopyBomDetailsViewModel` keeps one field active at a time and shows that field's list beside the two fields. Up/Down change the active field's value (wrapping). Enter on Stock Item moves to Component of BOM, and Enter there copies and returns to the components screen. Ctrl+A copies from either field, and Escape copies nothing. Neither list has type-to-filter. The screen takes focus when it opens, so the arrows and Enter reach the shell's ordinary `StepActive` / `ActivateSelected` arms rather than a box on the screen beneath. Stock Item lists only items that have a BOM other than the one being altered, and that BOM is never offered as a source for itself. |
+| **Why** | It is the shape the M BOM list already uses (IV-225), and it keeps the screen keyboard-only. |
+| **Fix** | Optional: add prefix type-to-filter on both lists (the keyboard-first contract asks for it on dropdowns generally). |
+
+### IV-267 · **On an alteration that already has lines, Copy BoM REPLACES them**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: SEMANTICS NOT STATED.** |
+| **What TallyPrime does** | The worked example copies into a NEW, empty BOM (*"Customer B"*). The page does not say whether a copy into a BOM that already has lines replaces or appends. |
+| **What we ship** | `BomMasterViewModel.CopyComponentsFrom` clears the grid and writes the source's lines. Nothing is saved until Ctrl+A, so leaving the components screen without saving keeps the stored BOM as it was. Locked by `BomCopyAndReturnTests.CtrlC_on_an_alteration_replaces_its_lines_and_saves_IN_PLACE_keeping_the_id_and_the_siblings`. |
+| **Why** | Appending could duplicate a component already on the BOM. Replacing matches the page's statement that the source's components "get copied to" the target. |
+| **Fix** | Re-open if a vendor page describes the alter case. |
+
+### IV-268 · **A copied carve-out keeps its type and rate even when the F12 "Define type of component" switch is off**
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: EDGE CASE.** |
+| **What TallyPrime does** | Not stated. |
+| **What we ship** | When the source carries By-Product, Co-Product or Scrap lines and the company's type switch is off, the components screen shows the type picker for this edit, so the copied types and their rate or percent land unchanged. `ForAlter` already follows this rule for a BOM with saved carve-outs (wave-7 reviewer F2). Without it the type list holds only "Component", and a copied Scrap line would be saved as a consumed Component with its rate dropped. Locked by `BomCopyAndReturnTests.CtrlC_from_another_items_BOM_keeps_its_By_Product_type_and_percent_even_with_the_type_switch_off`. |
+| **Why** | Silently rewriting a carve-out as a component changes the manufacturing cost. |
+| **Fix** | None proposed. |
 
 ## 3. Grouped by area
 
