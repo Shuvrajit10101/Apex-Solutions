@@ -441,6 +441,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Census 3.9 — Ctrl+C (Copy BoM) on the Stock Item Components (BOM) screen. Vendor, verbatim: "In the Stock
+        // Item Components (BOM) screen, press Ctrl+C (Copy BoM)." (help.tallysolutions.com/tally-prime/
+        // inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/, opened BY CONTENT 2026-10-29).
+        // 🔴 MEASURED FREE BEFORE IT WAS TAKEN: every other `Key.C` arm in this handler carries Alt or is an EXACT
+        // bare-C match, and ShellChordTable holds no C chord, so nothing is shadowed. Matched EXACTLY (== Control) so
+        // Ctrl+Alt+C / Ctrl+Shift+C keep falling through. It fires from inside the screen's text boxes too, which
+        // takes the clipboard copy of a typed value on THIS screen only (IV-265); !IsPickerOpen leaves an open
+        // dropdown alone.
+        if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control
+            && vm.CurrentScreen == Screen.BomMaster && !IsPickerOpen(e))
+        {
+            vm.OpenCopyBom();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+A saves/accepts (accept shortcut) — apply the F12 report config, else create company /
         // accept voucher / create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -2034,6 +2050,16 @@ public partial class MainWindow : Window
             // !IsTyping arms below would swallow the arrows and the existing names could no longer be walked.
             // A one-line box has no use for Up/Down, so on THIS box only they move the BOM-name highlight. Scoped
             // to the box by name: every other TextBox keeps the !IsTyping behaviour untouched.
+            // Census 3.9: the Copy BoM Details screen owns the arrows wherever focus sits — a text box of the
+            // components screen beneath can still hold the caret when the screen opens over it.
+            case Key.Up when vm.CurrentScreen == Screen.CopyBomDetails && !IsPickerOpen(e):
+                vm.MoveUp();
+                e.Handled = true;
+                break;
+            case Key.Down when vm.CurrentScreen == Screen.CopyBomDetails && !IsPickerOpen(e):
+                vm.MoveDown();
+                e.Handled = true;
+                break;
             case Key.Up when vm.CurrentScreen == Screen.BomNameList && IsBomNameListNewNameBox(e):
                 vm.MoveUp();
                 e.Handled = true;
@@ -2073,6 +2099,12 @@ public partial class MainWindow : Window
             //     open→Down→commit compose (Enter_opens_then_Down_highlights_then_Enter_commits_and_closes).
             //   • !IsAcceptPromptOpen keeps the :261 confirmation arm the owner of Enter while a prompt is up.
             // e.Handled stops fall-through to the arms below AND stops the ComboBox toggling the dropdown shut.
+            // Census 3.9: Enter on Copy BoM Details walks its two fields and then copies, even if a closed picker of
+            // the components screen beneath still holds focus (that picker's Enter would otherwise open it).
+            case Key.Enter when vm.CurrentScreen == Screen.CopyBomDetails && !IsPickerOpen(e):
+                vm.ActivateSelected(viaAcceptChord: false);
+                e.Handled = true;
+                break;
             case Key.Enter when !vm.IsAcceptPromptOpen && IsPickerFocusedClosed(e):
                 OpenFocusedPicker(e);
                 e.Handled = true;
@@ -2139,6 +2171,9 @@ public partial class MainWindow : Window
             // form column on ~157 screens.
             case Key.Escape when !IsPickerOpen(e):
                 vm.Back();
+                // Census 3.9 (IV-227): Escape from the components screen now lands back on the M BOM list, whose
+                // new-name box is still attached, so its attach-time focus does not run again. Put the caret back.
+                if (vm.CurrentScreen == Screen.BomNameList) FocusBomNameListNewName();
                 e.Handled = true;
                 break;
 
@@ -2542,6 +2577,29 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             if (box.IsEffectivelyVisible && box.IsEffectivelyEnabled) box.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Census 3.9 (IV-227) — returns the caret to the M BOM screen's new-name box after Escape pops back to
+    /// it. Deferred to the Loaded pass for the reason <see cref="OnBomNameListNewNameAttached"/> gives.</summary>
+    private void FocusBomNameListNewName()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var box = this.GetVisualDescendants().OfType<TextBox>()
+                .FirstOrDefault(t => t.Name == "BomNameListNewName" && t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
+            box?.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Census 3.9 — the Copy BoM Details screen takes focus when it opens, so the caret leaves the text box
+    /// or picker of the components screen beneath and Up / Down / Enter belong to the new screen.</summary>
+    private void OnCopyBomDetailsAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is not Control panel) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (panel.IsEffectivelyVisible) panel.Focus();
         }, DispatcherPriority.Loaded);
     }
 
