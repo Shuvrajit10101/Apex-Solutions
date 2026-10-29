@@ -3166,6 +3166,68 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Known residual (W8 review F5 — NOT fixed, pre-existing root)** | A §34 note LINKED to a PURCHASE original (the picker offers Purchase originals for both note types) is walked by `Gstr3b.ReadCdn`, which folds the note's INPUT legs into OUTWARD 3.1(a) (signed by note type) and never into ITC; `ReadSide` excludes it as a linked note. Measured on this branch (purchase ₹10,000 @ 18%, note ₹2,000 ⇒ ₹360): purchase-linked **Credit Note** ⇒ 3.1(a) CGST/SGST −180/−180, ITC 900/900 (gross), 9C Table 11 −360, 12A 1,440, 12E 1,800, **12F −360**; purchase-linked **Debit Note** (an ordinary linked purchase return) ⇒ 3.1(a) +180/+180, ITC gross, Table 11 +360, **12F −360**. The new 12A anchor is the correct books figure; it is GSTR-3B's routing that is wrong, and GSTR-1 Table 9B also lists such a note as an outward CDN. The fix spans `ReadCdn`/`ReadSide`, GSTR-1 Table 9B and GSTR-9 Tables 4/6 together (the portal cross-checks 3B against GSTR-1), so it is filed rather than half-fixed here. **The T2-114 closure ("Table 11 / 12F = 0 on a reconciled book") holds for unlinked notes and SALES-linked / consolidated notes only.** |
 | **Tests** | `Gstr9cReturnNoteBooksAnchorReloadTests` (reloaded; JSON bytes): reverting the fix reddens five of seven, including the W8 `Table_11_nets_a_linked_section_34_credit_note_on_the_reloaded_book`; signing every return-note leg by base type instead of posted side reddens `Table_11_adds_a_linked_section_34_debit_note_on_the_reloaded_book`; subtracting EVERY opposite-side leg reddens `Set_off_and_cash_discharge_legs_still_do_not_drain_the_books_anchors`. `Gstr9Table18SurfaceTests` (reopened book, arrow-reached, CSV bytes and print rows) reddens when the band drops the Table 18 rows, when the `18  ` prefix is put back into the HSN cell, or when the sub-heading row is dropped. |
 
+## 2T. ADDED 2026-10-29 — WAVE 9 TRACK `fa`: THE HSN/SAC SOURCE WALK, THE TWO SOURCE PICKERS, AND PURCHASE-LINKED §34 NOTES (census rows 6.4 and 6.12 / `T2-162`)
+
+> **This track's pre-assigned block is IV-250..IV-254 and it takes all five.** (The computed task text also named
+> IV-255..IV-264; the wave plan assigns those to tracks fb and fc, so the plan's block is the one used.)
+>
+> **Ground for the section, opened BY CONTENT on 2026-10-29:**
+> - Vendor, `help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` ("HSN/SAC & GST Rate
+>   Hierarchy in TallyPrime", last updated 23-Feb-2026): the product "enables you to specify where to look for the
+>   details by setting up the tax rate hierarchy and HSN/SAC hierarchy in the Company"; the two orders are
+>   `Ledger → Group → Stock Item → Stock Group → Company` and `Stock Item → Stock Group → Ledger → Group → Company`;
+>   "The Ledger hierarchy is the default option. You can change it from: F11 (Company Features) > Set/Alter Company
+>   GST Rate and other details > Additional Configurations, select the source of GST Rate & HSN/SAC"; the worked
+>   example sets "Source of GST Rates in transactions as Stock Item"; "The same explanation is true for even
+>   HSN/SAC details."
+> - Statute, `taxinformation.cbic.gov.in` CGST Act §34 (section34_v1.00): subsections (1) and (3) address the note
+>   to "the registered person, who has supplied such goods or services or both".
+
+### IV-250 · The HSN walk treats a cyclic group chain at a reached rung as "declares nothing", and trims the code
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C. Area: GST (census 6.4).** Corrupt-data behaviour only. |
+| **What the sources say** | The vendor page gives the two orders and the stop-at-first-hit rule; it says nothing about corrupt masters, whitespace or the legacy item field. |
+| **What we ship** | **OURS.** `GstService.ResolveDocumentHsnSac` walks the order `SourceOfHsnSacDetails` names and returns the first rung that declares a non-blank HSN/SAC, trimmed. A rung whose group or stock-group ancestry is cyclic is treated as declaring nothing and the walk continues, so a printed invoice or a return never throws on a chart the posting path tolerated. The Stock Item rung reads the item's GST block over the legacy Phase-3 code (`GstReportSupport.ItemRungHsnSacOf`, drift lock D7); the group rungs climb ancestry exactly as the rate walk does. |
+| **Tests** | `HsnSourceWalkDocumentTests` (reloaded book; GSTR-1, GSTR-9 Tables 17 and 18, INV-01 and EWB-01 JSON bytes, invoice PDF `Tj` operands). Making the resolver read the item rung alone reddens 5 of 6 document cases and both Table 18 cases; ignoring the option (always ledger-first) reddens `When_both_the_item_and_the_ledger_declare_an_hsn_the_source_order_decides(StockItemFirst)`; dropping the value ledger at any one consumer (GSTR-1, INV-01, EWB-01, print) reddens 5 of 6 by name. A consumer calling `ItemRungHsnSacOf` directly reddens `OneRuleDriftLockTests.TheItemRungHsnIsReadOnlyByTheHierarchyWalk`. The cycle arm itself has no test. |
+
+### IV-251 · The dated rate override is still keyed by the HSN found under the RATE order, not the HSN order
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C. Area: GST (census 6.4).** Only a book with dated rate rows AND different rate and HSN orders can see it. |
+| **What the sources say** | The vendor page describes the two orders and says the HSN explanation is the same; it does not say which HSN a dated rate change is matched on. |
+| **What we ship** | **OURS.** `GstService.ResolveHsnSac` (the key for `GstConfig.RateHistory`) walks under `SourceOfGstRate`, as T0-20 made it, because that lookup answers a RATE question. The HSN a document files walks under `SourceOfHsnSacDetails`. On a book that sets the two orders differently, the HSN filed for a line and the HSN its dated rate was matched on can differ. Not changed this wave: it moves posted money, and no source decides it. |
+| **Tests** | None specific; recorded so the next reader does not take the two walks for one. |
+
+### IV-252 · Two separate source pickers on the F11 GST block, one label ours, rather than a separate Additional Configurations screen
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B. Area: GST (census 6.4).** |
+| **What the sources say** | The vendor places the choice at F11 > Set/Alter Company GST Rate and other details > Additional Configurations, and names one field "Source of GST Rates in transactions", values "Ledger" (the default) and "Stock Item". Its sentence "select the source of GST Rate & HSN/SAC" does not settle whether that is one field or two; its opening paragraph speaks of a "tax rate hierarchy and HSN/SAC hierarchy". |
+| **What we ship** | **OURS.** An `ADDITIONAL CONFIGURATIONS` block inside the F11 GST section (there is no separate Set/Alter Company GST Rate sub-screen here) with two pickers: `Source of GST Rates in transactions` (the vendor's label) and `Source of HSN/SAC details in transactions` (our label), each offering `Ledger` / `Stock Item`, default `Ledger`. Two pickers because the storage has carried two columns since v51 (plan.md orchestrator ruling 2). Ctrl+A applies them with the rest of the block, a failed save puts both back, and re-entry shows them. |
+| **Tests** | `GstSourceOrderCaptureTests` (F11 keystroke; Enter, arrow and Enter on the picker; Ctrl+A; fresh `CompanyStorage` reload). Dropping the HSN write from `Apply` reddens `Arrow_down_and_Ctrl_A_save_the_hsn_order_and_leave_the_rate_order_alone`; dropping the re-entry load reddens all three capture tests; hiding the HSN picker in XAML reddens two; dropping the two restore lines reddens `A_failed_save_leaves_both_orders_the_way_the_book_holds_them`. |
+
+### IV-253 · A §34 note linked to a PURCHASE reduces ITC (both note types) and is not a GSTR-1 row
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C. Area: GST (census 6.12, `T2-162`).** Filed returns. |
+| **What the sources say** | CGST Act §34(1)/(3) address the note to the supplier, so a note on a purchase is the supplier's document; GSTR-1 states outward supplies. Neither says how the recipient's books must record a note raised against its own purchase. |
+| **What we ship** | **OURS.** `GstReportSupport.IsInwardLinkedCreditDebitNote` is true when the note's link names an original whose base type is inward (a Purchase). Such a note is skipped by `Gstr3b.ReadCdn` and by `Gstr1.BuildTable9B`, and counted once in the GSTR-3B 4(A)(5) sweep as a REDUCTION: a Debit Note through the inward sweep signed by `SignOf` (−1), a Credit Note by a second pass over the outward funnel that subtracts its tax legs. 🔴 **Amended by the wave-9 review (fa, reviewer's fix, pending an independent verifier):** the predicate is also false when the note posted any tax on an OUTPUT ledger, and `Gstr1Amendments.BuildTable9C` (CDNRA) makes the same skip as Table 9B. Voucher entry gives a Credit Note Output legs whatever it is linked to, so a credit note keyed against a purchase on the item-invoice screen books Output CGST/SGST; the first cut re-read it as an ITC reduction and filed 9C 12F +₹36.00 and Table 11 +₹36.00 on a book that had reconciled (`PurchaseLinkedCreditNoteEntryReloadTests`). Such a note keeps its outward routing (3.1(a) and a GSTR-1 `cdnr` row naming the supplier), which is the `T2-163` posting class and is NOT cured here. Measured before the fix (purchase ₹10,000 @ 18%, note ₹2,000): 3.1(a) ±₹180 per head, 4(A)(5) gross, 9C Table 11 ±₹360, **12F −₹360**. After: 3.1(a) unchanged, 4(A)(5) ₹720 per head, Table 11 and 12F ₹0.00. **Residuals, not fixed:** a note with a CONSOLIDATED (null) original keeps its base-type routing (that shape is `T2-163`, another track's); a purchase-linked CREDIT note does not appear in GSTR-9 Table 18 (the inward HSN sweep reads inward base types only); `TaxAnalysis` and the ITC gate were not re-checked for this shape. |
+| **Tests** | `Gstr9cPurchaseLinkedNoteReloadTests` (reloaded book; 9C, 3B and GSTR-1 JSON bytes). Removing the `ReadCdn` skip reddens 6 of 9; removing the inward-sweep exception reddens the 3 Debit cases; removing the credit-note pass reddens the 3 Credit cases; removing the Table 9B skip reddens both `cdnr` cases; widening the predicate to every linked note reddens `A_sales_linked_credit_note_still_reduces_outward_tax_and_is_still_a_cdnr_row` and two `Gstr9cReturnNoteBooksAnchorReloadTests`. |
+
+### IV-254 · A service (ledger) leg's SAC still comes from that ledger only
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C. Area: GST (census 6.4).** |
+| **What the sources say** | The vendor hierarchy applies to "HSN/SAC details" generally. |
+| **What we ship** | **OURS, and a known gap.** The walk covers every STOCK line on GSTR-1 Table 12, GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01. An accounting (service) invoice's SAC is still read by `Gstr1.ServiceSacOf` off the service ledger's own block, so a service ledger that declares no SAC does not inherit its group's or the company's. Routing it would change which vouchers classify as service invoices (`IsServiceAccountingInvoice` keys on a SAC-bearing leg), which is wider than this track. |
+| **Tests** | None; filed so the row is not read as covering service legs. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

@@ -406,6 +406,11 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         Assert.True(entry.Accept());
 
         var c = k.Company!;
+        // Wave 9 (census 6.4 ii): the HSN a stock line files now walks SourceOfHsnSacDetails. This fixture's sales
+        // ledger declares a SAC of its own, so under the shipped ledger-first default the one row would be keyed by
+        // the LEDGER's code (pinned in HsnSourceWalkDocumentTests). This test is about the double count, not the
+        // order, so it names the item-first order under which "the stock item's HSN" is the correct key.
+        c.Gst!.SourceOfHsnSacDetails = GstDetailSource.StockItemFirst;
         var g1 = Report.BuildGstr1(c, FyStart, AsOf(c));
 
         // Exactly ONE HSN row (the stock item's HSN), carrying the item value once — the sales ledger's SAC is not
@@ -618,6 +623,11 @@ public sealed class ServiceAccountingInvoiceVoucherEntryViewModelTests : IDispos
         Assert.True(entry.Accept());
 
         var c = k.Company!;
+        // Wave 9 (census 6.4 ii): the HSN a stock line files now walks SourceOfHsnSacDetails. This fixture's sales
+        // ledger declares a SAC of its own, so under the shipped ledger-first default the one row would be keyed by
+        // the LEDGER's code (pinned in HsnSourceWalkDocumentTests). This test is about the double count, not the
+        // order, so it names the item-first order under which "the stock item's HSN" is the correct key.
+        c.Gst!.SourceOfHsnSacDetails = GstDetailSource.StockItemFirst;
         var g1 = Report.BuildGstr1(c, FyStart, AsOf(c));
 
         Assert.Equal(Money.FromRupees(1000m), g1.ExemptNilNonGstValue);   // ONCE (before the gate: 2,000)

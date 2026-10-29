@@ -427,10 +427,10 @@ public static class VoucherPrintProjector
             items.Add(new InvoiceItemRow
             {
                 Description = ReportPrintProjector.Ascii(item?.Name ?? "(item)"),
-                // Resolution order is the ONE rule (drift lock D7); a Rule-46 document leaves an undeclared
-                // HSN column blank rather than printing a placeholder.
-                HsnSac = ReportPrintProjector.Ascii(
-                    Apex.Ledger.Reports.GstReportSupport.HsnSacOf(item) ?? string.Empty),
+                // Census 6.4 (ii): the ONE hierarchy walk under SourceOfHsnSacDetails, over the SAME value ledger GSTR-1 /
+                // INV-01 / EWB-01 read; a Rule-46 document leaves an HSN no rung declares blank, not a placeholder.
+                HsnSac = ReportPrintProjector.Ascii(Apex.Ledger.Reports.GstReportSupport.HsnSacOf(company, item,
+                    Apex.Ledger.Reports.GstReportSupport.BucketingValueLedger(company, voucher)) ?? string.Empty),
                 QuantityText = ReportPrintProjector.Ascii(qtyText),
                 RateText = IndianFormat.Amount(il.Rate),
                 TaxableValue = il.Value,

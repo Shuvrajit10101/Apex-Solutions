@@ -296,7 +296,7 @@ public static class GstReportSupport
     /// <para>These are four correct answers to four different questions, so unifying the <i>sentinel</i> would
     /// break three of them. What was genuinely duplicated — and is now unified — is the <i>resolution order</i>.</para>
     /// </summary>
-    public static string? HsnSacOf(StockItem? item) => item?.Gst?.HsnSac ?? item?.HsnSacCode;
+    public static string? ItemRungHsnSacOf(StockItem? item) => item?.Gst?.HsnSac ?? item?.HsnSacCode;
 
     /// <summary>
     /// True iff a GST state code denotes an <b>overseas</b> place of supply — i.e. the supply leaves India, so it is an
@@ -2340,5 +2340,62 @@ public static class GstReportSupport
             company.FindStockItem(line.StockItemId), valueLedger, voucher.Date);
         if (GstService.IsUnresolved(res)) return false;  // ER-5: silence is not an exemption
         return !res.IsTaxable;                           // Exempt / Nil-rated / Non-GST
+    }
+
+    /// <summary>
+    /// 🔴 <b>THE HSN/SAC A DOCUMENT FILES FOR A STOCK LINE — the ONE resolver every HSN consumer calls</b> (GSTR-1
+    /// Table 12 and so GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01). Walks the five-rung hierarchy in
+    /// the order <see cref="GstConfig.SourceOfHsnSacDetails"/> names; see
+    /// <see cref="GstService.ResolveDocumentHsnSac"/>. <c>null</c> means no rung declares one, and each consumer
+    /// spells that absence its own way, as the note on <see cref="ItemRungHsnSacOf"/> explains.
+    ///
+    /// <para>🔴 <b>Wave 9: <see cref="ItemRungHsnSacOf"/> used to be called <c>HsnSacOf(StockItem)</c> and was what all
+    /// four consumers read</b>, which made the stock item the whole answer and left the source option with no reader.
+    /// It was renamed so no consumer keeps calling it; drift lock D7b keeps it inside the walk.</para>
+    /// </summary>
+    /// <param name="valueLedger">The voucher's value ledger, from <see cref="BucketingValueLedger"/> — hoisted by
+    /// the caller because it is a per-voucher fact.</param>
+    public static string? HsnSacOf(Company company, StockItem? item, Domain.Ledger? valueLedger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        return new GstService(company).ResolveDocumentHsnSac(item, valueLedger);
+    }
+
+    /// <summary>
+    /// 🔴 <b>T2-162 (census 6.12) — a §34 note LINKED TO AN INWARD ORIGINAL (a Purchase): the supplier's document,
+    /// which adjusts a supply made TO us.</b> True iff the note carries a <see cref="GstCreditDebitNoteLink"/> whose
+    /// original voucher resolves and whose base type maps to <see cref="GstTaxDirection.Input"/>.
+    ///
+    /// <para><b>What it fixes.</b> <c>Gstr3b.ReadCdn</c> and <c>Gstr1.BuildTable9B</c> walked EVERY link as an OUTWARD
+    /// note, and <c>Gstr3b.ReadSide</c> excluded every linked note from the ITC sweep, so a purchase-linked note's
+    /// INPUT legs moved GSTR-3B 3.1(a) by ±₹360 and never reduced 4(A)(5) — GSTR-9C 12F −360.00 on a reloaded book
+    /// whose 9C books anchor was already right. CGST Act §34(1)/(3) put the note on "the registered person who has
+    /// supplied", and GSTR-1 is the statement of outward supplies, so a note on a purchase belongs to our inward
+    /// side and nowhere in GSTR-1.</para>
+    ///
+    /// <para><b>The discriminator is the LINKED ORIGINAL's base type</b> — the same one <see cref="SignOf"/> and the
+    /// printed-document classifier key on, so the three cannot disagree about which side a note is on. A note with
+    /// a CONSOLIDATED (null) original is left to its own base type exactly as before: that shape is <c>T2-163</c>'s and
+    /// is owned by another track this wave, and reading it off the posted legs here would re-file a wrong-posted
+    /// outward debit note as an ITC reduction.</para>
+    ///
+    /// <para>🔴 <b>AND THE NOTE MUST NOT HAVE POSTED OUTPUT TAX (wave 9 review, fa).</b> Voucher entry gives a CREDIT
+    /// Note OUTPUT legs whatever original it is linked to (<c>VoucherEffects.IsPurchaseSideInvoice</c> is Purchase /
+    /// Debit Note only), so a credit note keyed against a purchase on the item-invoice screen books Output CGST/SGST
+    /// on the debit side. Re-reading that note as an ITC reduction took ₹36 off 4(A)(5) while the books still showed
+    /// OUTPUT tax reduced: GSTR-9C 12F +36.00 and Table 11 +36.00 on a reloaded book whose returns had reconciled
+    /// before this fix. A return must say what the books posted, so a note whose tax sits on an Output ledger keeps
+    /// its outward routing; the posting itself is the <c>T2-163</c> class (voucher-entry GST direction).</para>
+    /// </summary>
+    public static bool IsInwardLinkedCreditDebitNote(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return CdnLinkFor(company, voucher) is { OriginalInvoiceVoucherId: Guid originalId }
+            && company.FindVoucher(originalId) is { } original
+            && company.FindVoucherType(original.TypeId)?.BaseType is { } originalBase
+            && DirectionOf(originalBase) == GstTaxDirection.Input
+            && !voucher.Lines.Any(l => l.Gst is not null
+                && company.FindLedger(l.LedgerId)?.GstClassification is { Direction: GstTaxDirection.Output });
     }
 }

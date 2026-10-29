@@ -620,6 +620,70 @@ public sealed class GstService
     }
 
     /// <summary>
+    /// 🔴 <b>CENSUS 6.4 (ii) — THE HSN/SAC A DOCUMENT FILES, resolved by the ONE walk that
+    /// <see cref="GstConfig.SourceOfHsnSacDetails"/> names.</b> Until wave 9 that column had no reader outside
+    /// persistence: every document consumer (the GSTR-1 HSN summary and so GSTR-9 Tables 17/18, the printed invoice,
+    /// the INV-01 e-invoice and the EWB-01 e-Way Bill) read the STOCK ITEM alone, so an item that declared no HSN
+    /// filed a blank (or <c>(none)</c>) row even when its sales ledger, that ledger's group, its stock group or the
+    /// company declared one — and flipping the option moved nothing at all.
+    ///
+    /// <para><b>VENDOR (R7, help.tallysolutions.com "HSN/SAC &amp; GST Rate Hierarchy in TallyPrime", opened by
+    /// content 2026-10-29):</b> the product "enables you to specify where to look for the details by setting up the
+    /// tax rate hierarchy and HSN/SAC hierarchy in the Company", with the same two order strings
+    /// <see cref="LedgerFirstWalk"/> and <see cref="StockItemFirstWalk"/> transcribe, and "The same explanation is
+    /// true for even HSN/SAC details". So this walks the SAME two lists the rate walk does — one ordered table, two
+    /// questions — and only the option that selects the list differs.</para>
+    ///
+    /// <para><b>The rule is "first rung DECLARING an HSN/SAC"</b>, whitespace being absent, and it does not stop at
+    /// a rung that declares a block with no HSN: an HSN is a classification, not a taxability, so there is nothing
+    /// for a rung to short-circuit. The Stock Item rung reads <see cref="GstReportSupport.ItemRungHsnSacOf"/> — the
+    /// item's GST block over the legacy Phase-3 field, drift lock D7's one home — so a book whose items carry only
+    /// the legacy code resolves exactly as it always has whenever the item rung is reached.</para>
+    ///
+    /// <para><b>OURS (IV-250):</b> a cyclic group or stock-group chain at a rung this walk reaches is treated as
+    /// that rung declaring nothing, and the walk continues. A report or a printed document must not throw on a
+    /// corrupt chart the posting path has already tolerated; the alternative (refusing the whole return) would
+    /// strand every other line of the period.</para>
+    ///
+    /// <para><b>What this does NOT re-key: the dated rate override.</b> <see cref="ResolveHsnSac"/> still keys the
+    /// <see cref="GstConfig.RateHistory"/> lookup under the RATE order, because that lookup answers a rate question
+    /// and T0-20 fixed it to walk the same order the base rate walked. Recorded as IV-251.</para>
+    /// </summary>
+    /// <param name="item">The stock item of a stock line, or <c>null</c> for a ledger (service) leg.</param>
+    /// <param name="salesPurchaseLedger">The line's value ledger (<see cref="GstReportSupport.BucketingValueLedger"/>)
+    /// — the same ledger the rate walk reads, never the party.</param>
+    public string? ResolveDocumentHsnSac(StockItem? item, Domain.Ledger? salesPurchaseLedger)
+    {
+        var source = _company.Gst?.SourceOfHsnSacDetails ?? GstDetailSource.LedgerFirst;
+        foreach (var level in WalkFor(source))
+        {
+            string? hsn;
+            try
+            {
+                hsn = level switch
+                {
+                    HierarchyLevel.Ledger => salesPurchaseLedger?.SalesPurchaseGst?.HsnSac,
+                    HierarchyLevel.AccountingGroup =>
+                        MasterAncestry.NearestGroupGst(_company, salesPurchaseLedger?.GroupId)?.HsnSac,
+                    HierarchyLevel.StockItem => GstReportSupport.ItemRungHsnSacOf(item),
+                    HierarchyLevel.StockGroup =>
+                        MasterAncestry.NearestStockGroupGst(_company, item?.StockGroupId)?.HsnSac,
+                    HierarchyLevel.Company => _company.Gst?.DefaultGst?.HsnSac,
+                    _ => throw new ArgumentOutOfRangeException(nameof(level), level, "unknown hierarchy level"),
+                };
+            }
+            catch (InvalidOperationException)
+            {
+                hsn = null; // a cyclic chain at this rung: the rung declares nothing (IV-250)
+            }
+
+            if (!string.IsNullOrWhiteSpace(hsn)) return hsn.Trim();
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The base (date-agnostic) rate resolution: walk <see cref="Hierarchy"/> top-down, stop at the first rung
     /// that either declares a non-Taxable taxability or supplies a rate. Split out so the date-aware overload
     /// layers a pure override on top without altering the base behaviour (ER-13).
