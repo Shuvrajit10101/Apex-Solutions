@@ -3004,7 +3004,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 |---|---|
 | **Severity** | **LOW. Class B. Area: RPT / NAV.** |
 | **What TallyPrime does** | Reaches them by **Alt+G (Go To) > Overdue Receivables / Overdue Payables**, or by **Basis of Values > Type of Bills > Overdue Bills** on the Receivables / Payables report. |
-| **What we ship** | Two report kinds, `OverdueReceivables` / `OverduePayables`, listed under **Gateway > Exception Reports** (where census row 11.13 counts them). Go To's index is walked from the menu, so the same two rows are what make **Alt+G > Overdue Receivables / Overdue Payables** work — the vendor's route. Each carries the as-of (F2) and period (Alt+F2, as of the period's end) of the shared report surface, and prints / exports through the accounting report path (label = reference · overdue days, then due date · bill date; amount = pending). **OURS:** the Exception Reports menu placement and the row layout. **⚠️ NOT BUILT:** the *Basis of Values > Type of Bills > Overdue Bills* filter on Bills Receivable / Bills Payable, and an ageing (F6) basis switch on these views. |
+| **What we ship** | Two report kinds, `OverdueReceivables` / `OverduePayables`, listed under **Gateway > Exception Reports** (where census row 11.13 counts them). Go To's index is walked from the menu, so the same two rows are what make **Alt+G > Overdue Receivables / Overdue Payables** work — the vendor's route. Each carries the as-of (F2) and period (Alt+F2, as of the period's end) of the shared report surface, and prints / exports through the accounting report path (label = reference · overdue days, then due date · bill date; amount = pending). **OURS:** the Exception Reports menu placement and the row layout. **⚠️ NOT BUILT:** the *Basis of Values > Type of Bills > Overdue Bills* filter on Bills Receivable / Bills Payable, and an ageing (F6) basis switch on these views. 🟢 **Both built in wave 9 (track fd) — see §2W, IV-285..IV-289.** |
 | **Tests** | `OverdueExceptionReportsTests.Alt_G_Go_To_opens_the_overdue_view_by_name` and `The_exception_reports_menu_reaches_the_overdue_view_by_keyboard` (both through the real key handlers, both kinds). Deleting either menu row reddens that kind's two cases by name. |
 
 ## 2Q. ADDED 2026-10-26 — WAVE 8 TRACK `eb`: THE M BOM NAME LIST (census row 3.9, IV-225..IV-227)
@@ -3165,6 +3165,72 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | **OURS (9C).** Tax per books (Table 9) and ITC per books (Table 12A) remain FY accrual sums, now LESS the opposite-side legs a Credit Note / Debit Note posted on the same tax ledger. Set-off journals and cash-discharge payments stay excluded. Before this, a reconciled book with an unlinked sales return and purchase return filed Table 11 −₹1,399.86 and 12F +₹399.96; both now read ₹0.00. The rule is ours because the 9C instructions name the reconciliation, not the ledger mechanics. **OURS (layout).** The vendor shows the inward HSN summary inside its GST Annual Computation report; here it is printed and exported under Table 17, in the GSTR-9 report's second band, retitled "Part VI Tables 17 and 18 — Outward and Inward HSN Summary": a sub-heading row `18  HSN-wise summary of inward supplies`, then one row per HSN with the BARE code in the HSN / SAC cell (as Table 17's rows), then `18  Total`. (W8 review F3: the rows first shipped as `18  <HSN>` inside the HSN cell, so the exported column was not uniformly an HSN.) |
 | **Known residual (W8 review F5 — NOT fixed, pre-existing root)** | A §34 note LINKED to a PURCHASE original (the picker offers Purchase originals for both note types) is walked by `Gstr3b.ReadCdn`, which folds the note's INPUT legs into OUTWARD 3.1(a) (signed by note type) and never into ITC; `ReadSide` excludes it as a linked note. Measured on this branch (purchase ₹10,000 @ 18%, note ₹2,000 ⇒ ₹360): purchase-linked **Credit Note** ⇒ 3.1(a) CGST/SGST −180/−180, ITC 900/900 (gross), 9C Table 11 −360, 12A 1,440, 12E 1,800, **12F −360**; purchase-linked **Debit Note** (an ordinary linked purchase return) ⇒ 3.1(a) +180/+180, ITC gross, Table 11 +360, **12F −360**. The new 12A anchor is the correct books figure; it is GSTR-3B's routing that is wrong, and GSTR-1 Table 9B also lists such a note as an outward CDN. The fix spans `ReadCdn`/`ReadSide`, GSTR-1 Table 9B and GSTR-9 Tables 4/6 together (the portal cross-checks 3B against GSTR-1), so it is filed rather than half-fixed here. **The T2-114 closure ("Table 11 / 12F = 0 on a reconciled book") holds for unlinked notes and SALES-linked / consolidated notes only.** |
 | **Tests** | `Gstr9cReturnNoteBooksAnchorReloadTests` (reloaded; JSON bytes): reverting the fix reddens five of seven, including the W8 `Table_11_nets_a_linked_section_34_credit_note_on_the_reloaded_book`; signing every return-note leg by base type instead of posted side reddens `Table_11_adds_a_linked_section_34_debit_note_on_the_reloaded_book`; subtracting EVERY opposite-side leg reddens `Set_off_and_cash_discharge_legs_still_do_not_drain_the_books_anchors`. `Gstr9Table18SurfaceTests` (reopened book, arrow-reached, CSV bytes and print rows) reddens when the band drops the Table 18 rows, when the `18  ` prefix is put back into the HSN cell, or when the sub-heading row is dropped. |
+
+## 2W. ADDED 2026-10-29 — WAVE 9 TRACK `fd`: F6 AGEING METHOD AND BASIS OF VALUES > TYPE OF BILLS (census row 11.13, advancing 11.9 / T2-24, IV-285..IV-294)
+
+> **This track's block is IV-285..IV-294.** It takes **IV-285 … IV-289** and leaves IV-290..294 unused. The
+> section letter `2W` is the wave plan's pre-assignment; the entry NUMBERS are the stable handle.
+>
+> **Vendor ground for the whole section** (TallyPrime), both opened BY CONTENT on 2026-10-29:
+> - `help.tallysolutions.com/manage-receivables-outstanding-tally/` — **"To view only overdue bills, use Basis of
+>   Values to select Overdue Bills in Type of Bills."** (Receivables and Payables sections) and **"Press F6 (Ageing
+>   Method) to configure the report view as per ageing by bill dates or by due dates and set the ageing windows."**
+> - `help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/` — **"Select the appropriate
+>   Ageing Methods from Ageing by Bill Date or Ageing by Due Date and press Enter."**, **"Specify the required ageing
+>   criteria and press Enter."** and **"Press Ctrl+B (Basis of Values) > Type of Bills > select Range of Bills Type."**
+>
+> **What is built.** `Outstandings.Build(company, asOf, scenario, AgeingMethod, TypeOfBills)` is the ONE engine:
+> the ageing basis picks the bucket windows, and `TypeOfBills.OverdueBills` applies the one overdue predicate
+> (`OutstandingBill.IsOverdue`, IV-245). `OverdueBills.Build` no longer filters on its own — it calls the same
+> `Build` with `TypeOfBills.OverdueBills`, so Overdue Receivables and Bills Receivable under Type of Bills = Overdue
+> Bills list the same bills at the same pending amounts by construction. **F6** on Bills Receivable / Payable and
+> Overdue Receivables / Payables opens the *Ageing Method* picker (rows *Ageing by Bill Date* / *Ageing by Due
+> Date*); **Ctrl+B** on Bills Receivable / Payable now opens Basis of Values with *Type of Bills* (*All Bills* /
+> *Overdue Bills*). This supersedes the "NOT BUILT" sentence of IV-247.
+
+### IV-285 · **F6 is a two-row picker that applies on Enter; there is no ageing-criteria step, and the basis is not saved with a view** (wave 9, track fd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape). Area: RPT / NAV.** |
+| **What TallyPrime does** | F6 (Ageing Method), then choose *Ageing by Bill Date* or *Ageing by Due Date* and press Enter, then *"Specify the required ageing criteria and press Enter."* |
+| **What we ship** | F6 opens a menu column (`Screen.AgeingMethodPicker`) with the two vendor-worded rows; the highlight lands on the basis in force; Enter re-projects the report on the chosen basis and pops the column; Esc leaves the basis unchanged. **OURS:** no criteria step (the windows are fixed, IV-286). The basis lives on the report viewer, resets to by-due-date when the viewer switches to a kind without F6, and is **not** captured by Alt+K saved views. |
+| **Tests** | `AgeingMethodAndTypeOfBillsTests.F6_opens_the_ageing_method_picker_and_Enter_on_bill_date_re_ages_the_report` (four kinds, real F6 / arrows / Enter), `…Escape_on_the_F6_picker_leaves_the_basis_unchanged`, `…F6_stays_the_receipt_voucher_off_the_outstandings_views`. Replacing the F6 button-bar row with the Receipt row (M4) reddens the first two by name (five cases). |
+
+### IV-286 · **The ageing windows are fixed per basis, and by-bill-date has no "Not due" window** (wave 9, track fd)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours) plus an unbuilt vendor half. Area: RPT.** |
+| **What TallyPrime does** | *"…and set the ageing windows."* — the operator sets the periods. No vendor page found gives default edges. |
+| **What we ship** | By due date: `Not due` (0 or fewer days past due), `0-30`, `31-60`, `61-90`, `90+` (unchanged). By bill date: `0-30` (0..30 days since the bill date), `31-60`, `61-90`, `90+` (`Outstandings.BillDateBuckets`). **OURS:** the edges, and dropping *Not due* on the bill-date basis because "not due" is a due-date fact. **NOT BUILT:** operator-set windows. The engine already takes a window list through `BucketIndex(days, buckets)`, so the residual is the capture UI, not the engine. |
+| **Tests** | `AgeingMethodTests.Bill_date_window_edges` (nine edges), `…By_bill_date_buckets_from_each_bills_own_date_over_the_same_pending_amounts`; mutation M2 (bill-date ageing returns due-date days) reddens eleven tests by name across both projects. |
+
+### IV-287 · **Type of Bills offers only All Bills and Overdue Bills; on Bills Receivable / Payable the Ctrl+B panel carries no Scale Factor** (wave 9, track fd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B / partial. Area: RPT.** |
+| **What TallyPrime does** | *"Press Ctrl+B (Basis of Values) > Type of Bills > select Range of Bills Type."* and *"Similarly, you can select different Type of Bills."* — more bill types than one, not enumerated on the pages read. |
+| **What we ship** | *All Bills* (default) and *Overdue Bills*. *Overdue Bills* keeps the bills past their due date as of the report date (IV-245: due ON the date is not overdue); the totals, the per-bill rows and the ageing summary are all taken over the kept bills; the subtitle gains "— Overdue Bills". **OURS:** the *All Bills* label for the unfiltered list. **NOT BUILT:** the vendor's other bill types, and the Scale Factor on these two reports (census 14.5 scope is unchanged). |
+| **Tests** | `AgeingMethodAndTypeOfBillsTests.Type_of_bills_overdue_filters_bills_receivable_through_the_overdue_engine_off_the_reloaded_book`, `…Ctrl_B_type_of_bills_overdue_bills_by_keyboard_filters_the_report` (real Ctrl+B, Tab, Enter / Down / Enter on the realised `TypeOfBillsCombo`, Ctrl+A), `…Ctrl_B_on_the_trial_balance_still_offers_only_the_scale_factor`. M1 (delete the filter line) reddens 16 tests by name including every pre-existing `OverdueBillsTests` case named in the run — the proof the overdue report now runs through this one filter. M5 (Ctrl+B gate back to `SupportsScaleFactor`) and M6 (Apply skips `SetTypeOfBills`) each redden both Ctrl+B cases. |
+
+### IV-288 · **On the overdue views F6 moves only the ageing windows; membership and "days overdue" stay due-date facts, and an ageing band follows the total** (wave 9, track fd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | The pages say F6 applies to the outstanding / ageing views; they do not say what bill-date ageing does to an "overdue" list. |
+| **What we ship** | A bill is on Overdue Receivables / Payables if and only if it is past its DUE date, under either basis; its row still reads "N days overdue". F6 changes the window named at the end of each bill row's secondary text and the summary band appended under the total, headed *Ageing by Due Date* / *Ageing by Bill Date* (printed and exported with the rows). **OURS:** all of it. |
+| **Tests** | `AgeingMethodAndTypeOfBillsTests.Overdue_receivables_ageing_band_and_row_windows_under_both_bases_off_the_reloaded_book`, `…Overdue_receivables_csv_and_pdf_carry_the_basis_and_its_buckets_under_both_bases`. M7 (drop the band heading) and M8 (builder ignores the basis) each redden them by name. |
+
+### IV-289 · **Bills Receivable's "Overdue Days" column stays due-date-based under Ageing by Bill Date** (wave 9, track fd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What we ship** | The per-bill *Ageing* cell, the second-band buckets and its heading ("Ageing Analysis (by bill date)") follow F6; the *Overdue Days* column does not, because overdue is defined on the due date. A bill with no due date (and no credit period) is due on its bill date, so it ages identically under both bases. **OURS.** |
+| **Tests** | `AgeingMethodAndTypeOfBillsTests.Bills_receivable_buckets_under_both_bases_off_the_reloaded_book` (INV-A reads 80 overdue days and `90+ days` under bill-date ageing; INV-C with no due date reads `31-60 days` under both), `AgeingMethodTests.A_bill_without_a_due_date_ages_identically_under_both_bases_and_one_due_on_the_as_of_date_is_not_due`. M3 (builder ignores the basis) reddens five by name. |
 
 ## 3. Grouped by area
 
