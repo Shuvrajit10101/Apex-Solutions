@@ -79,7 +79,7 @@ public static class DeliveryChallanPrintProjector
     public const string NotAChallan =
         "This voucher has no printed document. Only a Delivery Note prints a delivery challan.";
 
-    // 🔴 w9 (census 5.11, IV-260): the wave-8 `JobWorkChallanNotBuilt` notice is GONE. A Material Out now prints
+    // 🔴 w9 (census 5.11, IV-275..IV-277): the wave-8 `JobWorkChallanNotBuilt` notice is GONE. A Material Out now prints
     // its job-work delivery challan through JobWorkChallanPrintProjector (CGST Rules 45 and 55, CBIC Circular
     // 38/12/2018 paras 8.2 and 8.4(i)), so the sentence "this product does not print that challan yet" would now be
     // false. See Project below, which routes the Material Out there.

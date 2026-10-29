@@ -6208,7 +6208,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// the note is a debit note, and the counterparty is on the sales side: the original invoice it adjusts is a
     /// SALES voucher, or — with no linked original ("Consolidated / unregistered") — the party ledger sits under
     /// Sundry Debtors. A §34 debit note against a PURCHASE original, or to a supplier, is a purchase return and keeps
-    /// its Input head. The counterparty test is OURS (IV-262): the §34 link records no direction of its own.
+    /// its Input head. The counterparty test is OURS (IV-278): the §34 link records no direction of its own.
     /// </summary>
     private bool IsOutwardSection34DebitNote =>
         ShowSection34Details

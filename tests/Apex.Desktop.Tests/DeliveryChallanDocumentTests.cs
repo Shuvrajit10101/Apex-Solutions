@@ -290,7 +290,7 @@ public sealed class DeliveryChallanDocumentTests
     }
 
     /// <summary>
-    /// 🔴 <b>CENSUS 5.11 (w9, IV-260) — A MATERIAL OUT NOW PRINTS ITS JOB-WORK DELIVERY CHALLAN.</b> It is the
+    /// 🔴 <b>CENSUS 5.11 (w9, IV-275..IV-277) — A MATERIAL OUT NOW PRINTS ITS JOB-WORK DELIVERY CHALLAN.</b> It is the
     /// principal's dispatch to a job worker, and CBIC Circular No. 38/12/2018 para 8.4(i)
     /// (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened by content 2026-10-29) requires a challan "in terms of
     /// rules 45 and 55" for it. The wave-8 refusal that said we did not build it is gone; the document is the job-work

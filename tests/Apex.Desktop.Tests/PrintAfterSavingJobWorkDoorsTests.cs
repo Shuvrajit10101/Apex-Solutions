@@ -32,7 +32,7 @@ namespace Apex.Desktop.Tests;
 /// <para>🔴 <b>MATERIAL OUT IS THE EXCEPTION.</b> The vendor pages are silent, but the statutory source is not:
 /// CBIC Circular No. 38/12/2018 (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened by content 2026-10-29) para
 /// 8.4(i) requires the principal to prepare a challan "in terms of rules 45 and 55" when sending goods to a job
-/// worker. Since wave 9 (census 5.11, IV-260) the product PRINTS that challan (<c>JobWorkChallanPrintProjector</c>;
+/// worker. Since wave 9 (census 5.11, IV-275..IV-277) the product PRINTS that challan (<c>JobWorkChallanPrintProjector</c>;
 /// its bytes are asserted in <c>JobWorkChallanRouteTests</c>). This file's Material Out names no job worker, so the
 /// flag raises the challan's own named refusal (<c>JobWorkChallanPrintProjector.NoJobWorker</c>) and never the "no
 /// printed document" notice.</para>

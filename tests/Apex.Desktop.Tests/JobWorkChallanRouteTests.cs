@@ -18,7 +18,7 @@ using Domain = Apex.Ledger.Domain;
 namespace Apex.Desktop.Tests;
 
 /// <summary>
-/// 🔴 <b>CENSUS 5.11 (wave 9, IV-260) — THE JOB-WORK DELIVERY CHALLAN, REACHED BY A USER AND READ OFF THE EMITTED PDF.</b>
+/// 🔴 <b>CENSUS 5.11 (wave 9, IV-275..IV-277) — THE JOB-WORK DELIVERY CHALLAN, REACHED BY A USER AND READ OFF THE EMITTED PDF.</b>
 /// Before this wave a Material Out with <i>Print voucher after saving</i> on raised a notice saying the product did
 /// not print the challan CBIC Circular 38/12/2018 para 8.4(i) requires ("in terms of rules 45 and 55"). These tests
 /// key the movement through the REAL Ctrl+A, then REOPEN the book from disk in a fresh shell, drill it from the Day

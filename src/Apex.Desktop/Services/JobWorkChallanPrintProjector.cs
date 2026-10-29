@@ -10,9 +10,9 @@ using Apex.Ledger.Services;
 namespace Apex.Desktop.Services;
 
 /// <summary>
-/// 🔴 <b>CENSUS 5.11 (wave 9, IV-260) — THE JOB-WORK DELIVERY CHALLAN that travels with a Material Out.</b> A
+/// 🔴 <b>CENSUS 5.11 (wave 9, IV-275..IV-277) — THE JOB-WORK DELIVERY CHALLAN that travels with a Material Out.</b> A
 /// Material Out is the principal's dispatch of goods to a job worker, and before this projector existed the
-/// product said so and printed nothing (<see cref="DeliveryChallanPrintProjector.JobWorkChallanNotBuilt"/>).
+/// product said so and printed nothing (the wave-8 <c>JobWorkChallanNotBuilt</c> notice, now deleted).
 ///
 /// <para><b>GROUNDING (R7, ruling 14 — official statutory sources, opened BY CONTENT 2026-10-29).</b> The vendor
 /// pages are silent on what a Material Out prints (IV-161), so the order of sources falls to the statute.</para>
@@ -32,7 +32,7 @@ namespace Apex.Desktop.Services;
 ///     in case of inter-State movement, and (i) a signature. Every one of (a)-(i) is a row or a column below.</item>
 /// </list>
 ///
-/// <para>🔴 <b>DIVERGENCE, OURS (ruling 9) — THE LAYOUT (IV-260).</b> The rule lists particulars; it prints no
+/// <para>🔴 <b>DIVERGENCE, OURS (ruling 9) — THE LAYOUT (IV-275).</b> The rule lists particulars; it prints no
 /// form. So the title, the block order, the column set and order, the captions, the tax-head footer and the
 /// signature wording are ours. The layout is deliberately NOT the Delivery-Note challan's
 /// (<see cref="DeliveryChallanPrintProjector"/>): that one is a customer's goods note with no GSTIN, HSN, tax rate
@@ -43,7 +43,7 @@ namespace Apex.Desktop.Services;
 /// shared <see cref="DeliveryChallanPrintProjector.StatedLine"/>, so the challan and the drilled pane cannot
 /// disagree. The rate is the item's GST rate resolved AS OF the voucher date by
 /// <see cref="GstService.ResolveRate"/>, the same resolver every invoice uses; the tax is <see cref="GstService.ComputeLineTax"/> on the line's
-/// taxable value, so CGST + SGST == IGST to the paisa exactly as on an invoice (IV-261).</para>
+/// taxable value, so CGST + SGST == IGST to the paisa exactly as on an invoice (IV-276).</para>
 ///
 /// <para>🔴 <b>IT REFUSES RATHER THAN ADDRESSES NOBODY</b> — a challan with no consignee names no job worker, so a
 /// movement with no party (its own or its linked order's) yields <see cref="NoJobWorker"/>; one with no outward
@@ -183,7 +183,7 @@ public static class JobWorkChallanPrintProjector
             "Total", string.Empty, string.Empty,
             IndianFormat.AmountAlways(totalValue), string.Empty, IndianFormat.AmountAlways(totalTax)));
 
-        // (g) the tax heads, summed from the per-line split. Stating them at the foot is OURS (IV-261).
+        // (g) the tax heads, summed from the per-line split. Stating them at the foot is OURS (IV-276).
         rows.Add(PrintRow.FullWidthText(string.Empty));
         if (interState == true)
             rows.Add(PrintRow.FullWidthText("Integrated tax: " + IndianFormat.AmountAlways(totalIntegrated)));
