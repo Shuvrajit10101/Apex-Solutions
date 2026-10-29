@@ -136,7 +136,7 @@ public static class JobWorkChallanPrintProjector
         rows.Add(PrintRow.FullWidthText(string.Empty));
 
         var gst = new GstService(company);
-        decimal totalValue = 0m, totalTax = 0m, totalCentral = 0m, totalState = 0m;
+        decimal totalValue = 0m, totalTax = 0m, totalCentral = 0m, totalState = 0m, totalIntegrated = 0m;
         int lineNo = 0;
         foreach (var a in goods)
         {
@@ -157,6 +157,7 @@ public static class JobWorkChallanPrintProjector
                 totalTax += (l2.Cgst + l2.Sgst + l2.Igst).Amount;
                 totalCentral += l2.Cgst.Amount;
                 totalState += l2.Sgst.Amount;
+                totalIntegrated += l2.Igst.Amount;
             }
 
             // (d) description of goods, drawn whole on its own full-width rows so a long name is never clipped.
@@ -185,7 +186,7 @@ public static class JobWorkChallanPrintProjector
         // (g) the tax heads, summed from the per-line split. Stating them at the foot is OURS (IV-261).
         rows.Add(PrintRow.FullWidthText(string.Empty));
         if (interState == true)
-            rows.Add(PrintRow.FullWidthText("Integrated tax: " + IndianFormat.AmountAlways(totalTax)));
+            rows.Add(PrintRow.FullWidthText("Integrated tax: " + IndianFormat.AmountAlways(totalIntegrated)));
         else if (interState == false)
             rows.Add(PrintRow.FullWidthText("Central tax: " + IndianFormat.AmountAlways(totalCentral)
                 + "   State tax: " + IndianFormat.AmountAlways(totalState)));
