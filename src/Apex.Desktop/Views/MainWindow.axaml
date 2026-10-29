@@ -9785,7 +9785,8 @@
                                     Content="{Binding BomMaster}">
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:BomMasterViewModel">
-                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6" Name="BomMasterRoot" Focusable="True"
+                                Background="Transparent" AttachedToVisualTree="OnBomMasterRootAttached">
                             <!-- Census 3.9: the caption names the verb Ctrl+A runs (Creation vs the item-side
                                  Components alteration opened by "Alter Components (BOM)"). -->
                             <TextBlock Grid.Row="0" Name="BomMasterCaption" Text="{Binding Caption}"

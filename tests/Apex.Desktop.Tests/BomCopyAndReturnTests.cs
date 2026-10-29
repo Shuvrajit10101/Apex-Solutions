@@ -467,6 +467,11 @@ public sealed class BomCopyAndReturnTests
             var list = OpenNameListByKeyboard(window, vm);
             Key(window, PhysicalKey.ArrowDown);
             Key(window, PhysicalKey.Enter);                       // Export
+            // The list stays drawn beneath; its new-name box must NOT keep the caret, or letters typed on the
+            // components screen would edit a name on the screen behind it.
+            Assert.NotSame(Named<TextBox>(window, "BomNameListNewName"), Focused(window));
+            TypeIntoFocused(window, "x");
+            Assert.Equal(string.Empty, list.NewName ?? string.Empty);
             vm.BomMaster!.Lines.First(l => !l.IsBlank).QuantityText = "0.375";
             Key(window, PhysicalKey.A, RawInputModifiers.Control);
             Assert.Contains("altered", vm.BomMaster!.Message ?? string.Empty);
