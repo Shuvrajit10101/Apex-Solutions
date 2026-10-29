@@ -86,6 +86,48 @@ public sealed class HsnSourceWalkDocumentTests
         AssertEveryDocumentFiles(c, sale, expected);
     }
 
+    /// <summary>
+    /// GSTR-9 Table 18 (inward HSN) reads the same walk off the PURCHASE ledger: an item with no HSN bought through a
+    /// purchase ledger that declares one files that code, under both orders, on the reloaded book's JSON bytes.
+    /// </summary>
+    [Theory]
+    [InlineData(GstDetailSource.LedgerFirst)]
+    [InlineData(GstDetailSource.StockItemFirst)]
+    public void Table_18_files_the_purchase_ledgers_hsn_for_an_item_with_none(GstDetailSource order)
+    {
+        var (book, _) = Build(order, itemHsn: null, Carrier.Ledger);
+        var c = book;
+        var gst = new GstService(c);
+        var widget = c.StockItems.Single(i => i.Name == "Widget");
+        var purchases = Add(c, "Purchases", "Purchase Accounts", true);
+        purchases.SalesPurchaseGst = new StockItemGstDetails
+        { HsnSac = LedgerHsn, Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        var supplier = Add(c, "Supplier", "Sundry Creditors", false);
+        supplier.PartyGst = new PartyGstDetails
+        { RegistrationType = GstRegistrationType.Regular, Gstin = GstinBuyer, StateCode = "27" };
+        var tax = gst.ComputeInvoiceTax(
+            new[] { new GstService.TaxableLine(Money.FromRupees(7_777.77m), 1800, null) },
+            interState: false, GstTaxDirection.Input);
+        var legs = new List<EntryLine>
+        {
+            new(purchases.Id, Money.FromRupees(7_777.77m), DrCr.Debit),
+            new(supplier.Id, new Money(7_777.77m + tax.TotalTax.Amount), DrCr.Credit),
+        };
+        legs.AddRange(tax.TaxLines);
+        var purchaseType = c.VoucherTypes.First(t => t.BaseType == VoucherBaseType.Purchase).Id;
+        var purchase = new LedgerService(c).Post(new Voucher(
+            Guid.NewGuid(), purchaseType, SaleDate, legs, partyId: supplier.Id,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(widget.Id, c.MainLocation!.Id, 1m, Money.FromRupees(7_777.77m)),
+            }));
+
+        var (reloaded, _) = Reload((c, purchase));
+        using var g9 = JsonDocument.Parse(GstReturnJson.Gstr9(reloaded, FyStart, FyEnd));
+        var row = Assert.Single(g9.RootElement.GetProperty("tbl18_hsn").EnumerateArray());
+        Assert.Equal(LedgerHsn, row.GetProperty("hsn_sac").GetString());   // main: "(none)"
+    }
+
     // ================================================================ the four artefacts
 
     private static void AssertEveryDocumentFiles(Company c, Voucher sale, string expected)
