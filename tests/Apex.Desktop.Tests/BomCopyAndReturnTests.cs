@@ -628,4 +628,62 @@ public sealed class BomCopyAndReturnTests
         }
         finally { Cleanup(window, dir); }
     }
+
+    /// <summary>
+    /// W9 verifier (track fb): the Ctrl+A half of review F2. Ctrl+A on Copy BoM Details copies at once from the Stock
+    /// Item field (<see cref="CopyBomDetailsViewModel.AcceptAsIs"/>) through the Ctrl+A arm's own call site, which no
+    /// other test reaches (deleting its refocus left every BOM test green). Driven on an ALTERATION so the save is
+    /// in place, with a two-digit unit typed as keystrokes and the book re-read through a fresh store. Escape from the
+    /// unit box then returns to the M BOM list with the caret in its new-name box.
+    /// </summary>
+    [AvaloniaFact]
+    public void CtrlA_on_Copy_BoM_Details_copies_at_once_and_the_caret_is_on_the_unit_of_manufacture()
+    {
+        const string company = "Fb Verify CtrlA Co";
+        var (window, vm, dir) = NewWindow(company);
+        try
+        {
+            var s = Seed(vm, dir, defineType: true);
+            var list = OpenNameListByKeyboard(window, vm);
+            Key(window, PhysicalKey.ArrowDown);
+            Assert.Equal("Export", list.HighlightedRow?.Name);
+            Key(window, PhysicalKey.Enter);
+            Assert.True(vm.BomMaster!.IsAltering);
+
+            var copy = PressCopyBom(window, vm);
+            Assert.False(copy.IsBomFieldActive);                  // still on Stock Item: Ctrl+A copies from here
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            var uom = Named<TextBox>(window, "BomUnitOfManufacture");
+            Assert.NotNull(uom);
+            Assert.Same(uom, Focused(window));
+            Assert.Equal(string.Empty, uom!.Text ?? string.Empty);
+
+            foreach (var (key, ch) in new[] { (PhysicalKey.Digit3, "3"), (PhysicalKey.Digit7, "7") })
+            {
+                window.KeyPressQwerty(key, RawInputModifiers.None);
+                window.KeyTextInput(ch);
+                window.KeyReleaseQwerty(key, RawInputModifiers.None);
+                Dispatcher.UIThread.RunJobs();
+            }
+            Assert.Equal("37", uom.Text);
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Contains("altered", vm.BomMaster!.Message ?? string.Empty);
+
+            var reloaded = LoadBack(dir, company);
+            Assert.Equal(3, reloaded.BillsOfMaterials.Count);
+            var export = reloaded.FindBillOfMaterials(s.ExportId);
+            Assert.NotNull(export);                                // the ORIGINAL id
+            Assert.Equal("Export", export!.Name);
+            Assert.Equal(37m, export.UnitOfManufacture);
+            AssertHasStandardsLines(reloaded, export, s);
+            AssertStandardUntouched(reloaded, s);
+
+            Assert.Same(uom, Focused(window));                    // the save leaves the caret where it was
+            Key(window, PhysicalKey.Escape);
+            Assert.Equal(Screen.BomNameList, vm.CurrentScreen);
+            Assert.Same(Named<TextBox>(window, "BomNameListNewName"), Focused(window));
+        }
+        finally { Cleanup(window, dir); }
+    }
 }
