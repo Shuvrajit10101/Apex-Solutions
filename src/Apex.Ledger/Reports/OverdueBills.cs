@@ -39,12 +39,29 @@ public sealed record OverdueBills(
     IReadOnlyList<OverdueParty> Parties,
     Money Total)
 {
+    /// <summary>The F6 basis <see cref="Ageing"/> was bucketed on (census 11.13 / 11.9, T2-24).</summary>
+    public AgeingMethod AgeingMethod { get; init; } = AgeingMethod.ByDueDate;
+
+    /// <summary>The overdue bills' pending amounts aged into the windows of <see cref="AgeingMethod"/> — the same
+    /// buckets, over the same bills, that Bills Receivable / Payable shows under Type of Bills = Overdue Bills.</summary>
+    public IReadOnlyList<AgeingBucket> Ageing { get; init; } = Array.Empty<AgeingBucket>();
+
     /// <summary>Builds one side of the overdue report as of <paramref name="asOf"/>. Parties keep the
-    /// Outstandings emission order (ledger order, then each ledger's first-opened bill order).</summary>
-    public static OverdueBills Build(Company company, DateOnly asOf, OutstandingKind kind, Scenario? scenario = null)
+    /// Outstandings emission order (ledger order, then each ledger's first-opened bill order).
+    /// <para>🔴 The overdue filter is NOT applied here. It is <see cref="TypeOfBills.OverdueBills"/> on
+    /// <see cref="Outstandings.Build"/> — the same call Bills Receivable / Payable makes under Basis of Values &gt;
+    /// Type of Bills &gt; Overdue Bills — so the two surfaces cannot list different bills or different
+    /// pending amounts. Membership is always by DUE date (a bill is overdue when its due date has passed);
+    /// <paramref name="ageingMethod"/> moves only the ageing buckets.</para></summary>
+    public static OverdueBills Build(
+        Company company,
+        DateOnly asOf,
+        OutstandingKind kind,
+        Scenario? scenario = null,
+        AgeingMethod ageingMethod = AgeingMethod.ByDueDate)
     {
         ArgumentNullException.ThrowIfNull(company);
-        var report = Outstandings.Build(company, asOf, scenario);
+        var report = Outstandings.Build(company, asOf, scenario, ageingMethod, TypeOfBills.OverdueBills);
         var source = kind == OutstandingKind.Receivable ? report.Receivables : report.Payables;
 
         var parties = new List<OverdueParty>();
@@ -52,7 +69,6 @@ public sealed record OverdueBills(
         var order = new List<(Guid Id, string Name)>();
         foreach (var bill in source)
         {
-            if (!bill.IsOverdue(asOf)) continue;
             if (!byLedger.TryGetValue(bill.LedgerId, out var list))
             {
                 list = new List<OutstandingBill>();
@@ -72,6 +88,10 @@ public sealed record OverdueBills(
             parties.Add(new OverdueParty(id, name, bills, new Money(total)));
         }
 
-        return new OverdueBills(asOf, kind, parties, new Money(grand));
+        return new OverdueBills(asOf, kind, parties, new Money(grand))
+        {
+            AgeingMethod = ageingMethod,
+            Ageing = kind == OutstandingKind.Receivable ? report.ReceivableAgeing : report.PayableAgeing,
+        };
     }
 }
