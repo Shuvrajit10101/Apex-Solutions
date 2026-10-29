@@ -2360,4 +2360,32 @@ public static class GstReportSupport
         ArgumentNullException.ThrowIfNull(company);
         return new GstService(company).ResolveDocumentHsnSac(item, valueLedger);
     }
+
+    /// <summary>
+    /// 🔴 <b>T2-162 (census 6.12) — a §34 note LINKED TO AN INWARD ORIGINAL (a Purchase): the supplier's document,
+    /// which adjusts a supply made TO us.</b> True iff the note carries a <see cref="GstCreditDebitNoteLink"/> whose
+    /// original voucher resolves and whose base type maps to <see cref="GstTaxDirection.Input"/>.
+    ///
+    /// <para><b>What it fixes.</b> <c>Gstr3b.ReadCdn</c> and <c>Gstr1.BuildTable9B</c> walked EVERY link as an OUTWARD
+    /// note, and <c>Gstr3b.ReadSide</c> excluded every linked note from the ITC sweep, so a purchase-linked note's
+    /// INPUT legs moved GSTR-3B 3.1(a) by ±₹360 and never reduced 4(A)(5) — GSTR-9C 12F −360.00 on a reloaded book
+    /// whose 9C books anchor was already right. CGST Act §34(1)/(3) put the note on "the registered person who has
+    /// supplied", and GSTR-1 is the statement of outward supplies, so a note on a purchase belongs to our inward
+    /// side and nowhere in GSTR-1.</para>
+    ///
+    /// <para><b>The discriminator is the LINKED ORIGINAL's base type</b> — the same one <see cref="SignOf"/> and the
+    /// printed-document classifier key on, so the three cannot disagree about which side a note is on. A note with
+    /// a CONSOLIDATED (null) original is left to its own base type exactly as before: that shape is <c>T2-163</c>'s and
+    /// is owned by another track this wave, and reading it off the posted legs here would re-file a wrong-posted
+    /// outward debit note as an ITC reduction.</para>
+    /// </summary>
+    public static bool IsInwardLinkedCreditDebitNote(Company company, Voucher voucher)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(voucher);
+        return CdnLinkFor(company, voucher) is { OriginalInvoiceVoucherId: Guid originalId }
+            && company.FindVoucher(originalId) is { } original
+            && company.FindVoucherType(original.TypeId)?.BaseType is { } originalBase
+            && DirectionOf(originalBase) == GstTaxDirection.Input;
+    }
 }

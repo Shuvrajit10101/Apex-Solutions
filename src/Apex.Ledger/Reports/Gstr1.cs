@@ -571,6 +571,9 @@ public sealed record Gstr1(
             // registration filter is applied here too — a credit note issued under the Tamil Nadu GSTIN must not
             // appear in, or net down the header of, the Karnataka return.
             if (scope is { } s && GstReportSupport.RegistrationOf(v) != s) continue;
+            // 🔴 T2-162: a note linked to a PURCHASE is the supplier's document, not one of our outward notes — GSTR-1
+            // is the statement of outward supplies. GSTR-3B counts it in ITC (Gstr3b.ReadSide).
+            if (GstReportSupport.IsInwardLinkedCreditDebitNote(company, v)) continue;
 
             var heads = ReadInvoiceHeads(v);              // positive magnitudes
             var taxable = GstReportSupport.InvoiceTaxableValue(v).Amount;

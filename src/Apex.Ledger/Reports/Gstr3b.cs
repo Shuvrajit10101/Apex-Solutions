@@ -502,6 +502,10 @@ public sealed record Gstr3b(
             // not net down the Karnataka return's 3.1(a).
             if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
 
+            // 🔴 T2-162: a note linked to a PURCHASE is the supplier's document and adjusts ITC, not 3.1(a) — it is
+            // counted once, in ReadSide's Input sweep. Folding its INPUT legs here moved 3.1(a) by ±₹360.
+            if (GstReportSupport.IsInwardLinkedCreditDebitNote(company, v)) continue;
+
             var sign = link.CdnType == CdnType.Credit ? -1m : 1m;
             foreach (var line in v.Lines)
             {
@@ -536,7 +540,11 @@ public sealed record Gstr3b(
             // 🔴 THIS EXCLUSION IS LOAD-BEARING AND MUST STAY FIRST, now more than before: the sign below would otherwise
             // reduce a LINKED note a SECOND time on top of ReadCdn's own signed projection (4,500 − 900 − 900 = 2,700).
             // Pinned by Gstr3bUnlinkedReturnNoteSignTests.A_linked_section_34_note_is_still_reduced_exactly_once.
-            if (GstReportSupport.CdnLinkFor(company, voucher) is not null) continue;
+            // 🔴 T2-162: EXCEPT a note linked to a PURCHASE on the ITC sweep — ReadCdn no longer folds it (it is the
+            // supplier's document, not ours), so it is counted here, once, signed by SignOf (−1 for a purchase return).
+            if (GstReportSupport.CdnLinkFor(company, voucher) is not null
+                && !(direction == GstTaxDirection.Input && GstReportSupport.IsInwardLinkedCreditDebitNote(company, voucher)))
+                continue;
 
             // 🔴🔴 BOTH ARMS ARE SIGNED, AND THE TWO RULES ARRIVED FROM TWO DIFFERENT BRANCHES IN ONE WAVE (A12,
             // wave 44). Each branch fixed ONE direction and REFUSED the other on purpose; this is the union, so each
@@ -616,6 +624,28 @@ public sealed record Gstr3b(
             if (hasTax)
                 taxable += sign * GstReportSupport.InvoiceTaxableValue(voucher).Amount;
         }
+
+        // 🔴 T2-162 — a CREDIT NOTE linked to a PURCHASE (the supplier's credit note, recorded against our purchase)
+        // has an OUTWARD base type, so the Input funnel above never sees it; the outward sweep excludes it as a linked
+        // note and ReadCdn no longer folds it into 3.1(a). It reduces the ITC the purchase availed, so its tax legs are
+        // subtracted here. Measured on main: purchase ₹10,000 @ 18% + this note ₹2,000 filed 4(A)(5) 900/900 and
+        // 3.1(a) −180/−180; correct is 720/720 and 3.1(a) untouched.
+        if (direction == GstTaxDirection.Input)
+            foreach (var (note, noteType) in GstReportSupport.PostedGstVouchers(company, from, to, GstTaxDirection.Output, registrationId))
+            {
+                if (noteType.BaseType != VoucherBaseType.CreditNote
+                    || !GstReportSupport.IsInwardLinkedCreditDebitNote(company, note)) continue;
+                foreach (var line in note.Lines)
+                {
+                    if (line.Gst is not { } g || g.IsReverseCharge) continue;
+                    switch (g.TaxHead)
+                    {
+                        case GstTaxHead.Central: cgst -= line.Amount.Amount; break;
+                        case GstTaxHead.State: sgst -= line.Amount.Amount; break;
+                        case GstTaxHead.Integrated: igst -= line.Amount.Amount; break;
+                    }
+                }
+            }
 
         // Exempt/nil/non-GST outward value: outward vouchers with a stock/sales leg but NO tax line. These are
         // filtered out of PostedGstVouchers (which requires a tax line), so scan outward vouchers separately.
