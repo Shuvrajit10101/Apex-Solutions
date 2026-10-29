@@ -290,21 +290,22 @@ public sealed class DeliveryChallanDocumentTests
     }
 
     /// <summary>
-    /// 🔴 <b>w8 fix (review ec MEDIUM-1) — A MATERIAL OUT IS NEVER TOLD IT HAS "NO PRINTED DOCUMENT".</b> It is the
+    /// 🔴 <b>CENSUS 5.11 (w9, IV-275..IV-277) — A MATERIAL OUT NOW PRINTS ITS JOB-WORK DELIVERY CHALLAN.</b> It is the
     /// principal's dispatch to a job worker, and CBIC Circular No. 38/12/2018 para 8.4(i)
-    /// (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened by content 2026-10-27) requires a challan "in terms of
-    /// rules 45 and 55" for it. We do not build that challan, so the refusal names it and says so. The job-work
-    /// ORDERS and Material In are not the principal's dispatch documents and keep the generic notice: the control
-    /// rows. <b>Mutation:</b> removing the Material Out arm in <c>DeliveryChallanPrintProjector.Project</c> reddens
-    /// the MaterialOut row.
+    /// (cbic-gst.gov.in/pdf/circularno-38-cgst.pdf, opened by content 2026-10-29) requires a challan "in terms of
+    /// rules 45 and 55" for it. The wave-8 refusal that said we did not build it is gone; the document is the job-work
+    /// layout (<see cref="JobWorkChallanPrintProjector"/>), never this file's Delivery-Note layout. The job-work ORDERS
+    /// and Material In are not the principal's dispatch documents and keep the generic notice: the control rows.
+    /// <b>Mutation (M1):</b> restoring the refusal for a Material Out in <c>DeliveryChallanPrintProjector.Project</c>
+    /// reddens the MaterialOut row.
     /// </summary>
     [Theory]
     [InlineData(VoucherBaseType.MaterialOut, true)]
     [InlineData(VoucherBaseType.MaterialIn, false)]
     [InlineData(VoucherBaseType.JobWorkOutOrder, false)]
     [InlineData(VoucherBaseType.JobWorkInOrder, false)]
-    public void A_material_out_refusal_names_the_job_work_challan_rather_than_denying_a_document(
-        VoucherBaseType baseType, bool namesTheJobWorkChallan)
+    public void A_material_out_prints_the_job_work_challan_and_the_other_job_work_kinds_do_not(
+        VoucherBaseType baseType, bool printsTheJobWorkChallan)
     {
         var k = Seed();
         var party = Party(k, "Worker Fabricators");
@@ -313,15 +314,18 @@ public sealed class DeliveryChallanDocumentTests
 
         var p = DeliveryChallanPrintProjector.Project(k.C, v);
 
-        Assert.Null(p.Document);
-        if (namesTheJobWorkChallan)
+        if (printsTheJobWorkChallan)
         {
-            Assert.Equal(DeliveryChallanPrintProjector.JobWorkChallanNotBuilt, p.Refusal);
-            Assert.DoesNotContain("no printed document", p.Refusal!, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("Rules 45 and 55", p.Refusal!, StringComparison.Ordinal);
+            Assert.Null(p.Refusal);
+            Assert.Equal(JobWorkChallanPrintProjector.Title, p.Document!.Title);
+            var s = AsLatin1(ReportPdf.Render(p.Document!, new PageConfig()));
+            Assert.Contains("(Consignee \\(Job Worker\\): Worker Fabricators) Tj", s, StringComparison.Ordinal);
+            Assert.DoesNotContain("Tracking No.", s, StringComparison.Ordinal);
+            Assert.DoesNotContain(DeliveryChallanPrintProjector.Title + ")", s, StringComparison.Ordinal);
         }
         else
         {
+            Assert.Null(p.Document);
             Assert.Equal(DeliveryChallanPrintProjector.NotAChallan, p.Refusal);
         }
     }

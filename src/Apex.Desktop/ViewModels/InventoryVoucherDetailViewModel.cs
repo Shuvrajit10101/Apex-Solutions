@@ -106,7 +106,7 @@ public sealed partial class InventoryVoucherDetailViewModel : ViewModelBase
     public PrintPreviewViewModel? BuildPrintPreview()
     {
         if (ChallanProjection.Document is not { } challan) return null;
-        return new PrintPreviewViewModel(challan, DeliveryChallanPrintProjector.Title);
+        return new PrintPreviewViewModel(challan, challan.Title);   // w9: a Material Out carries its own title
     }
 
     /// <summary>

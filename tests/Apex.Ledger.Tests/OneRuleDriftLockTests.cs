@@ -474,6 +474,13 @@ public sealed class OneRuleDriftLockTests
     ///     <c>IsWhollyExemptItemSupply</c>, which makes the identical resolved-vs-non-taxable discrimination for the
     ///     TAX-INVOICE-vs-BILL-OF-SUPPLY title, and it adds no master-drift exposure that method did not already
     ///     carry on the same lines of the same voucher.</item>
+    ///   <item>🔴 <b>Census 5.11 (wave 9) added the TWELFTH: <c>JobWorkChallanPrintProjector.RateBasisPoints</c>.</b>
+    ///     A PRINT path, so the decision is recorded here. <b>There are no posted legs to read instead:</b> a Material
+    ///     Out moves stock and posts NO accounting voucher, so no <c>GstLineTax</c> exists for it anywhere in the
+    ///     book, and CGST Rule 55(g) still asks the job-work challan for a tax rate and amount. It passes the VOUCHER
+    ///     DATE, so a dated <c>RateHistory</c> row keeps a reprint at the historic rate; a master rate changed with
+    ///     no dated row DOES re-rate a reprinted challan, which is recorded as ours in
+    ///     <c>docs/invented-vs-cloned.md</c> IV-276. It moves no rupee in the books.</item>
     /// </list>
     ///
     /// <para>🔴 <b>Historical note, kept because the count is what surfaced it:</b> the T0-4 design's survey named
@@ -484,11 +491,13 @@ public sealed class OneRuleDriftLockTests
     /// two-argument overload is deleted outright.</para>
     /// </summary>
     [Fact]
-    public void ResolveRateHasExactlyTheElevenKnownCallSites() =>
+    public void ResolveRateHasExactlyTheTwelveKnownCallSites() =>
         AssertExactInventory(
             "D10 ResolveRate call sites", D10ResolveRateCallSite,
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
+                // Census 5.11 w9: the job-work challan's rate. A print path with NO posted legs to read (see above).
+                ["src/Apex.Desktop/Services/JobWorkChallanPrintProjector.cs"] = 1,
                 ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
                 ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
                 // 3, not 2: BucketingRateOf + IsNonTaxableStockLine (T1-59, see the list above) + the
