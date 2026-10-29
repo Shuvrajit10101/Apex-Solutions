@@ -41,6 +41,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
     private const string HomeGstin = "27AAPFU0939F1ZV";
     private const string WorkerGstin = "27AAACR5055K1Z5";
     private const string WorkerName = "Precision Platers & Anodisers Private Limited";
+    private const string PrincipalMailingName = "Dock Road Valve Works";
 
     private static void Pump(MainWindow w)
     {
@@ -69,6 +70,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
         });
         c.Address = "12 Dock Road\nMumbai";
         c.Pin = "400001";
+        c.MailingName = PrincipalMailingName;   // w9 review: the consigner's NAME, Rule 55(b), is asserted by value
         vm.ShowGstConfig();
         vm.GstConfig!.EnableJobOrderProcessing = true;   // the F11 feature, through its own screen
         vm.Back();
@@ -130,11 +132,15 @@ public sealed class JobWorkChallanRouteTests : IDisposable
 
     /// <summary>Every Rule 55 particular, read off the emitted Tj operands. Parentheses inside a PDF string are
     /// escaped, so "Maharashtra (27)" is drawn as <c>Maharashtra \(27\)</c>.</summary>
-    private static void AssertTheRule55Particulars(string s, string number)
+    private static void AssertTheRule55Particulars(string s, string number, DateOnly date)
     {
         Assert.Contains(JobWorkChallanPrintProjector.Title, s, StringComparison.Ordinal);
-        Assert.Contains("(Challan No. " + number + "   Date ", s, StringComparison.Ordinal);                 // (a)
-        Assert.Contains("(Consigner \\(Principal\\): ", s, StringComparison.Ordinal);                         // (b)
+        // w9 review (fc): the DATE and the consigner NAME are pinned to their values, not only to their captions.
+        // Shifting the header date by a day, or blanking the consigner name, passed every test before this.
+        Assert.Contains("(Challan No. " + number + "   Date "
+            + date.ToString("dd-MM-yyyy", System.Globalization.CultureInfo.InvariantCulture) + ") Tj",
+            s, StringComparison.Ordinal);                                                                     // (a)
+        Assert.Contains("(Consigner \\(Principal\\): " + PrincipalMailingName + ") Tj", s, StringComparison.Ordinal); // (b)
         Assert.Contains("(12 Dock Road) Tj", s, StringComparison.Ordinal);
         Assert.Contains("(PIN: 400001) Tj", s, StringComparison.Ordinal);
         Assert.Contains("(GSTIN: " + HomeGstin + ") Tj", s, StringComparison.Ordinal);
@@ -184,7 +190,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
             Assert.Equal(JobWorkChallanPrintProjector.Title, preview!.ReportTitle);
             var c = k.Vm.Company!;
             var movement = c.InventoryVouchers.Single(v => v.TypeId == TypeOf(k, VoucherBaseType.MaterialOut).Id);
-            AssertTheRule55Particulars(Encoding.Latin1.GetString(preview.PdfBytes), c.FormatVoucherNumber(movement));
+            AssertTheRule55Particulars(Encoding.Latin1.GetString(preview.PdfBytes), c.FormatVoucherNumber(movement), movement.Date);
         }
         finally { w.Close(); }
     }
@@ -246,7 +252,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
             var preview = vm.PrintPreview;
             Assert.NotNull(preview);
             Assert.Equal(JobWorkChallanPrintProjector.Title, preview!.ReportTitle);
-            AssertTheRule55Particulars(Encoding.Latin1.GetString(preview.PdfBytes), number);
+            AssertTheRule55Particulars(Encoding.Latin1.GetString(preview.PdfBytes), number, movement.Date);
             Assert.DoesNotContain("Day Book", Encoding.Latin1.GetString(preview.PdfBytes), StringComparison.Ordinal);
 
             window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
@@ -258,7 +264,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
             Directory.CreateDirectory(_dir);
             var docPath = Path.Combine(_dir, "jw-share.pdf");
             Assert.True(vm.SaveWhatsAppDocument(docPath));
-            AssertTheRule55Particulars(Encoding.Latin1.GetString(File.ReadAllBytes(docPath)), number);
+            AssertTheRule55Particulars(Encoding.Latin1.GetString(File.ReadAllBytes(docPath)), number, movement.Date);
         }
         finally { window.Close(); }
     }

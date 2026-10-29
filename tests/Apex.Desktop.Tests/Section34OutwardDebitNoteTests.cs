@@ -6,6 +6,7 @@ using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
 using Apex.Ledger.Io;
@@ -118,6 +119,19 @@ public sealed class Section34OutwardDebitNoteTests : IDisposable
         e.CdnOriginalInvoiceNumber = "INV-77";
         e.SelectedCdnReasonCode = "04 Correction in invoice";
         Pump(w);
+
+        // w9 review (fc): the derived-legs line the operator READS before Ctrl+A must name the head the note will
+        // POST. The item line is keyed BEFORE §34 is switched on, so only the §34 change handlers' recalculation
+        // can move it. Read off the REALISED TextBlock, not the view-model string. Reverting either the handlers'
+        // RecalculateItemInvoice or the preview head (back to IsPurchaseSideInvoice) leaves it reading "Input" on
+        // the customer note, and reddens the customer test here.
+        var preview = w.GetVisualDescendants().OfType<Avalonia.Controls.TextBlock>()
+            .Select(t => t.Text ?? string.Empty)
+            .Single(t => t.StartsWith("Dr " + e.SelectedParty!.Ledger!.Name + " 708.00", StringComparison.Ordinal));
+        var head = partyId == k.CustomerId ? "Output" : "Input";
+        Assert.Contains("Cr " + head + " CGST 54.00", preview, StringComparison.Ordinal);
+        Assert.Contains("Cr " + head + " SGST 54.00", preview, StringComparison.Ordinal);
+        Assert.DoesNotContain(head == "Output" ? "Input" : "Output", preview, StringComparison.Ordinal);
 
         w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
         Pump(w);
