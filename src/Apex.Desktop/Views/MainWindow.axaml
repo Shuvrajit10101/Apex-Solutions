@@ -20063,20 +20063,39 @@
                             <Border Grid.Row="2" Background="White"
                                     BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
                               <StackPanel Spacing="10">
-                                <TextBlock Text="Scale Factor" FontWeight="SemiBold" FontSize="13"
-                                           Foreground="{StaticResource BrandNavy}"/>
-                                <TextBlock Text="Figures are shown divided by the chosen unit. The books are unchanged."
-                                           FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                <StackPanel Spacing="10" IsVisible="{Binding ShowScaleFactor}">
+                                  <TextBlock Text="Scale Factor" FontWeight="SemiBold" FontSize="13"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBlock Text="Figures are shown divided by the chosen unit. The books are unchanged."
+                                             FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
 
-                                <ComboBox ItemsSource="{Binding ScaleOptions}"
-                                          SelectedItem="{Binding SelectedScale, Mode=TwoWay}"
-                                          HorizontalAlignment="Stretch" FontSize="13">
-                                  <ComboBox.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ReportScaleOption">
-                                      <TextBlock Text="{Binding Display}"/>
-                                    </DataTemplate>
-                                  </ComboBox.ItemTemplate>
-                                </ComboBox>
+                                  <ComboBox ItemsSource="{Binding ScaleOptions}"
+                                            SelectedItem="{Binding SelectedScale, Mode=TwoWay}"
+                                            HorizontalAlignment="Stretch" FontSize="13">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:ReportScaleOption">
+                                        <TextBlock Text="{Binding Display}"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </StackPanel>
+
+                                <!-- Census 11.13: Type of Bills on Bills Receivable / Payable ("To view only overdue
+                                     bills, use Basis of Values to select Overdue Bills in Type of Bills."). -->
+                                <StackPanel Spacing="10" IsVisible="{Binding ShowTypeOfBills}">
+                                  <TextBlock Text="Type of Bills" FontWeight="SemiBold" FontSize="13"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox x:Name="TypeOfBillsCombo"
+                                            ItemsSource="{Binding TypeOfBillsOptions}"
+                                            SelectedItem="{Binding SelectedTypeOfBills, Mode=TwoWay}"
+                                            HorizontalAlignment="Stretch" FontSize="13">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:TypeOfBillsOption">
+                                        <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </StackPanel>
 
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" Text="{Binding Status}"
