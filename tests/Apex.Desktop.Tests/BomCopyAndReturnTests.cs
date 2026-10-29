@@ -573,4 +573,54 @@ public sealed class BomCopyAndReturnTests
         }
         finally { Cleanup(window, dir); }
     }
+
+    /// <summary>
+    /// Review W9-fb F2: the vendor's screenshot of the copied BOM (<c>copy-of-bom-bom-screen-tally.gif</c>) shows the
+    /// caret on the empty Unit of manufacture. Before the fix the copy left NOTHING focused, so the digits typed next
+    /// were dropped. Here the unit of manufacture is TYPED as keystrokes (not set on the view model), saved with
+    /// Ctrl+A and re-read through a fresh store. Escape on Copy BoM Details hands focus back to the components screen.
+    /// </summary>
+    [AvaloniaFact]
+    public void After_the_copy_the_caret_is_on_the_unit_of_manufacture_and_typed_digits_are_saved()
+    {
+        const string company = "Fb Copy Caret Co";
+        var (window, vm, dir) = NewWindow(company);
+        try
+        {
+            var s = Seed(vm, dir, defineType: true);
+            OpenNameListByKeyboard(window, vm);
+            TypeIntoFocused(window, "Kiosk");
+            Key(window, PhysicalKey.Enter);
+
+            // Escape on Copy BoM Details: back on the components screen, focus on it rather than nowhere.
+            PressCopyBom(window, vm);
+            Key(window, PhysicalKey.Escape);
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            Assert.Same(Named<Grid>(window, "BomMasterRoot"), Focused(window));
+
+            PressCopyBom(window, vm);
+            Key(window, PhysicalKey.Enter);                       // Stock Item -> Component of BOM
+            Key(window, PhysicalKey.Enter);                       // copy Standard
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            var uom = Named<TextBox>(window, "BomUnitOfManufacture");
+            Assert.NotNull(uom);
+            Assert.Same(uom, Focused(window));
+            Assert.Equal(string.Empty, uom!.Text ?? string.Empty);
+
+            window.KeyPressQwerty(PhysicalKey.Digit6, RawInputModifiers.None);
+            window.KeyTextInput("6");
+            window.KeyReleaseQwerty(PhysicalKey.Digit6, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal("6", uom.Text);
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Contains("created", vm.BomMaster!.Message ?? string.Empty);
+
+            var reloaded = LoadBack(dir, company);
+            var made = reloaded.FindBomByName(s.Table, "Kiosk");
+            Assert.NotNull(made);
+            Assert.Equal(6m, made!.UnitOfManufacture);
+            AssertHasStandardsLines(reloaded, made, s);
+        }
+        finally { Cleanup(window, dir); }
+    }
 }

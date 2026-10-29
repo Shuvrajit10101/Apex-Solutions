@@ -9807,7 +9807,8 @@
                                     <TextBlock Grid.Column="2" Text="Unit of Mfg" FontWeight="SemiBold"
                                                VerticalAlignment="Center" Margin="10,0,0,0"
                                                Foreground="{StaticResource BrandNavy}"/>
-                                    <TextBox Grid.Column="3" Text="{Binding UnitOfManufactureText, Mode=TwoWay}"
+                                    <TextBox Grid.Column="3" Name="BomUnitOfManufacture"
+                                             Text="{Binding UnitOfManufactureText, Mode=TwoWay}"
                                              TextAlignment="Right" PlaceholderText="1"/>
                                   </Grid>
                                   <Grid ColumnDefinitions="120,*">

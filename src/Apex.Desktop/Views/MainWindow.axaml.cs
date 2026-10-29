@@ -571,7 +571,11 @@ public partial class MainWindow : Window
             else if (vm.CurrentScreen == Screen.Form27A)
                 vm.Form27A?.ExportPdf();
             else
+            {
+                var fromCopyBom = vm.CurrentScreen == Screen.CopyBomDetails;
                 vm.ActivateSelected();
+                AfterCopyBomApplied(vm, fromCopyBom);
+            }
             e.Handled = true;
             return;
         }
@@ -2122,9 +2126,13 @@ public partial class MainWindow : Window
             // means "drill" on every other report in the product. Ctrl+A (:537) and the WI-11 "Y" confirmation
             // both keep the default `true`, so the ~40 accept screens are untouched.
             case Key.Enter when !IsPickerOpen(e):
+            {
+                var fromCopyBom = vm.CurrentScreen == Screen.CopyBomDetails;
                 vm.ActivateSelected(viaAcceptChord: false);
+                AfterCopyBomApplied(vm, fromCopyBom);
                 e.Handled = true;
                 break;
+            }
             // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a
             // navigation key only when not editing a text field (there it moves the caret).
             //
@@ -2140,6 +2148,7 @@ public partial class MainWindow : Window
             // column in one press, or ~157 form screens lose a keyboard exit
             // (Left_on_a_CLOSED_picker_still_pops_the_column_in_one_press locks it).
             case Key.Left when !IsTyping(e) && !IsPickerOpen(e):
+                if (vm.CurrentScreen == Screen.CopyBomDetails) FocusNamedAfterPop("BomMasterRoot");
                 vm.Back();
                 // Census 3.9 (IV-227), the same refocus as the Escape arm below: the components screen opens with
                 // focus on its root, which is exactly where Left pops, so without this the M BOM list came back
@@ -2158,6 +2167,9 @@ public partial class MainWindow : Window
             // unhandled (measured), so if this arm yielded on mere focus there would be no keyboard way out of a
             // form column on ~157 screens.
             case Key.Escape when !IsPickerOpen(e):
+                // Census 3.9 (review W9-fb F2): Escape on Copy BoM Details removes the focused panel; give the
+                // components screen beneath its keyboard context back rather than leave nothing focused.
+                if (vm.CurrentScreen == Screen.CopyBomDetails) FocusNamedAfterPop("BomMasterRoot");
                 vm.Back();
                 // Census 3.9 (IV-227): Escape from the components screen now lands back on the M BOM list, whose
                 // new-name box is still attached, so its attach-time focus does not run again. Put the caret back.
@@ -2565,6 +2577,32 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             if (box.IsEffectivelyVisible && box.IsEffectivelyEnabled) box.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Census 3.9 (review W9-fb F2) — after Enter / Ctrl+A on Copy BoM Details has copied the lines and popped back
+    /// to the components screen, the caret goes to the empty <i>Unit of manufacture</i> box, where the vendor's
+    /// screenshot of the result (<c>copy-of-bom-bom-screen-tally.gif</c> on
+    /// help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/) shows
+    /// it. Before this the focused panel was removed and nothing held focus, so the value typed next was lost.
+    /// </summary>
+    private void AfterCopyBomApplied(MainWindowViewModel vm, bool fromCopyBom)
+    {
+        if (fromCopyBom && vm.CurrentScreen == Screen.BomMaster) FocusNamedAfterPop("BomUnitOfManufacture");
+    }
+
+    /// <summary>Census 3.9 — focuses the visible, enabled control named <paramref name="name"/> on the Loaded pass,
+    /// once the popped column has left the visual tree (the reason <see cref="OnBomNameListNewNameAttached"/> gives).
+    /// Only while the components screen is the current screen.</summary>
+    private void FocusNamedAfterPop(string name)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is not MainWindowViewModel { CurrentScreen: Screen.BomMaster }) return;
+            var target = this.GetVisualDescendants().OfType<Control>()
+                .FirstOrDefault(c => c.Name == name && c.IsEffectivelyVisible && c.IsEffectivelyEnabled);
+            target?.Focus();
         }, DispatcherPriority.Loaded);
     }
 
