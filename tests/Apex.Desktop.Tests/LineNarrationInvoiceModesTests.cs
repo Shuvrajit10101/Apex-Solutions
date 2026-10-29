@@ -165,6 +165,52 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         finally { w.Close(); }
     }
 
+    /// <summary>
+    /// 🔴 <b>w8 fix (review ec LOW-2) — A HEADER NARRATION LEFT BEHIND BY Ctrl+H IS REFUSED, NOT DROPPED.</b> The
+    /// value-leg narration is typed in Item Invoice mode, then Ctrl+H moves to Accounting Invoice, where no field
+    /// reads it. The REAL Ctrl+A is refused by name and NOTHING reaches the reloaded book; the way out (back to Item
+    /// Invoice and clear it) lets the same service invoice post. <b>Mutation (L2):</b> deleting the
+    /// <c>HeaderNarrationOrphanedByModeError</c> check in <c>Accept</c> posts on the first Ctrl+A and reddens this.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_value_narration_left_behind_by_a_mode_switch_is_refused_by_name_not_dropped()
+    {
+        var vm = NewServiceCompany("LNI Orphan Mode Co");
+        SalesType(vm).ProvideNarrationForEachLedger = true;
+        var w = new MainWindow { DataContext = vm };
+        try
+        {
+            w.Show();
+            vm.OpenVoucher(SalesType(vm));
+            var e = vm.VoucherEntry!;
+            e.ChangeMode();   // As Voucher -> Item Invoice
+            Assert.True(e.IsItemInvoice);
+            e.ValueLineNarration = "VALUE-NARR-ORPHAN";
+            e.ChangeMode();   // Item Invoice -> Accounting Invoice
+            Assert.True(e.IsAccountingInvoice);
+            e.SelectedParty = e.Parties.Single(p => p.Ledger?.Name == "Nonce Clients");
+            while (e.AccountingInvoiceLines.Count == 0) e.AddAccountingInvoiceLine();
+            var line = e.AccountingInvoiceLines[0];
+            line.SelectedLedger = e.AccountingInvoiceLedgers.Single(l => l.Name == "Consultancy Income");
+            line.AmountText = "4321.07";
+            Pump(w);
+
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            Assert.Empty(vm.Company!.Vouchers);
+            Assert.Empty(Reload("LNI Orphan Mode Co").Vouchers);
+            Assert.Contains("VALUE-NARR-ORPHAN", e.Message ?? string.Empty, StringComparison.Ordinal);
+            Assert.Contains("would be lost", e.Message ?? string.Empty, StringComparison.Ordinal);
+
+            // The way out the message names: clear it, and the same service invoice posts.
+            e.ValueLineNarration = string.Empty;
+            w.KeyPressQwerty(PhysicalKey.A, RawInputModifiers.Control);
+            Pump(w);
+            Assert.Single(Reload("LNI Orphan Mode Co").Vouchers);
+        }
+        finally { w.Close(); }
+    }
+
     // ============================================================== (2)/(3) item invoice alteration
 
     private const string WidgetRate = "1234.57";
@@ -333,8 +379,8 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
     /// <summary>
     /// 🔴 <b>CARRY ACROSS AN AMENDMENT.</b> A narration on an ADDITIONAL-COST leg is matched by ledger alone — it
     /// moves no figure — so amending the freight from 555.53 to 777.71 keeps it on the reloaded book's freight leg.
-    /// <b>Mutation:</b> deleting <c>carriedCostNarration = narrated.Narration;</c> in <c>BuildItemInvoice</c>
-    /// reddens this (the dropped-narration guard then refuses the accept).
+    /// <b>Mutation:</b> replacing <c>carriedCostNarration = r.ToLineNarration();</c> in <c>BuildItemInvoice</c> with
+    /// <c>null</c> reddens this (wave 8: the row's field, re-loaded on alteration, is now the one source).
     /// </summary>
     [Fact]
     public void An_additional_cost_leg_keeps_its_narration_when_its_amount_is_amended()
@@ -362,9 +408,11 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
     // ============================================================== (4) the POS bill alteration
 
     /// <summary>
-    /// 🔴 <b>THE POS BILL HAS NO NARRATION FIELD AND REBUILDS EVERY LINE</b>, so a narration an import put on its
-    /// sales leg is refused BY NAME on alteration and left on the reloaded book. GST is off so the bill total is
-    /// the line value (2 × 1,234.57 = 2,469.14), tendered exactly in cash.
+    /// 🔴 <b>THE POS BILL REBUILDS EVERY LINE</b>, and its re-derived GST legs have no narration field, so a
+    /// narration an import put on a GST leg is refused BY NAME on alteration and left on the reloaded book.
+    /// ⚠️ <i>Wave 8 (IV-236) moved this test off the Sales leg:</i> the Sales and tender legs now HAVE fields, so a
+    /// narration there is re-loaded and carried (pinned by <c>LineNarrationPosBillTests</c>); the refusal survives
+    /// for the legs that still have none. GST is on (Counter Widget at 18%, 2 x 1,234.57), tendered exactly in cash.
     /// <b>Mutation:</b> deleting the <c>DroppedLineNarrationRefusal</c> check in
     /// <c>PosBillingViewModel</c>'s alteration accept reddens this at the first assertion.
     /// </summary>
@@ -373,9 +421,11 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
     {
         using var book = AlterationBook.New("ln_pos_refuse");
         var c = book.Company;
+        book.EnableGst();
         var masters = new InventoryService(c);
         var widget = masters.CreateStockItem("Counter Widget", masters.CreateStockGroup("Retail").Id,
             masters.CreateSimpleUnit("Nos", "Numbers", decimalPlaces: 3).Id);
+        widget.Gst = new StockItemGstDetails { Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
         var sales = book.Ledger("Retail Sales", "Sales Accounts");
         var cash = book.Ledger("Till Cash", "Cash-in-Hand");
         var posType = new VoucherType(Guid.NewGuid(), "Sales (POS)", VoucherBaseType.Sales, useForPos: true,
@@ -394,23 +444,26 @@ public sealed class LineNarrationInvoiceModesTests : IDisposable
         row.RateText = WidgetRate;
         vm.Narration = "Counter nonce ONE";
         vm.CashRow.SelectedLedger = cash;
-        vm.CashRow.CashTenderedText = "2469.14";
         Assert.True(vm.Accept(), vm.Message);
         var posted = c.Vouchers.Last(v => v.TypeId == posType.Id);
+        var taxLeg = posted.Lines.First(l => l.Gst is not null);
+        var taxLedgerName = c.FindLedger(taxLeg.LedgerId)!.Name;
 
-        posted = StampNarrations(book, posted, l => l.LedgerId == sales.Id ? "Festival counter, stall 9" : null);
+        posted = StampNarrations(book, posted, l =>
+            l.LedgerId == taxLeg.LedgerId && l.Side == taxLeg.Side ? "Festival counter, stall 9" : null);
 
         var open = PosBillingViewModel.ForAlter(c, posted.Id, book.Storage, onSaved: () => { }, onCancelled: () => { });
         Assert.False(open.IsRefused, open.Refusal);
         var alter = open.Entry!;
         alter.Narration = "Counter nonce TWO";
         Assert.False(alter.AcceptAlteration());
-        Assert.Contains("Retail Sales", alter.Message);
+        Assert.Contains(taxLedgerName, alter.Message);
         Assert.Contains("Festival counter, stall 9", alter.Message);
 
         var reloaded = ReloadOf(book).Vouchers.Single(v => v.Id == posted.Id);
         Assert.Equal("Counter nonce ONE", reloaded.Narration);
-        Assert.Equal("Festival counter, stall 9", reloaded.Lines.Single(l => l.LedgerId == sales.Id).Narration);
+        Assert.Equal("Festival counter, stall 9",
+            reloaded.Lines.Single(l => l.LedgerId == taxLeg.LedgerId && l.Side == taxLeg.Side).Narration);
     }
 
     public void Dispose()

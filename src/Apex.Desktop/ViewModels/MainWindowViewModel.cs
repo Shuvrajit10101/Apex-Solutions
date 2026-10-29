@@ -239,6 +239,7 @@ public enum Screen
     BatchMaster,
     BatchAllocation,
     BomMaster,
+    BomNameList,
     ManufacturingJournalEntry,
     JobWorkOrderEntry,
     MaterialMovementEntry,
@@ -592,6 +593,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>The Bill-of-Materials master view model (Phase 6 Cluster 2; RQ-9), non-null only while that page is open.</summary>
     [ObservableProperty] private BomMasterViewModel? _bomMaster;
+
+    /// <summary>Census 3.9 — the Stock Item Multi Components (M BOM) name list, non-null only while that page is open.</summary>
+    [ObservableProperty] private BomNameListViewModel? _bomNameList;
 
     /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
     [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
@@ -968,7 +972,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && VoucherTypeMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
-        && BomMaster is null && ManufacturingJournalEntry is null && PosBilling is null
+        && BomMaster is null && BomNameList is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
@@ -1034,6 +1038,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBatchMasterChanged(BatchMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnBomNameListChanged(BomNameListViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnJobWorkOrderEntryChanged(JobWorkOrderEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -2782,6 +2787,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Negative Cash / Bank", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Memorandum Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Reversing Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census 11.13 — the two overdue views. Vendor (TallyPrime, help.tallysolutions.com/
+        // manage-receivables-outstanding-tally/): "Alternatively, you can use Alt+G (Go To) > Overdue Receivables."
+        // and the same for Overdue Payables. Go To's index is WALKED from this menu (BuildGoToIndex), so these two
+        // rows are what put both labels in the Alt+G list — no second table to keep in step.
+        col.Add(new MenuItemViewModel("Overdue Receivables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Overdue Payables", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         return col;
     }
 
@@ -6570,21 +6581,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // any the user created — not an authored menu. A computed hotkey over user data would paint an arbitrary
         // mid-word red letter on a name nobody at build time has seen, so a bare letter FILTERS here instead.
         var picker = new GatewayColumn("Add Voucher") { Kind = GatewayColumnKind.DataDriven };
-        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
-        foreach (var type in Company.VoucherTypes.Where(t => t.IsActive && CanAddFromDayBook(t)))
-        {
-            // Capture the TYPE, not its base kind: these rows are the company's own voucher types, and two of
-            // them can share a base (a second Sales series, a Manufacturing Journal over Stock Journal, a POS
-            // till). Passing the base kind sent the choice through resolution again and opened a DIFFERENT type
-            // than the row the operator was standing on.
-            var chosen = type;
-            picker.Add(new MenuItemViewModel(
-                type.Name,
-                () => PickAddVoucherType(chosen, seedDate),
-                type.DefaultShortcut ?? string.Empty,
-                isSubItem: true,
-                kind: MenuItemKind.Action));
-        }
+        FillAddVoucherPicker(picker, seedDate);
 
         // Append WITHOUT ClearSubScreens/OpenPageColumn — the Day Book page column survives beneath (Reports stays
         // bound), exactly like the F12 config column sits beside its live report.
@@ -6811,6 +6808,108 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         type.BaseType != VoucherBaseType.Attendance
         && (!type.IsManufacturingJournal || Company is { SetComponentsBom: true });
 
+    /// <summary>Suffix on an inactive voucher type's row in the Alt+A picker (census 5.6(b), IV-239). Ours.</summary>
+    internal const string InactiveTypeSuffix = " (Inactive)";
+
+    /// <summary>
+    /// (Re)fills the Alt+A picker column with the company's voucher types. 🔴 <b>Census 5.6(b), wave 8 (IV-239)</b>:
+    /// INACTIVE types are now listed too, after the active ones and marked <see cref="InactiveTypeSuffix"/>, and
+    /// choosing one asks to activate it (<see cref="AskToActivateAddVoucherType"/>). Vendor, opened by content:
+    /// help.tallysolutions.com/accounting-entry-tally/ — <i>"In case the voucher is inactive, you will be prompted to
+    /// activate the Memorandum voucher type"</i>; help.tallysolutions.com/tally-prime/accounting/accounting-faq/ —
+    /// <i>"TallyPrime prompts you to activate the voucher types"</i>. An inactive type whose own screen is
+    /// feature-gated (Job Work / Material with job-order processing off; Payroll with payroll off) is NOT offered:
+    /// activating it would open nothing.
+    /// </summary>
+    private void FillAddVoucherPicker(GatewayColumn picker, DateOnly? seedDate)
+    {
+        picker.Items.Clear();
+        picker.Add(MenuItemViewModel.Header("Select Voucher Type"));
+        foreach (var type in Company!.VoucherTypes.Where(t => t.IsActive && CanAddFromDayBook(t)))
+        {
+            // Capture the TYPE, not its base kind: these rows are the company's own voucher types, and two of
+            // them can share a base (a second Sales series, a Manufacturing Journal over Stock Journal, a POS
+            // till). Passing the base kind sent the choice through resolution again and opened a DIFFERENT type
+            // than the row the operator was standing on.
+            var chosen = type;
+            picker.Add(new MenuItemViewModel(
+                type.Name,
+                () => PickAddVoucherType(chosen, seedDate),
+                type.DefaultShortcut ?? string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+        foreach (var type in Company.VoucherTypes.Where(t => !t.IsActive && CanAddFromDayBook(t)
+                                                              && InactiveTypeScreenIsReachable(t)))
+        {
+            var chosen = type;
+            picker.Add(new MenuItemViewModel(
+                type.Name + InactiveTypeSuffix,
+                () => AskToActivateAddVoucherType(picker, chosen, seedDate),
+                string.Empty,
+                isSubItem: true,
+                kind: MenuItemKind.Action));
+        }
+        picker.SelectFirstSelectable();
+        // The shell's Menu is a COPY of the active column's rows (SyncActiveColumn), so a refill in place must re-sync
+        // or the keys would walk the stale rows.
+        if (ReferenceEquals(ActiveColumn, picker)) SyncActiveColumn();
+    }
+
+    /// <summary>Whether the screen an inactive type opens is reachable once the type is activated (its family's own
+    /// F11 feature is on) — see <see cref="FillAddVoucherPicker"/>.</summary>
+    private bool InactiveTypeScreenIsReachable(VoucherType type) => type.BaseType switch
+    {
+        VoucherBaseType.JobWorkInOrder or VoucherBaseType.JobWorkOutOrder
+            or VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut => Company is { EnableJobOrderProcessing: true },
+        VoucherBaseType.Payroll => Company is { PayrollEnabled: true },
+        _ => true,
+    };
+
+    /// <summary>
+    /// 🔴 <b>Census 5.6(b), wave 8 (IV-239) — the activation PROMPT.</b> The picker column is turned, in place, into
+    /// a two-row question: <i>Yes - activate and enter</i> activates the type through
+    /// <see cref="Apex.Ledger.Services.VoucherTypeService.SetActive"/>, SAVES (rolling the flag back if the save fails), and opens that
+    /// type's entry exactly as an active row would; <i>No</i> restores the list. Esc closes the picker as before.
+    /// The prompt's wording and its in-column shape are ours; the vendor attests only that a prompt is raised.
+    /// </summary>
+    private void AskToActivateAddVoucherType(GatewayColumn picker, VoucherType type, DateOnly? seedDate)
+    {
+        picker.Items.Clear();
+        picker.Add(MenuItemViewModel.Header($"'{type.Name}' is inactive. Activate it?"));
+        picker.Add(new MenuItemViewModel(
+            "Yes - activate and enter",
+            () =>
+            {
+                new Apex.Ledger.Services.VoucherTypeService(Company!).SetActive(type.Id, true);
+                try
+                {
+                    _storage.Save(Company!);
+                }
+                catch (Exception ex) when (SaveFailure.IsReportable(ex))
+                {
+                    new Apex.Ledger.Services.VoucherTypeService(Company!).SetActive(type.Id, false);
+                    RaiseLifecycleNotice($"Could not activate '{type.Name}': {ex.Message} Nothing was changed.");
+                    FillAddVoucherPicker(picker, seedDate);
+                    return;
+                }
+                PickAddVoucherType(type, seedDate);
+            },
+            string.Empty,
+            isSubItem: true,
+            kind: MenuItemKind.Action));
+        picker.Add(new MenuItemViewModel(
+            "No",
+            () => FillAddVoucherPicker(picker, seedDate),
+            string.Empty,
+            isSubItem: true,
+            kind: MenuItemKind.Action));
+        picker.SelectFirstSelectable();
+        // The shell's Menu is a COPY of the active column's rows (SyncActiveColumn), so a refill in place must re-sync
+        // or the keys would walk the stale rows.
+        if (ReferenceEquals(ActiveColumn, picker)) SyncActiveColumn();
+    }
+
     /// <summary>
     /// WI-12 — a voucher type was chosen in the Day-Book Alt+A picker. Pops the picker column (so the entry opens in
     /// the Day Book's place — one page column, honouring the cascade invariant) and opens THAT TYPE's entry seeded
@@ -6834,15 +6933,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
         // Types whose identity means a DIFFERENT SCREEN, not just a different series — checked before the base
         // switch, because each of these shares its base kind with an ordinary type.
-        if (type.IsManufacturingJournal) { OpenManufacturingJournal(); return; }
-        if (type.IsPosSales) { OpenPosBilling(); return; }
+        // w8 fix (review ec LOW-1): each dedicated door is handed THE CHOSEN TYPE, so "Yes - activate and enter" on
+        // a second series opens that series (its numbering, its flags), not the one the resolver prefers.
+        if (type.IsManufacturingJournal) { OpenManufacturingJournal(type); return; }
+        if (type.IsPosSales) { OpenPosBilling(type); return; }
 
         switch (type.BaseType)
         {
-            case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In); break;
-            case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out); break;
-            case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn); break;
-            case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut); break;
+            case VoucherBaseType.JobWorkInOrder: OpenJobWorkOrder(JobWorkDirection.In, type); break;
+            case VoucherBaseType.JobWorkOutOrder: OpenJobWorkOrder(JobWorkDirection.Out, type); break;
+            case VoucherBaseType.MaterialIn: OpenMaterialMovement(VoucherBaseType.MaterialIn, type); break;
+            case VoucherBaseType.MaterialOut: OpenMaterialMovement(VoucherBaseType.MaterialOut, type); break;
             // A Payroll voucher is computed on its own screen (period + employees + Compute), never keyed as a
             // bare Dr/Cr grid — which is what routing it through the accounting entry would have given.
             case VoucherBaseType.Payroll: ShowPayrollVoucher(); break;
@@ -6854,6 +6955,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 break;
         }
     }
+
+    /// <summary>
+    /// w8 fix (review ec LOW-1): <paramref name="chosen"/> when it is an ACTIVE type of <paramref name="baseType"/>,
+    /// else <c>null</c> (the caller then resolves the base as before). An inactive or mismatched type is never opened.
+    /// </summary>
+    private static VoucherType? ChosenOfBase(VoucherType? chosen, VoucherBaseType baseType) =>
+        chosen is { IsActive: true } && chosen.BaseType == baseType ? chosen : null;
 
     /// <summary>
     /// WI-12 — the date the Day-Book Alt+A entry defaults to: the highlighted Day-Book row's own voucher date (so an
@@ -7676,35 +7784,66 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Census 3.9 — the target of the Stock Item Alteration screen's <i>Alter Components (BOM)</i> option. Opens
-    /// the item's BOM pre-filled for an IN-PLACE alteration (<see cref="BomMasterViewModel.ForAlter"/>, which keeps
-    /// the BOM's id). An item with several BOMs opens its FIRST BOM by name; an item with none opens the BOM
-    /// creation screen with the item already chosen as the finished good — the vendor's same option adds a BOM to
-    /// an item that has none. Both shapes are labelled OURS (IV-186). A no-op while the BOM feature is off.
+    /// Census 3.9 — the target of the Stock Item Alteration screen's <i>Alter Components (BOM)</i> option. Opens the
+    /// <b>Stock Item Multi Components (M BOM)</b> name list for the item (<see cref="BomNameListViewModel"/>):
+    /// <i>"In the Stock Item Multi Components (M BOM) screen, enter the name of the new BOM and press Enter."</i>
+    /// (help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-26). Enter there goes on to the components screen through
+    /// <see cref="OpenBomFromNameList"/>.
+    /// <para>🔴 This used to open the item's FIRST BOM by name directly (the old IV-186 shape), which left an item's
+    /// second and later BOMs unalterable anywhere and gave no way to add a further BOM from the item.</para>
+    /// A no-op while the BOM feature is off.
     /// </summary>
     public void ShowComponentsBomForItem(Guid itemId)
     {
         if (Company is null) return;
         if (!Company.SetComponentsBom) return;   // gated by the same F12 config as every BOM surface
-        if (Company.FindStockItem(itemId) is not { } item) return;
+        if (Company.FindStockItem(itemId) is null) return;
 
-        var first = Company.BomsFor(itemId)
-            .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
+        var list = new BomNameListViewModel(Company, itemId);
+        OpenPageColumn(new GatewayColumn(list.Caption, list), Screen.BomNameList, list.Caption,
+            () => BomNameList = list);
+    }
+
+    /// <summary>
+    /// Census 3.9 — Enter (or Ctrl+A) on the M BOM name list. A listed or typed EXISTING name opens the components
+    /// screen over THAT BOM for an in-place alteration (<see cref="BomMasterViewModel.ForAlter"/>, id kept; saved
+    /// through <c>BomService.AlterBom</c>); a new name opens the creation screen with the item fixed as the
+    /// finished good and the name filled in. Returns false (leaving the list up, its message set) when there is
+    /// nothing to open.
+    /// </summary>
+    public bool OpenBomFromNameList()
+    {
+        if (Company is null || CurrentScreen != Screen.BomNameList || BomNameList is not { } list) return false;
+        if (list.Choose() is not { } choice) return false;
+
         BomMasterViewModel master;
-        if (first is not null && BomMasterViewModel.ForAlter(Company, _storage, first.Id, onChanged: () => { }) is { } alter)
+        switch (choice)
         {
-            master = alter;
-        }
-        else
-        {
-            master = new BomMasterViewModel(Company, _storage, onChanged: () => { });
-            master.SelectedFinishedGood = master.FinishedGoods.FirstOrDefault(i => i.Id == item.Id)
-                ?? master.SelectedFinishedGood;
+            case BomNameChoice.AlterExisting alter:
+                if (BomMasterViewModel.ForAlter(Company, _storage, alter.BomId, onChanged: () => { }) is not { } m)
+                {
+                    list.Message = "That BOM no longer exists.";
+                    return false;
+                }
+                master = m;
+                break;
+            case BomNameChoice.CreateNew create:
+                if (BomMasterViewModel.ForNewBomOfItem(Company, _storage, list.StockItemId, create.Name,
+                        onChanged: () => { }) is not { } fresh)
+                {
+                    list.Message = "That stock item no longer exists.";
+                    return false;
+                }
+                master = fresh;
+                break;
+            default:
+                return false;
         }
 
         OpenPageColumn(new GatewayColumn(master.Caption, master), Screen.BomMaster, master.Caption,
             () => BomMaster = master);
+        return true;
     }
 
     /// <summary>
@@ -7761,13 +7900,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// exists yet (RQ-11) — then hosts the entry screen that posts through the engine. A no-op unless the F12
     /// config "Set Components (BOM)" is on (RQ-10/RQ-52).
     /// </summary>
-    public void OpenManufacturingJournal()
+    public void OpenManufacturingJournal(VoucherType? chosen = null)
     {
         if (Company is null) return;
         if (!Company.SetComponentsBom) return;   // gated by the F12 config (RQ-10/RQ-52)
 
         var service = new Apex.Ledger.Services.ManufacturingJournalService(Company);
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsManufacturingJournal);
+        // w8 fix (review ec LOW-1): the Alt+A picker's chosen Manufacturing Journal type wins over the first one.
+        var type = (chosen is { IsManufacturingJournal: true, IsActive: true } ? chosen : null)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.IsManufacturingJournal);
         if (type is null)
         {
             // Create the Manufacturing-Journal voucher type on first use (RQ-11), avoiding a name clash.
@@ -7804,7 +7945,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// voucher type on the current company (activated by the F11 feature). A no-op unless the F11 feature
     /// "Enable Job Order Processing" is on (RQ-45/RQ-52), so the screen can never be reached with the feature off.
     /// </summary>
-    public void OpenJobWorkOrder(JobWorkDirection direction)
+    public void OpenJobWorkOrder(JobWorkDirection direction, VoucherType? chosen = null)
     {
         if (Company is null) return;
         if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
@@ -7812,17 +7953,29 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         var baseType = direction == JobWorkDirection.In
             ? VoucherBaseType.JobWorkInOrder
             : VoucherBaseType.JobWorkOutOrder;
-        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
+        // w8 fix (review ec LOW-1): the Day-Book Alt+A picker passes the ROW the operator chose (and may just have
+        // activated); re-resolving the base would open whichever series the resolver prefers instead.
+        var type = ChosenOfBase(chosen, baseType) ?? VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
             Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
 
+        // 🔴 CENSUS 5.11 wave 8 (IV-238) — "Print voucher after saving" was IGNORED on this creation door. The
+        // same wrap OpenInventoryVoucher uses: navigate first, then route the voucher THIS screen committed through
+        // the inventory printing door (which states by name that a job work order has no printed document here).
+        JobWorkOrderEntryViewModel? openedOrder = null;
         var entry = new JobWorkOrderEntryViewModel(
             Company, type, direction, _storage,
-            onSaved: ShowGateway,
+            onSaved: () =>
+            {
+                ShowGateway();
+                if (type.PrintAfterSaving && openedOrder?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenInventoryVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage);
+        openedOrder = entry;
         var title = $"Job Work Order Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.JobWorkOrderEntry, title,
             () => JobWorkOrderEntry = entry);
@@ -7834,23 +7987,31 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// type (activated by the F11 feature, carrying "Use for Job Work" and — for Material In — "Allow
     /// Consumption"). A no-op unless the F11 feature "Enable Job Order Processing" is on (RQ-45/RQ-52).
     /// </summary>
-    public void OpenMaterialMovement(VoucherBaseType baseType)
+    public void OpenMaterialMovement(VoucherBaseType baseType, VoucherType? chosen = null)
     {
         if (Company is null) return;
         if (!Company.EnableJobOrderProcessing) return;   // gated by the F11 feature (RQ-45/RQ-52)
         if (baseType is not (VoucherBaseType.MaterialIn or VoucherBaseType.MaterialOut)) return;
 
-        var type = VoucherTypeResolver.ResolveForEntry(Company, baseType);
+        var type = ChosenOfBase(chosen, baseType) ?? VoucherTypeResolver.ResolveForEntry(Company, baseType);
         if (type is null)
         {
             Message = VoucherTypeResolver.NoActiveTypeMessage(Company, baseType);
             return;
         }
 
+        // 🔴 CENSUS 5.11 wave 8 (IV-238) — the Material In / Material Out creation door, wired as above.
+        MaterialMovementEntryViewModel? openedMovement = null;
         var entry = new MaterialMovementEntryViewModel(
             Company, type, _storage,
-            onSaved: ShowGateway,
+            onSaved: () =>
+            {
+                ShowGateway();
+                if (type.PrintAfterSaving && openedMovement?.SavedVoucherId is { } saved && saved != Guid.Empty)
+                    OpenInventoryVoucherPrintingAfterSave(saved);
+            },
             onCancelled: BackFromPage);
+        openedMovement = entry;
         var title = $"Material Movement Creation — {type.Name}";
         OpenPageColumn(new GatewayColumn(type.Name + " Voucher", entry), Screen.MaterialMovementEntry, title,
             () => MaterialMovementEntry = entry);
@@ -7866,11 +8027,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// Journal), then hosts the entry that posts through the engine. When the POS config's print-after-save is on
     /// the retail receipt opens in a Print-Preview column after Accept (RQ-44).
     /// </summary>
-    public void OpenPosBilling()
+    public void OpenPosBilling(VoucherType? chosen = null)
     {
         if (Company is null) return;
 
-        var type = Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales && t.IsActive)
+        // w8 fix (review ec LOW-1): the Alt+A picker's chosen POS type wins over "the first active one".
+        var type = (chosen is { IsPosSales: true, IsActive: true } ? chosen : null)
+                   ?? Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales && t.IsActive)
                    ?? Company.VoucherTypes.FirstOrDefault(t => t.IsPosSales);
         if (type is null)
         {
@@ -9527,6 +9690,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BatchMaster = null;
         BatchAllocation = null;
         BomMaster = null;
+        BomNameList = null;
         ManufacturingJournalEntry = null;
         JobWorkOrderEntry = null;
         MaterialMovementEntry = null;
@@ -13017,6 +13181,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void StepActive(int direction)
     {
+        // Census 3.9: on the M BOM name list the arrows move the BOM-name highlight Enter opens.
+        if (CurrentScreen == Screen.BomNameList && BomNameList is { } bomNames)
+        {
+            bomNames.MoveHighlight(direction);
+            return;
+        }
+
         // On the Outstandings page the arrows move the bill-row highlight (for spacebar select + Alt+A settle).
         if (IsOutstandingsScreen)
         {
@@ -13349,6 +13520,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BatchAllocation:
                 // Ctrl+A commits the batch allocation; on success pop the sub-screen back to the voucher.
                 if (BatchAllocation?.Apply() == true) BackFromPage();
+                return;
+            case Screen.BomNameList:
+                // Census 3.9: Enter (and Ctrl+A) on the M BOM name list goes on to the components screen.
+                OpenBomFromNameList();
                 return;
             case Screen.BomMaster:
                 // Census 3.9: the item-side "Alter Components (BOM)" route opens this screen over an EXISTING BOM,
@@ -14150,6 +14325,8 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            case "Overdue Receivables": OpenReport(ReportKind.OverdueReceivables); break;
+            case "Overdue Payables": OpenReport(ReportKind.OverduePayables); break;
             // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
             // Census 14.3 — the three graphical dashboards, under Reports → Dashboard.
             case "Default Dashboard": OpenDashboard(DashboardKind.Default); break;

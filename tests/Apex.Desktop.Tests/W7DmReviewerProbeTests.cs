@@ -135,6 +135,9 @@ public sealed class W7DmReviewerProbeTests
             Dispatcher.UIThread.RunJobs();
             vm.StockItemMaster!.AlterComponentsBom = true;
             Key(w, PhysicalKey.A, RawInputModifiers.Control);
+            // Census 3.9 (wave 8): the tick now lands on the M BOM name list; Enter opens the highlighted BOM.
+            Assert.Equal(Screen.BomNameList, vm.CurrentScreen);
+            Key(w, PhysicalKey.Enter);
             Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
             Assert.True(vm.BomMaster!.IsAltering);
 

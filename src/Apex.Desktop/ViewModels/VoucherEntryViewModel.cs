@@ -57,6 +57,61 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// </summary>
     public bool IsLineNarrationEnabled => _type.ProvideNarrationForEachLedger;
 
+    /// <summary>
+    /// 🔴 <b>Census 5.11, wave 8 (IV-235) — the per-ledger narration on the INVOICE header's ledgers.</b> The vendor
+    /// names the invoice modes (help.tallysolutions.com/voucher-types-tally/, by content 2026-10-26: <i>"… to add
+    /// narration for individual ledgers based on the voucher mode, such as Accounting/Item Invoice or As
+    /// Voucher"</i>). An item invoice's KEYED ledgers are the party, the Sales/Purchases value ledger and each
+    /// additional-cost row; this is the party leg's narration (both invoice modes) and
+    /// <see cref="ValueLineNarration"/> the value leg's (item invoice only). Engine-derived legs (GST, TCS) take
+    /// none — the alteration guard refuses rather than drops one an import put there (IV-199).
+    /// </summary>
+    [ObservableProperty] private string _partyLineNarration = string.Empty;
+
+    /// <summary>The item invoice's value (Sales/Purchases) leg narration — see <see cref="PartyLineNarration"/>.</summary>
+    [ObservableProperty] private string _valueLineNarration = string.Empty;
+
+    /// <summary>True once an alteration has loaded a posted invoice-leg narration into a header/cost field — the
+    /// field then stays visible even if the type's flag was switched off since, so text the operator cannot see is
+    /// never silently kept or dropped (the IV-196 rule, extended to the invoice legs).</summary>
+    private bool _invoiceLegNarrationLoaded;
+
+    /// <summary>Whether the invoice header shows its per-ledger narration row (party; value leg nested under
+    /// <c>ShowStockLedgerPicker</c> in the view).</summary>
+    public bool ShowInvoiceLineNarration =>
+        (IsItemInvoice || IsAccountingInvoice) && (IsLineNarrationEnabled || _invoiceLegNarrationLoaded);
+
+    private bool InvoiceLegNarrationFieldsOn => IsLineNarrationEnabled || _invoiceLegNarrationLoaded;
+
+    private static string? NormaliseLegNarration(string? text) =>
+        string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
+    /// <summary>
+    /// w8 fix (review ec LOW-2): the header narration this mode would DROP, named for the operator, or <c>null</c>.
+    /// Accounting Invoice posts the party narration but has no single value leg; As Voucher reads neither field.
+    /// Both fields are hidden in those modes, so the way out is Ctrl+H back to Item Invoice.
+    /// </summary>
+    private string? HeaderNarrationOrphanedByModeError()
+    {
+        if (IsItemInvoice) return null;
+        string? caption = null;
+        string? text = null;
+        if (NormaliseLegNarration(ValueLineNarration) is { } value)
+        {
+            caption = StockLedgerCaption;
+            text = value;
+        }
+        else if (!IsAccountingInvoice && NormaliseLegNarration(PartyLineNarration) is { } party)
+        {
+            caption = "Party A/c name";
+            text = party;
+        }
+        if (text is null) return null;
+        var mode = IsAccountingInvoice ? "Accounting Invoice" : "As Voucher";
+        return $"The {caption} narration (\"{text}\") was typed in Item Invoice mode and {mode} mode has no field "
+             + "for it, so it would be lost. Press Ctrl+H to return to Item Invoice, then post it there or clear it.";
+    }
+
     /// <summary>Voucher-type display name for the header, e.g. "Payment".</summary>
     public string TypeName => _type.Name;
 
@@ -4033,9 +4088,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal. Ahead of every write, so nothing to roll back.
         if (VoucherAlterationDerivedLegs.DroppedLineNarrationRefusal(
                 _company, existing.Lines, replacement.Lines, _editableLineNarrations,
-                // The grid's CURRENT narrations (empty on an item invoice, whose lines have no field) — see the guard.
+                // The CURRENT narrations in the editable fields — the grid's, or (census 5.11 wave 8) the item
+                // invoice's header and cost-row fields — see the guard.
                 _alteringPostedAsItemInvoice
-                    ? Array.Empty<string>()
+                    ? CurrentInvoiceLegNarrations()
                     : Lines.Select(l => l.ToLineNarration()).OfType<string>().ToList(),
                 "voucher") is { } dropped)
         {
@@ -4318,6 +4374,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // behind and BuildItemInvoice rebuilt the leg bare. See CaptureDerivedLegChildren for what is carried and
         // what is (still) not.
         CaptureDerivedLegChildren(partyLeg, valueLeg, costLegs);
+        LoadInvoiceLegNarrations(partyLeg, valueLeg, costLegs);
 
         InventoryLines.Clear();
         foreach (var posted in voucher.InventoryLines)
@@ -4395,8 +4452,32 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     }
 
     /// <summary>Census 5.11 (v68): the posted line narrations the alteration loaded into an editable field (the
-    /// Dr/Cr and Single Entry grids). Empty on an item invoice, whose lines have no narration field.</summary>
+    /// Dr/Cr and Single Entry grids; and, since wave 8, an item invoice's party, value and additional-cost legs).</summary>
     private List<string> _editableLineNarrations = new();
+
+    /// <summary>
+    /// 🔴 <b>Census 5.11 wave 8 (IV-235)</b> — loads the posted party and value legs' narrations into their header
+    /// fields (the cost rows' are loaded by <see cref="RehydrateAdditionalCosts"/>), records them as EDITABLE so
+    /// <see cref="CommitAlteration"/>'s guard honours a deliberate clear, and keeps the fields visible when the
+    /// type's flag has since been switched off.
+    /// </summary>
+    private void LoadInvoiceLegNarrations(EntryLine partyLeg, EntryLine valueLeg, List<EntryLine> costLegs)
+    {
+        PartyLineNarration = partyLeg.Narration ?? string.Empty;
+        ValueLineNarration = valueLeg.Narration ?? string.Empty;
+        _editableLineNarrations = new[] { partyLeg, valueLeg }.Concat(costLegs)
+            .Select(l => l.Narration).OfType<string>().ToList();
+        if (_editableLineNarrations.Count == 0) return;
+        _invoiceLegNarrationLoaded = true;
+        foreach (var row in AdditionalCosts) row.ShowLineNarration = true;
+        OnPropertyChanged(nameof(ShowInvoiceLineNarration));
+    }
+
+    /// <summary>The invoice header and cost-row narrations as keyed NOW (see the dropped-narration guard).</summary>
+    private List<string> CurrentInvoiceLegNarrations() =>
+        new[] { NormaliseLegNarration(PartyLineNarration), NormaliseLegNarration(ValueLineNarration) }
+            .Concat(AdditionalCosts.Select(r => r.ToLineNarration()))
+            .OfType<string>().ToList();
 
     private CarriedLegChildren? _carriedValueLegChildren;
     private CarriedLegChildren? _carriedPartyLegChildren;
@@ -4555,6 +4636,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 : AddAdditionalCostRow();
             row.SelectedLedger = ledger;
             row.AmountText = ExactDecimalText(leg.Amount.Amount);
+            row.LineNarration = leg.Narration ?? string.Empty;   // census 5.11 wave 8 (IV-235) — editable now
         }
 
         if (AdditionalCosts.Count == 0 || !AdditionalCosts[^1].IsBlank) AddAdditionalCostRow();
@@ -5112,6 +5194,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         // Item-invoice mode routes to its own accept path (auto-derived legs + inventory lines).
         if (IsItemInvoice) return AcceptItemInvoice();
+
+        // w8 fix (review ec LOW-2): a header narration typed in Item Invoice mode and then left behind by Ctrl+H is
+        // refused by name, never dropped. The non-item builds have no field that reads it.
+        if (HeaderNarrationOrphanedByModeError() is { } orphanedByMode)
+        {
+            Message = orphanedByMode;
+            return false;
+        }
 
         // Accounting-invoice (service) mode routes to its own accept path (income ledger legs + auto SAC GST; no stock).
         if (IsAccountingInvoice) return AcceptAccountingInvoice();
@@ -5840,6 +5930,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         OnPropertyChanged(nameof(QuantityHeader));
         OnPropertyChanged(nameof(ShowPriceLevelSelector));
         OnPropertyChanged(nameof(LineTotalCaption));
+        OnPropertyChanged(nameof(ShowInvoiceLineNarration));   // census 5.11 wave 8 (IV-235)
         // Census 2.6 — ActiveVoucherClass is itself mode-gated, so a Ctrl+H out of item-invoice mode must put the
         // Sales/Purchases value-ledger field back. Without this the field stayed hidden on a plain Dr/Cr grid that
         // has no class at all, and the operator had no way to name the value leg.
@@ -5954,7 +6045,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>Adds a blank additional-cost row (ledger + amount); keeps one trailing blank row.</summary>
     public AdditionalCostRowViewModel AddAdditionalCostRow()
     {
-        var row = new AdditionalCostRowViewModel(AdditionalCostLedgers, OnAdditionalCostChanged);
+        var row = new AdditionalCostRowViewModel(AdditionalCostLedgers, OnAdditionalCostChanged)
+        {
+            ShowLineNarration = InvoiceLegNarrationFieldsOn,   // census 5.11 wave 8 (IV-235)
+        };
         AdditionalCosts.Add(row);
         return row;
     }
@@ -6695,10 +6789,13 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (!InvoiceBillAllocationsOk(effectivePartyAmount.Amount)) return false;
         var invoiceBills = ToInvoiceBillAllocations();
 
+        // Census 5.11 wave 8 (IV-235): the party ledger's own narration, from the shared invoice header field.
+        var partyNarration = NormaliseLegNarration(PartyLineNarration);
         var partyLine = IsPurchaseInvoice
             ? new EntryLine(party.Id, effectivePartyAmount, DrCr.Credit,
-                            billAllocations: invoiceBills, tds: carve?.Detail)
-            : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills);
+                            billAllocations: invoiceBills, tds: carve?.Detail, narration: partyNarration)
+            : new EntryLine(party.Id, partyAmount, DrCr.Debit, billAllocations: invoiceBills,
+                            narration: partyNarration);
 
         var entryLines = new List<EntryLine>(1 + incomeLines.Count + taxLines.Count) { partyLine };
         entryLines.AddRange(incomeLines);
@@ -7328,9 +7425,6 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // unmatched when the loop ends is a leg whose children this build would have dropped: it is refused below
         // by name rather than posted bare. Null on a fresh entry ⇒ this whole limb is inert (ER-13).
         var unmatchedCostChildren = _carriedCostLegChildren?.Where(ch => !ch.IsEmpty).ToList();
-        // Census 5.11 (v68): a posted cost leg's narration is matched by LEDGER alone — it is descriptive and moves
-        // no figure, so an amended amount keeps it. A leg whose ledger is gone is caught by CommitAlteration.
-        var narratedCostLegs = _carriedCostLegChildren?.Where(ch => ch.Narration is not null).ToList();
         if (ShowAdditionalCosts)
         {
             foreach (var r in AdditionalCosts.Where(r => !r.IsBlank))
@@ -7355,11 +7449,10 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                     carriedCostForex = matched.Forex;
                     unmatchedCostChildren.Remove(matched);
                 }
-                if (narratedCostLegs?.FirstOrDefault(ch => ch.LedgerId == led.Id) is { } narrated)
-                {
-                    carriedCostNarration = narrated.Narration;
-                    narratedCostLegs.Remove(narrated);
-                }
+                // Census 5.11 wave 8 (IV-235): the row's OWN field is the authority. An alteration loads the posted
+                // narration into it (RehydrateAdditionalCosts), so an amended amount keeps it and a deliberate clear
+                // is honoured — the dropped-narration guard excuses exactly what was loaded into a field.
+                carriedCostNarration = r.ToLineNarration();
                 additionalCostLines.Add(new EntryLine(
                     led.Id, costAmount, DrCr.Debit, billAllocations: carriedCostBills,
                     costAllocations: carriedCostAllocations, bankAllocation: carriedCostBank,
@@ -7480,12 +7573,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (!ClassSuppliesValueLedgers
             && !TryCarryDerivedLegChildren(
                 _carriedValueLegChildren, "value leg", valueLedger!.Id, taxable,
-                out valueBills, out valueCostAllocations, out valueBank, out valueForex, out valueNarration))
+                out valueBills, out valueCostAllocations, out valueBank, out valueForex, out _))
             return null;
         if (!TryCarryDerivedLegChildren(
                 _carriedPartyLegChildren, "party leg", party.Id, partyAmount,
-                out _, out var partyCostAllocations, out var partyBank, out var partyForex, out var partyNarration))
+                out _, out var partyCostAllocations, out var partyBank, out var partyForex, out _))
             return null;
+        // 🔴 Census 5.11 wave 8 (IV-235): the party and value narrations come from their header FIELDS, which an
+        // alteration loads from the posted legs — the field is the one source, so keyed text posts on a fresh
+        // invoice, an untouched posted narration survives a re-accept, and a deliberate clear is honoured.
+        var partyNarration = NormaliseLegNarration(PartyLineNarration);
+        if (!ClassSuppliesValueLedgers) valueNarration = NormaliseLegNarration(ValueLineNarration);
+        else if (NormaliseLegNarration(ValueLineNarration) is { } orphanedValueNarration)
+        {
+            // A class that pre-maps ledgers takes the value-ledger field (and its narration) off the screen; words
+            // typed there before the class was chosen would otherwise vanish without a sentence.
+            Message = $"The {StockLedgerCaption} narration (\"{orphanedValueNarration}\") has no single value leg to "
+                    + "ride on under this voucher class, which splits the value across its own ledgers. Clear the "
+                    + "class, or clear that narration.";
+            return null;
+        }
 
         // The party's bill-wise comes from the PANEL (invoiceBills), never from the carry — see
         // CaptureDerivedLegChildren for why the party leg is the one leg whose split is captured empty.

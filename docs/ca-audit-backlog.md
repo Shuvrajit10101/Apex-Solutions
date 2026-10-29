@@ -924,7 +924,7 @@ TRAIL** — which Tally does keep and which belongs to **Phase 10 (security/role
   orphan rows that FK it (`SqliteCompanyStore.cs:4029`/`:4120`/`:4139`).
 - **🟠 Stale-snapshot tree.** `Build()` runs once in the ctor with no `Refresh` — the user sees the OLD name,
   believes the save failed, re-alters, and confusion follows.
-- **🟠 UI-defect campaign collision.** The CoA template (`MainWindow.axaml:3869`) is squarely in the 328-defect
+- **🟠 UI-defect campaign collision.** The CoA template (`MainWindow.axaml:3884`) is squarely in the 328-defect
   problem space (the ledger picker column pinned ~298px beside dead cream; names ellipsizing).
 - **🟡 Reachability** — gate at the ROOT too; a `ShowXMenu()` test proves nothing.
 - **🟢 No schema risk** — confirmed, including for Alias and Opening Balance.
@@ -1083,7 +1083,7 @@ specific batch" — and the distinct GST-challan "Cpin" — `GstChallan.cs:65`, 
   `foreach (var line in party.AddressLines)` and `:135` counts non-blank lines for layout. **So replacing
   `VoucherPrintProjector.cs:217` flows straight to the PDF.** The "consumer is wired; only the source is
   missing" claim is **stronger** than the decoder stated.
-- **The formatter already exists:** `VoucherPrintProjector.cs:239` `SplitAddress(string?)` splits free-text into
+- **The formatter already exists:** `VoucherPrintProjector.cs:249` `SplitAddress(string?)` splits free-text into
   lines; already used for the **seller** at `:205`. Directly reusable for the buyer.
 - **The gate already exists and is already in use:** `src/Apex.Desktop/ViewModels/LedgerMasterViewModel.cs:
   421-433` `IsUnderParty(Group)` walks group ancestry (64-deep guard) to "Sundry Debtors"/"Sundry Creditors";
@@ -1355,12 +1355,12 @@ string parsing (keyboard-first, consistent with Tally).
    **1-Apr-2020**; InvariantCulture reads **4-Jan-2020** — **wrong financial year, silently.**
 2. **🔴 SCOPE UNDERSTATED ~2.3× — AND IT OMITS THE MOST IMPORTANT FIELD IN THE APP.** The decoder listed 9 loose
    sites. A fresh `grep -rnE "(DateOnly|DateTime)\.TryParse\(" src/Apex.Desktop/ViewModels/` returns **21**.
-   **Missing from both the evidence and the touches list: `VoucherEntryViewModel.cs:443` — THE MAIN accounting
+   **Missing from both the evidence and the touches list: `VoucherEntryViewModel.cs:498` — THE MAIN accounting
    voucher date (Payment/Receipt/Journal/Sales/Purchase)**, with the identical `get => dd-MMM-yyyy` /
    `set => DateOnly.TryParse(InvariantCulture)` shape ⇒ **identical MM/dd misread + silent discard.** The decode
    lists `VoucherEntryViewModel` **only** as an `ISetsWorkingDate` implementer for F2, never as a defect site —
    yet it is the highest-value date field in the app and **exactly the screen the corpus documents F2 driving**
-   (Book:6755/6837). Also missing: `PosBillingViewModel.cs:190` (silent discard), `VoucherLineViewModel.cs:421`,
+   (Book:6755/6837). Also missing: `PosBillingViewModel.cs:200` (silent discard), `VoucherLineViewModel.cs:421`,
    `JobWorkComponentLineViewModel.cs:88`, `PriceListsViewModel.cs:143`, `SalaryStructureMasterViewModel.cs:476`,
    `TcsStatPaymentViewModel.cs:220`, `TdsStatPaymentViewModel.cs:218`. **So "silent discard at 3 sites" is really
    ≥ 5.** Effort **L still stands**, but the touches list as written **fixes 9 of 21 and leaves the main voucher
@@ -1368,8 +1368,8 @@ string parsing (keyboard-first, consistent with Tally).
 3. **🔴 THE SILENT-DISCARD MECHANISM IS WRONG — and the truth is WORSE.** The decoder said "the getter re-renders
    the OLD date; the user's typing vanishes with no message." Verified otherwise: `Date` is `[ObservableProperty]`
    and several VMs raise `OnDateChanged → OnPropertyChanged(nameof(DateText))`
-   (`VoucherEntryViewModel.cs:544-546`, `MaterialMovementEntryViewModel.cs:191`,
-   `JobWorkOrderEntryViewModel.cs:195`) — **but that fires only when `Date` CHANGES.** On unparseable input
+   (`VoucherEntryViewModel.cs:599-601`, `MaterialMovementEntryViewModel.cs:196`,
+   `JobWorkOrderEntryViewModel.cs:200`) — **but that fires only when `Date` CHANGES.** On unparseable input
    `Date` is never assigned, so **no notification fires** and the TwoWay binding (`MainWindow.axaml:1797`) never
    re-reads the getter. **The typed text STAYS ON SCREEN while `Date` silently retains the old value. Not
    "typing vanishes" — the screen shows the typed date and the voucher posts a different one.** Additionally
@@ -1416,7 +1416,7 @@ string parsing (keyboard-first, consistent with Tally).
    regression case: "01/04/2020" → 1-Apr-2020, NOT 4-Jan-2020** (see correction 1 — do **not** use the
    decoder's 05/06/2022 example).
 2. **STEP 2 — converge the call sites.** Replace all ~21 `TryParse` + the `TryParseExact` sites in
-   `src/Apex.Desktop/ViewModels/` — **including `VoucherEntryViewModel.cs:443` and `PosBillingViewModel.cs:190`
+   `src/Apex.Desktop/ViewModels/` — **including `VoucherEntryViewModel.cs:498` and `PosBillingViewModel.cs:200`
    and the other 10 the decode omitted** (correction 2). Delete the per-VM privates
    (`AddComparisonColumnViewModel.cs:25`, `AttendanceVoucherEntryViewModel.cs:256-263`,
    `PayrollVoucherEntryViewModel.cs:341-343`, `GenerateEInvoiceViewModel.cs:378-380`,
@@ -1552,7 +1552,7 @@ telescoping collapses in March to the actual FY gross "so the year trues up to A
 - `Company.SalaryTdsEnabled` (`Company.cs:305`); `PayrollService.cs:198-202` `EnableSalaryTds()` /`:205`
   `DisableSalaryTds()`. Its docstring `:190-197` notes it **reuses the Phase-7 `TdsConfig`** deductor/TAN — "no
   parallel deductor config".
-- **F11 UI exists:** `MainWindow.axaml:8637-8641` "Enable Salary TDS for this establishment";
+- **F11 UI exists:** `MainWindow.axaml:8660-8664` "Enable Salary TDS for this establishment";
   `GstConfigViewModel.cs:278` `ShowSalaryTdsConfig => PayrollStatutoryEnabled`, `:1055`
   `if (SalaryTdsEnabled) service.EnableSalaryTds();`. **So "the TDS option in salary" is already a reachable,
   working toggle** — see Q1 on discoverability.
@@ -1686,7 +1686,7 @@ admitting `TaxDeductedAtSource` **only** when `SelectedType.Value == PayHeadType
 _company.SalaryTdsEnabled`. Mirror the established pattern (`EmployeeMasterViewModel.cs:131` `ShowPfDetails =>
 _company.PayrollStatutoryEnabled`) and the existing refresh idiom (`PayHeadMasterViewModel.cs:259-261`
 `RefreshBasisOptions()`/`RefreshAttendanceOptions()`). The VM already takes `Company` in its ctor, so **no new
-plumbing**. **No XAML change** — the ComboBox at `MainWindow.axaml:7408` already binds `IncomeTaxComponents`.
+plumbing**. **No XAML change** — the ComboBox at `MainWindow.axaml:7431` already binds `IncomeTaxComponents`.
 
 **Fix 2 — narrow the guard (optional, LOW). S.** Per the verifier correction, the guard exists; optionally
 tighten `ValidateStatutoryComponentRole` from "role must be Deduction" to "type must be
@@ -1737,7 +1737,7 @@ Form 24Q / Form 16 / the Payroll Register with real numbers. Fixes 4 and 5 are s
   head via the service, so Fix 1 must not perturb them.**
 - **🟢 Fixes 1-3 need NO schema change.** `IncomeTaxComponent.cs:47-48` states ordinal 10 already persists in the
   existing `income_tax_component` column and round-trips by name in Io. **This is why the core fix is S.**
-- **🟡 UI-defect campaign collision** (`MainWindow.axaml:7408` is in the shared file). Sequence after.
+- **🟡 UI-defect campaign collision** (`MainWindow.axaml:7431` is in the shared file). Sequence after.
 - **🟡 De-branding** — new labels must never contain "Tally".
 
 ### Open questions
@@ -2265,7 +2265,7 @@ right. It is the **exact colour, activation semantics and collision rule** that 
 
 **Adjacent infrastructure that already exists:**
 - **The red-key convention is already established — but only in the button bar, and as a separate badge, not a
-  coloured character inside a label.** `MainWindow.axaml:14776-14786` (block starts `:14769`):
+  coloured character inside a label.** `MainWindow.axaml:14818-14828` (block starts `:14769`):
   `<Grid ColumnDefinitions="52,*">` at `:14777`, then `<TextBlock Grid.Column="0" Text="{Binding Key}"
   Foreground="{StaticResource AlertRed}" FontWeight="Bold"` at `:14778-14779`. `AlertRed` = **#B00020**
   (`App.axaml:22` `<Color x:Key="AlertRedColor">#B00020</Color>`, `:34` the brush).
@@ -2299,7 +2299,7 @@ right. It is the **exact colour, activation semantics and collision rule** that 
    the unrelated `ShowInventoryBatchReportsMenu()` doc-comment). The wrong number appeared **four times** in the
    decode. *(Mitigation: `touches` already included `:5236-5292` (BuildButtonBar), so an implementer would
    stumble on it anyway.)*
-3. **Wrong line — the red badge.** It is at **`MainWindow.axaml:14776-14786`**, NOT `:14756-14759` (which are
+3. **Wrong line — the red badge.** It is at **`MainWindow.axaml:14818-14828`**, NOT `:14756-14759` (which are
    closing tags). The markup itself was described accurately.
 4. **Verifier addition (an existing RQ-28-shaped wart to reconcile):** `new ButtonBarItem("C", "Cost Centres",
    …)` (`:5275`) renders a bare **"C"** in the red key badge, **but no bare `Key.C` handler exists** (only Alt+C
@@ -2582,7 +2582,7 @@ derived** ("Doz of 12 Nos") or user-typed; how Tally reports a line entered in a
 - **Io lossless:** `CanonicalModel.cs:791-803` `UnitDto` carries all four compound fields.
 - **Persistence:** `SqliteCompanyStore.cs:2777-2780` read / `:5430-5433` write.
 - **UI exists and is reachable:** `UnitMasterViewModel.cs:62` `_isCompound`, `:71-73` FirstUnit/TailUnit/
-  ConversionFactorText, `:157-209` `CreateCompound()`; rendered at `MainWindow.axaml:4835-4914` (Simple/Compound
+  ConversionFactorText, `:157-209` `CreateCompound()`; rendered at `MainWindow.axaml:4858-4937` (Simple/Compound
   radio, First unit / Conversion / Tail unit), wired at `MainWindowViewModel.cs:2749-2751` via `Screen.UnitMaster`.
 
 **Engine conversion, on inventory vouchers:**
@@ -2601,7 +2601,7 @@ derived** ("Doz of 12 Nos") or user-typed; how Tally reports a line entered in a
 **🔴 GAP 1 — the conversion path is UNREACHABLE from the app.** `unitId` is the 7th, optional, defaulted param
 (`InventoryAllocation.cs:45-52`, `Guid? unitId = null`). **Only TWO Desktop files reference `InventoryAllocation`
 at all, and EVERY call site omits it**, stopping at `l.Batch`: `InventoryVoucherEntryViewModel.cs:365-366`,
-`:522-523`, `:535-536`, `:539-540`; `MaterialMovementEntryViewModel.cs:325-326`, `:329-330`.
+`:522-523`, `:535-536`, `:539-540`; `MaterialMovementEntryViewModel.cs:330-331`, `:329-330`.
 ⇒ **`UnitId` is ALWAYS null from the UI; every line is interpreted as the item's base unit. Compound conversion
 is live engine code with no user-facing entry point.**
 **🔑 Verifier addition — the codebase self-documents this, and it is the strongest single citation:**
@@ -2695,7 +2695,7 @@ Unreachable today (Gap 1); **becomes live the moment a unit picker ships.**
    `VoucherInventoryLine.Quantity` is base-unit by construction; ship a line-unit without normalising and GSTR-1
    emits UQC=NOS against a Dozen-denominated quantity.**
 7. **A second consumer of the confused model was unmentioned:** `PayrollUnitMasterViewModel` has its own
-   Simple/Compound toggle (`MainWindow.axaml:7118-7136`; `MainWindowViewModel.cs:3388-3390`).
+   Simple/Compound toggle (`MainWindow.axaml:7141-7159`; `MainWindowViewModel.cs:3388-3390`).
 
 ### Proposal — slice it; do NOT do it all at once
 
@@ -3104,7 +3104,7 @@ report.md` is silent (its only Day Book entry is item 14 at `:68`, Alt+X vs Alt+
   date/number sequence* the voucher lands, but the corpus states only "To insert or Add a voucher in a report"
   **without distinguishing them.** **"Add" is only well-defined relative to "Insert".** Not asserted from memory.
 - **The DATE the added voucher defaults to.** Candidates: the highlighted row's date; the last voucher date
-  (today's default, `VoucherEntryViewModel.cs:529`); the report period end; today. **The single most likely thing
+  (today's default, `VoucherEntryViewModel.cs:584`); the report period end; today. **The single most likely thing
   to get silently wrong.**
 - **Whether Tally prompts for a voucher TYPE on Alt+A in the Day Book**, or opens a default type.
 - **Whether Alt+A returns to the report on accept** (near-certain given "in a report", but not stated).
@@ -3223,7 +3223,7 @@ safer** than the decode implies.
      `OpenVoucher`.
 2. **Same file** — overload `OpenVoucher(VoucherBaseType baseType, DateOnly? date = null, Action? onSaved = null)`
    (`:2579`): pass `date` through to the ctor's existing `DateOnly? date` param
-   (`VoucherEntryViewModel.cs:468`), and **default `onSaved` to today's `ShowGateway` so ALL existing call sites
+   (`VoucherEntryViewModel.cs:523`), and **default `onSaved` to today's `ShowGateway` so ALL existing call sites
    are byte-identical.** From the Day Book pass `onSaved: () => { BackFromPage(); Reports?.Show(Reports.Kind); }`
    (`ReportsViewModel.cs:606`) to pop back to a **refreshed** Day Book.
 3. **Date source** — resolve the highlighted row via `Reports.SelectedRow?.DrillVoucherId` →
@@ -3551,20 +3551,20 @@ waste a slice. Each is evidenced above.
 | **§192 payroll integration, incl. the correct telescoped annual estimate** | `PayrollComputationService.cs:511-541`, esp. the `:522-527` comment recording that annualising this-month×12 was a real bug | Do not "fix" the estimate. |
 | **Form 12BB declaration with correct regime gating** | `TaxDeclaration.cs:60-70` — new regime returns **only** `Section80CCD2Employer` | Statutorily correct. |
 | **Form 24Q (Annexure I + Q4 Annexure II → Form 16 Part B), Form 16, Payroll Register TDS column** | `Reports/Form24Q.cs:96-99`/`:71-91`/`:126-132`, `Reports/Form16.cs`, `PayrollRegister.cs:76` | Renders zeros only because no head can be tagged. |
-| **The salary-TDS F11 toggle — working and reachable** | `MainWindow.axaml:8637-8641`, `GstConfigViewModel.cs:278`/`:1055` | **Possibly a discoverability problem** — it lives in a **GST-named** screen. |
+| **The salary-TDS F11 toggle — working and reachable** | `MainWindow.axaml:8660-8664`, `GstConfigViewModel.cs:278`/`:1055` | **Possibly a discoverability problem** — it lives in a **GST-named** screen. |
 | **The statutory-component role guard** | `PayHeadService.cs:179-189` + `CreatePayHead:84`; Io mirror `CompanyImportService.cs:505` | **The decoder's "HIGH" risk was FALSE — this guard exists.** |
 | **Ctrl+A accept-as-is, from any field, on ~40 screens** | tunnel handler `MainWindow.axaml.cs:20-21`/`:74`, `ActivateSelected` `MainWindowViewModel.cs:4556`, live test `HeadlessMainWindowTests.cs:121-123`, 71 label occurrences | **Point 13-B needs NO work.** |
-| **The compound-unit master, end-to-end** | `Unit.cs:17-172`, `InventoryService.cs:158-180`, schema `Schema.cs:1034-1046`, Io `CanonicalModel.cs:791-803`, UI `MainWindow.axaml:4835-4914` | **"1 Dozen = 12 Nos" is already creatable.** Point 12 is about *transacting* in it. |
+| **The compound-unit master, end-to-end** | `Unit.cs:17-172`, `InventoryService.cs:158-180`, schema `Schema.cs:1034-1046`, Io `CanonicalModel.cs:791-803`, UI `MainWindow.axaml:4858-4937` | **"1 Dozen = 12 Nos" is already creatable.** Point 12 is about *transacting* in it. |
 | **Engine unit conversion + its persistence and Io** | `InventoryAllocation.cs:43`, `Unit.cs:137-142`, **7** normalising call sites, `Schema.cs:1143`, `CanonicalModel.cs:1706` | Live engine code with **no UI entry point**. |
 | **Guarded, TESTED master delete / re-parent for ~15 master types** | `InventoryService` `:44`–`:295`, `PayrollService` `:277`–`:486`, `PayHeadService` `:91`–`:116` (incl. an **identity-preserving rename**), BomService/BatchService/PriceListService/ReorderLevelsService/SalaryStructureService | **Dead code from the UI.** WI-3's engine half is much cheaper than "NOT_IMPLEMENTED" suggests — **only Ledger and Group need new engine work.** |
 | **Custom accounting groups: schema, Io, and report classification all ready** | `Schema.cs:657-668`, `SqliteCompanyStore.cs:1307-1314`, `CanonicalModel.cs:640`/`CanonicalMapper.cs:397`/`CanonicalXml.cs:77`, `ClassificationRules.cs:14-31`, `BalanceSheet.cs:113`/`:125` | **WI-7 needs NO schema and NO Io fold-in.** |
-| **The invoice print address SINK — declared AND rendering** | `InvoicePrintData.cs:14-15`, `InvoicePdf.cs:398`/`:135`, formatter `VoucherPrintProjector.cs:239` | **WI-4's consumer is wired; only the source is missing.** |
+| **The invoice print address SINK — declared AND rendering** | `InvoicePrintData.cs:14-15`, `InvoicePdf.cs:398`/`:135`, formatter `VoucherPrintProjector.cs:249` | **WI-4's consumer is wired; only the source is missing.** |
 | **The party-group ancestry gate + conditional-block pattern** | `LedgerMasterViewModel.cs:421-433`/`:402`/`:236`/`:292` | Exactly the gate WI-4 needs, already written. |
 | **"Salary Payable" under Current Liabilities — Tally-faithful, already replicated** | `PayrollVoucherService.cs:31`/`:48`/`:355`, `PayHeadType.NotApplicable = 9` (`PayHeadType.cs:39-40`); Tally: Book "Process 1: Create Payable (Dues) Pay Heads" | **Not a defect.** Tally ships no "Salary" group either — we match its 28 (`SeedGroups.cs:64`). |
 | **Report-context Alt+C = New Column** | `MainWindow.axaml.cs:144-156` | **Correct Tally — preserve it.** *(But note its narrow gate: comparative reports only.)* |
 | **Report F2 / Alt+F2 split** | `MainWindow.axaml.cs:482`/`:445`, `ReportsViewModel.cs:525`/`:533` | **Correct Tally — leave alone.** WI-5 is about the *other* 97 screens. |
 | **Date STORAGE — already uniform ISO `DateOnly`** | `Schema.cs:7` and throughout | **WI-5 needs no migration.** A literal "saved in a format" reading makes point 4 a no-op. |
-| **Credit/Debit Note engine + entry screen + tests** | `VoucherBaseType.cs:15-16`, `VoucherEntryViewModel.cs:1164`/`:1176`, `CreditDebitNoteVoucherEntryViewModelTests.cs:94` (10 facts) | Only the **binding** is missing (`catalog:471`). |
+| **Credit/Debit Note engine + entry screen + tests** | `VoucherBaseType.cs:15-16`, `VoucherEntryViewModel.cs:1219`/`:1176`, `CreditDebitNoteVoucherEntryViewModelTests.cs:94` (10 facts) | Only the **binding** is missing (`catalog:471`). |
 
 ---
 

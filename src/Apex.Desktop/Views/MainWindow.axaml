@@ -3589,6 +3589,21 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <!-- Census 5.11 wave 8 (IV-235): the per-ledger narration on the invoice header's own
+                                     ledgers — the party (both invoice modes) and the value ledger (item invoice, and
+                                     only while its picker is shown). Shown when the voucher type has "Provide
+                                     narration for each ledger in voucher" on, or when an alteration loaded one. -->
+                                <Grid ColumnDefinitions="*,*" IsVisible="{Binding ShowInvoiceLineNarration}">
+                                  <TextBox Grid.Column="0" Name="InvoicePartyNarrationBox"
+                                           Text="{Binding PartyLineNarration, Mode=TwoWay}"
+                                           FontSize="11.5" FontStyle="Italic" TextWrapping="Wrap" AcceptsReturn="False"
+                                           PlaceholderText="Narration for the party ledger…"/>
+                                  <TextBox Grid.Column="1" Name="InvoiceValueNarrationBox" Margin="8,0,0,0"
+                                           IsVisible="{Binding ShowStockLedgerPicker}"
+                                           Text="{Binding ValueLineNarration, Mode=TwoWay}"
+                                           FontSize="11.5" FontStyle="Italic" TextWrapping="Wrap" AcceptsReturn="False"
+                                           PlaceholderText="Narration for the value ledger…"/>
+                                </Grid>
                                 <!-- CENSUS 2.6 — what the chosen class will post WITHOUT ASKING. A voucher class
                                      writes ledger entries with no prompt, so the ledgers it will hit and the
                                      percentages it will hit them with are stated before Accept rather than
@@ -3909,7 +3924,7 @@
                                       <ItemsControl ItemsSource="{Binding AdditionalCosts}">
                                         <ItemsControl.ItemTemplate>
                                           <DataTemplate x:DataType="vm:AdditionalCostRowViewModel">
-                                            <Grid ColumnDefinitions="*,120" Margin="0,0,0,4">
+                                            <Grid ColumnDefinitions="*,120" RowDefinitions="Auto,Auto" Margin="0,0,0,4">
                                               <ComboBox Grid.Column="0" HorizontalAlignment="Stretch" Margin="0,0,6,0"
                                                         ItemsSource="{Binding AdditionalCostLedgers}"
                                                         views:CreateField.Master="Ledger"
@@ -3924,6 +3939,14 @@
                                               <TextBox Grid.Column="1"
                                                        Text="{Binding AmountText, Mode=TwoWay}"
                                                        TextAlignment="Right" PlaceholderText="0.00"/>
+                                              <!-- Census 5.11 wave 8 (IV-235): this cost ledger's own narration; next in
+                                                   Tab order after the row's amount. -->
+                                              <TextBox Grid.Row="1" Grid.ColumnSpan="2" Name="AdditionalCostNarrationBox"
+                                                       IsVisible="{Binding ShowLineNarration}"
+                                                       Text="{Binding LineNarration, Mode=TwoWay}"
+                                                       Margin="18,3,0,1" FontSize="11.5" FontStyle="Italic"
+                                                       TextWrapping="Wrap" AcceptsReturn="False"
+                                                       PlaceholderText="Narration for this ledger…"/>
                                             </Grid>
                                           </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -9792,7 +9815,7 @@
                                     <ComboBox Grid.Column="1" HorizontalAlignment="Stretch"
                                               ItemsSource="{Binding FinishedGoods}"
                                               SelectedItem="{Binding SelectedFinishedGood, Mode=TwoWay}"
-                                              IsEnabled="{Binding !IsAltering}"
+                                              IsEnabled="{Binding CanChangeFinishedGood}"
                                               PlaceholderText="finished-good item…">
                                       <ComboBox.ItemTemplate>
                                         <DataTemplate x:DataType="ledger:StockItem">
@@ -9941,6 +9964,58 @@
                             <!-- Reusable empty-state (C7): shown across the whole list body when none exist yet. -->
                             <views:EmptyState Grid.Row="3" Message="No bills of materials created yet."
                                               IsVisible="{Binding Existing.Count, Converter={StaticResource CollectionEmpty}}"/>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
+                    <!-- PAGE: Stock Item Multi Components (M BOM) — census 3.9. The item's BOM names with the new name
+                         typed beneath them; arrows + Enter open a listed BOM's components for alteration, a typed new
+                         name + Enter opens the components screen to create it. -->
+                    <ContentControl IsVisible="{Binding BomNameList, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding BomNameList}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:BomNameListViewModel">
+                          <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" Margin="6">
+                            <TextBlock Grid.Row="0" Name="BomNameListCaption" Text="{Binding Caption}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ItemName}" FontSize="13"
+                                       HorizontalAlignment="Center" Margin="0,0,0,8"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <Border Grid.Row="2" Background="{StaticResource BrandNavy}" Padding="8,4">
+                              <TextBlock Text="Name of BOM" Foreground="White" FontWeight="SemiBold"/>
+                            </Border>
+                            <ScrollViewer Grid.Row="3" Background="White">
+                              <StackPanel>
+                                <ItemsControl Name="BomNameListRows" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:BomNameRow">
+                                      <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
+                                        <Grid ColumnDefinitions="200,*" Height="24">
+                                          <Border Grid.Column="0" Grid.ColumnSpan="2" Background="#FFF3CD"
+                                                  IsVisible="{Binding IsHighlighted}"/>
+                                          <TextBlock Grid.Column="0" Text="{Binding Name}" Margin="8,0"
+                                                     VerticalAlignment="Center" FontSize="12.5"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                          <TextBlock Grid.Column="1" Text="{Binding Detail}" Margin="8,0"
+                                                     VerticalAlignment="Center" FontSize="12"
+                                                     Foreground="{StaticResource BrandNavy}"
+                                                     TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
+                                      </Border>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBox Name="BomNameListNewName" Margin="4,6"
+                                         Text="{Binding NewName, Mode=TwoWay}"
+                                         AttachedToVisualTree="OnBomNameListNewNameAttached"
+                                         PlaceholderText="name of a new BOM, then Enter"/>
+                              </StackPanel>
+                            </ScrollViewer>
+                            <TextBlock Grid.Row="4" Text="{Binding Message}" Margin="0,6,0,0"
+                                       IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                       Foreground="{StaticResource AlertRed}" FontSize="12" TextWrapping="Wrap"/>
                           </Grid>
                         </DataTemplate>
                       </ContentControl.ContentTemplate>
@@ -10239,6 +10314,13 @@
                                     </ComboBox.ItemTemplate>
                                   </ComboBox>
                                 </Grid>
+                                <!-- Census 5.11 wave 8 (IV-236): the Sales ledger's own narration, shown when the POS
+                                     voucher type has "Provide narration for each ledger in voucher" on. -->
+                                <TextBox Name="PosSalesNarrationBox" Margin="110,0,0,0"
+                                         IsVisible="{Binding ShowLineNarration}"
+                                         Text="{Binding SalesLineNarration, Mode=TwoWay}"
+                                         FontSize="11.5" FontStyle="Italic" TextWrapping="Wrap" AcceptsReturn="False"
+                                         PlaceholderText="Narration for the Sales ledger…"/>
                                 <Grid ColumnDefinitions="*,Auto">
                                   <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="12" Foreground="#555555"
                                              Text="{Binding PaymentModeText, StringFormat='Payment mode: {0}'}"/>
@@ -10350,6 +10432,12 @@
                                       <TextBlock Grid.Column="2" Text="Change" VerticalAlignment="Center" Margin="12,0,0,0"/>
                                       <TextBox Grid.Column="3" Text="{Binding ChangeText}" IsReadOnly="True" TextAlignment="Right"/>
                                     </Grid>
+                                    <!-- Census 5.11 wave 8 (IV-236): the cash ledger's own narration. -->
+                                    <TextBox Name="PosTenderNarrationBox" Margin="120,0,0,0"
+                                             IsVisible="{Binding ShowLineNarration}"
+                                             Text="{Binding LineNarration, Mode=TwoWay}"
+                                             FontSize="11.5" FontStyle="Italic" TextWrapping="Wrap" AcceptsReturn="False"
+                                             PlaceholderText="Narration for this ledger…"/>
                                   </StackPanel>
                                 </Border>
 
@@ -10393,6 +10481,12 @@
                                                 <TextBlock Grid.Column="2" Text="Change" VerticalAlignment="Center" Margin="12,0,0,0"/>
                                                 <TextBox Grid.Column="3" Text="{Binding ChangeText}" IsReadOnly="True" TextAlignment="Right"/>
                                               </Grid>
+                                              <!-- Census 5.11 wave 8 (IV-236): this tender ledger's own narration. -->
+                                              <TextBox Name="PosTenderNarrationBox" Margin="120,0,0,0"
+                                                       IsVisible="{Binding ShowLineNarration}"
+                                                       Text="{Binding LineNarration, Mode=TwoWay}"
+                                                       FontSize="11.5" FontStyle="Italic" TextWrapping="Wrap" AcceptsReturn="False"
+                                                       PlaceholderText="Narration for this ledger…"/>
                                             </StackPanel>
                                           </Border>
                                         </DataTemplate>

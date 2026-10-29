@@ -226,6 +226,16 @@ public static class VoucherPrintProjector
 
     // ---------------------------------------------------------------- RQ-10: plain voucher
 
+    /// <summary>Census 5.11 wave 8 (IV-237): the voucher's per-ledger narrations, in posting order, each named by
+    /// its ledger and ASCII-folded like every other printed string. Empty on a voucher with none (ER-13).</summary>
+    public static IReadOnlyList<InvoiceLedgerNarration> LedgerNarrationsOf(Company company, Voucher voucher) =>
+        voucher.Lines
+            .Where(l => !string.IsNullOrWhiteSpace(l.Narration))
+            .Select(l => new InvoiceLedgerNarration(
+                ReportPrintProjector.Ascii(company.FindLedger(l.LedgerId)?.Name ?? "(unknown)"),
+                ReportPrintProjector.Ascii(l.Narration!)))
+            .ToList();
+
     /// <summary>
     /// Projects a voucher into a <see cref="VoucherPrintData"/> for <c>VoucherPdf</c>: company/title header,
     /// No/Date/Party line, the Dr/Cr posting lines (ledger names resolved) and the narration. Dates are
@@ -630,6 +640,7 @@ public static class VoucherPrintProjector
             OtherCharges = otherCharges,
             RoundOff = roundOff,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
+            LedgerNarrations = LedgerNarrationsOf(company, voucher),   // census 5.11 wave 8 (IV-237)
         };
 
         // 🔴 RQ-11a ER-4, ENFORCED rather than asserted in prose. See FootingRefusal for the whole argument: this is
@@ -892,6 +903,7 @@ public static class VoucherPrintProjector
             TotalCess = billOfSupply ? Money.Zero : money.TotalCess,
             RoundOff = Money.Zero,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
+            LedgerNarrations = LedgerNarrationsOf(company, voucher),   // census 5.11 wave 8 (IV-237)
         };
     }
 
@@ -993,6 +1005,7 @@ public static class VoucherPrintProjector
             TotalCess = money.TotalCess,
             RoundOff = Money.Zero,
             Narration = ReportPrintProjector.Ascii(voucher.Narration ?? string.Empty),
+            LedgerNarrations = LedgerNarrationsOf(company, voucher),   // census 5.11 wave 8 (IV-237)
         };
 
         // ER-4, enforced locally as well as gated. Unreachable through the app's own routing (the classification

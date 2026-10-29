@@ -154,7 +154,7 @@ A **record** document is headed by the **SUPPLIER**. A field captioned *"Invoice
 voucher number, under the supplier's identity, is therefore **a false statement** — not a cosmetic label.
 
 **The ruling:** the **supplier's** number goes in the existing **ReferenceNo / ReferenceCaption** pair, whose
-helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1125-1126` **already returns *"Supplier Invoice
+helper at `src/Apex.Desktop/Services/VoucherPrintProjector.cs:1138-1139` **already returns *"Supplier Invoice
 No."* for a Purchase**; and the number field itself **acquires a caption** so ours reads **"Our Record Ref."**
 A caption is presentational, so the *no-new-money-fields* rule survives intact.
 
@@ -223,7 +223,7 @@ the **first** category.
   > `src/Apex.Ledger/Domain/VoucherEffects.cs:111` —
   > **the four item-invoice carriers are Purchase, Sales, Credit Note and Debit Note**; the validator, the
   > on-hand engine, the movement register, the no-negative guard, the
-  > `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:89`
+  > `src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs:144`
   > post-time direction stamp and `VoucherEntryViewModel.CanBeItemInvoice` all read that one predicate instead
   > of restating the set for themselves, which is what six of them used to do.
   > **The decoupling this bullet asserts still holds, for the reason it always rested on and not for the struck

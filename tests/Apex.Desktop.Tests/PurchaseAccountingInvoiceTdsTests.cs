@@ -18,7 +18,7 @@ namespace Apex.Desktop.Tests;
 /// silently BROKE MONEY: <c>TdsPossible</c> and <c>DetectTdsShape</c> read the plain <c>Lines</c> collection, which
 /// is EMPTY in accounting mode, so a professional-fee purchase posted <c>Cr Consultant / Dr Professional Fees /
 /// Dr Input CGST / Dr Input SGST</c> with <b>no §194J TDS carve-out at all</b> — and RCM mis-evaluated identically.
-/// The rationale comment at <c>VoucherEntryViewModel.cs:70-79</c> is explicit that the fix is to wire TDS/RCM to the
+/// The rationale comment at <c>VoucherEntryViewModel.cs:125-134</c> is explicit that the fix is to wire TDS/RCM to the
 /// Particulars lines BEFORE flipping the predicate. These tests are that proof.</para>
 ///
 /// <para>Corpus: SG p.80 names exactly the two use cases the mode exists for — service purchases and fixed-asset

@@ -2030,6 +2030,18 @@ public partial class MainWindow : Window
             // NARROWNESS: with NO dropdown open these arms are untouched, and they are the Miller-column
             // navigation — the most-used key pair in the app. Arrows_with_no_picker_open_still_move_the_cascade_selection
             // locks that direction (measured Gateway: selIdx 1 -> 2 on Down, back to 1 on Up).
+            // Census 3.9 (wave-8 review F1): the M BOM screen opens with the caret in its new-name box, so the
+            // !IsTyping arms below would swallow the arrows and the existing names could no longer be walked.
+            // A one-line box has no use for Up/Down, so on THIS box only they move the BOM-name highlight. Scoped
+            // to the box by name: every other TextBox keeps the !IsTyping behaviour untouched.
+            case Key.Up when vm.CurrentScreen == Screen.BomNameList && IsBomNameListNewNameBox(e):
+                vm.MoveUp();
+                e.Handled = true;
+                break;
+            case Key.Down when vm.CurrentScreen == Screen.BomNameList && IsBomNameListNewNameBox(e):
+                vm.MoveDown();
+                e.Handled = true;
+                break;
             case Key.Up when !IsTyping(e) && !IsPickerOpen(e):
                 vm.MoveUp();
                 e.Handled = true;
@@ -2514,6 +2526,27 @@ public partial class MainWindow : Window
     {
         if (sender is TextBox box) box.Focus();
     }
+
+    /// <summary>
+    /// Census 3.9 (wave-8 review F1) — the caret goes to the M BOM screen's new-name box the moment the screen
+    /// opens: <i>"In the Stock Item Multi Components (M BOM) screen, enter the name of the new BOM and press
+    /// Enter."</i> (help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/).
+    /// Without it nothing held focus, the operator's letters went nowhere, and the Enter that followed opened the
+    /// HIGHLIGHTED existing BOM for alteration instead of creating the one they typed. Deferred to the Loaded pass
+    /// because the page's visibility binding may not have settled when the box attaches; a hidden box refuses focus.
+    /// The arrows still walk the list while the caret is here — see the BomNameList arms in <see cref="OnKeyDown"/>.
+    /// </summary>
+    private void OnBomNameListNewNameAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is not TextBox box) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (box.IsEffectivelyVisible && box.IsEffectivelyEnabled) box.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>True when the keystroke came from the M BOM screen's new-name box (census 3.9).</summary>
+    private static bool IsBomNameListNewNameBox(KeyEventArgs e) => e.Source is TextBox { Name: "BomNameListNewName" };
 
     /// <summary>
     /// W2-14 — drags the results panel to the highlighted row.

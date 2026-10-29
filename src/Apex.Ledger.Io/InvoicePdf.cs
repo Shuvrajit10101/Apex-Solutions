@@ -492,6 +492,12 @@ public static class InvoicePdf
         var narrationLines = (config.ShowNarration && !string.IsNullOrWhiteSpace(data.Narration))
             ? VoucherPdf.WrapText("Remarks: " + Debrand.Text(data.Narration), page.ContentWidth, page.BodyFontSize)
             : new List<string>();
+        // Census 5.11 wave 8 (IV-237): each per-ledger narration, named by its ledger, under the remarks and on the
+        // same F12 toggle. Measured here and drawn by the same NarrationLines loop, so measure and draw cannot drift.
+        if (config.ShowNarration)
+            foreach (var ln in data.LedgerNarrations)
+                narrationLines.AddRange(VoucherPdf.WrapText(
+                    Debrand.Text(ln.Ledger) + ": " + Debrand.Text(ln.Narration), page.ContentWidth, page.BodyFontSize));
 
         // The document must not describe itself as something it is not: a bill of supply is not an invoice.
         // T0-11 slice S2 — and a RECORD is not a declaration of ours at all. "We declare that this invoice shows the

@@ -208,6 +208,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Bill-of-Materials master (non-null only for the BOM-creation column; Phase 6 Cluster 2; RQ-9).</summary>
     public BomMasterViewModel? BomMaster => Page as BomMasterViewModel;
 
+    /// <summary>The hosted Stock Item Multi Components (M BOM) name list (non-null only for that column; census 3.9).</summary>
+    public BomNameListViewModel? BomNameList => Page as BomNameListViewModel;
+
     /// <summary>The hosted Manufacturing-Journal voucher-entry screen (non-null only for that column; Phase 6 Cluster 2; RQ-11).</summary>
     public ManufacturingJournalEntryViewModel? ManufacturingJournalEntry => Page as ManufacturingJournalEntryViewModel;
 
