@@ -597,6 +597,11 @@ public sealed class BomCopyAndReturnTests
             Key(window, PhysicalKey.Escape);
             Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
             Assert.Same(Named<Grid>(window, "BomMasterRoot"), Focused(window));
+            // Left is Escape's pair and leaves the same way.
+            PressCopyBom(window, vm);
+            Key(window, PhysicalKey.ArrowLeft);
+            Assert.Equal(Screen.BomMaster, vm.CurrentScreen);
+            Assert.Same(Named<Grid>(window, "BomMasterRoot"), Focused(window));
 
             PressCopyBom(window, vm);
             Key(window, PhysicalKey.Enter);                       // Stock Item -> Component of BOM

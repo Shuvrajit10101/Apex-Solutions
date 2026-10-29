@@ -3186,7 +3186,8 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 > edited and a *List of BoM* beside it. `copy-of-bom-bom-screen-tally.gif` shows the result: every line has Godown,
 > Type of Item and Quantity filled in, and the *Unit of manufacture* field is EMPTY with the cursor on it.
 > **CLONED:** Ctrl+C on the components screen; the two fields and their lists; the copied lines carrying item, godown,
-> type, quantity and carve-out rate or percent; the unit of manufacture left for the operator; Ctrl+A to save. On an
+> type, quantity and carve-out rate or percent; the unit of manufacture left for the operator, with the caret on it
+> (added by the review, W9-fb F2); Ctrl+A to save. On an
 > alteration the save is in place (`BomService.AlterBom`, id kept). Locked by `BomCopyAndReturnTests`.
 > **IV-188 evidence only (no change to that entry):** the standalone *Bill of Materials* creation master is the same
 > `Screen.BomMaster`, so Ctrl+C also reaches Copy BoM from there. It is still create-only; no alter arm was added.
