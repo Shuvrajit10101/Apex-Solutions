@@ -3330,25 +3330,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 IsHeader = true,
             });
 
-        // 🔴 THE OPTIONAL REGISTER'S SCOPE LIMIT IS A ROW ON THE REGISTER, NOT A Footnote() CALL — AND THE
-        // DIFFERENCE IS WHETHER THE OPERATOR EVER SEES IT.
-        //
-        // This line used to call Footnote(), which appends to PayrollFootnotes. The only panel in the shell bound
-        // to PayrollFootnotes sits inside a Grid gated on IsVisible="{Binding IsPayrollMatrix}", and
-        // IsPayrollMatrix (see its definition above) lists the pay sheet / payroll register kinds and NOTHING
-        // else — so the sentence was written into a panel this report kind can never render. Measured: the note
-        // was present in the collection, HasPayrollFootnotes was true, IsPayrollMatrix was false. A dead knob.
-        //
-        // It matters most on an EMPTY register, where the only visible sentence was "No voucher in this period is
-        // marked Optional" — precisely the untrue reading ExceptionVouchers.OptionalScopeNote's own red-flag
-        // comment says must be prevented, since a stock/order voucher cannot carry the flag at all.
-        //
-        // Rendered as a trailing ReportRow instead: the same mechanism the empty-state above already uses, so it
-        // is on screen, and it travels through ReportTabularProjector / ReportPrintProjector into the export and
-        // the print with the register rather than being a screen-only afterthought. It carries no drill key, so
-        // Enter on it is a safe no-op (ReportRow.CanDrill is false).
-        if (kind == ExceptionVoucherKind.Optional)
-            Rows.Add(new ReportRow { Particulars = ExceptionVouchers.OptionalScopeNote, IsHeader = true });
+        // ~~THE OPTIONAL REGISTER'S SCOPE LIMIT IS A ROW ON THE REGISTER~~ — 🔴 STRUCK AT SCHEMA v69 (census 5.7).
+        // A trailing row here used to say a stock/order voucher could not be marked Optional. Since v69 it can
+        // (inventory_vouchers.optional) and ExceptionVouchers asks both aggregates, so that sentence would now be
+        // false on every register it was printed on; it is removed, not reworded.
     }
 
     // =============================================================== inventory reports (slice 3.4b)

@@ -51,6 +51,22 @@ public sealed class InventoryVoucher
     /// <summary>Ctrl+T — excluded from on-hand until its date is reached.</summary>
     public bool PostDated { get; set; }
 
+    /// <summary>
+    /// Ctrl+L — an <b>Optional</b> stock/order voucher: entered, listed in the Day Book and the Optional Vouchers
+    /// register, and contributing NOTHING to any stock balance until it is regularised (census row 5.7, schema
+    /// v69 <c>inventory_vouchers.optional</c>). The pure-stock mirror of <see cref="Voucher.Optional"/>.
+    ///
+    /// <para><b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/,
+    /// opened by content 2026-11-02: <i>"Any voucher in TallyPrime can be marked as Optional by pressing Ctrl+L
+    /// (Optional) during voucher entry or in alteration mode."</i> "Any voucher" is why the stock aggregate carries
+    /// it too. Until v69 it did not, and the Optional register had to footnote that limit.</para>
+    ///
+    /// <para>Not a constructor parameter, deliberately: every factory already takes eleven arguments and the flag
+    /// defaults to <c>false</c> (every pre-v69 voucher), so the builders that need it set it after construction —
+    /// the same shape <see cref="PostDated"/> and <see cref="Cancelled"/> already allow.</para>
+    /// </summary>
+    public bool Optional { get; set; }
+
     /// <summary>The stock movements (source lines for a Stock Journal); empty for order/physical vouchers.</summary>
     public IReadOnlyList<InventoryAllocation> Allocations => _allocations;
 

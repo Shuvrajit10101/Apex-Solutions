@@ -470,7 +470,7 @@ public static class OrderFulfilment
     /// </summary>
     private static bool CountsAsOf(Company company, InventoryVoucher v, DateOnly asOf, VoucherBaseType baseType)
     {
-        if (v.Cancelled) return false;
+        if (v.Cancelled || v.Optional) return false;
         if (v.Date > asOf) return false;
         // Redundant with the date bound above and kept for literal parity with the sibling predicates, which
         // state the post-dating rule explicitly rather than leaving it implied by the bound.

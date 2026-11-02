@@ -40,18 +40,12 @@ public enum ExceptionVoucherKind
 /// </summary>
 public static class ExceptionVouchers
 {
-    /// <summary>
-    /// 🔴 <b>The Optional register reads the ACCOUNTING aggregate only, and that is a real limit rather than an
-    /// oversight to be papered over.</b> <see cref="Voucher"/> carries <c>Optional</c>;
-    /// <see cref="InventoryVoucher"/> has <b>no Optional member at all</b>, so a pure-stock voucher cannot be
-    /// marked Optional anywhere in this product and there is correspondingly nothing for this register to list.
-    /// Callers surface this as a footnote instead of letting the register read as "no stock voucher is Optional",
-    /// which would be a different and untrue statement. Census row 5.7(a) records the underlying gap.
-    /// </summary>
-    public const string OptionalScopeNote =
-        "Optional applies to accounting vouchers only — a stock/order voucher cannot be marked Optional in this "
-        + "application, so none can appear here.";
-
+    // ~~The Optional register reads the ACCOUNTING aggregate only … <c>OptionalScopeNote</c>: "Optional applies to
+    // accounting vouchers only — a stock/order voucher cannot be marked Optional in this application"~~ 🔴 <b>STRUCK
+    // AT SCHEMA v69 (census 5.7).</b> <see cref="InventoryVoucher"/> now carries <c>Optional</c>
+    // (<c>inventory_vouchers.optional</c>), so the register asks BOTH aggregates and the scope note — which would
+    // now be false — is deleted rather than kept. The vendor's own words are why: <i>"Any voucher in TallyPrime
+    // can be marked as Optional"</i> (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/).
     /// <summary>
     /// Builds one exception register over <paramref name="from"/>…<paramref name="to"/>, in the Day Book's own
     /// order. Returns an empty list when nothing in the period carries the flag.
@@ -103,11 +97,11 @@ public static class ExceptionVouchers
         // cancelled stock voucher the way a FindVoucher-only test would.
         ExceptionVoucherKind.Cancelled => row.IsCancelled,
 
-        // See OptionalScopeNote: only the accounting aggregate has the flag. An inventory row is skipped rather
-        // than resolved, because FindVoucher would return null for it and a null-tolerant test would read as
-        // "not Optional" — true here by accident, and silently wrong the day InventoryVoucher gains the member.
-        ExceptionVoucherKind.Optional =>
-            !row.IsInventory && company.FindVoucher(row.VoucherId) is { Optional: true },
+        // v69: both aggregates carry Optional, so both are asked — each through its OWN finder, because the two
+        // return null for each other's ids (the DayBookRow.IsInventory discipline).
+        ExceptionVoucherKind.Optional => row.IsInventory
+            ? company.FindInventoryVoucher(row.VoucherId) is { Optional: true }
+            : company.FindVoucher(row.VoucherId) is { Optional: true },
 
         // Both aggregates carry PostDated, so both are asked — each through its OWN finder, because the two
         // return null for each other's ids (the DayBookRow.IsInventory discipline).

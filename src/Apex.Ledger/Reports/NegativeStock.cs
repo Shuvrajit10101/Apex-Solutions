@@ -91,7 +91,7 @@ public sealed record NegativeStock(
         // Most-recent rated inward allocation on/before asOf (pure-stock inventory vouchers).
         foreach (var iv in company.InventoryVouchers)
         {
-            if (iv.Cancelled || iv.Date > asOf) continue;
+            if (iv.Cancelled || iv.Optional || iv.Date > asOf) continue;
             foreach (var a in iv.Allocations.Concat(iv.DestinationAllocations))
             {
                 if (a.StockItemId != item.Id || a.Direction != StockDirection.Inward) continue;

@@ -221,6 +221,19 @@ public sealed class InventoryPostingService
                 + $"{existingCancelled} -> {replacement.Cancelled}). Cancellation is Alt+X's verb and is recorded "
                 + "as its own edit-log entry; build the replacement with the same flag.");
 
+        // 🔴 Census 5.7 / 5.8 (v69) — the PROVISIONAL-STATE VECTOR of the pure-stock aggregate: Optional and
+        // Post-Dated. Refused for the reason the accounting sibling's §7.4 refuses it: both decide whether the
+        // voucher moves stock AT ALL, so a replacement that silently moved one would move closing stock by the
+        // whole voucher through a door labelled "edit the lines" — and log it as an Alter. Until v69 this guard
+        // did not exist and a Ctrl+T on the inventory alteration screen rode through Replace unlogged as a flag
+        // move. Each flag has its own verb (SetOptional / SetPostDated); the alteration screen calls those first.
+        if (replacement.Optional != existing.Optional || replacement.PostDated != existing.PostDated)
+            throw new InvalidOperationException(
+                $"Replace does not change a voucher's provisional state (inventory voucher {existingId}: "
+                + $"Optional {existing.Optional} -> {replacement.Optional}, Post-dated {existing.PostDated} -> "
+                + $"{replacement.PostDated}). Marking a voucher Optional or Post-dated is its own verb "
+                + "(Ctrl+L / Ctrl+T); build the replacement carrying the posted voucher's flags.");
+
         var type = _company.FindVoucherType(replacement.TypeId)
             ?? throw new InvalidOperationException($"Unknown voucher type {replacement.TypeId}.");
 
@@ -471,6 +484,82 @@ public sealed class InventoryPostingService
         DiscardUncommittedEditLogEntry(entry);
 
         v.Cancelled = false;
+    }
+
+    /// <summary>
+    /// Moves <see cref="InventoryVoucher.Optional"/> on a POSTED stock/order voucher, in either direction — Ctrl+L
+    /// in inventory alteration (census row 5.7, schema v69). The pure-stock sibling of
+    /// <c>LedgerService.SetOptional</c>: logged as <see cref="VoucherEditVerb.SetOptional"/>, a no-op (no log line)
+    /// when the flag already holds the value, refused on a cancelled voucher.
+    /// <para>Vendor: <i>"Any voucher in TallyPrime can be marked as Optional by pressing Ctrl+L (Optional) during
+    /// voucher entry or in alteration mode"</i> and <i>"you can regularise the transaction by opening it and
+    /// pressing Ctrl+L (Regular)"</i> (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/,
+    /// opened by content 2026-11-02).</para>
+    /// </summary>
+    public InventoryVoucher SetOptional(Guid voucherId, bool optional)
+        => SetFlag(voucherId, optional, VoucherEditVerb.SetOptional, "Optional",
+            v => v.Optional, (v, value) => v.Optional = value);
+
+    /// <summary>
+    /// Moves <see cref="InventoryVoucher.PostDated"/> on a POSTED stock/order voucher — Ctrl+T in inventory
+    /// alteration (census row 5.8). Logged as <see cref="VoucherEditVerb.SetPostDated"/>. See
+    /// <c>LedgerService.SetPostDated</c> for the grounding and for the part that is ours (IV-325).
+    /// </summary>
+    public InventoryVoucher SetPostDated(Guid voucherId, bool postDated)
+        => SetFlag(voucherId, postDated, VoucherEditVerb.SetPostDated, "post-dated",
+            v => v.PostDated, (v, value) => v.PostDated = value);
+
+    /// <summary>The compensating undo for a <see cref="SetOptional"/> whose save did not commit.</summary>
+    public void DiscardUncommittedOptionalChange(Guid voucherId, VoucherEditLogEntry entry, bool restoreTo)
+        => DiscardFlag(voucherId, entry, restoreTo, VoucherEditVerb.SetOptional,
+            v => v.Optional, (v, value) => v.Optional = value);
+
+    /// <summary>The compensating undo for a <see cref="SetPostDated"/> whose save did not commit.</summary>
+    public void DiscardUncommittedPostDatedChange(Guid voucherId, VoucherEditLogEntry entry, bool restoreTo)
+        => DiscardFlag(voucherId, entry, restoreTo, VoucherEditVerb.SetPostDated,
+            v => v.PostDated, (v, value) => v.PostDated = value);
+
+    private InventoryVoucher SetFlag(
+        Guid voucherId, bool value, VoucherEditVerb verb, string label,
+        Func<InventoryVoucher, bool> read, Action<InventoryVoucher, bool> write)
+    {
+        var v = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+
+        if (v.Cancelled)
+            throw new InvalidOperationException(
+                $"Inventory voucher {voucherId} is cancelled; a cancelled voucher moves no stock whether it is "
+                + $"{label} or not, so there is nothing to change.");
+
+        if (read(v) == value) return v;
+
+        // The log line first, exactly as Cancel: the snapshot is the state the operator is leaving.
+        RecordEdit(v, verb);
+        write(v, value);
+        return v;
+    }
+
+    private void DiscardFlag(
+        Guid voucherId, VoucherEditLogEntry entry, bool restoreTo, VoucherEditVerb verb,
+        Func<InventoryVoucher, bool> read, Action<InventoryVoucher, bool> write)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        if (entry.Verb != verb || entry.VoucherId != voucherId)
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} ({entry.Verb} of {entry.VoucherId}) does not describe a {verb} of "
+                + $"inventory voucher {voucherId}.");
+
+        var v = _company.FindInventoryVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Inventory voucher {voucherId} not found.");
+
+        if (read(v) == restoreTo)
+            throw new InvalidOperationException(
+                $"Inventory voucher {voucherId} already holds {restoreTo} for this flag, so there is no uncommitted "
+                + "change to discard. This verb rolls one back; it does not set the flag.");
+
+        DiscardUncommittedEditLogEntry(entry);
+        write(v, restoreTo);
     }
 
     /// <summary>
@@ -747,7 +836,7 @@ public sealed class InventoryPostingService
         var dates = new SortedSet<DateOnly>();
         foreach (var v in _company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             var type = _company.FindVoucherType(v.TypeId);
             if (type is null || !type.AffectsStock) continue;
 

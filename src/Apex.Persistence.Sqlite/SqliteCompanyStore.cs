@@ -1751,6 +1751,29 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 68;
         }
 
+        // v68 → v69 (census 5.7 / 5.8): ONE column, inventory_vouchers.optional — Ctrl+L on a stock/order voucher —
+        // plus the SetPostDated edit-log ordinal, which needs no DDL. Purely additive and it back-fills NOTHING:
+        // DEFAULT 0 = live = every pre-v69 stock voucher (ER-13). See Schema.MigrateV68ToV69.
+        if (version == 68)
+        {
+            using var tx = _connection.BeginTransaction();
+            using (var mig = _connection.CreateCommand())
+            {
+                mig.Transaction = tx;
+                mig.CommandText = Schema.MigrateV68ToV69;
+                mig.ExecuteNonQuery();
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 69);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 69;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -4845,11 +4868,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
     {
         // Header rows first, then the four kinds of child line per voucher.
         var headers = new List<(Guid Id, Guid TypeId, int Number, DateOnly Date, string? Narration,
-            Guid? PartyId, bool Cancelled, bool PostDated)>();
+            Guid? PartyId, bool Cancelled, bool PostDated, bool Optional)>();
         using (var cmd = _connection.CreateCommand())
         {
             cmd.CommandText = """
-                SELECT id, type_id, number, date, narration, party_id, cancelled, post_dated
+                SELECT id, type_id, number, date, narration, party_id, cancelled, post_dated, optional
                 FROM inventory_vouchers WHERE company_id = $cid ORDER BY rowid;
                 """;
             cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4864,7 +4887,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                     r.IsDBNull(4) ? null : r.GetString(4),
                     r.IsDBNull(5) ? (Guid?)null : Guid.Parse(r.GetString(5)),
                     r.GetInt64(6) != 0,
-                    r.GetInt64(7) != 0));
+                    r.GetInt64(7) != 0,
+                    r.GetInt64(8) != 0));   // v69 (census 5.7): optional
             }
         }
 
@@ -4885,7 +4909,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 postDated: h.PostDated,
                 additionalCostLines: ReadAdditionalCostLines(h.Id),
                 jobWorkOrder: ReadJobWorkOrder(h.Id),
-                orderLinks: ReadMaterialOrderLinks(h.Id)));
+                orderLinks: ReadMaterialOrderLinks(h.Id))
+            {
+                // v69 (census 5.7): Ctrl+L on a stock/order voucher. Set after construction, as the domain allows.
+                Optional = h.Optional,
+            });
         }
         return result;
     }
@@ -8404,8 +8432,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Transaction = tx;
                 cmd.CommandText = """
                     INSERT INTO inventory_vouchers
-                        (id, company_id, type_id, number, date, narration, party_id, cancelled, post_dated)
-                    VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $pd);
+                        (id, company_id, type_id, number, date, narration, party_id, cancelled, post_dated, optional)
+                    VALUES ($id, $cid, $tid, $num, $date, $narr, $party, $cancel, $pd, $opt);
                     """;
                 cmd.Parameters.AddWithValue("$id", v.Id.ToString("D"));
                 cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -8416,6 +8444,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$party", (object?)v.PartyId?.ToString("D") ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("$cancel", v.Cancelled ? 1 : 0);
                 cmd.Parameters.AddWithValue("$pd", v.PostDated ? 1 : 0);
+                cmd.Parameters.AddWithValue("$opt", v.Optional ? 1 : 0);   // v69 (census 5.7)
                 cmd.ExecuteNonQuery();
             }
 
