@@ -1106,7 +1106,7 @@ public sealed class LedgerService
     /// the voucher screen without naming alteration mode the way it does for Ctrl+L, and it describes the vendor's
     /// OWN clearing as automatic (<i>"when the DATE OF LAST ENTRY surpasses the Post-Dated voucher, it gets updated
     /// automatically"</i>). Offering the toggle on an altered voucher is therefore partly ours and is logged as a
-    /// divergence (docs/invented-vs-cloned.md, IV-325); the automatic last-entry trigger is NOT built here.</para>
+    /// divergence (docs/invented-vs-cloned.md, IV-310); the automatic last-entry trigger is NOT built here.</para>
     ///
     /// <para>A no-op, appending NO log line, when the flag already holds <paramref name="postDated"/>.</para>
     /// </summary>

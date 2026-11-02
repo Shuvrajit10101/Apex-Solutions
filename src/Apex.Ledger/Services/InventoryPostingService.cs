@@ -503,7 +503,7 @@ public sealed class InventoryPostingService
     /// <summary>
     /// Moves <see cref="InventoryVoucher.PostDated"/> on a POSTED stock/order voucher — Ctrl+T in inventory
     /// alteration (census row 5.8). Logged as <see cref="VoucherEditVerb.SetPostDated"/>. See
-    /// <c>LedgerService.SetPostDated</c> for the grounding and for the part that is ours (IV-325).
+    /// <c>LedgerService.SetPostDated</c> for the grounding and for the part that is ours (IV-310).
     /// </summary>
     public InventoryVoucher SetPostDated(Guid voucherId, bool postDated)
         => SetFlag(voucherId, postDated, VoucherEditVerb.SetPostDated, "post-dated",
