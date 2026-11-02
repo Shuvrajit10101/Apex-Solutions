@@ -3228,8 +3228,8 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 |---|---|
 | **Severity** | **LOW. Class C. Area: GST (census 6.4).** |
 | **What the sources say** | The vendor hierarchy applies to "HSN/SAC details" generally. |
-| **What we ship** | **OURS, and a known gap.** The walk covers every STOCK line on GSTR-1 Table 12, GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01. An accounting (service) invoice's SAC is still read by `Gstr1.ServiceSacOf` off the service ledger's own block, so a service ledger that declares no SAC does not inherit its group's or the company's. Routing it would change which vouchers classify as service invoices (`IsServiceAccountingInvoice` keys on a SAC-bearing leg), which is wider than this track. |
-| **Tests** | None; filed so the row is not read as covering service legs. |
+| **What we ship** | ~~**OURS, and a known gap.** The walk covers every STOCK line on GSTR-1 Table 12, GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01. An accounting (service) invoice's SAC is still read by `Gstr1.ServiceSacOf` off the service ledger's own block, so a service ledger that declares no SAC does not inherit its group's or the company's. Routing it would change which vouchers classify as service invoices (`IsServiceAccountingInvoice` keys on a SAC-bearing leg), which is wider than this track.~~ 🔴 **CLOSED in wave 10 (track `ga`, §2X, IV-295).** `Gstr1.ServiceSacOf(company, ledger)` now walks `GstReportSupport.HsnSacOf(company, null, ledger)` under `SourceOfHsnSacDetails`, and every service-leg consumer reads it (GSTR-1 Table 12 and so GSTR-9 Table 17, INV-01 `HsnCd` on both the taxed and the exempt leg, the INV-01 T1-81 refusal, the printed invoice). **The classification worry struck above was wrong:** `Gstr1.ServiceLegs` keys on the ledger HAVING a `SalesPurchaseGst` block (`Gstr1.cs`, "not a service-income / SAC-bearing ledger" guard), not on the SAC string, so no voucher changes class. |
+| **Tests** | ~~None; filed so the row is not read as covering service legs.~~ See IV-295. |
 
 ## 2V. ADDED 2026-10-29 — WAVE 9 TRACK `fc`: THE JOB-WORK DELIVERY CHALLAN AND THE OUTWARD §34 DEBIT NOTE (census rows 5.11 / T2-163, IV-275..IV-279)
 
@@ -3299,7 +3299,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | | |
 |---|---|
 | **Severity** | **LOW. Class C. Area: PRN / GST.** |
-| **What we ship** | The HSN column is `GstReportSupport.HsnSacOf(item)`: the stock item's own HSN. Track `fa` is building the census 6.4 hierarchy walk (`SourceOfHsnSacDetails`) this wave and owns `GstReportSupport.cs`; this track did not touch it. When that walk lands, this call site should move to it along with the other HSN consumers. Until then, an item with no HSN of its own prints a blank HSN even if its group carries one. |
+| **What we ship** | ~~The HSN column is `GstReportSupport.HsnSacOf(item)`: the stock item's own HSN. Track `fa` is building the census 6.4 hierarchy walk (`SourceOfHsnSacDetails`) this wave and owns `GstReportSupport.cs`; this track did not touch it. When that walk lands, this call site should move to it along with the other HSN consumers. Until then, an item with no HSN of its own prints a blank HSN even if its group carries one.~~ 🔴 **STALE — corrected in wave 10 (track `ga`, §2X, IV-299).** The merge already moved this call site: `JobWorkChallanPrintProjector.cs:175` reads `GstReportSupport.HsnSacOf(company, item, null)`, the hierarchy walk under `SourceOfHsnSacDetails` (item, stock group, company rungs; no value ledger, because a job-work challan posts none). An item with no HSN of its own under a stock group or company that declares one prints that code. |
 | **Tests** | The HSN Tj is asserted for an item that carries its own HSN. The inherited case is not tested here. |
 
 ## 2U. ADDED 2026-10-29 — WAVE 9 TRACK `fb`: Ctrl+C COPY BoM AND ESCAPE BACK TO THE M BOM LIST (census row 3.9, IV-265..IV-268)
@@ -3432,6 +3432,63 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **Severity** | **LOW. Class C (ours). Area: RPT.** |
 | **What we ship** | The per-bill *Ageing* cell, the second-band buckets and its heading ("Ageing Analysis (by bill date)") follow F6; the *Overdue Days* column does not, because overdue is defined on the due date. A bill with no due date (and no credit period) is due on its bill date, so it ages identically under both bases. **OURS.** |
 | **Tests** | `AgeingMethodAndTypeOfBillsTests.Bills_receivable_buckets_under_both_bases_off_the_reloaded_book` (INV-A reads 80 overdue days and `90+ days` under bill-date ageing; INV-C with no due date reads `31-60 days` under both), `AgeingMethodTests.A_bill_without_a_due_date_ages_identically_under_both_bases_and_one_due_on_the_as_of_date_is_not_due`. M3 (builder ignores the basis) reddens five by name. |
+
+## 2X. ADDED 2026-11-02 — WAVE 10 TRACK `ga`: THE SERVICE-LEG SAC WALK AND THE LINKED §34 NOTE IN THE HSN SUMMARY AND 3.1(c) (census rows 6.4, 6.12 `T2-167` / `T2-166`, IV-295..IV-299)
+
+> **This track's block is IV-295..IV-299 and it takes all five.** The section letter `2X` is the wave plan's
+> pre-assignment; the entry NUMBERS are the stable handle.
+>
+> **Vendor ground** (TallyPrime), opened BY CONTENT on 2026-11-02:
+> `help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` ("How to Manage HSN Codes/SAC and
+> Tax Rates in TallyPrime") gives the two orders "Ledger → Group → Stock Item → Stock Group → Company" and
+> "Stock Item → Stock Group → Ledger → Group → Company", says "If not found there, it will move to the Group, then
+> Stock Item, and so on", and says "The same explanation is true for even HSN/SAC details." The page does NOT
+> discuss service ledgers specifically; applying the walk to a ledger-only (service) leg is the plain reading of
+> "HSN/SAC details", not a separate attestation. **No vendor page speaks to how a linked credit/debit note nets in
+> the HSN summary or in 3.1(c)**; IV-297 and IV-298 are therefore OURS, grounded in the returns' own arithmetic
+> (GSTR-9 Table 17 = Σ Table 12; GSTR-9C 5R = books − returns).
+
+### IV-295 · A service (ledger) leg files the hierarchy's SAC — closes IV-254 (census 6.4)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C → cloned. Area: GST (census 6.4).** Filed returns and a government-portal document. |
+| **What TallyPrime does** | Walks Ledger → Group → … → Company for HSN/SAC details under the company's hierarchy option (vendor quotes above). |
+| **What we ship** | `Gstr1.ServiceSacOf(company, ledger)` = `GstReportSupport.HsnSacOf(company, null, ledger)` (`GstService.ResolveDocumentHsnSac`, under `SourceOfHsnSacDetails`). With no stock item both item rungs are silent, so either order reaches Ledger → Group → Company. Read by GSTR-1 Table 12 (`AddServiceHsnRow`, taxed and exempt service rows) and so GSTR-9 Table 17, INV-01 `HsnCd` on the taxed leg and on the exempt (`NonTaxableServiceLegs`) leg, the INV-01 T1-81 refusal (now refuses only when no rung declares a SAC, and says so), and the printed service invoice's HSN/SAC column. Measured before (origin/main fdc94d7): Table 12 `(none)`, INV-01 refused, the PDF cell blank. **Unchanged:** a ledger's own SAC still wins over its group's; classification (`IsServiceAccountingInvoice` / `Gstr1.ServiceLegs`) keys on the ledger HAVING a GST block, not on its SAC string, so no voucher changes class. The resolver now trims the code (it did not before). |
+| **Tests** | `ServiceSacHierarchyWalkTests` (Desktop; book reloaded through a fresh `SqliteCompanyStore`; GSTR-1 / GSTR-9 JSON bytes, INV-01 JSON bytes, invoice PDF `Tj`; odd paisa ₹12,345.67): group and company carriers under both orders, own-SAC-wins control, exempt service leg, and the no-rung refusal. Mutations, each reverted at once: **M1** `ServiceSacOf` → ledger-only reddens 5 of 8 (all four carrier cases + the exempt case); **M2** the print call site → ledger-only reddens the same 5 at the PDF `Tj`; **M3** INV-01 taxed-leg `hsnCd` → ledger-only reddens 5 at `HsnCd`; **M4** INV-01 exempt-leg `hsnCd` → ledger-only reddens `An_exempt_service_leg_with_no_sac_files_its_groups_sac_too` at `HsnCd` index 1; **M5** the T1-81 refusal → ledger-only reddens 5 (refused); **M6** `AddServiceHsnRow` → ledger-only reddens 5 at Table 12. |
+
+### IV-296 · The INV-01 refusal text now names the group and the company
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: GST / e-invoice.** |
+| **What we ship** | **OURS.** When no rung declares a SAC the refusal reads "'X' declares no HSN/SAC code, and neither does its group nor the company. …" and still tells the user to enter it on the ledger. Under the Stock-Item-first option the two stock rungs are also consulted, but a ledger leg has no stock item, so they can never answer; the message does not mention them. |
+| **Tests** | `ServiceSacHierarchyWalkTests.When_no_rung_declares_a_sac_the_inv01_is_still_refused`. |
+
+### IV-297 · A linked §34 note nets into GSTR-1 Table 12 and the GSTR-1 exempt bucket (census 6.12 `T2-167`)
+
+| | |
+|---|---|
+| **Severity** | **HIGH. Class C (ours). Area: GST (census 6.12).** Wrong money on an annual return. |
+| **What the sources say** | No vendor page speaks. The return's own structure does: GSTR-9 Table 17 is the HSN summary of outward supplies, and Table 4 / GSTR-3B 3.1(a) already net the note. |
+| **What we ship** | **OURS.** `Gstr1.BuildTable9B` now also calls `AccumulateHsn` for each linked note, off the SAME link walk, filters (date, `CountsAsOf`, registration, the T2-162 inward-original skip) and sign (Credit −1, Debit +1) that fold its tax into the header, and the HSN rows are taken after it. An outward reverse-charge note with no forward tax is kept out, as the main sweep keeps its invoice out. The main sweep's `continue` on linked notes is unchanged (it is load-bearing for the tax). Measured before (sale 7 @ ₹123.45, linked credit note 3 @ ₹123.45, 18%): Table 12 / Table 17 taxable 864.15, CGST 77.78, qty 7 against 3.1(a) CGST 44.45. After: 493.80 / 44.45 / 44.44 / 4, equal to Table 4 head by head. **Residuals, not fixed:** a sales-linked DEBIT note is covered by the same code but has no test; the reverse-charge guard on this path is unpinned; posting-side `T2-164` / `T2-165` (a note keyed against the wrong direction) are untouched. |
+| **Tests** | `LinkedNoteHsnAndExemptReloadTests.A_sales_linked_credit_note_nets_in_table_12_so_table_17_equals_3_1_a` (Persistence; reloaded book; GSTR-1 / 3B / 9 JSON bytes; 9C Table 11 and 5R 0.00). **M7** (the `AccumulateHsn` call disabled) reddens it (expected 49,380, actual 86,415) and `An_exempt_sales_linked_credit_note_reduces_3_1_c_so_9c_5r_is_zero` at the GSTR-1 exempt bucket. |
+
+### IV-298 · A linked exempt §34 note reduces GSTR-3B 3.1(c) (census 6.12 `T2-166`)
+
+| | |
+|---|---|
+| **Severity** | **HIGH. Class C (ours). Area: GST (census 6.12).** |
+| **What we ship** | **OURS.** `Gstr3b.ExemptOutwardValue` keeps its `continue` on linked notes in the voucher sweep and then nets each linked note's exempt value once, off the link walk, with `ReadCdn`'s filters (date, `CountsAsOf`, registration, T2-162 inward-original skip, outward reverse charge) and sign. The per-line split is the shared `ExemptValueOf` (non-taxable stock lines of a taxed note; the whole stock value of an untaxed one), so a taxed line is counted only by `ReadCdn` and an exempt line only here. Measured before: 3.1(c) 864.15 and GSTR-9C 5R −370.35. After: 3.1(c) 493.80 = GSTR-1 exempt bucket = GSTR-9 Table 5 exempt; 5R 0. An UNLINKED exempt credit note gives the same 493.80 (control). **Residuals, not fixed:** 3.1(c) reads STOCK lines only; an exempt SERVICE ledger leg is in GSTR-1's exempt bucket but not in 3.1(c) for invoices and notes alike (pre-existing, not widened here); a linked note mixing taxed and exempt lines is covered by `ExemptValueOf` but not tested. |
+| **Tests** | `LinkedNoteHsnAndExemptReloadTests.An_exempt_sales_linked_credit_note_reduces_3_1_c_so_9c_5r_is_zero`, `…An_unlinked_exempt_credit_note_files_the_same_3_1_c_as_the_linked_one`. **M8** (the netting loop short-circuited) reddens the first (expected 49,380, actual 86,415); **M9** (the note sign flipped) reddens it (actual 123,450). |
+
+### IV-299 · Correction: the job-work challan already walks the HSN hierarchy (IV-279 was stale)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Correction of record. Area: PRN / GST.** |
+| **What we ship** | `JobWorkChallanPrintProjector.cs:175` reads `GstReportSupport.HsnSacOf(company, item, null)`: the item, stock-group and company rungs under `SourceOfHsnSacDetails` (a challan has no value ledger, so the ledger rungs are silent). IV-279 is amended in place. |
+| **Tests** | `JobWorkChallanRouteTests.A_material_out_of_an_item_with_no_hsn_prints_its_stock_groups_hsn_on_the_reloaded_challan` (item with no HSN under a stock group declaring 741220; keyed with the real Ctrl+A, then re-read through a fresh `CompanyStorage`; `(741220) Tj`). **M10** (the call replaced by `ItemRungHsnSacOf(item)`) reddens it. |
 
 ## 3. Grouped by area
 
