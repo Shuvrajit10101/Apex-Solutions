@@ -148,13 +148,15 @@ public class VoucherPostDatedStateVerbTests
     public void An_optional_stock_voucher_moves_no_stock_until_it_is_regularised()
     {
         var b = StockBookWith(optional: true, postDated: false);
-        var valueWhileOptional = ClosingValue(b);
+        // Exactly the opening 4 @ 10.01: an Optional receipt that leaked into the cost events would average its
+        // 12.03 rate into these 4 units even though the quantity stayed at 4 (that is what the value pin catches).
         Assert.Equal(4m, OnHand(b));
+        Assert.Equal(40.04m, ClosingValue(b));
 
         b.Posting.SetOptional(b.ReceiptId, false);
 
         Assert.Equal(13m, OnHand(b));
-        Assert.True(ClosingValue(b) > valueWhileOptional);
+        Assert.True(ClosingValue(b) > 140m, $"closing value {ClosingValue(b)} did not take in the 9 @ 12.03");
         Assert.Equal(VoucherEditVerb.SetOptional, b.Company.LastVoucherEditLogEntry!.Verb);
     }
 
