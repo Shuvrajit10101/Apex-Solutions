@@ -120,8 +120,13 @@ public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterList
     //   · (c) is SUPERSEDED: deletion IS now vendor-attested. Only the KEYS (Alt+D + Y; Ctrl+Enter to alter)
     //     are ours — the page names no key for either verb (docs/invented-vs-cloned.md IV-302).
     //   · (a)'s two switches ("Exclude forex gain/loss calculations", "Exclude inventory tracking
-    //     calculations") are NOT on the page as read on 2026-11-02, and the four Alt+G alteration bullets quoted
-    //     above are not either. Nothing is built for the switches; they would need storage (IV-303).
+    //     calculations") are NOT on the live page as read on 2026-11-02, and the four Alt+G alteration bullets
+    //     quoted above are not either. They ARE on the November 3, 2025 version (web.archive.org snapshot
+    //     20260617102932 of help.tallysolutions.com/scenarios-tally/, read by content 2026-11-02), each
+    //     conditional: the forex switch "appears only when you have maintained more than one currency", the
+    //     inventory switch "only when one of these inventory vouchers is activated". Nothing is built for the
+    //     switches; they need storage (IV-303), proposed to A12 as a new census 2.10 clause. That snapshot names
+    //     no scenario delete key, so Alt+D + Y stays ours for scenarios (it IS vendor-attested for budgets).
     //   · Exclusion capture, Alter and Delete are proven by the real keys on a fresh store in
     //     ScenarioBudgetByKeysTests.
 

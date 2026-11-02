@@ -6939,21 +6939,6 @@
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Q1 Budget"/>
                                 </Grid>
-                                <!-- W10 gb (census 2.9): the vendor's "Under: Select Primary or any other predefined
-                                     groups" (help.tallysolutions.com/budgets-tally/). Primary = no parent. -->
-                                <Grid ColumnDefinitions="90,*">
-                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
-                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
-                                  <ComboBox Grid.Column="1" Name="BudgetUnderPicker" HorizontalAlignment="Stretch"
-                                            ItemsSource="{Binding UnderOptions}"
-                                            SelectedItem="{Binding SelectedUnder, Mode=TwoWay}">
-                                    <ComboBox.ItemTemplate>
-                                      <DataTemplate x:DataType="vm:BudgetUnderOption">
-                                        <TextBlock Text="{Binding Name}"/>
-                                      </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                  </ComboBox>
-                                </Grid>
                                 <Grid ColumnDefinitions="90,*,60,*">
                                   <TextBlock Grid.Column="0" Text="From" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>

@@ -52,29 +52,6 @@ public sealed class BudgetTargetOption
     public bool IsCostCentre => CostCentreId is not null;
 }
 
-/// <summary>
-/// W10 gb (census 2.9) — one entry in the budget's <b>Under</b> picker: <b>Primary</b> (a top-level budget,
-/// <see cref="GroupId"/> = <c>null</c>) or a group. <b>R7:</b> <c>help.tallysolutions.com/budgets-tally/</c>,
-/// opened by content 2026-11-02, step 3 of both "Create Budget for Ledgers" and "Create Budget for Cost Centres":
-/// <i>"Under: Select Primary or any other predefined groups, based on your requirement."</i>
-/// <para><see cref="Name"/> is what the app-wide type-to-jump (<c>PickerTextSearch</c>) searches, so typing
-/// "Ind" on the focused picker lands on "Indirect Expenses".</para>
-/// </summary>
-public sealed class BudgetUnderOption
-{
-    /// <summary>The label every picker search and paint uses: "Primary" or the group's name.</summary>
-    public const string PrimaryLabel = "Primary";
-
-    /// <summary>The group the budget is filed under; <c>null</c> for Primary.</summary>
-    public Guid? GroupId { get; init; }
-
-    /// <summary>"Primary" or the group name — searched by the picker's type-to-jump.</summary>
-    public string Name { get; init; } = string.Empty;
-
-    /// <inheritdoc/>
-    public override string ToString() => Name;
-}
-
 /// <summary>One pending budget line shown in the "Budget Lines" grid before the budget is created.</summary>
 public sealed class PendingBudgetLineRow
 {
@@ -128,14 +105,21 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     //
     // ~~🔴 WHAT IS STILL NOT CLOSED … COST CENTRES … needs a SCHEMA MIGRATION … 2.9 stays PARTIAL.~~
     // 🔴 STALE, STRUCK W10 gb (2026-11-02): the cost-centre target shipped in v67 (BudgetLine.ForCostCentre,
-    // budget_lines.cost_centre_id; see BuildTargets/AddLine), and the Under picker shipped in W10 gb
-    // (UnderOptions/SelectedUnder). ⚠️ CITATION DRIFT: the vendor page is now served at
-    // help.tallysolutions.com/budgets-tally/ (the old /tally-prime/budgets-and-scenario/ URL serves the same
-    // re-published page, whose own share links name help.tallysolutions.com/budgets/), and the "Alter a Budget"
-    // heading and sentences quoted above are NO LONGER on it (re-checked by content 2026-11-02). What the live page says, read by
-    // content 2026-11-02: "You can alter the Budgets whenever your business requirements change, and delete them
-    // when they are no longer needed." Removing a line from the pending grid is still absent (ours; not a
-    // vendor clause the census names).
+    // budget_lines.cost_centre_id; see BuildTargets/AddLine). ⚠️ CITATION DRIFT: the page is now served at
+    // help.tallysolutions.com/budgets-tally/ ("Last updated on: October 15, 2026"), and the "Alter a Budget"
+    // heading and sentences quoted above are NO LONGER on the live page; they ARE on the November 3, 2025 version
+    // (web.archive.org snapshot 20260310093634 of the same URL, read by content 2026-11-02), which also says, under
+    // "Delete a Budget": "Select the required budget. Press Alt + D and press Y to delete." Removing a line from
+    // the pending grid is still absent (ours; not a vendor clause the census names).
+    //
+    // 🔴 THE BUDGET'S "UNDER" IS NOT BUILT, AND A GROUP PICKER WAS BUILT AND DELIBERATELY REMOVED (W10 gb,
+    // A12 decision). The November 3, 2025 page gives the vendor shape: "you need to create the budget under
+    // Primary from the List of Budgets … create specific Department Budgets such as Sales Department Budget …
+    // under the main Department Budget. This shows the budget structure in a hierarchical form." A budget's
+    // parent is another BUDGET. `budgets.under_id` REFERENCES groups(id), so a group picker wrote a value with no
+    // downstream effect except making that group undeletable. The parent-budget model needs a migration
+    // (under_id → budgets(id)) and is OPEN for a later wave (docs/invented-vs-cloned.md IV-300). Every budget
+    // this screen writes is Primary (UnderId = null); BudgetUnderAbsenceTests reddens if a group picker returns.
 
     /// <summary>The id of the budget being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
     private Guid _editingId = Guid.Empty;
@@ -180,7 +164,6 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     {
         ArgumentNullException.ThrowIfNull(budget);
         Name = budget.Name;
-        SelectedUnder = UnderOptionFor(budget.UnderId);
         PeriodFromText = budget.PeriodFrom.ToString(DateFormat, CultureInfo.InvariantCulture);
         PeriodToText = budget.PeriodTo.ToString(DateFormat, CultureInfo.InvariantCulture);
 
@@ -255,10 +238,8 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         var beforeFrom = budget.PeriodFrom;
         var beforeTo = budget.PeriodTo;
         var beforeLines = budget.Lines.ToList();
-        var beforeUnder = budget.UnderId;
 
         budget.Name = name;
-        budget.UnderId = SelectedUnder?.GroupId;   // W10 gb (census 2.9): the Under picker; Primary = null
         budget.PeriodFrom = from;
         budget.PeriodTo = to;
         budget.ReplaceLines(PendingLines.Select(r => r.Line));
@@ -268,7 +249,6 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         }
         catch (Exception ex)
         {
-            budget.UnderId = beforeUnder;
             budget.Name = beforeName;
             budget.PeriodFrom = beforeFrom;
             budget.PeriodTo = beforeTo;
@@ -341,19 +321,6 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>The existing budgets, refreshed after each create.</summary>
     public ObservableCollection<BudgetListRow> Existing { get; } = new();
 
-    /// <summary>
-    /// W10 gb (census 2.9) — the <b>Under</b> picker: <b>Primary</b> first, then every group name-sorted. Before
-    /// this, <c>Budget.UnderId</c> was stored, round-tripped and guarded on group delete
-    /// (<c>MasterDeletionRules.EnsureGroupDeletable</c>), yet no screen could set it, so every budget an operator
-    /// created was Primary. 🔴 <b>OURS:</b> every group is offered, not only the predefined ones — the vendor's
-    /// step continues <i>"Press Alt+C to create a new group, if needed"</i>, so an operator-created group is a
-    /// valid parent; the Alt+C create-on-the-fly itself is not built here.
-    /// </summary>
-    public ObservableCollection<BudgetUnderOption> UnderOptions { get; } = new();
-
-    /// <summary>The chosen Under option; defaults to Primary. A null selection is saved as Primary.</summary>
-    [ObservableProperty] private BudgetUnderOption? _selectedUnder;
-
     // ---- budget header ----
     [ObservableProperty] private string _name = string.Empty;
     [ObservableProperty] private string _periodFromText;
@@ -377,34 +344,9 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         _periodFromText = fyStart.ToString(DateFormat, CultureInfo.InvariantCulture);
         _periodToText = fyStart.AddYears(1).AddDays(-1).ToString(DateFormat, CultureInfo.InvariantCulture);
 
-        BuildUnderOptions();
-        SelectedUnder = UnderOptions[0];
         BuildTargets();
         SelectedTarget = Targets.FirstOrDefault();
         RefreshList();
-    }
-
-    /// <summary>W10 gb (census 2.9): Primary, then every group by name.</summary>
-    private void BuildUnderOptions()
-    {
-        UnderOptions.Clear();
-        UnderOptions.Add(new BudgetUnderOption { GroupId = null, Name = BudgetUnderOption.PrimaryLabel });
-        foreach (var g in _company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
-            UnderOptions.Add(new BudgetUnderOption { GroupId = g.Id, Name = g.Name });
-    }
-
-    /// <summary>
-    /// The option for a stored <c>UnderId</c>. 🔴 An id that resolves to no group (an imported book whose parent
-    /// is gone) gets its OWN option carrying that id rather than collapsing to Primary — otherwise an Alter that
-    /// touched only the name would silently re-file the budget at the top level.
-    /// </summary>
-    private BudgetUnderOption UnderOptionFor(Guid? underId)
-    {
-        var match = UnderOptions.FirstOrDefault(o => o.GroupId == underId);
-        if (match is not null) return match;
-        var orphan = new BudgetUnderOption { GroupId = underId, Name = "(unknown group)" };
-        UnderOptions.Add(orphan);
-        return orphan;
     }
 
     /// <summary>Fills the target picker: every group (rolls up its ledgers), then every ledger.</summary>
@@ -564,7 +506,6 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
 
         var budget = new Budget(
             Guid.NewGuid(), name, from, to,
-            underId: SelectedUnder?.GroupId,   // W10 gb (census 2.9): Primary = null
             lines: PendingLines.Select(r => r.Line).ToList());
 
         // W0-13 A1 — this file previously held NO catch block at all, so ANY failure of the two lines below was an
@@ -589,7 +530,6 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         RefreshList();
         Message = $"Budget '{name}' created with {budget.Lines.Count} line(s).";
         Name = string.Empty;
-        SelectedUnder = UnderOptions[0];
         PendingLines.Clear();
         _onChanged();
         return true;
