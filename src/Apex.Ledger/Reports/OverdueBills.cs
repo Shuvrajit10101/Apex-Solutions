@@ -46,6 +46,10 @@ public sealed record OverdueBills(
     /// buckets, over the same bills, that Bills Receivable / Payable shows under Type of Bills = Overdue Bills.</summary>
     public IReadOnlyList<AgeingBucket> Ageing { get; init; } = Array.Empty<AgeingBucket>();
 
+    /// <summary>The windows <see cref="Ageing"/> was taken over (the basis's own, or the operator's F6 criteria) —
+    /// label each bill row's window from these (IV-315).</summary>
+    public IReadOnlyList<(string Label, int Lower, int? Upper)> Windows { get; init; } = Outstandings.DefaultBuckets;
+
     /// <summary>Builds one side of the overdue report as of <paramref name="asOf"/>. Parties keep the
     /// Outstandings emission order (ledger order, then each ledger's first-opened bill order).
     /// <para>🔴 The overdue filter is NOT applied here. It is <see cref="TypeOfBills.OverdueBills"/> on
@@ -58,10 +62,13 @@ public sealed record OverdueBills(
         DateOnly asOf,
         OutstandingKind kind,
         Scenario? scenario = null,
-        AgeingMethod ageingMethod = AgeingMethod.ByDueDate)
+        AgeingMethod ageingMethod = AgeingMethod.ByDueDate,
+        IReadOnlyList<AgeingPeriod>? ageingPeriods = null)
     {
         ArgumentNullException.ThrowIfNull(company);
-        var report = Outstandings.Build(company, asOf, scenario, ageingMethod, TypeOfBills.OverdueBills);
+        // Census 11.13 (IV-315): the operator's F6 windows ride into the SAME engine call, so this view and Bills
+        // Receivable / Payable under Type of Bills = Overdue Bills bucket over identical windows by construction.
+        var report = Outstandings.Build(company, asOf, scenario, ageingMethod, TypeOfBills.OverdueBills, ageingPeriods);
         var source = kind == OutstandingKind.Receivable ? report.Receivables : report.Payables;
 
         var parties = new List<OverdueParty>();
@@ -91,6 +98,7 @@ public sealed record OverdueBills(
         return new OverdueBills(asOf, kind, parties, new Money(grand))
         {
             AgeingMethod = ageingMethod,
+            Windows = report.Windows,
             Ageing = kind == OutstandingKind.Receivable ? report.ReceivableAgeing : report.PayableAgeing,
         };
     }

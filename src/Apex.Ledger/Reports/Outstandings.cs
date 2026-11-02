@@ -115,6 +115,18 @@ public sealed record OutstandingBill(
 }
 
 /// <summary>
+/// One <b>operator-set ageing window</b> of the F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-315): an
+/// inclusive day range <see cref="From"/>..<see cref="To"/> of the age the chosen <see cref="AgeingMethod"/>
+/// measures. A null <see cref="To"/> is open-ended and may only be the last window. Vendor, TallyPrime,
+/// help.tallysolutions.com/manage-receivables-outstanding-tally/ (opened by content 2026-11-02): <i>"Press F6
+/// (Ageing Method) to configure the report view as per ageing by bill dates or by due dates and set the ageing
+/// windows."</i> The From/To shape is the vendor's stock-ageing F6 step (help.tallysolutions.com/
+/// stock-ageing-analysis-report-tally/, same day: <i>"Enter the From and To days."</i>) — borrowed for the
+/// outstandings views, whose own pages do not spell the shape out (IV-316, ours).
+/// </summary>
+public sealed record AgeingPeriod(int From, int? To);
+
+/// <summary>
 /// An ageing bucket (overdue-days range) and the pending total that falls in it.
 /// The last bucket is open-ended (<see cref="UpperInclusive"/> = null).
 /// </summary>
@@ -136,6 +148,10 @@ public sealed record OutstandingsReport(
 
     /// <summary>The Basis-of-Values Type of Bills the bill lists (and so every total and bucket) were filtered to.</summary>
     public TypeOfBills TypeOfBills { get; init; } = TypeOfBills.AllBills;
+
+    /// <summary>The bucket windows both ageing summaries were taken over — the basis's fixed set, or the operator's
+    /// F6 ageing criteria (IV-315). A per-bill "Ageing" cell must be labelled from THESE, never from a default.</summary>
+    public IReadOnlyList<(string Label, int Lower, int? Upper)> Windows { get; init; } = Outstandings.DefaultBuckets;
 
     /// <summary>Σ pending across all receivable bills.</summary>
     public Money TotalReceivable => Sum(Receivables);
@@ -189,7 +205,8 @@ public static class Outstandings
     /// The <see cref="AgeingMethod.ByBillDate"/> windows. A bill's age from its own date is never "not due" — that
     /// is a due-date fact — so the first window starts at day 0 (a bill raised on the as-of date). The edges are
     /// the same 30/60/90 the due-date set uses, so the two bases differ only in the date counted from. OURS
-    /// (IV-286): the vendor lets the operator "set the ageing windows"; these are fixed.
+    /// (IV-286): these are the DEFAULT edges. Since wave 10 the operator sets their own windows on the F6 ageing
+    /// criteria (<see cref="TryWindowsFor"/>, IV-315); these apply until they do.
     /// </summary>
     public static readonly IReadOnlyList<(string Label, int Lower, int? Upper)> BillDateBuckets = new[]
     {
@@ -206,10 +223,134 @@ public static class Outstandings
     /// <summary>The label of the bucket <paramref name="bill"/> falls in as of <paramref name="asOf"/> under
     /// <paramref name="method"/> — the per-bill "Ageing" cell, from the same windows as the summary band.</summary>
     public static string BucketLabel(OutstandingBill bill, DateOnly asOf, AgeingMethod method)
+        => BucketLabel(bill, asOf, method, BucketsFor(method));
+
+    /// <summary>The label of the bucket of <paramref name="windows"/> that <paramref name="bill"/> falls in — the
+    /// per-bill "Ageing" cell under operator-set windows (pass <see cref="OutstandingsReport.Windows"/>).</summary>
+    public static string BucketLabel(
+        OutstandingBill bill, DateOnly asOf, AgeingMethod method, IReadOnlyList<(string Label, int Lower, int? Upper)> windows)
     {
         ArgumentNullException.ThrowIfNull(bill);
-        var buckets = BucketsFor(method);
-        return buckets[BucketIndex(bill.AgeDays(asOf, method), buckets)].Label;
+        ArgumentNullException.ThrowIfNull(windows);
+        return windows[BucketIndex(bill.AgeDays(asOf, method), windows)].Label;
+    }
+
+    // ------------------------------------------------------------------ F6 ageing criteria (IV-315..IV-318)
+
+    /// <summary>Upper bound on any operator-entered day count — 100 years; anything larger is a typing slip.</summary>
+    public const int MaxAgeingDays = 36_500;
+
+    /// <summary>
+    /// The windows of <see cref="BucketsFor"/> written as operator periods — what the F6 criteria panel is seeded
+    /// with. By due date the fixed <c>Not due</c> window (zero days overdue) is NOT a period: the operator's
+    /// periods start at day 1 (IV-317). By bill date they start at day 0, a bill raised on the as-of date.
+    /// </summary>
+    public static IReadOnlyList<AgeingPeriod> DefaultPeriodsFor(AgeingMethod method) => method == AgeingMethod.ByBillDate
+        ? new[] { new AgeingPeriod(0, 30), new AgeingPeriod(31, 60), new AgeingPeriod(61, 90), new AgeingPeriod(91, null) }
+        : new[] { new AgeingPeriod(1, 30), new AgeingPeriod(31, 60), new AgeingPeriod(61, 90), new AgeingPeriod(91, null) };
+
+    /// <summary>The first day the operator's periods must start on under <paramref name="method"/> (IV-317).</summary>
+    public static int FirstPeriodDay(AgeingMethod method) => method == AgeingMethod.ByBillDate ? 0 : 1;
+
+    /// <summary>
+    /// Validates operator-set ageing periods for <paramref name="method"/> and turns them into bucket windows.
+    /// Returns <c>null</c> with an operator-readable <paramref name="error"/> when they are refused.
+    ///
+    /// <para>The rules (IV-317, ours — no vendor page states them): at least one period; the first starts on
+    /// <see cref="FirstPeriodDay"/>; each next one starts the day after the previous one ends, so no day is
+    /// counted twice or lost; To is never below From; only the LAST period may leave To blank (open-ended); and when
+    /// the last period is closed, an open tail <c>"Over N days"</c> is appended so a bill older than every window
+    /// still lands in one and no pending amount drops out of the summary. Labels are the exact inclusive edges
+    /// (<c>"16-45 days"</c>, <c>"46+ days"</c>).</para>
+    ///
+    /// <para>Periods equal to <see cref="DefaultPeriodsFor"/> return <see cref="BucketsFor"/> itself, so accepting
+    /// the criteria unchanged is byte-identical to never opening them.</para>
+    /// </summary>
+    public static IReadOnlyList<(string Label, int Lower, int? Upper)>? TryWindowsFor(
+        AgeingMethod method, IReadOnlyList<AgeingPeriod> periods, out string error)
+    {
+        ArgumentNullException.ThrowIfNull(periods);
+        error = string.Empty;
+        if (periods.Count == 0)
+        {
+            error = "Enter at least one ageing period.";
+            return null;
+        }
+
+        var first = FirstPeriodDay(method);
+        var expectedFrom = first;
+        for (var i = 0; i < periods.Count; i++)
+        {
+            var p = periods[i];
+            var n = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            if (p.From != expectedFrom)
+            {
+                error = i == 0
+                    ? $"Period 1 must start from {first.ToString(System.Globalization.CultureInfo.InvariantCulture)} days"
+                      + (method == AgeingMethod.ByDueDate ? " (bills not yet overdue are shown as Not due)." : ".")
+                    : $"Period {n} must start from {expectedFrom.ToString(System.Globalization.CultureInfo.InvariantCulture)} days, the day after period {i.ToString(System.Globalization.CultureInfo.InvariantCulture)} ends.";
+                return null;
+            }
+            if (p.To is null)
+            {
+                if (i != periods.Count - 1)
+                {
+                    error = $"Only the last period may be left open; period {n} has no To.";
+                    return null;
+                }
+                break;
+            }
+            if (p.To.Value < p.From)
+            {
+                error = $"Period {n}: To ({p.To.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)}) is below From ({p.From.ToString(System.Globalization.CultureInfo.InvariantCulture)}).";
+                return null;
+            }
+            if (p.To.Value > MaxAgeingDays)
+            {
+                error = $"Period {n}: To may not exceed {MaxAgeingDays.ToString(System.Globalization.CultureInfo.InvariantCulture)} days.";
+                return null;
+            }
+            expectedFrom = p.To.Value + 1;
+        }
+
+        if (SamePeriods(periods, DefaultPeriodsFor(method))) return BucketsFor(method);
+
+        var windows = new List<(string Label, int Lower, int? Upper)>();
+        if (method == AgeingMethod.ByDueDate) windows.Add(("Not due", int.MinValue, 0));
+        for (var i = 0; i < periods.Count; i++)
+        {
+            var p = periods[i];
+            var from = p.From.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            // The first window of the bill-date basis takes everything at or below its To, exactly as
+            // BillDateBuckets does (a bill's age floors at 0, so nothing is lost).
+            var lower = i == 0 && method == AgeingMethod.ByBillDate ? int.MinValue : p.From;
+            windows.Add(p.To is { } to
+                ? ($"{from}-{to.ToString(System.Globalization.CultureInfo.InvariantCulture)} days", lower, to)
+                : ($"{from}+ days", lower, null));
+        }
+        if (periods[^1].To is { } last)
+            windows.Add(($"Over {last.ToString(System.Globalization.CultureInfo.InvariantCulture)} days", last + 1, null));
+        return windows;
+    }
+
+    /// <summary>The windows for <paramref name="method"/> under <paramref name="periods"/> (null = the basis's own
+    /// fixed set). Throws <see cref="ArgumentException"/> on periods <see cref="TryWindowsFor"/> refuses.</summary>
+    public static IReadOnlyList<(string Label, int Lower, int? Upper)> WindowsFor(
+        AgeingMethod method, IReadOnlyList<AgeingPeriod>? periods)
+    {
+        if (periods is null) return BucketsFor(method);
+        return TryWindowsFor(method, periods, out var error) ?? throw new ArgumentException(error, nameof(periods));
+    }
+
+    /// <summary>Element-wise equality of two period lists.</summary>
+    public static bool SamePeriods(IReadOnlyList<AgeingPeriod> a, IReadOnlyList<AgeingPeriod> b)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+        ArgumentNullException.ThrowIfNull(b);
+        if (a.Count != b.Count) return false;
+        for (var i = 0; i < a.Count; i++)
+            if (a[i] != b[i]) return false;
+        return true;
     }
 
     /// <summary>
@@ -231,8 +372,13 @@ public static class Outstandings
         DateOnly asOf,
         Scenario? scenario = null,
         AgeingMethod ageingMethod = AgeingMethod.ByDueDate,
-        TypeOfBills typeOfBills = TypeOfBills.AllBills)
+        TypeOfBills typeOfBills = TypeOfBills.AllBills,
+        IReadOnlyList<AgeingPeriod>? ageingPeriods = null)
     {
+        // Census 11.13 / 11.9 (T2-24, IV-315): the operator's F6 ageing criteria, or the basis's fixed windows when
+        // none were set. Resolved FIRST so refused periods throw before any voucher is walked. Both summaries and
+        // the report's Windows (which labels every per-bill cell) come from this one list.
+        var windows = WindowsFor(ageingMethod, ageingPeriods);
         // 🔴 ONE voucher pass for the WHOLE company. This used to call OpenBillsFor per bill-wise ledger, and
         // each of those calls walked every voucher — so a report that merely opens this projection paid
         // O(parties × vouchers × lines × allocations). Accumulate takes the whole ledger set at once.
@@ -268,11 +414,12 @@ public static class Outstandings
             asOf,
             receivables,
             payables,
-            AgeingOf(receivables, asOf, ageingMethod),
-            AgeingOf(payables, asOf, ageingMethod))
+            AgeingOf(receivables, asOf, ageingMethod, windows),
+            AgeingOf(payables, asOf, ageingMethod, windows))
         {
             AgeingMethod = ageingMethod,
             TypeOfBills = typeOfBills,
+            Windows = windows,
         };
     }
 
@@ -510,9 +657,15 @@ public static class Outstandings
     /// summary of Bills Receivable / Payable and Overdue Receivables / Payables.</summary>
     public static IReadOnlyList<AgeingBucket> AgeingOf(
         IReadOnlyList<OutstandingBill> bills, DateOnly asOf, AgeingMethod method = AgeingMethod.ByDueDate)
+        => AgeingOf(bills, asOf, method, BucketsFor(method));
+
+    /// <summary>Ages <paramref name="bills"/> into <paramref name="buckets"/> (the operator's F6 windows, IV-315).</summary>
+    public static IReadOnlyList<AgeingBucket> AgeingOf(
+        IReadOnlyList<OutstandingBill> bills, DateOnly asOf, AgeingMethod method,
+        IReadOnlyList<(string Label, int Lower, int? Upper)> buckets)
     {
         ArgumentNullException.ThrowIfNull(bills);
-        var buckets = BucketsFor(method);
+        ArgumentNullException.ThrowIfNull(buckets);
         var totals = new decimal[buckets.Count];
         foreach (var b in bills)
             totals[BucketIndex(b.AgeDays(asOf, method), buckets)] += b.Pending.Amount;
