@@ -8,7 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>
-/// The <b>F6 ageing criteria</b> panel (census 11.13, advancing 11.9 / T2-24; IV-315..IV-318) — the step after the
+/// The <b>F6 ageing criteria</b> panel (census 11.13, advancing 11.9 / T2-24; IV-305..IV-308) — the step after the
 /// ageing basis on Bills Receivable / Payable and Overdue Receivables / Payables, hosted as its own cascading page
 /// column to the right of the report, exactly like the Ctrl+B <see cref="BasisOfValuesViewModel"/>.
 ///
@@ -19,14 +19,14 @@ namespace Apex.Desktop.ViewModels;
 /// Method) to configure the report view as per ageing by bill dates or by due dates and set the ageing
 /// windows."</i> Neither page spells the criteria's shape out. The From / To day rows are the vendor's own F6 shape
 /// on Stock Ageing Analysis (help.tallysolutions.com/stock-ageing-analysis-report-tally/, same day: <i>"Enter the
-/// From and To days."</i>), borrowed here and labelled as ours (IV-316).</para>
+/// From and To days."</i>), borrowed here and labelled as ours (IV-306).</para>
 ///
 /// <para>The panel only collects and parses. The rules live in the engine (<c>Outstandings.TryWindowsFor</c>), and
 /// the report re-projects through the ONE <c>Outstandings.Build</c> call, so the panel cannot age a bill itself.</para>
 /// </summary>
 public sealed partial class AgeingCriteriaViewModel : ViewModelBase
 {
-    /// <summary>How many From / To rows the panel offers (IV-316, ours).</summary>
+    /// <summary>How many From / To rows the panel offers (IV-306, ours).</summary>
     public const int RowCount = 6;
 
     private readonly ReportsViewModel _report;

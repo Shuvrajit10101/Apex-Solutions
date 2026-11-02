@@ -555,9 +555,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private AgeingMethod _ageingMethod = AgeingMethod.ByDueDate;
 
     /// <summary>
-    /// Census 11.13 / 11.9 (T2-24, IV-315) — the operator's F6 ageing windows, or null for the basis's own fixed
+    /// Census 11.13 / 11.9 (T2-24, IV-305) — the operator's F6 ageing windows, or null for the basis's own fixed
     /// set. Handed to the engine with <see cref="_ageingMethod"/>; reset with it when the viewer moves to a kind
-    /// without F6, and not captured by Alt+K saved views (IV-318).
+    /// without F6, and not captured by Alt+K saved views (IV-308).
     /// </summary>
     private AgeingPeriod[]? _ageingPeriods;
 
@@ -771,7 +771,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
 
     /// <summary>F6 — sets the ageing basis and re-projects. A no-op where F6 is not the Ageing Method. Operator
     /// windows already in force are KEPT when they are valid on the new basis and dropped (back to the basis's own
-    /// windows) when they are not — a due-date set starts at day 1, a bill-date set at day 0 (IV-317).</summary>
+    /// windows) when they are not — a due-date set starts at day 1, a bill-date set at day 0 (IV-307).</summary>
     public void SetAgeingMethod(AgeingMethod method)
     {
         var keep = _ageingPeriods is { } p && Outstandings.TryWindowsFor(method, p, out _) is not null ? p : null;
@@ -779,7 +779,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Census 11.13 / 11.9 (T2-24, IV-315) — the <b>F6 ageing criteria</b>: the operator's own windows, or null for
+    /// Census 11.13 / 11.9 (T2-24, IV-305) — the <b>F6 ageing criteria</b>: the operator's own windows, or null for
     /// the basis's fixed set. Handed to the engine with the basis; nothing here buckets a bill.
     /// </summary>
     public IReadOnlyList<AgeingPeriod>? AgeingPeriods => _ageingPeriods;
@@ -1846,7 +1846,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             _ageingMethod = AgeingMethod.ByDueDate;
             OnPropertyChanged(nameof(AgeingMethod));
         }
-        // IV-315: the operator's windows follow the basis — a kind without F6 does not carry them to the next one.
+        // IV-305: the operator's windows follow the basis — a kind without F6 does not carry them to the next one.
         if (!SupportsAgeingMethod && _ageingPeriods is not null)
         {
             _ageingPeriods = null;
@@ -5450,7 +5450,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         var asOf = _asOf;
         var method = _ageingMethod;
-        // IV-315: the operator's F6 windows ride into the same engine call as the basis.
+        // IV-305: the operator's F6 windows ride into the same engine call as the basis.
         var report = OverdueBills.Build(_company, asOf, side, scenario: null, ageingMethod: method,
             ageingPeriods: _ageingPeriods);
         var receivable = side == OutstandingKind.Receivable;
@@ -7861,7 +7861,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Enter"</i>) and help.tallysolutions.com/manage-receivables-outstanding-tally/ (<i>"Press F6 (Ageing Method)
     /// to configure the report view as per ageing by bill dates or by due dates and set the ageing windows."</i>).
     /// F6 opens the two-row picker; the basis is handed to <c>Outstandings.Build</c>, which buckets on
-    /// <c>Outstandings.BucketsFor(method)</c>. 🟢 <b>WAVE 10 (track gc, IV-315):</b> the vendor's "set the ageing
+    /// <c>Outstandings.BucketsFor(method)</c>. 🟢 <b>WAVE 10 (track gc, IV-305):</b> the vendor's "set the ageing
     /// windows" is built — after the basis, F6 opens the ageing criteria (From/To days), and the operator's periods
     /// are handed to the same <c>Outstandings.Build</c> call; the per-bill Ageing cell is labelled from the report's
     /// own <c>Windows</c>, so it cannot disagree with the summary band. Ctrl+B Type of Bills = Overdue Bills filters
@@ -7959,7 +7959,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
             : "Ageing is measured from each bill's DUE date (F6: Ageing by Due Date). A bill's due date is its own "
               + "credit period when one was entered on the reference, else the party ledger's default credit "
               + "period, else the bill date. Press F6 for Ageing by Bill Date.")
-            // IV-315: say when the windows are the operator's, so a printed page is not read as the default set.
+            // IV-305: say when the windows are the operator's, so a printed page is not read as the default set.
             + (_ageingPeriods is null ? string.Empty : " The ageing windows were set on F6 (ageing criteria)."));
     }
 

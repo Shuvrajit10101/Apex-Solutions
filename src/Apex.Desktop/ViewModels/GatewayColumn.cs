@@ -298,7 +298,7 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Ctrl+B "Basis of Values" panel (non-null only for that W2-13a column).</summary>
     public BasisOfValuesViewModel? BasisOfValues => Page as BasisOfValuesViewModel;
 
-    /// <summary>The hosted F6 ageing criteria panel (non-null only for that column; census 11.13, IV-315).</summary>
+    /// <summary>The hosted F6 ageing criteria panel (non-null only for that column; census 11.13, IV-305).</summary>
     public AgeingCriteriaViewModel? AgeingCriteria => Page as AgeingCriteriaViewModel;
 
     /// <summary>The hosted Ctrl+J "Exception Reports" panel (non-null only for that column; census 2.13).</summary>

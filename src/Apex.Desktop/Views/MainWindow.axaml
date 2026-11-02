@@ -20223,9 +20223,9 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
-                    <!-- PAGE: F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-315). Pushed after a basis is taken on
+                    <!-- PAGE: F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-305). Pushed after a basis is taken on
                          the F6 picker: "Specify the required ageing criteria and press Enter." From / To day rows (the
-                         vendor's stock-ageing F6 shape, IV-316); Enter or Ctrl+A accepts, Esc leaves the report as it was. -->
+                         vendor's stock-ageing F6 shape, IV-306); Enter or Ctrl+A accepts, Esc leaves the report as it was. -->
                     <ContentControl IsVisible="{Binding AgeingCriteria, Converter={x:Static ObjectConverters.IsNotNull}}"
                                     Content="{Binding AgeingCriteria}">
                       <ContentControl.ContentTemplate>

@@ -7,8 +7,8 @@ using DomainLedger = Apex.Ledger.Domain.Ledger;
 namespace Apex.Ledger.Tests;
 
 /// <summary>
-/// Census 11.13 (advancing 11.9 / T2-24) — <b>operator-set ageing windows</b> on the F6 ageing criteria (IV-315..
-/// IV-318), at the engine. Vendor (TallyPrime), opened by content 2026-11-02:
+/// Census 11.13 (advancing 11.9 / T2-24) — <b>operator-set ageing windows</b> on the F6 ageing criteria (IV-305..
+/// IV-308), at the engine. Vendor (TallyPrime), opened by content 2026-11-02:
 /// help.tallysolutions.com/manage-receivables-outstanding-tally/ — <i>"Press F6 (Ageing Method) to configure the
 /// report view as per ageing by bill dates or by due dates and set the ageing windows."</i>;
 /// help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/ — <i>"Specify the required ageing

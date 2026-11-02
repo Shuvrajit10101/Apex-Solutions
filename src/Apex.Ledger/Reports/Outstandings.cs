@@ -115,14 +115,14 @@ public sealed record OutstandingBill(
 }
 
 /// <summary>
-/// One <b>operator-set ageing window</b> of the F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-315): an
+/// One <b>operator-set ageing window</b> of the F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-305): an
 /// inclusive day range <see cref="From"/>..<see cref="To"/> of the age the chosen <see cref="AgeingMethod"/>
 /// measures. A null <see cref="To"/> is open-ended and may only be the last window. Vendor, TallyPrime,
 /// help.tallysolutions.com/manage-receivables-outstanding-tally/ (opened by content 2026-11-02): <i>"Press F6
 /// (Ageing Method) to configure the report view as per ageing by bill dates or by due dates and set the ageing
 /// windows."</i> The From/To shape is the vendor's stock-ageing F6 step (help.tallysolutions.com/
 /// stock-ageing-analysis-report-tally/, same day: <i>"Enter the From and To days."</i>) — borrowed for the
-/// outstandings views, whose own pages do not spell the shape out (IV-316, ours).
+/// outstandings views, whose own pages do not spell the shape out (IV-306, ours).
 /// </summary>
 public sealed record AgeingPeriod(int From, int? To);
 
@@ -150,7 +150,7 @@ public sealed record OutstandingsReport(
     public TypeOfBills TypeOfBills { get; init; } = TypeOfBills.AllBills;
 
     /// <summary>The bucket windows both ageing summaries were taken over — the basis's fixed set, or the operator's
-    /// F6 ageing criteria (IV-315). A per-bill "Ageing" cell must be labelled from THESE, never from a default.</summary>
+    /// F6 ageing criteria (IV-305). A per-bill "Ageing" cell must be labelled from THESE, never from a default.</summary>
     public IReadOnlyList<(string Label, int Lower, int? Upper)> Windows { get; init; } = Outstandings.DefaultBuckets;
 
     /// <summary>Σ pending across all receivable bills.</summary>
@@ -206,7 +206,7 @@ public static class Outstandings
     /// is a due-date fact — so the first window starts at day 0 (a bill raised on the as-of date). The edges are
     /// the same 30/60/90 the due-date set uses, so the two bases differ only in the date counted from. OURS
     /// (IV-286): these are the DEFAULT edges. Since wave 10 the operator sets their own windows on the F6 ageing
-    /// criteria (<see cref="TryWindowsFor"/>, IV-315); these apply until they do.
+    /// criteria (<see cref="TryWindowsFor"/>, IV-305); these apply until they do.
     /// </summary>
     public static readonly IReadOnlyList<(string Label, int Lower, int? Upper)> BillDateBuckets = new[]
     {
@@ -235,7 +235,7 @@ public static class Outstandings
         return windows[BucketIndex(bill.AgeDays(asOf, method), windows)].Label;
     }
 
-    // ------------------------------------------------------------------ F6 ageing criteria (IV-315..IV-318)
+    // ------------------------------------------------------------------ F6 ageing criteria (IV-305..IV-308)
 
     /// <summary>Upper bound on any operator-entered day count — 100 years; anything larger is a typing slip.</summary>
     public const int MaxAgeingDays = 36_500;
@@ -243,20 +243,20 @@ public static class Outstandings
     /// <summary>
     /// The windows of <see cref="BucketsFor"/> written as operator periods — what the F6 criteria panel is seeded
     /// with. By due date the fixed <c>Not due</c> window (zero days overdue) is NOT a period: the operator's
-    /// periods start at day 1 (IV-317). By bill date they start at day 0, a bill raised on the as-of date.
+    /// periods start at day 1 (IV-307). By bill date they start at day 0, a bill raised on the as-of date.
     /// </summary>
     public static IReadOnlyList<AgeingPeriod> DefaultPeriodsFor(AgeingMethod method) => method == AgeingMethod.ByBillDate
         ? new[] { new AgeingPeriod(0, 30), new AgeingPeriod(31, 60), new AgeingPeriod(61, 90), new AgeingPeriod(91, null) }
         : new[] { new AgeingPeriod(1, 30), new AgeingPeriod(31, 60), new AgeingPeriod(61, 90), new AgeingPeriod(91, null) };
 
-    /// <summary>The first day the operator's periods must start on under <paramref name="method"/> (IV-317).</summary>
+    /// <summary>The first day the operator's periods must start on under <paramref name="method"/> (IV-307).</summary>
     public static int FirstPeriodDay(AgeingMethod method) => method == AgeingMethod.ByBillDate ? 0 : 1;
 
     /// <summary>
     /// Validates operator-set ageing periods for <paramref name="method"/> and turns them into bucket windows.
     /// Returns <c>null</c> with an operator-readable <paramref name="error"/> when they are refused.
     ///
-    /// <para>The rules (IV-317, ours — no vendor page states them): at least one period; the first starts on
+    /// <para>The rules (IV-307, ours — no vendor page states them): at least one period; the first starts on
     /// <see cref="FirstPeriodDay"/>; each next one starts the day after the previous one ends, so no day is
     /// counted twice or lost; To is never below From; only the LAST period may leave To blank (open-ended); and when
     /// the last period is closed, an open tail <c>"Over N days"</c> is appended so a bill older than every window
@@ -375,7 +375,7 @@ public static class Outstandings
         TypeOfBills typeOfBills = TypeOfBills.AllBills,
         IReadOnlyList<AgeingPeriod>? ageingPeriods = null)
     {
-        // Census 11.13 / 11.9 (T2-24, IV-315): the operator's F6 ageing criteria, or the basis's fixed windows when
+        // Census 11.13 / 11.9 (T2-24, IV-305): the operator's F6 ageing criteria, or the basis's fixed windows when
         // none were set. Resolved FIRST so refused periods throw before any voucher is walked. Both summaries and
         // the report's Windows (which labels every per-bill cell) come from this one list.
         var windows = WindowsFor(ageingMethod, ageingPeriods);
@@ -659,7 +659,7 @@ public static class Outstandings
         IReadOnlyList<OutstandingBill> bills, DateOnly asOf, AgeingMethod method = AgeingMethod.ByDueDate)
         => AgeingOf(bills, asOf, method, BucketsFor(method));
 
-    /// <summary>Ages <paramref name="bills"/> into <paramref name="buckets"/> (the operator's F6 windows, IV-315).</summary>
+    /// <summary>Ages <paramref name="bills"/> into <paramref name="buckets"/> (the operator's F6 windows, IV-305).</summary>
     public static IReadOnlyList<AgeingBucket> AgeingOf(
         IReadOnlyList<OutstandingBill> bills, DateOnly asOf, AgeingMethod method,
         IReadOnlyList<(string Label, int Lower, int? Upper)> buckets)

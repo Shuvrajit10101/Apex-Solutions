@@ -466,7 +466,7 @@ public partial class MainWindow : Window
             // W2-13a: Ctrl+A on the Ctrl+B panel applies the Scale Factor and pops back to the re-scaled report.
             else if (vm.CurrentScreen == Screen.BasisOfValues)
                 vm.ApplyBasisOfValues();
-            // Census 11.13 (IV-315): Ctrl+A on the F6 ageing criteria accepts them, as Enter does.
+            // Census 11.13 (IV-305): Ctrl+A on the F6 ageing criteria accepts them, as Enter does.
             else if (vm.CurrentScreen == Screen.AgeingCriteria)
                 vm.ApplyAgeingCriteria();
             // Census 2.13: Ctrl+A on the Ctrl+J panel applies the chosen view and pops back to the filtered tree.
@@ -747,7 +747,7 @@ public partial class MainWindow : Window
             }
         }
 
-        // ── F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-315) — Enter accepts ─────────────────────────────
+        // ── F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-305) — Enter accepts ─────────────────────────────
         // Vendor (help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/, by content
         // 2026-11-02): "Specify the required ageing criteria and press Enter." Bare Enter only, from any box on the
         // panel; Tab walks the From / To boxes; Ctrl+A accepts too (the arm further down, the house panel chord).
@@ -3458,7 +3458,7 @@ public partial class MainWindow : Window
     private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBasisOfValues();
 
-    /// <summary>Census 11.13 (IV-315): the Accept button on the F6 ageing criteria — the same door as Enter / Ctrl+A.</summary>
+    /// <summary>Census 11.13 (IV-305): the Accept button on the F6 ageing criteria — the same door as Enter / Ctrl+A.</summary>
     private void OnApplyAgeingCriteriaClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyAgeingCriteria();
 
