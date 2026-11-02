@@ -20223,6 +20223,63 @@
                       </ContentControl.ContentTemplate>
                     </ContentControl>
 
+                    <!-- PAGE: F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-315). Pushed after a basis is taken on
+                         the F6 picker: "Specify the required ageing criteria and press Enter." From / To day rows (the
+                         vendor's stock-ageing F6 shape, IV-316); Enter or Ctrl+A accepts, Esc leaves the report as it was. -->
+                    <ContentControl IsVisible="{Binding AgeingCriteria, Converter={x:Static ObjectConverters.IsNotNull}}"
+                                    Content="{Binding AgeingCriteria}">
+                      <ContentControl.ContentTemplate>
+                        <DataTemplate x:DataType="vm:AgeingCriteriaViewModel">
+                          <Grid RowDefinitions="Auto,Auto,*" Margin="6">
+                            <TextBlock Grid.Row="0" Text="{Binding Title}"
+                                       FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
+                                       HorizontalAlignment="Center" Margin="0,8,0,2"/>
+                            <TextBlock Grid.Row="1" Text="{Binding ReportTitle}"
+                                       FontSize="12" Foreground="#555555"
+                                       HorizontalAlignment="Center" Margin="0,0,0,10"
+                                       TextTrimming="CharacterEllipsis"/>
+
+                            <Border Grid.Row="2" Background="White"
+                                    BorderBrush="{StaticResource GridLine}" BorderThickness="1" Padding="12">
+                              <StackPanel Spacing="8">
+                                <TextBlock Text="Ageing Periods (days)" FontWeight="SemiBold" FontSize="13"
+                                           Foreground="{StaticResource BrandNavy}"/>
+                                <TextBlock Text="{Binding Hint}" FontSize="11" Foreground="#8A8A8A" TextWrapping="Wrap"/>
+                                <Grid ColumnDefinitions="40,*,*">
+                                  <TextBlock Grid.Column="1" Text="From" FontSize="12" FontWeight="SemiBold" Margin="4,0"/>
+                                  <TextBlock Grid.Column="2" Text="To" FontSize="12" FontWeight="SemiBold" Margin="4,0"/>
+                                </Grid>
+                                <ItemsControl x:Name="AgeingCriteriaRows" ItemsSource="{Binding Rows}">
+                                  <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:AgeingPeriodRow">
+                                      <Grid ColumnDefinitions="40,*,*" Margin="0,2">
+                                        <TextBlock Grid.Column="0" Text="{Binding Number}" FontSize="12"
+                                                   VerticalAlignment="Center" Foreground="#555555"/>
+                                        <TextBox Grid.Column="1" Text="{Binding From, Mode=TwoWay}" FontSize="13"
+                                                 Margin="4,0" MaxLength="6" Classes="ageingFrom"/>
+                                        <TextBox Grid.Column="2" Text="{Binding To, Mode=TwoWay}" FontSize="13"
+                                                 Margin="4,0" MaxLength="6" Classes="ageingTo"/>
+                                      </Grid>
+                                    </DataTemplate>
+                                  </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Grid ColumnDefinitions="*,Auto">
+                                  <TextBlock Grid.Column="0" Text="{Binding Status}"
+                                             IsVisible="{Binding Status, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                             Foreground="#B00020" FontSize="12"
+                                             VerticalAlignment="Center" TextWrapping="Wrap"/>
+                                  <Button Grid.Column="1" Content="Accept (Enter)" Padding="14,6"
+                                          Background="{StaticResource BrandNavy}" Foreground="White"
+                                          Click="OnApplyAgeingCriteriaClick"/>
+                                </Grid>
+                              </StackPanel>
+                            </Border>
+                          </Grid>
+                        </DataTemplate>
+                      </ContentControl.ContentTemplate>
+                    </ContentControl>
+
                     <!-- PAGE: Ctrl+J "Exception Reports" panel (census 2.13 — the derived "Show Unused" view).
                          A Miller-column page beside the Chart of Accounts it filters, never a stacked overlay.
                          Nothing is stored: "unused" is recomputed from the vouchers on every rebuild, so this

@@ -466,6 +466,9 @@ public partial class MainWindow : Window
             // W2-13a: Ctrl+A on the Ctrl+B panel applies the Scale Factor and pops back to the re-scaled report.
             else if (vm.CurrentScreen == Screen.BasisOfValues)
                 vm.ApplyBasisOfValues();
+            // Census 11.13 (IV-315): Ctrl+A on the F6 ageing criteria accepts them, as Enter does.
+            else if (vm.CurrentScreen == Screen.AgeingCriteria)
+                vm.ApplyAgeingCriteria();
             // Census 2.13: Ctrl+A on the Ctrl+J panel applies the chosen view and pops back to the filtered tree.
             else if (vm.CurrentScreen == Screen.ExceptionReports)
                 vm.ApplyExceptionReports();
@@ -742,6 +745,20 @@ public partial class MainWindow : Window
                 case Key.Up: vm.MoreDetailsMoveUp(); e.Handled = true; return;
                 case Key.Enter: vm.TakeMoreDetailsRow(); e.Handled = true; return;
             }
+        }
+
+        // ── F6 ageing criteria (census 11.13 / 11.9, T2-24; IV-315) — Enter accepts ─────────────────────────────
+        // Vendor (help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/, by content
+        // 2026-11-02): "Specify the required ageing criteria and press Enter." Bare Enter only, from any box on the
+        // panel; Tab walks the From / To boxes; Ctrl+A accepts too (the arm further down, the house panel chord).
+        // Escape is deliberately NOT handled here: it falls through to `case Key.Escape` -> vm.Back(), which pops the
+        // column and leaves the basis and windows as they were.
+        if (vm.CurrentScreen == Screen.AgeingCriteria && vm.AgeingCriteria is not null && !vm.IsGoToOpen
+            && e.Key == Key.Enter && e.KeyModifiers == KeyModifiers.None)
+        {
+            vm.ApplyAgeingCriteria();
+            e.Handled = true;
+            return;
         }
 
         // Ctrl+R opens the GST Rate Setup (dated GST 2.0 rate + cess bulk maintenance; Phase 9 slice 1) — the
@@ -3440,6 +3457,10 @@ public partial class MainWindow : Window
     /// <summary>"Apply" on the Ctrl+B Basis-of-Values panel (W2-13a / census 14.5) — the SAME door Ctrl+A runs.</summary>
     private void OnApplyBasisOfValuesClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyBasisOfValues();
+
+    /// <summary>Census 11.13 (IV-315): the Accept button on the F6 ageing criteria — the same door as Enter / Ctrl+A.</summary>
+    private void OnApplyAgeingCriteriaClick(object? sender, RoutedEventArgs e)
+        => Vm?.ApplyAgeingCriteria();
 
     /// <summary>The Apply button on the Ctrl+J Exception Reports panel (census 2.13).</summary>
     private void OnApplyExceptionReportsClick(object? sender, RoutedEventArgs e)

@@ -67,6 +67,11 @@ public enum Screen
     // Same menu-column shape as the F4 picker above: pushed by PushMenuColumn, so the report stays bound beneath.
     AgeingMethodPicker,
 
+    // Census 11.13 / 11.9 (T2-24, IV-315) — the F6 AGEING CRITERIA page column, pushed after a basis is taken on the
+    // picker above: "Specify the required ageing criteria and press Enter." (the same vendor page, step 4). A page
+    // column like Ctrl+B Basis of Values, so the report stays bound beneath and Esc returns to it unchanged.
+    AgeingCriteria,
+
     // 🔴 census 6.23 / T2-121(i) — the voucher-entry "Company/Tax Registration" (F3) picker: a menu column of
     // every registration the company holds, appended to the RIGHT of the LIVE voucher-entry screen exactly like
     // the three pickers above sit over a live report (the entry column stays bound beneath, so Esc pops back to
@@ -828,6 +833,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// <summary>The Ctrl+B "Basis of Values" (Scale Factor) panel view model, non-null only while that
     /// column is open (W2-13a, census row 14.5).</summary>
     [ObservableProperty] private BasisOfValuesViewModel? _basisOfValues;
+
+    /// <summary>The F6 ageing criteria panel view model, non-null only while that column is open over Bills
+    /// Receivable / Payable or Overdue Receivables / Payables (census 11.13, IV-315).</summary>
+    [ObservableProperty] private AgeingCriteriaViewModel? _ageingCriteria;
 
     /// <summary>The Ctrl+J "Exception Reports" panel view model, non-null only while that column is open over the
     /// Chart of Accounts (census row 2.13 — the derived "Show Unused" view).</summary>
@@ -6795,13 +6804,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// outstandings-tally/, opened by content 2026-10-29): <i>"Press F6 (Ageing Method)."</i> then <i>"Select the
     /// appropriate Ageing Methods from Ageing by Bill Date or Ageing by Due Date and press Enter."</i> The two rows
     /// carry those words; the highlight lands on the basis in force. The vendor's next step, <i>"Specify the required
-    /// ageing criteria and press Enter."</i>, is NOT built — the windows are fixed per basis (IV-286).
+    /// ageing criteria and press Enter."</i>, is built since wave 10 (track gc, IV-315): Enter on a basis opens the
+    /// <see cref="OpenAgeingCriteria"/> page column, and Enter there applies basis and windows together.
     /// </summary>
     public void OpenAgeingMethodPicker()
     {
         if (!IsReportContext) return;
         if (Reports is not { SupportsAgeingMethod: true } report) return;
         if (CurrentScreen == Screen.AgeingMethodPicker) return;
+        // IV-315: the criteria column is a page over the report, so IsReportContext holds there; a second F6 must not
+        // stack a picker over the criteria the operator is still typing.
+        if (CurrentScreen == Screen.AgeingCriteria || AgeingCriteria is not null) return;
 
         var picker = new GatewayColumn("Ageing Method") { Kind = GatewayColumnKind.DataDriven };
         picker.Add(MenuItemViewModel.Header("Select Ageing Method"));
@@ -6825,12 +6838,46 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>A row of the F6 picker was taken: pop the picker FIRST (see <see cref="PickVoucherTypeFilter"/>),
-    /// then re-project the live report on the chosen basis.</summary>
+    /// then open the ageing criteria for the chosen basis. Nothing re-projects until the criteria are accepted, so
+    /// Esc on the criteria leaves both the basis and the windows as they were (IV-315).</summary>
     private void PickAgeingMethod(Apex.Ledger.Reports.AgeingMethod method)
     {
-        var report = Reports;
         PopMenuColumn(Screen.AgeingMethodPicker);
-        report?.SetAgeingMethod(method);
+        OpenAgeingCriteria(method);
+    }
+
+    /// <summary>
+    /// <b>F6, step two — the ageing criteria</b> (census 11.13 / 11.9, T2-24; IV-315). Vendor (TallyPrime,
+    /// help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/, opened by content 2026-11-02):
+    /// <i>"Specify the required ageing criteria and press Enter."</i> Pushed as its own page column to the right of
+    /// the live report (the Ctrl+B shape), seeded with the windows in force. Refused, with nothing pushed, off the
+    /// four F6 views or while another column is drawn over the report.
+    /// </summary>
+    public void OpenAgeingCriteria(Apex.Ledger.Reports.AgeingMethod method)
+    {
+        if (!IsReportContext) return;
+        if (Reports is not { SupportsAgeingMethod: true } report) return;
+        if (AgeingCriteria is not null) return;
+
+        var panel = new AgeingCriteriaViewModel(report, method);
+        AgeingCriteria = panel;
+        Columns.Add(new GatewayColumn(panel.Title, panel));
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = Screen.AgeingCriteria;
+        ScreenTitle = panel.Title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Enter / Ctrl+A on the ageing criteria: hand basis and windows to the report and pop back to it re-aged. A
+    /// refused set stays on the panel with the reason, and the report is untouched.
+    /// </summary>
+    public void ApplyAgeingCriteria()
+    {
+        if (AgeingCriteria is null) return;
+        if (!AgeingCriteria.Accept()) return;
+        if (CurrentScreen == Screen.AgeingCriteria) Back();
         BuildButtonBar();
     }
 
@@ -9875,6 +9922,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Form12Ba = null;
         ReportConfig = null;
         BasisOfValues = null;
+        AgeingCriteria = null;
         ExceptionReports = null;
         ReportSortFilter = null;
         AddComparisonColumn = null;
