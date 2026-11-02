@@ -3433,6 +3433,64 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | The per-bill *Ageing* cell, the second-band buckets and its heading ("Ageing Analysis (by bill date)") follow F6; the *Overdue Days* column does not, because overdue is defined on the due date. A bill with no due date (and no credit period) is due on its bill date, so it ages identically under both bases. **OURS.** |
 | **Tests** | `AgeingMethodAndTypeOfBillsTests.Bills_receivable_buckets_under_both_bases_off_the_reloaded_book` (INV-A reads 80 overdue days and `90+ days` under bill-date ageing; INV-C with no due date reads `31-60 days` under both), `AgeingMethodTests.A_bill_without_a_due_date_ages_identically_under_both_bases_and_one_due_on_the_as_of_date_is_not_due`. M3 (builder ignores the basis) reddens five by name. |
 
+## 2Y. ADDED 2026-11-02 — WAVE 10 TRACK `gb`: THE BUDGET'S UNDER PICKER, AND BUDGET / SCENARIO VERBS BY KEYS (census rows 2.9, 2.10, IV-300..IV-304)
+
+> **This track's block is IV-300..IV-304.** It takes **IV-300 … IV-303** and leaves IV-304 unused. The section
+> letter `2Y` is the wave plan's pre-assignment; the entry NUMBERS are the stable handle.
+>
+> **Vendor ground for the whole section** (TallyPrime), both opened BY CONTENT on 2026-11-02:
+> - `help.tallysolutions.com/budgets-tally/` — step 3 of both "Create Budget for Ledgers" and "Create Budget for
+>   Cost Centres": **"Under: Select Primary or any other predefined groups, based on your requirement."**, and
+>   **"You can alter the Budgets whenever your business requirements change, and delete them when they are no
+>   longer needed."** The page names no key for altering or deleting.
+> - `help.tallysolutions.com/tally-prime/financial-controlling/scenarios-tally/` (served as
+>   `help.tallysolutions.com/scenarios/`, "last updated October 15, 2026") — fields Name / Include actuals /
+>   Include / Exclude, **"Select the voucher types to Exclude."**, and **"You can alter the Scenarios whenever your
+>   business requirements change, and delete them when they are no longer needed."** No key is named for either
+>   verb.
+>
+> **What is built.** The Budget master has an *Under* picker (Primary, then every group) on create and on
+> alteration; it writes `budgets.under_id` (Primary = NULL) and pre-selects the stored group on alter. No schema
+> change: the column, its FK to `groups(id)` and the group-delete guard (`MasterDeletionRules`, "N budget(s)")
+> already existed with no screen that could set the column. Scenario exclusion, alteration and deletion were
+> already built (W46 AF, W33 C3); this track proves them by the real keys on a fresh store.
+
+### IV-300 · **The budget's Under picker offers every group, not only the predefined ones, and has no Alt+C create** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape). Area: MST.** |
+| **What TallyPrime does** | *"Under: Select Primary or any other predefined groups, based on your requirement."* The same step goes on to offer Alt+C to create a new group. |
+| **What we ship** | `BudgetMasterViewModel.UnderOptions`: *Primary* first (stored as NULL), then every group in the company by name, including groups the operator created. Tab from the Name box lands on the picker; type-to-jump selects by name prefix. **OURS:** offering operator-created groups (a group created with the vendor's own Alt+C would be a valid parent, so refusing ours would be stricter than the vendor). **NOT BUILT:** Alt+C create-a-group from inside the picker. |
+| **Tests** | `BudgetUnderPickerTests.A_budget_created_under_a_group_by_keys_stores_that_group_in_under_id`, `…A_budget_left_on_Primary_stores_null_under_id`, `…Altering_a_budget_prefills_its_group_and_moving_it_to_Primary_writes_null`, `…Altering_only_the_figure_keeps_the_budget_under_its_group`, `…Deleting_a_group_a_budget_is_filed_under_is_refused_with_the_budget_count` (all off a fresh `CompanyStorage` and the raw `budgets.under_id` column). Create writing NULL reddens four; dropping the alter pre-select reddens two; Alter not writing the field reddens one; the guard not counting budgets reddens the delete-guard test. |
+
+### IV-301 · **A stored Under that names no group keeps its id on alter, shown as "(unknown group)"** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: MST.** |
+| **What TallyPrime does** | Not stated. |
+| **What we ship** | If `budgets.under_id` resolves to no group (for example an imported book whose parent was dropped), the alteration screen adds an option carrying that same id, labelled *(unknown group)*, and selects it, so an alter that touches only the name or a figure does not silently move the budget to Primary. **OURS.** |
+| **Tests** | None drives this branch end to end; the FK makes it unreachable from a book this product wrote. Logged rather than claimed. |
+
+### IV-302 · **Alter and Delete on Budgets and Scenarios use this product's keys: Ctrl+Enter on the list, and Alt+D then Y** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (route). Area: MST / NAV.** |
+| **What TallyPrime does** | Both pages attest that budgets and scenarios can be altered and deleted. Neither page, as read on 2026-11-02, names a key or a menu route for either verb. |
+| **What we ship** | On the Budget and Scenario masters' existing-lists: arrows to the row, **Ctrl+Enter** opens the alteration screen pre-filled, **Ctrl+A** saves; **Alt+D** then **Y** deletes. Neither delete is guarded (nothing points at a budget or a scenario). **OURS:** the keys. This supersedes the "scenario DELETE verb is OURS" note in `ScenarioMasterViewModel` and `BudgetScenarioAlterAndExcludeTests` — the verb is now vendor-attested; only its keys are ours. |
+| **Tests** | `ScenarioBudgetByKeysTests.A_scenario_exclusion_ticked_with_Tab_and_Space_is_stored_as_excluded`, `…A_scenario_altered_by_keys_persists_its_rename_untick_and_new_exclusion`, `…A_scenario_deleted_with_AltD_then_Y_is_gone_from_the_reloaded_book`, `…A_budget_deleted_with_AltD_then_Y_is_gone_from_the_reloaded_book` — Tab and Space to tick, real chords to commit, then a fresh `CompanyStorage` the test never saved through. Removing the shell's post-delete `_storage.Save(Company)` reddens both delete tests while every `MasterVerbsW33ResidualDeleteTests` case stays green; dropping the exclusions in `Create` / `Alter` reddens the exclusion and alter tests respectively. |
+
+### IV-303 · **Citation drift: the scenario page no longer shows the two "Exclude … calculations" switches, and the budget page no longer has an "Alter a Budget" section** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class: GROUNDING. Area: MST.** |
+| **What TallyPrime does** | As read on 2026-11-02, the scenario page carries none of "forex", "inventory tracking", "Exclude forex gain/loss calculations" or "Exclude inventory tracking calculations", and none of the four Alt+G alteration bullets quoted in W46 AF source comments. The budget page carries no "Alter a Budget" heading and no "Budget Alteration" sentence. Both were quoted by content on 2026-10-11, before the pages were re-published. |
+| **What we ship** | Nothing for the two switches (they would need new `scenarios` columns, and this wave's migration belongs to track gd). The older quotes stay in source, marked as no longer on the live page. **No claim is made either way about whether the product still has the switches**; the current page is silent, and silence is not a ground. |
+| **Tests** | None — this entry records a source, not a behaviour. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

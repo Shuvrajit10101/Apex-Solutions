@@ -129,9 +129,10 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     // ~~🔴 WHAT IS STILL NOT CLOSED … COST CENTRES … needs a SCHEMA MIGRATION … 2.9 stays PARTIAL.~~
     // 🔴 STALE, STRUCK W10 gb (2026-11-02): the cost-centre target shipped in v67 (BudgetLine.ForCostCentre,
     // budget_lines.cost_centre_id; see BuildTargets/AddLine), and the Under picker shipped in W10 gb
-    // (UnderOptions/SelectedUnder). ⚠️ CITATION DRIFT: the vendor page was re-published 2026-10-15 at
-    // help.tallysolutions.com/budgets-tally/ (the old /tally-prime/budgets-and-scenario/ URL now redirects there),
-    // and the "Alter a Budget" sentences quoted above are NO LONGER on it. What the live page says, read by
+    // (UnderOptions/SelectedUnder). ⚠️ CITATION DRIFT: the vendor page is now served at
+    // help.tallysolutions.com/budgets-tally/ (the old /tally-prime/budgets-and-scenario/ URL serves the same
+    // re-published page, whose own share links name help.tallysolutions.com/budgets/), and the "Alter a Budget"
+    // heading and sentences quoted above are NO LONGER on it (re-checked by content 2026-11-02). What the live page says, read by
     // content 2026-11-02: "You can alter the Budgets whenever your business requirements change, and delete them
     // when they are no longer needed." Removing a line from the pending grid is still absent (ours; not a
     // vendor clause the census names).
