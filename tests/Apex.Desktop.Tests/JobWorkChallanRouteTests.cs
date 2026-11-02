@@ -54,7 +54,7 @@ public sealed class JobWorkChallanRouteTests : IDisposable
     private sealed record Kit(MainWindowViewModel Vm, StockItem Flange, StockItem Fg, Godown Main, Godown Worker,
         Domain.Ledger JobWorker);
 
-    private Kit Seed(string name, string workerState = "27", string workerGstin = WorkerGstin)
+    private Kit Seed(string name, string workerState = "27", string workerGstin = WorkerGstin, bool hsnOnStockGroup = false)
     {
         var vm = new MainWindowViewModel(new CompanyStorage(_dir));
         vm.NewCompanyName = name;
@@ -77,8 +77,16 @@ public sealed class JobWorkChallanRouteTests : IDisposable
 
         var masters = new InventoryService(c);
         var nos = masters.CreateSimpleUnit("Nos", "Numbers");
-        var flange = masters.CreateStockItem("Brass Flange", masters.CreateStockGroup("Raw Materials").Id, nos.Id);
-        flange.Gst = new StockItemGstDetails { HsnSac = "741220", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800 };
+        var raw = masters.CreateStockGroup("Raw Materials");
+        var flange = masters.CreateStockItem("Brass Flange", raw.Id, nos.Id);
+        flange.Gst = new StockItemGstDetails
+        {
+            // IV-299 (wave 10): with hsnOnStockGroup the ITEM declares no HSN and its STOCK GROUP does, so the challan's
+            // HSN column can only be right if it walks the hierarchy (GstReportSupport.HsnSacOf(company, item, null)).
+            HsnSac = hsnOnStockGroup ? null : "741220", Taxability = GstTaxability.Taxable, RateBasisPoints = 1800,
+        };
+        if (hsnOnStockGroup)
+            raw.Gst = new MasterGstDetails { HsnSac = "741220" };
         masters.AddOpeningBalance(flange.Id, c.MainLocation!.Id, 100m, Money.FromRupees(33.33m));   // rate per Nos
         var fg = masters.CreateStockItem("Valve Body", masters.CreateStockGroup("Finished Goods").Id, nos.Id);
         var worker = new Godown(Guid.NewGuid(), "Platers Site", thirdParty: true);
@@ -317,6 +325,60 @@ public sealed class JobWorkChallanRouteTests : IDisposable
             Assert.Contains("(GSTIN/UIN: 29AAACR5055K1Z1) Tj", s, StringComparison.Ordinal);
         }
         finally { w.Close(); }
+    }
+
+    /// <summary>
+    /// 🔴 <b>IV-299 (wave 10, track ga, §2X) — THE CHALLAN'S HSN IS THE HIERARCHY'S, NOT THE ITEM'S ALONE.</b> IV-279
+    /// said the job-work challan read the item's own HSN and left the inherited case untested; the merge had already
+    /// routed it through <c>GstReportSupport.HsnSacOf(company, item, null)</c>. Here Brass Flange declares NO HSN and
+    /// its stock group Raw Materials declares 741220 (Rule 55(d) asks for the HSN). Keyed with the real Ctrl+A, then
+    /// re-read off a book opened from disk through a FRESH <see cref="CompanyStorage"/> and Company Select.
+    /// <para><b>Mutation (M10):</b> replacing the call at <c>JobWorkChallanPrintProjector.cs</c> (d) with the item's
+    /// own rung (<c>GstReportSupport.ItemRungHsnSacOf(item)</c>) reddens this at the first <c>(741220) Tj</c>.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_material_out_of_an_item_with_no_hsn_prints_its_stock_groups_hsn_on_the_reloaded_challan()
+    {
+        const string name = "JW Challan Group HSN Co";
+        {
+            var k = Seed(name, hsnOnStockGroup: true);
+            Assert.Null(k.Flange.Gst!.HsnSac);                                   // the premise: the item is silent
+            TypeOf(k, VoucherBaseType.MaterialOut).PrintAfterSaving = true;
+            var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+            try
+            {
+                w.Show();
+                KeyOutOrder(w, k);
+                KeyMaterialOut(w, k);
+                var s = Encoding.Latin1.GetString(k.Vm.PrintPreview!.PdfBytes);
+                Assert.Contains("(741220) Tj", s, StringComparison.Ordinal);    // main-before-wave-9: blank
+            }
+            finally { w.Close(); }
+        }
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        var vm = new MainWindowViewModel(new CompanyStorage(_dir));
+        var window = new MainWindow { DataContext = vm, Width = 1440, Height = 900 };
+        try
+        {
+            window.Show();
+            vm.ShowCompanySelect();
+            vm.Menu.Single(m => m.Label == name).Activate();
+            Pump(window);
+            var c = vm.Company!;
+            var flange = c.StockItems.Single(i => i.Name == "Brass Flange");
+            Assert.Null(flange.Gst!.HsnSac);                                     // still silent after the reload
+            Assert.Equal("741220", c.StockGroups.Single(g => g.Id == flange.StockGroupId).Gst!.HsnSac);
+            var outType = c.VoucherTypes.Single(t => t.BaseType == VoucherBaseType.MaterialOut && t.IsActive);
+            var movement = c.InventoryVouchers.Single(v => v.TypeId == outType.Id);
+            var projection = DeliveryChallanPrintProjector.Project(c, movement);
+            Assert.Null(projection.Refusal);
+            var s = Encoding.Latin1.GetString(
+                Apex.Ledger.Io.ReportPdf.Render(projection.Document!, new Apex.Ledger.Io.PageConfig()));
+            Assert.Contains(JobWorkChallanPrintProjector.Title, s, StringComparison.Ordinal);
+            Assert.Contains("(741220) Tj", s, StringComparison.Ordinal);
+        }
+        finally { window.Close(); }
     }
 
     public void Dispose()
