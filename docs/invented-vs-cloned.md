@@ -3433,6 +3433,72 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | The per-bill *Ageing* cell, the second-band buckets and its heading ("Ageing Analysis (by bill date)") follow F6; the *Overdue Days* column does not, because overdue is defined on the due date. A bill with no due date (and no credit period) is due on its bill date, so it ages identically under both bases. **OURS.** |
 | **Tests** | `AgeingMethodAndTypeOfBillsTests.Bills_receivable_buckets_under_both_bases_off_the_reloaded_book` (INV-A reads 80 overdue days and `90+ days` under bill-date ageing; INV-C with no due date reads `31-60 days` under both), `AgeingMethodTests.A_bill_without_a_due_date_ages_identically_under_both_bases_and_one_due_on_the_as_of_date_is_not_due`. M3 (builder ignores the basis) reddens five by name. |
 
+## 2Z. ADDED 2026-11-02 — WAVE 10 TRACK `gc`: F6 AGEING CRITERIA (OPERATOR-SET WINDOWS) AND THE CONDENSED P&L (census rows 11.13 and 11.2, advancing 11.9 / T2-24, IV-305..IV-309)
+
+> **This track's block is IV-305..IV-309; it takes all five.** The section letter `2Z` is the wave plan's
+> pre-assignment. **This section SUPERSEDES** the "no criteria step" sentence of IV-285 and the "NOT BUILT:
+> operator-set windows" sentence of IV-286; both are left as written above so the history reads.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT on 2026-11-02:
+> - `help.tallysolutions.com/manage-receivables-outstanding-tally/` — **"Press F6 (Ageing Method) to configure the
+>   report view as per ageing by bill dates or by due dates and set the ageing windows."** The page does not say
+>   how the windows are entered.
+> - `help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/` — **"Select the appropriate
+>   Ageing Methods from Ageing by Bill Date or Ageing by Due Date and press Enter."** then **"Specify the required
+>   ageing criteria and press Enter."** The page does not name a From / To shape.
+> - `help.tallysolutions.com/stock-ageing-analysis-report-tally/` — **"Enter the From and To days."** (the F6 step of
+>   Stock Ageing Analysis; borrowed for the outstandings views, IV-306).
+> - `help.tallysolutions.com/working-with-reports/` — **"Press Alt+F1 or Alt+F5 (Detailed/Condensed) to view the next
+>   level of details for all line entries"**.
+> - `help.tallysolutions.com/profit-and-loss-statement-tally/` — **"Indirect Expenses will be deducted from the Gross
+>   Profit to show the Nett Profit."** and, of the vertical form, that **"the groups now appear under Trading Account
+>   and Income Statements"**.
+
+### IV-305 · **F6 is now basis THEN criteria: Enter on a basis opens the ageing criteria, and Enter there applies both** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape). Area: RPT / NAV.** |
+| **What TallyPrime does** | F6, choose the basis, Enter, then *"Specify the required ageing criteria and press Enter."* |
+| **What we ship** | Enter on the F6 picker pops it and pushes the *Ageing Criteria — F6* page column (`Screen.AgeingCriteria`, the Ctrl+B Basis of Values shape) over the live report. Nothing re-projects until the criteria are accepted with Enter, Ctrl+A or the Accept button; Esc pops the column and leaves both basis and windows as they were. The caret starts in period 1's From box. The operator's windows go into the ONE engine call (`Outstandings.Build(..., ageingPeriods)`), which buckets both summaries and is the only source of the per-bill *Ageing* cell's label (`OutstandingsReport.Windows`), on Bills Receivable / Payable and on Overdue Receivables / Payables (via `OverdueBills.Build`). When the windows are the operator's, the Bills Receivable / Payable footnote adds "The ageing windows were set on F6 (ageing criteria)." **OURS:** that footnote sentence. |
+| **Tests** | `AgeingCriteriaTests.F6_then_typed_windows_and_Enter_re_age_bills_receivable_by_keyboard`, `…A_refused_set_stays_on_the_criteria_with_the_reason_and_Escape_leaves_the_report_unchanged`, `…Ctrl_A_accepts_the_criteria_and_a_second_F6_reseeds_with_the_windows_in_force`, the four `AgeingMethodAndTypeOfBillsTests.F6_opens_the_ageing_method_picker_and_Enter_on_bill_date_re_ages_the_report` cases (now pressing Enter on the criteria). Mutations: disabling the focus-on-open reddens the three keyboard tests; removing the bare-Enter arm reddens six by name; the engine ignoring the periods reddens seven. |
+
+### IV-306 · **The criteria are six From / To day rows; blank rows are ignored** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours, borrowed shape). Area: RPT.** |
+| **What TallyPrime does** | The outstandings pages do not describe the criteria's fields. Stock Ageing Analysis's own F6 says *"Enter the From and To days."* |
+| **What we ship** | Six numbered rows of From / To whole-day boxes, seeded with the windows in force (or the basis's defaults: 0-30/31-60/61-90/91+ by bill date, 1-30/31-60/61-90/91+ by due date). Blank rows are skipped; a non-number is refused with the row named. **OURS:** the From / To shape (borrowed from the stock-ageing page), the six-row cap, and the labels (`"16-60 days"`, `"61+ days"`). |
+| **Tests** | `AgeingCriteriaTests.F6_then_typed_windows_and_Enter_re_age_bills_receivable_by_keyboard` (types 15 and 16 into the realised boxes; buckets `Not due`/`1-15`/`16-60`/`61-90`/`91+` read back to the paisa). |
+
+### IV-307 · **Window rules: contiguous from day 1 (due) or day 0 (bill), only the last open, an "Over N days" tail when it is closed, and Not due stays fixed** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | Not stated on any page read. |
+| **What we ship** | `Outstandings.TryWindowsFor` refuses: no periods; a first period not starting at 1 (by due date) or 0 (by bill date); a gap or overlap (each period starts the day after the previous one ends); To below From; To above 36,500; an open To before the last row. When the last period is closed, `"Over N days"` is appended so no pending amount drops out of the summary. By due date the `Not due` window (0 or fewer days past due) is always first and is not an operator period. Periods equal to the basis's defaults return the basis's own window list, so an unchanged accept is byte-identical to never opening the criteria. A refused set changes nothing on the report. Basis switch keeps operator windows only when they are valid on the new basis. **OURS:** all of it. |
+| **Tests** | `AgeingWindowsTests.Refused_periods_name_the_rule_and_the_engine_refuses_them_too` (eight cases), `…The_default_periods_give_the_basis_own_windows_byte_for_byte`, `…Custom_bill_date_windows_append_an_open_tail_and_lose_no_pending`, `AgeingCriteriaTests.Refused_windows_leave_the_report_exactly_as_it_was`, plus the reloaded-book figures `AgeingCriteriaTests.Bills_receivable_custom_windows_bucket_and_label_every_bill_under_both_bases_off_the_reloaded_book`, `…Bills_payable_…`, `…Overdue_views_take_the_same_custom_windows_under_both_bases_off_the_reloaded_book`, and the egress `…Bills_receivable_csv_and_pdf_carry_the_custom_windows_under_both_bases`, `…Overdue_receivables_csv_and_pdf_carry_the_custom_windows_under_both_bases`. |
+
+### IV-308 · **The ageing windows live on the report viewer only: not saved with an Alt+K view, not stored in the book** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | Not stated on any page read. |
+| **What we ship** | The operator's windows sit beside the basis on the report viewer. They follow the viewer across the four F6 views, are dropped when it moves to a kind without F6, and are lost when the report closes. They are not captured by Alt+K saved views and not persisted (no schema this wave). **OURS.** |
+| **Tests** | None beyond reseeding within one viewer (`AgeingCriteriaTests.Ctrl_A_accepts_the_criteria_and_a_second_F6_reseeds_with_the_windows_in_force`). |
+
+### IV-309 · **The condensed (Alt+F1) Profit & Loss rolls up to PRIMARY groups, and a group row does not drill** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape) / C. Area: RPT.** |
+| **What TallyPrime does** | *"Press Alt+F1 or Alt+F5 (Detailed/Condensed) to view the next level of details for all line entries"*; the P&L page names groups (*"Indirect Expenses will be deducted from the Gross Profit"*). |
+| **What we ship** | `ProfitAndLossLine` carries its ledger's primary group (`GroupName`, `GroupId`). The condensed view shows one row per primary group under each side (Sales Accounts, Direct Incomes, Indirect Incomes / Purchase Accounts, Direct Expenses, Indirect Expenses, ...) in first-posted ledger order, with the side total and Net Profit / Loss unchanged. A ledger under a user sub-group (e.g. *Office Expenses* under Indirect Expenses) rolls into the primary group. Before this wave each side collapsed to a single "Income" / "Expenses" row. **OURS:** rolling to the primary rather than the immediate group (the detailed view is ledgers, not the next sub-group level); the row order; a condensed group row is not drillable (Enter does nothing), as on the condensed Balance Sheet. **NOT BUILT:** the vertical P&L form (census 11.2's other clause). |
+| **Tests** | `ProfitAndLossCondensedTests.Condensed_view_rolls_each_side_up_to_its_primary_groups_off_the_reloaded_book`, `…Condensed_csv_and_pdf_carry_one_row_per_primary_group`, `…Alt_F1_on_the_profit_and_loss_toggles_the_primary_group_view_by_keyboard`. Mutations: keying on the section header again (N1) and keying on the immediate group (N2) each redden all three by name. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
