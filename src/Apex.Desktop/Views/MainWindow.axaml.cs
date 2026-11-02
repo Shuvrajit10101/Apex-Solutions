@@ -3462,6 +3462,24 @@ public partial class MainWindow : Window
     private void OnApplyAgeingCriteriaClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyAgeingCriteria();
 
+    /// <summary>
+    /// Census 11.13 (IV-306) — the caret goes to period 1's From box the moment the F6 ageing criteria open, so the
+    /// operator types the windows at once ("Specify the required ageing criteria and press Enter."). Without it the
+    /// caret stayed on the report beneath and the digits went nowhere. Deferred to the Loaded pass because a box whose
+    /// visibility binding has not settled refuses focus (the reason <see cref="OnBomNameListNewNameAttached"/> gives).
+    /// </summary>
+    private void OnAgeingFromAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is not TextBox { DataContext: AgeingPeriodRow { Number: "1" } } box) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is not MainWindowViewModel { CurrentScreen: Screen.AgeingCriteria }) return;
+            if (!box.IsEffectivelyVisible || !box.IsEffectivelyEnabled) return;
+            box.Focus();
+            box.SelectAll();
+        }, DispatcherPriority.Loaded);
+    }
+
     /// <summary>The Apply button on the Ctrl+J Exception Reports panel (census 2.13).</summary>
     private void OnApplyExceptionReportsClick(object? sender, RoutedEventArgs e)
         => Vm?.ApplyExceptionReports();

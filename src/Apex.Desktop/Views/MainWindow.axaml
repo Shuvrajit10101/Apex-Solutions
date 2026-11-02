@@ -20256,7 +20256,8 @@
                                         <TextBlock Grid.Column="0" Text="{Binding Number}" FontSize="12"
                                                    VerticalAlignment="Center" Foreground="#555555"/>
                                         <TextBox Grid.Column="1" Text="{Binding From, Mode=TwoWay}" FontSize="13"
-                                                 Margin="4,0" MaxLength="6" Classes="ageingFrom"/>
+                                                 Margin="4,0" MaxLength="6" Classes="ageingFrom"
+                                                 AttachedToVisualTree="OnAgeingFromAttached"/>
                                         <TextBox Grid.Column="2" Text="{Binding To, Mode=TwoWay}" FontSize="13"
                                                  Margin="4,0" MaxLength="6" Classes="ageingTo"/>
                                       </Grid>
