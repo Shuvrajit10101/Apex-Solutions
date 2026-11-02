@@ -172,7 +172,7 @@ public static class JobWorkChallanPrintProjector
 
             rows.Add(new PrintRow(
                 string.Empty,
-                ReportPrintProjector.Ascii(GstReportSupport.HsnSacOf(item) ?? string.Empty),   // (d) HSN
+                ReportPrintProjector.Ascii(GstReportSupport.HsnSacOf(company, item, null) ?? string.Empty),   // (d) HSN
                 ReportPrintProjector.Ascii(stated.QuantityText),                                // (e) quantity
                 value is { } x ? IndianFormat.Amount(x) : string.Empty,                       // (f) taxable value
                 rateBp is { } r ? RatePercent(r) : string.Empty,                               // (g) rate

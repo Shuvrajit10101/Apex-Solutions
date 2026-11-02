@@ -572,8 +572,9 @@ public static class EInvoiceJson
                 // A stock line's nature comes from the item's own GST block, which defaults to Goods — so this is
                 // "N" for every existing item (ER-13) and reads the declaration rather than assuming it.
                 isService: item?.Gst?.SupplyType == GstSupplyType.Services,
-                // Resolution order is the ONE rule (drift lock D7); "" is the NIC schema's own "not declared".
-                hsnCd: GstReportSupport.HsnSacOf(item) ?? "",
+                // Census 6.4 (ii): the ONE hierarchy walk under SourceOfHsnSacDetails (an item declaring no HSN
+                // takes its ledger's, group's or company's); "" is the NIC schema's own "not declared".
+                hsnCd: GstReportSupport.HsnSacOf(company, item, valueLedger) ?? "",
                 // Schema: Qty is Number(10,3) — a quantity, not millis.
                 qty: Math.Round(decl.Quantity, 3, MidpointRounding.AwayFromZero),
                 unit: decl.Code ?? "OTH",

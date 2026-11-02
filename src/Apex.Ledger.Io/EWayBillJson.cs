@@ -376,7 +376,7 @@ public static class EWayBillJson
             // in which 24 Nos travel — a verification exposure with no money symptom to catch it. Declare the
             // line's own unit when it maps to a valid UQC, else the base unit with the quantity converted.
             var decl = UqcResolver.Declare(company, il, il.BilledQuantity);
-            items.Add(Item(item, GstReportSupport.HsnSacOf(item), group, il.Value.Amount, decl.Quantity,
+            items.Add(Item(item, GstReportSupport.HsnSacOf(company, item, valueLedger), group, il.Value.Amount, decl.Quantity,
                 decl.Code ?? "OTH"));
         }
         return items;

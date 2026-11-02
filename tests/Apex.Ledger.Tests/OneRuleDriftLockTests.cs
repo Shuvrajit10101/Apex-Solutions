@@ -326,6 +326,17 @@ public sealed class OneRuleDriftLockTests
     public void HsnResolutionHasOneHome() =>
         AssertOnlyIn("D7 HSN/SAC resolution", D7HsnResolution, "GstReportSupport.cs");
 
+    /// <summary>
+    /// 🔴 <b>D7b (wave 9, census 6.4 (ii)) — no document consumer may read the STOCK ITEM RUNG alone.</b> Until wave 9
+    /// every HSN consumer called the item-only resolver, so <c>GstConfig.SourceOfHsnSacDetails</c> had no reader and an
+    /// item with no HSN filed a blank row even when its ledger or group declared one. The item rung is now reached only
+    /// from inside the one hierarchy walk (<c>GstService.ResolveDocumentHsnSac</c>); a consumer that calls it directly
+    /// has re-opened the defect, whatever it calls its local.
+    /// </summary>
+    [Fact]
+    public void TheItemRungHsnIsReadOnlyByTheHierarchyWalk() =>
+        AssertOnlyIn("D7b item-rung HSN read", @"ItemRungHsnSacOf\(", "GstReportSupport.cs", "GstService.cs");
+
     // ============================================================ D8
 
     /// <summary>
