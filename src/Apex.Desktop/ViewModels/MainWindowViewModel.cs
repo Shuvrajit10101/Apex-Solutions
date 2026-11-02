@@ -2798,6 +2798,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         col.Add(new MenuItemViewModel("Negative Cash / Bank", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Memorandum Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Reversing Journal Register", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        // Census 5.7 / 5.8 (wave 10) — the two provisional-voucher registers, on the vendor's Gateway route as well as
+        // the Day Book's Ctrl+J. help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/, opened by
+        // content 2026-11-02: "Gateway of Tally > Display More Reports > Exception Reports > Optional Vouchers." and
+        // "… > Exception Reports > Post-Dated Vouchers.", plus "Press Alt+G (Go to) > type or select Optional
+        // Vouchers". Go To's index is walked from this menu, so these rows also put both labels in the Alt+G list.
+        // The vendor's intermediate period-summary step is not cloned (IV-313): the register opens on the period.
+        col.Add(new MenuItemViewModel("Optional Vouchers", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        col.Add(new MenuItemViewModel("Post-Dated Vouchers", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         // Census 11.13 — the two overdue views. Vendor (TallyPrime, help.tallysolutions.com/
         // manage-receivables-outstanding-tally/): "Alternatively, you can use Alt+G (Go To) > Overdue Receivables."
         // and the same for Overdue Payables. Go To's index is WALKED from this menu (BuildGoToIndex), so these two
@@ -11991,11 +11999,17 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             InventoryVoucherEntry?.TogglePostDated();
     }
 
-    /// <summary>Ctrl+L: toggle the in-progress voucher as Optional (a provisional, scenario-only entry).</summary>
+    /// <summary>Ctrl+L: toggle the in-progress voucher as Optional (a provisional, scenario-only entry).
+    /// <para>Since schema v69 (census 5.7) the stock/order entry screen answers too: the vendor's
+    /// <i>"Any voucher in TallyPrime can be marked as Optional by pressing Ctrl+L (Optional) during voucher entry
+    /// or in alteration mode"</i> (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/, opened
+    /// by content 2026-11-02).</para></summary>
     public void ToggleOptional()
     {
         if (CurrentScreen == Screen.VoucherEntry)
             VoucherEntry?.ToggleOptional();
+        else if (CurrentScreen == Screen.InventoryVoucherEntry)
+            InventoryVoucherEntry?.ToggleOptional();
     }
 
     /// <summary>Toggle the in-progress Purchase/Sales voucher between plain accounting and item-invoice mode.
@@ -14455,6 +14469,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case "Negative Cash / Bank": OpenReport(ReportKind.NegativeCashBank); break;
             case "Memorandum Register": OpenReport(ReportKind.MemorandumRegister); break;
             case "Reversing Journal Register": OpenReport(ReportKind.ReversingJournalRegister); break;
+            // Census 5.7 / 5.8 — Gateway > Exception Reports > Optional / Post-Dated Vouchers (see the column).
+            case "Optional Vouchers": OpenReport(ReportKind.OptionalVouchersRegister); break;
+            case "Post-Dated Vouchers": OpenReport(ReportKind.PostDatedVouchersRegister); break;
             case "Overdue Receivables": OpenReport(ReportKind.OverdueReceivables); break;
             case "Overdue Payables": OpenReport(ReportKind.OverduePayables); break;
             // W2-12 (census 11.6) — Reports → Account Books → Registers. Each opens MONTH-WISE.
@@ -15301,8 +15318,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         ButtonBar.Add(new ButtonBarItem("F8", "Sales", () => OpenVoucherFromTypeKey(VoucherBaseType.Sales), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F9", "Purchase", () => OpenVoucherFromTypeKey(VoucherBaseType.Purchase), hasCompany));
 
-        // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher).
-        var onVoucher = CurrentScreen == Screen.VoucherEntry;
+        // Ctrl+L — mark the in-progress voucher Optional (only while entering a real voucher). v69 (census 5.7):
+        // the stock/order entry screen is a real voucher too, and its ToggleOptional is live.
+        var onVoucher = CurrentScreen is Screen.VoucherEntry or Screen.InventoryVoucherEntry;
         ButtonBar.Add(new ButtonBarItem("Ctrl+L", "Optional", ToggleOptional, onVoucher));
         // 🔴 THE "Ctrl+I / As Invoice" ROW IS GONE, AND ITS ABSENCE IS THE POINT (user ruling 17, 2026-09-06).
         // Ctrl+I is now More Details (census 14.4, added below); the item-invoice toggle answers to Ctrl+H
