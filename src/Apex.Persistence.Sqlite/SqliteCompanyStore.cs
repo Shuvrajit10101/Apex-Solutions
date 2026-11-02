@@ -4896,7 +4896,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         foreach (var h in headers)
         {
             var (source, destination) = ReadInventoryAllocations(h.Id);
-            result.Add(InventoryVoucher.FromStorage(
+            var loaded = InventoryVoucher.FromStorage(
                 h.Id, h.TypeId, h.Date,
                 allocations: source,
                 destinationAllocations: destination,
@@ -4909,11 +4909,11 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 postDated: h.PostDated,
                 additionalCostLines: ReadAdditionalCostLines(h.Id),
                 jobWorkOrder: ReadJobWorkOrder(h.Id),
-                orderLinks: ReadMaterialOrderLinks(h.Id))
-            {
-                // v69 (census 5.7): Ctrl+L on a stock/order voucher. Set after construction, as the domain allows.
-                Optional = h.Optional,
-            });
+                orderLinks: ReadMaterialOrderLinks(h.Id));
+            // v69 (census 5.7): Ctrl+L on a stock/order voucher. FromStorage is a factory, not a constructor, so
+            // the flag is set on the returned instance (the domain allows it, as for PostDated/Cancelled).
+            loaded.Optional = h.Optional;
+            result.Add(loaded);
         }
         return result;
     }
