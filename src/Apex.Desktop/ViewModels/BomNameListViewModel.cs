@@ -83,11 +83,16 @@ public sealed partial class BomNameListViewModel : ViewModelBase
             ?? throw new ArgumentException($"Stock item {stockItemId} not found.", nameof(stockItemId));
         StockItemId = item.Id;
         ItemName = item.Name;
+        Fill(highlightId: null);
+    }
 
-        foreach (var bom in company.BomsFor(item.Id))
+    private void Fill(Guid? highlightId)
+    {
+        Rows.Clear();
+        foreach (var bom in _company.BomsFor(StockItemId))
         {
             var parts = bom.ComponentLines
-                .Select(l => company.FindStockItem(l.ComponentStockItemId)?.Name ?? "?")
+                .Select(l => _company.FindStockItem(l.ComponentStockItemId)?.Name ?? "?")
                 .ToList();
             Rows.Add(new BomNameRow
             {
@@ -96,7 +101,25 @@ public sealed partial class BomNameListViewModel : ViewModelBase
                 Detail = parts.Count > 0 ? string.Join(", ", parts) : "—",
             });
         }
-        if (Rows.Count > 0) Rows[0].IsHighlighted = true;
+        if (Rows.Count > 0) (Rows.FirstOrDefault(r => r.BomId == highlightId) ?? Rows[0]).IsHighlighted = true;
+        OnPropertyChanged(nameof(HighlightedRow));
+        OnPropertyChanged(nameof(HasNoBoms));
+    }
+
+    /// <summary>
+    /// Census 3.9 (IV-227) — the shell calls this when Escape returns from the components screen to this list. The
+    /// names are re-read from the book, so a BOM just created is listed, a rename shows, and the highlight stays on
+    /// the BOM it was on (by id). The typed new name is cleared: it has been used, and leaving it would make the
+    /// next Enter re-open that BOM rather than the highlighted one.
+    /// </summary>
+    public void Reload()
+    {
+        var keep = HighlightedRow?.BomId;
+        var typed = (NewName ?? string.Empty).Trim();
+        if (typed.Length > 0 && _company.FindBomByName(StockItemId, typed) is { } made) keep = made.Id;
+        NewName = string.Empty;
+        Message = null;
+        Fill(keep);
     }
 
     /// <summary>The highlighted existing BOM, or null when the item has none.</summary>

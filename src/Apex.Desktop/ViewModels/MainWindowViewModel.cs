@@ -240,6 +240,7 @@ public enum Screen
     BatchAllocation,
     BomMaster,
     BomNameList,
+    CopyBomDetails,
     ManufacturingJournalEntry,
     JobWorkOrderEntry,
     MaterialMovementEntry,
@@ -596,6 +597,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
 
     /// <summary>Census 3.9 — the Stock Item Multi Components (M BOM) name list, non-null only while that page is open.</summary>
     [ObservableProperty] private BomNameListViewModel? _bomNameList;
+
+    /// <summary>Census 3.9 — the Copy BoM Details sub-screen (Ctrl+C on the components screen), non-null only while it is open.</summary>
+    [ObservableProperty] private CopyBomDetailsViewModel? _copyBomDetails;
 
     /// <summary>The Manufacturing-Journal voucher-entry view model (Phase 6 Cluster 2; RQ-11), non-null only while it is open.</summary>
     [ObservableProperty] private ManufacturingJournalEntryViewModel? _manufacturingJournalEntry;
@@ -972,7 +976,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         && StockGroupMaster is null && StockCategoryMaster is null && UnitMaster is null
         && VoucherTypeMaster is null
         && GodownMaster is null && StockItemMaster is null && BatchMaster is null && BatchAllocation is null
-        && BomMaster is null && BomNameList is null && ManufacturingJournalEntry is null && PosBilling is null
+        && BomMaster is null && BomNameList is null && CopyBomDetails is null && ManufacturingJournalEntry is null && PosBilling is null
         && JobWorkOrderEntry is null && MaterialMovementEntry is null
         && PriceLevels is null && PriceLists is null && ReorderLevels is null
         && EmployeeCategoryMaster is null && EmployeeGroupMaster is null && EmployeeMaster is null
@@ -1039,6 +1043,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     partial void OnBatchAllocationChanged(BatchAllocationViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBomMasterChanged(BomMasterViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnBomNameListChanged(BomNameListViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
+    partial void OnCopyBomDetailsChanged(CopyBomDetailsViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnManufacturingJournalEntryChanged(ManufacturingJournalEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnJobWorkOrderEntryChanged(JobWorkOrderEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
     partial void OnMaterialMovementEntryChanged(MaterialMovementEntryViewModel? value) => OnPropertyChanged(nameof(IsMenuScreen));
@@ -7841,8 +7846,69 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 return false;
         }
 
-        OpenPageColumn(new GatewayColumn(master.Caption, master), Screen.BomMaster, master.Caption,
-            () => BomMaster = master);
+        // 🔴 Census 3.9 (IV-227): the components screen is STACKED beside the list rather than replacing it, the
+        // shape the batch-allocation sub-screen uses beside its voucher, so Escape after a create or an alteration
+        // returns to the M BOM list (BindPageColumn re-binds and re-reads it) instead of dropping to the menu.
+        StackPageColumn(list, new GatewayColumn(master.Caption, master), Screen.BomMaster, master.Caption,
+            () => { BomNameList = list; BomMaster = master; });
+        return true;
+    }
+
+    /// <summary>
+    /// Census 3.9 — appends <paramref name="pageColumn"/> to the RIGHT of the live page <paramref name="beneath"/>
+    /// instead of replacing it, trimming only what sat to the right of that page. <paramref name="bind"/> must bind
+    /// EVERY page that stays in the cascade (the invariant <see cref="RehydratePageFromRightmostColumn"/> states:
+    /// a column still in <see cref="Columns"/> is bound). Escape pops back to <paramref name="beneath"/>.
+    /// </summary>
+    private void StackPageColumn(object beneath, GatewayColumn pageColumn, Screen screen, string title, Action bind)
+    {
+        var at = IndexOfColumnHosting(beneath);
+        if (at < 0) return;
+        TrimColumnsAfter(at);
+        ClearSubScreens();
+        bind();
+        Columns.Add(pageColumn);
+        ActiveColumnIndex = Columns.Count - 1;
+        CurrentScreen = screen;
+        ScreenTitle = title;
+        SyncActiveColumn();
+        BuildButtonBar();
+    }
+
+    /// <summary>
+    /// Census 3.9 — <b>Ctrl+C (Copy BoM)</b> on the Stock Item Components (BOM) screen: <i>"In the Stock Item
+    /// Components (BOM) screen, press Ctrl+C (Copy BoM)."</i>, then <i>"In the Copy BoM Details screen, select the
+    /// stock item and component of BoM."</i> (help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-29). Stacks the Copy BoM Details screen beside the components screen; Escape there
+    /// returns to it with nothing copied. Returns false when not on the components screen.
+    /// </summary>
+    public bool OpenCopyBom()
+    {
+        if (Company is null || CurrentScreen != Screen.BomMaster || BomMaster is not { } master) return false;
+        var copy = new CopyBomDetailsViewModel(Company, master.EditingBomId, master.SelectedFinishedGood?.Id);
+        var list = BomNameList;
+        StackPageColumn(master, new GatewayColumn(copy.Title, copy), Screen.CopyBomDetails, copy.Title, () =>
+        {
+            if (list is not null && IndexOfColumnHosting(list) >= 0) BomNameList = list;
+            BomMaster = master;
+            CopyBomDetails = copy;
+        });
+        return true;
+    }
+
+    /// <summary>
+    /// Census 3.9 — Enter / Ctrl+A on the Copy BoM Details screen. Enter on the Stock Item field moves to Component
+    /// of BOM; Enter there (or Ctrl+A from either field) copies the chosen BOM's lines into the components screen
+    /// beneath (<see cref="BomMasterViewModel.CopyComponentsFrom"/>) and pops back to it. Nothing is saved here.
+    /// </summary>
+    public bool ApplyCopyBom(bool viaAcceptChord = false)
+    {
+        if (CurrentScreen != Screen.CopyBomDetails || CopyBomDetails is not { } copy || BomMaster is not { } master)
+            return false;
+        var source = viaAcceptChord ? copy.AcceptAsIs() : copy.Accept();
+        if (source is null) return false;
+        master.CopyComponentsFrom(source);
+        BackFromPage();
         return true;
     }
 
@@ -9691,6 +9757,7 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         BatchAllocation = null;
         BomMaster = null;
         BomNameList = null;
+        CopyBomDetails = null;
         ManufacturingJournalEntry = null;
         JobWorkOrderEntry = null;
         MaterialMovementEntry = null;
@@ -13181,6 +13248,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void StepActive(int direction)
     {
+        // Census 3.9: on the Copy BoM Details screen the arrows change the active field's value.
+        if (CurrentScreen == Screen.CopyBomDetails && CopyBomDetails is { } copyBom)
+        {
+            copyBom.Move(direction);
+            return;
+        }
+
         // Census 3.9: on the M BOM name list the arrows move the BOM-name highlight Enter opens.
         if (CurrentScreen == Screen.BomNameList && BomNameList is { } bomNames)
         {
@@ -13524,6 +13598,10 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.BomNameList:
                 // Census 3.9: Enter (and Ctrl+A) on the M BOM name list goes on to the components screen.
                 OpenBomFromNameList();
+                return;
+            case Screen.CopyBomDetails:
+                // Census 3.9: Enter walks Stock Item -> Component of BOM and then copies; Ctrl+A copies at once.
+                ApplyCopyBom(viaAcceptChord);
                 return;
             case Screen.BomMaster:
                 // Census 3.9: the item-side "Alter Components (BOM)" route opens this screen over an EXISTING BOM,
@@ -14757,6 +14835,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case SavedViewsViewModel sv:
                 SavedViews = sv;
                 return Screen.SavedViews;
+            // 🔴 Census 3.9 (IV-227 closed). The components screen is now STACKED beside the M BOM name list, and
+            // the Copy BoM Details screen beside the components screen, so each of the three can sit beneath a
+            // column that is popped. Without these arms a pop fell to `default` and landed on the Gateway with the
+            // list still drawn and unbound. The list re-reads the item's BOMs when it becomes active again, so a
+            // BOM just created from it is listed.
+            case BomNameListViewModel bnl:
+                BomNameList = bnl;
+                if (isActiveColumn) bnl.Reload();
+                return Screen.BomNameList;
+            case BomMasterViewModel bm:
+                BomMaster = bm;
+                return Screen.BomMaster;
+            case CopyBomDetailsViewModel cbd:
+                CopyBomDetails = cbd;
+                return Screen.CopyBomDetails;
             default:
                 return Screen.Gateway;
         }

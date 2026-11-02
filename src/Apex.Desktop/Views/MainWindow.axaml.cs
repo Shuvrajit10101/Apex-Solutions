@@ -441,6 +441,22 @@ public partial class MainWindow : Window
             return;
         }
 
+        // Census 3.9 — Ctrl+C (Copy BoM) on the Stock Item Components (BOM) screen. Vendor, verbatim: "In the Stock
+        // Item Components (BOM) screen, press Ctrl+C (Copy BoM)." (help.tallysolutions.com/tally-prime/
+        // inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/, opened BY CONTENT 2026-10-29).
+        // 🔴 MEASURED FREE BEFORE IT WAS TAKEN: every other `Key.C` arm in this handler carries Alt or is an EXACT
+        // bare-C match, and ShellChordTable holds no C chord, so nothing is shadowed. Matched EXACTLY (== Control) so
+        // Ctrl+Alt+C / Ctrl+Shift+C keep falling through. It fires from inside the screen's text boxes too, which
+        // takes the clipboard copy of a typed value on THIS screen only (IV-265); !IsPickerOpen leaves an open
+        // dropdown alone.
+        if (e.Key == Key.C && e.KeyModifiers == KeyModifiers.Control
+            && vm.CurrentScreen == Screen.BomMaster && !IsPickerOpen(e))
+        {
+            vm.OpenCopyBom();
+            e.Handled = true;
+            return;
+        }
+
         // Ctrl+A saves/accepts (accept shortcut) — apply the F12 report config, else create company /
         // accept voucher / create ledger.
         if (e.Key == Key.A && e.KeyModifiers.HasFlag(KeyModifiers.Control))
@@ -555,7 +571,11 @@ public partial class MainWindow : Window
             else if (vm.CurrentScreen == Screen.Form27A)
                 vm.Form27A?.ExportPdf();
             else
+            {
+                var fromCopyBom = vm.CurrentScreen == Screen.CopyBomDetails;
                 vm.ActivateSelected();
+                AfterCopyBomApplied(vm, fromCopyBom);
+            }
             e.Handled = true;
             return;
         }
@@ -2106,9 +2126,13 @@ public partial class MainWindow : Window
             // means "drill" on every other report in the product. Ctrl+A (:537) and the WI-11 "Y" confirmation
             // both keep the default `true`, so the ~40 accept screens are untouched.
             case Key.Enter when !IsPickerOpen(e):
+            {
+                var fromCopyBom = vm.CurrentScreen == Screen.CopyBomDetails;
                 vm.ActivateSelected(viaAcceptChord: false);
+                AfterCopyBomApplied(vm, fromCopyBom);
                 e.Handled = true;
                 break;
+            }
             // Left / Esc removes the rightmost column (focus returns to the previous column). Left is a
             // navigation key only when not editing a text field (there it moves the caret).
             //
@@ -2124,7 +2148,12 @@ public partial class MainWindow : Window
             // column in one press, or ~157 form screens lose a keyboard exit
             // (Left_on_a_CLOSED_picker_still_pops_the_column_in_one_press locks it).
             case Key.Left when !IsTyping(e) && !IsPickerOpen(e):
+                if (vm.CurrentScreen == Screen.CopyBomDetails) FocusNamedAfterPop("BomMasterRoot");
                 vm.Back();
+                // Census 3.9 (IV-227), the same refocus as the Escape arm below: the components screen opens with
+                // focus on its root, which is exactly where Left pops, so without this the M BOM list came back
+                // with no focused element and a typed new BOM name was dropped (review W9-fb F1).
+                if (vm.CurrentScreen == Screen.BomNameList) FocusBomNameListNewName();
                 e.Handled = true;
                 break;
             // The !IsPickerOpen guard is the D2 fix. This arm was completely unguarded, so ONE Escape aimed at
@@ -2138,7 +2167,13 @@ public partial class MainWindow : Window
             // unhandled (measured), so if this arm yielded on mere focus there would be no keyboard way out of a
             // form column on ~157 screens.
             case Key.Escape when !IsPickerOpen(e):
+                // Census 3.9 (review W9-fb F2): Escape on Copy BoM Details removes the focused panel; give the
+                // components screen beneath its keyboard context back rather than leave nothing focused.
+                if (vm.CurrentScreen == Screen.CopyBomDetails) FocusNamedAfterPop("BomMasterRoot");
                 vm.Back();
+                // Census 3.9 (IV-227): Escape from the components screen now lands back on the M BOM list, whose
+                // new-name box is still attached, so its attach-time focus does not run again. Put the caret back.
+                if (vm.CurrentScreen == Screen.BomNameList) FocusBomNameListNewName();
                 e.Handled = true;
                 break;
 
@@ -2542,6 +2577,72 @@ public partial class MainWindow : Window
         Dispatcher.UIThread.Post(() =>
         {
             if (box.IsEffectivelyVisible && box.IsEffectivelyEnabled) box.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Census 3.9 (review W9-fb F2) — after Enter / Ctrl+A on Copy BoM Details has copied the lines and popped back
+    /// to the components screen, the caret goes to the empty <i>Unit of manufacture</i> box, where the vendor's
+    /// screenshot of the result (<c>copy-of-bom-bom-screen-tally.gif</c> on
+    /// help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/) shows
+    /// it. Before this the focused panel was removed and nothing held focus, so the value typed next was lost.
+    /// </summary>
+    private void AfterCopyBomApplied(MainWindowViewModel vm, bool fromCopyBom)
+    {
+        if (fromCopyBom && vm.CurrentScreen == Screen.BomMaster) FocusNamedAfterPop("BomUnitOfManufacture");
+    }
+
+    /// <summary>Census 3.9 — focuses the visible, enabled control named <paramref name="name"/> on the Loaded pass,
+    /// once the popped column has left the visual tree (the reason <see cref="OnBomNameListNewNameAttached"/> gives).
+    /// Only while the components screen is the current screen.</summary>
+    private void FocusNamedAfterPop(string name)
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (DataContext is not MainWindowViewModel { CurrentScreen: Screen.BomMaster }) return;
+            var target = this.GetVisualDescendants().OfType<Control>()
+                .FirstOrDefault(c => c.Name == name && c.IsEffectivelyVisible && c.IsEffectivelyEnabled);
+            target?.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Census 3.9 (IV-227) — returns the caret to the M BOM screen's new-name box after Escape pops back to
+    /// it. Deferred to the Loaded pass for the reason <see cref="OnBomNameListNewNameAttached"/> gives.</summary>
+    private void FocusBomNameListNewName()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            var box = this.GetVisualDescendants().OfType<TextBox>()
+                .FirstOrDefault(t => t.Name == "BomNameListNewName" && t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
+            box?.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Census 3.9 — the Copy BoM Details screen takes focus when it opens, so the caret leaves the text box
+    /// or picker of the components screen beneath and Up / Down / Enter reach the shell's ordinary arms (StepActive
+    /// and ActivateSelected each carry a CopyBomDetails arm) instead of that box or picker.</summary>
+    private void OnCopyBomDetailsAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is not Control panel) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (panel.IsEffectivelyVisible) panel.Focus();
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Census 3.9 (IV-227) — the components screen is now STACKED beside the M BOM list, so the list's new-name box
+    /// stays attached (and focused) while the components screen is up: letters typed there would silently edit a
+    /// name on the screen BEHIND. When the components screen attaches and focus is still in that box, focus moves to
+    /// the components screen instead. Any other focus is left exactly where it is.
+    /// </summary>
+    private void OnBomMasterRootAttached(object? sender, VisualTreeAttachmentEventArgs e)
+    {
+        if (sender is not Control root) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (FocusManager?.GetFocusedElement() is TextBox { Name: "BomNameListNewName" } && root.IsEffectivelyVisible)
+                root.Focus();
         }, DispatcherPriority.Loaded);
     }
 
