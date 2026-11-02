@@ -123,11 +123,17 @@ public sealed class Gstr9Table18InwardHsnReloadTests
         Assert.Empty(r.Table17Hsn);
     }
 
-    /// <summary>🔴 W8 review F1 — an OUTWARD §34 debit note raised against a CONSOLIDATED original reference (the
-    /// voucher-entry panel's "Consolidated…" option, which stores <c>OriginalInvoiceVoucherId = null</c>). It is a
-    /// DebitNote base type, so it reaches the inward sweep, but it is an upward revision of OUR sale and posts
-    /// Output tax. Before the fix, Table 18 filed <c>998311 taxable −2,000.00, tax −360.00</c>. The book has a real
-    /// inward purchase too, so the assertion is "exactly the purchase row", not merely "empty".</summary>
+    /// <summary>🔴 W8 review F1 — an OUTWARD §34 debit note against a CONSOLIDATED original reference
+    /// (<c>OriginalInvoiceVoucherId = null</c>), built as an <b>engine / import-built Output-legged note</b>: its tax
+    /// comes from <c>CreditDebitNoteService.BuildCreditDebitNote</c>, which posts OUTPUT legs. It is a DebitNote base
+    /// type, so it reaches the inward sweep, but it is an upward revision of OUR sale. Before the fix, Table 18 filed
+    /// <c>998311 taxable −2,000.00, tax −360.00</c>. The book has a real inward purchase too, so the assertion is
+    /// "exactly the purchase row", not merely "empty".
+    /// <para>⚠️ <b>Re-worded wave 9 (census T2-163, w8 verifier V1(a)).</b> This summary used to call the fixture "the
+    /// voucher-entry panel's 'Consolidated…' option". It is not: on main 0fbf8e2 that panel posted INPUT legs for the
+    /// same note, so this guard never fired on the shape a user could key. Voucher entry now posts the Output legs
+    /// too; that path is pinned through the real keys on a reloaded book by
+    /// <c>Apex.Desktop.Tests.Section34OutwardDebitNoteTests</c>, not here.</para></summary>
     [Fact]
     public void A_consolidated_outward_debit_note_files_no_inward_row_on_the_reloaded_book()
     {
