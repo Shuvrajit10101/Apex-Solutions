@@ -510,6 +510,29 @@ public sealed class AgeingCriteriaTests : IDisposable
         window.Close();
     }
 
+    /// <summary>Wave 10 verifier: the F2 shape on the F6 picker itself. A second F6 on the picker is refused (no second
+    /// picker is stacked), so the badge is dimmed there too, and lit again once Esc returns to the report.</summary>
+    [AvaloniaFact]
+    public void The_F6_badge_is_dimmed_on_the_ageing_method_picker_where_a_second_F6_is_refused()
+    {
+        var (window, f) = Open("Crit Keys Picker Badge", ReportKind.ReceivablesOutstanding);
+        Assert.True(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+
+        Press(window, PhysicalKey.F6);
+        Assert.Equal(Screen.AgeingMethodPicker, f.Vm.CurrentScreen);
+        var columns = f.Vm.Columns.Count;
+        Assert.False(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+
+        Press(window, PhysicalKey.F6);
+        Assert.Equal(Screen.AgeingMethodPicker, f.Vm.CurrentScreen);
+        Assert.Equal(columns, f.Vm.Columns.Count);
+
+        Press(window, PhysicalKey.Escape);
+        Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
+        Assert.True(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+        window.Close();
+    }
+
     /// <summary>Wave 10 review (F4): the refusal the operator reads on the criteria panel is the realised red
     /// TextBlock, and it says "from day 1", not "from 1 days".</summary>
     [AvaloniaFact]

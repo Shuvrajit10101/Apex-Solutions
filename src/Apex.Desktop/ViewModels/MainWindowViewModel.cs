@@ -15350,9 +15350,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             ButtonBar.Add(new ButtonBarItem("F6", "Monthly", OpenMonthlySummaryForLedgerBook, true));
         // Wave 10 review: OpenAgeingMethodPicker also refuses while the F6 ageing criteria are open (IV-305), so the
         // badge is dimmed there rather than lit over a door that refuses. It still says Ageing Method, not Receipt.
+        // Wave 10 verifier: the same refusal holds on the F6 picker itself (a second F6 does not stack a second
+        // picker), so the badge is dimmed there too. The enable test mirrors OpenAgeingMethodPicker's guards.
         else if (IsReportContext && Reports is { SupportsAgeingMethod: true })
             ButtonBar.Add(new ButtonBarItem("F6", "Ageing Method", OpenAgeingMethodPicker,
-                CurrentScreen != Screen.AgeingCriteria && AgeingCriteria is null));
+                CurrentScreen is not (Screen.AgeingCriteria or Screen.AgeingMethodPicker) && AgeingCriteria is null));
         else
             ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), hasCompany));
