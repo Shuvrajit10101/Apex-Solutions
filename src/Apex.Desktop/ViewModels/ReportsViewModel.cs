@@ -3116,9 +3116,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         IsTwoColumn = false;
 
         AddProfitAndLossSide("Income", "Total Income",
-            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId)), pl.TotalIncome);
+            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId, i.GroupName)), pl.TotalIncome);
         AddProfitAndLossSide("Expenses", "Total Expenses",
-            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId)), pl.TotalExpenses);
+            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId, e.GroupName)), pl.TotalExpenses);
 
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
@@ -3129,18 +3129,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Adds one P&amp;L side (Income/Expenses) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
     private void AddProfitAndLossSide(
         string header, string totalLabel,
-        IEnumerable<(string LedgerName, Money Amount, Guid LedgerId)> lines, Money total)
+        IEnumerable<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> lines, Money total)
     {
         Rows.Add(new ReportRow { Particulars = header, IsHeader = true });
 
-        // P&L lines carry no group key on the projection; the summary roll-up keys on the section header so a
-        // rolled-up side collapses to a single "Income"/"Expenses" total row (still Σ==detailed). A rolled-up
-        // row is NOT a single ledger, so it carries Guid.Empty (not drillable); a detailed row keeps its
-        // ledger id so Enter (RQ-7) drills into that ledger's vouchers.
+        // Census 11.2 (wave 10, track gc, IV-309): the condensed (Alt+F1) view rolls each side up to one row per
+        // PRIMARY group — Sales Accounts, Direct Incomes, Purchase Accounts, Indirect Expenses, ... — the key the
+        // projection now carries (ProfitAndLossLine.GroupName). Vendor: "Press Alt+F1 or Alt+F5 (Detailed/Condensed)
+        // to view the next level of details for all line entries" (help.tallysolutions.com/working-with-reports/).
+        // Before wave 10 the key was the section header, so each side collapsed to ONE row. A line with no group
+        // still falls back to the header. Σ of the group rows == the side total == Σ detailed. A rolled-up row is
+        // NOT a single ledger, so it carries Guid.Empty (not drillable); a detailed row keeps its ledger id so
+        // Enter (RQ-7) drills into that ledger's vouchers.
         var all = lines.ToList();
         IReadOnlyList<(string Name, Money Amount, Guid LedgerId)> shown = _options.Detailed
             ? all.Select(l => (l.LedgerName, l.Amount, l.LedgerId)).ToList()
-            : ReportGrouping.RollUp(all, _ => header, l => l.Amount)
+            : ReportGrouping.RollUp(all, l => string.IsNullOrEmpty(l.GroupName) ? header : l.GroupName, l => l.Amount)
                 .Select(g => (g.Key, g.Amount, Guid.Empty)).ToList();
 
         if (_options.HideZeroBalances)
