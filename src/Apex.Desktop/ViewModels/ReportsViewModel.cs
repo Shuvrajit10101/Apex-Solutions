@@ -769,9 +769,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public static string TypeOfBillsLabel(TypeOfBills type) =>
         type == TypeOfBills.OverdueBills ? "Overdue Bills" : "All Bills";
 
-    /// <summary>F6 — sets the ageing basis and re-projects. A no-op where F6 is not the Ageing Method. Operator
-    /// windows already in force are KEPT when they are valid on the new basis and dropped (back to the basis's own
-    /// windows) when they are not — a due-date set starts at day 1, a bill-date set at day 0 (IV-307).</summary>
+    /// <summary>Sets the ageing basis alone and re-projects; a no-op where F6 is not the Ageing Method. Not on the
+    /// keyboard path: there F6 goes picker, then criteria (<c>MainWindowViewModel.OpenAgeingCriteria</c>), which
+    /// accepts basis and windows together through <see cref="SetAgeingCriteria"/>. Operator windows in force are
+    /// kept only on a same-basis call. A due-date set starts at day 1 and a bill-date set at day 0, so no set is
+    /// valid on both bases and a real basis switch always falls back to the new basis's own windows (IV-307).</summary>
     public void SetAgeingMethod(AgeingMethod method)
     {
         var keep = _ageingPeriods is { } p && Outstandings.TryWindowsFor(method, p, out _) is not null ? p : null;

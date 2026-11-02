@@ -149,10 +149,10 @@ public class AgeingWindowsTests
     }
 
     [Theory]
-    [InlineData("due", "0-15,16-", "Period 1 must start from 1 days")]
-    [InlineData("bill", "1-15,16-", "Period 1 must start from 0 days")]
-    [InlineData("due", "1-15,17-", "Period 2 must start from 16 days")]
-    [InlineData("due", "1-15,10-30", "Period 2 must start from 16 days")]
+    [InlineData("due", "0-15,16-", "Period 1 must start from day 1 (bills not yet overdue are shown as Not due).")]
+    [InlineData("bill", "1-15,16-", "Period 1 must start from day 0.")]
+    [InlineData("due", "1-15,17-", "Period 2 must start from day 16, the day after period 1 ends.")]
+    [InlineData("due", "1-15,10-30", "Period 2 must start from day 16, the day after period 1 ends.")]
     [InlineData("due", "1-,31-60", "Only the last period may be left open")]
     [InlineData("bill", "0-10,11-5", "Period 2: To (5) is below From (11)")]
     [InlineData("bill", "0-40000", "may not exceed 36500")]

@@ -241,7 +241,7 @@ public sealed class AgeingCriteriaTests : IDisposable
         var before = SecondBand(r);
 
         var error = r.SetAgeingCriteria(AgeingMethod.ByBillDate, new AgeingPeriod[] { new(0, 10), new(12, null) });
-        Assert.Contains("Period 2 must start from 11 days", error, StringComparison.Ordinal);
+        Assert.Equal("Period 2 must start from day 11, the day after period 1 ends.", error);
         Assert.Equal(AgeingMethod.ByDueDate, r.AgeingMethod);
         Assert.Equal(before, SecondBand(r));
     }
@@ -423,7 +423,7 @@ public sealed class AgeingCriteriaTests : IDisposable
         Press(window, PhysicalKey.Enter);
 
         Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
-        Assert.Contains("Period 2 must start from 31 days", f.Vm.AgeingCriteria!.Status, StringComparison.Ordinal);
+        Assert.Equal("Period 2 must start from day 31, the day after period 1 ends.", f.Vm.AgeingCriteria!.Status);
         Assert.Equal(AgeingMethod.ByDueDate, f.Vm.Reports!.AgeingMethod);
 
         Press(window, PhysicalKey.Escape);
@@ -507,6 +507,89 @@ public sealed class AgeingCriteriaTests : IDisposable
         Press(window, PhysicalKey.Escape);
         Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
         Assert.True(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+        window.Close();
+    }
+
+    /// <summary>Wave 10 review (F4): the refusal the operator reads on the criteria panel is the realised red
+    /// TextBlock, and it says "from day 1", not "from 1 days".</summary>
+    [AvaloniaFact]
+    public void The_drawn_refusal_for_a_due_date_period_1_from_0_reads_from_day_1()
+    {
+        var (window, f) = Open("Crit Keys Wording", ReportKind.ReceivablesOutstanding);
+
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.Enter);    // Ageing by Due Date
+        Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
+        Assert.Equal("1", Focused(window).Text);
+        Retype(window, "0");
+        Press(window, PhysicalKey.Enter);
+
+        Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
+        var drawn = window.GetVisualDescendants().OfType<TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && (t.Text ?? string.Empty).StartsWith("Period 1 must", StringComparison.Ordinal))
+            .Select(t => t.Text)
+            .ToList();
+        Assert.Equal(
+            new[] { "Period 1 must start from day 1 (bills not yet overdue are shown as Not due)." },
+            drawn);
+        Press(window, PhysicalKey.Escape);
+        window.Close();
+    }
+
+    /// <summary>
+    /// IV-307 as shipped (wave 10 review, F4): a due-date set starts at day 1 and a bill-date set at day 0, so no
+    /// operator set is valid on both bases. Switching basis on F6 therefore seeds the criteria with the NEW basis's
+    /// own periods; the windows in force stay on the report until the criteria are accepted, and Esc keeps them.
+    /// </summary>
+    [AvaloniaFact]
+    public void A_basis_switch_on_F6_seeds_the_new_basis_defaults_and_keeps_the_report_until_accepted()
+    {
+        var (window, f) = Open("Crit Keys Switch", ReportKind.ReceivablesOutstanding);
+
+        // Custom due-date windows in force: 1-15, 16-60, 61-90, 91+.
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.Enter);
+        Press(window, PhysicalKey.Tab);
+        Retype(window, "15");
+        Press(window, PhysicalKey.Tab);
+        Retype(window, "16");
+        Press(window, PhysicalKey.Enter);
+        Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
+        var custom = SecondBand(f.Vm.Reports!);
+        Assert.Equal("1-15 days=999.99", custom[1]);
+
+        // F6, then Ageing by Bill Date: the criteria open on the bill-date defaults, not the due-date windows.
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.ArrowDown);
+        Press(window, PhysicalKey.Enter);
+        var crit = f.Vm.AgeingCriteria!;
+        Assert.Equal(AgeingMethod.ByBillDate, crit.Method);
+        Assert.Equal(new[] { "0-30", "31-60", "61-90", "91-" }, crit.Rows.Take(4).Select(r => r.From + "-" + r.To).ToArray());
+        Assert.Equal("0", Focused(window).Text);
+        // Nothing re-projected yet; Esc leaves the custom due-date windows exactly as they were.
+        Assert.Equal(custom, SecondBand(f.Vm.Reports!));
+        Press(window, PhysicalKey.Escape);
+        Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
+        Assert.Equal(AgeingMethod.ByDueDate, f.Vm.Reports!.AgeingMethod);
+        Assert.NotNull(f.Vm.Reports!.AgeingPeriods);
+        Assert.Equal(custom, SecondBand(f.Vm.Reports!));
+
+        // Accept the switch, then switch back: the due-date criteria reseed with the due-date DEFAULTS, so the old
+        // custom due-date windows did not survive the round trip.
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.ArrowDown);
+        Press(window, PhysicalKey.Enter);
+        Press(window, PhysicalKey.Enter);
+        Assert.Equal(AgeingMethod.ByBillDate, f.Vm.Reports!.AgeingMethod);
+        Assert.Null(f.Vm.Reports!.AgeingPeriods);
+
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.ArrowUp);
+        Press(window, PhysicalKey.Enter);
+        Assert.Equal(AgeingMethod.ByDueDate, f.Vm.AgeingCriteria!.Method);
+        Assert.Equal(new[] { "1-30", "31-60", "61-90", "91-" },
+            f.Vm.AgeingCriteria!.Rows.Take(4).Select(r => r.From + "-" + r.To).ToArray());
+        Press(window, PhysicalKey.Escape);
         window.Close();
     }
 

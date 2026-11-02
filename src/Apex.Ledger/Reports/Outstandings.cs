@@ -285,10 +285,11 @@ public static class Outstandings
             var n = (i + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
             if (p.From != expectedFrom)
             {
+                // "from day N", never "from N days": the old form read "start from 1 days" (wave 10 review, F4).
                 error = i == 0
-                    ? $"Period 1 must start from {first.ToString(System.Globalization.CultureInfo.InvariantCulture)} days"
+                    ? $"Period 1 must start from day {first.ToString(System.Globalization.CultureInfo.InvariantCulture)}"
                       + (method == AgeingMethod.ByDueDate ? " (bills not yet overdue are shown as Not due)." : ".")
-                    : $"Period {n} must start from {expectedFrom.ToString(System.Globalization.CultureInfo.InvariantCulture)} days, the day after period {i.ToString(System.Globalization.CultureInfo.InvariantCulture)} ends.";
+                    : $"Period {n} must start from day {expectedFrom.ToString(System.Globalization.CultureInfo.InvariantCulture)}, the day after period {i.ToString(System.Globalization.CultureInfo.InvariantCulture)} ends.";
                 return null;
             }
             if (p.To is null)
