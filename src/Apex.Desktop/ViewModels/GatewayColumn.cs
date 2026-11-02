@@ -211,6 +211,9 @@ public sealed partial class GatewayColumn : ViewModelBase
     /// <summary>The hosted Stock Item Multi Components (M BOM) name list (non-null only for that column; census 3.9).</summary>
     public BomNameListViewModel? BomNameList => Page as BomNameListViewModel;
 
+    /// <summary>The hosted Copy BoM Details sub-screen (non-null only for that column; census 3.9, Ctrl+C).</summary>
+    public CopyBomDetailsViewModel? CopyBomDetails => Page as CopyBomDetailsViewModel;
+
     /// <summary>The hosted Manufacturing-Journal voucher-entry screen (non-null only for that column; Phase 6 Cluster 2; RQ-11).</summary>
     public ManufacturingJournalEntryViewModel? ManufacturingJournalEntry => Page as ManufacturingJournalEntryViewModel;
 

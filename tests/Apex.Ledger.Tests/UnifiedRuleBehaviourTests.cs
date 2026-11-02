@@ -237,16 +237,16 @@ public sealed class UnifiedRuleBehaviourTests
         var withBoth = NewItem();
         withBoth.HsnSacCode = "1111";
         withBoth.Gst = new StockItemGstDetails { HsnSac = "84713010" };
-        Assert.Equal("84713010", GstReportSupport.HsnSacOf(withBoth));
+        Assert.Equal("84713010", GstReportSupport.ItemRungHsnSacOf(withBoth));
 
         var legacyOnly = NewItem();
         legacyOnly.HsnSacCode = "1111";
-        Assert.Equal("1111", GstReportSupport.HsnSacOf(legacyOnly));
+        Assert.Equal("1111", GstReportSupport.ItemRungHsnSacOf(legacyOnly));
 
         var neither = NewItem();
-        Assert.Null(GstReportSupport.HsnSacOf(neither));
+        Assert.Null(GstReportSupport.ItemRungHsnSacOf(neither));
 
-        Assert.Null(GstReportSupport.HsnSacOf(null));
+        Assert.Null(GstReportSupport.ItemRungHsnSacOf(null));
     }
 
     // The sentinels stay DIFFERENT on purpose — the return labels its unclassified bucket for a human, the NIC

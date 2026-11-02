@@ -258,6 +258,62 @@ public sealed partial class BomMasterViewModel : ViewModelBase, IMasterListExpor
         return vm;
     }
 
+    /// <summary>The BOM this screen alters, or <see cref="Guid.Empty"/> on a creation screen. Census 3.9: the Copy
+    /// BoM Details screen leaves it out of its sources, so a BOM is never offered as a copy of itself.</summary>
+    public Guid EditingBomId => _editingId;
+
+    /// <summary>
+    /// Census 3.9 — <b>Ctrl+C (Copy BoM)</b>: replaces this screen's component lines with the lines of
+    /// <paramref name="source"/>, each with its item, godown, type, per-block quantity and carve-out rate or percent,
+    /// and BLANKS the unit of manufacture. Nothing is saved: Ctrl+A then runs Create or Alter as for any edit, so on
+    /// an alteration the BOM keeps its id.
+    ///
+    /// <para><b>FIDELITY (R7, ruling 14).</b> help.tallysolutions.com/tally-prime/inventory-in-manufacturing/manage-inventory-in-manufacturing-tally/,
+    /// opened BY CONTENT 2026-10-29: <i>"The components of Standard BoM will get copied to Customer B BoM."</i> and
+    /// <i>"Copy BOM option copies only the components of one BOM to another. Users have to define the Unit of
+    /// Manufacture and Quantity of inputs (components)."</i> The page's screenshot of the result
+    /// (<c>copy-of-bom-bom-screen-tally.gif</c>) shows every copied line with its Godown, Type of Item and Quantity
+    /// filled in and the <i>Unit of manufacture</i> field EMPTY with the cursor on it — so the quantities come
+    /// across (the operator may then change them) and the unit of manufacture does not.</para>
+    ///
+    /// <para><b>OURS (IV-267).</b> On an alteration that already has lines, the copy REPLACES them; the page's worked
+    /// example copies only into a new, empty BOM.</para>
+    /// </summary>
+    public void CopyComponentsFrom(BillOfMaterials source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (source.CarveOutLines.Any() && !ShowLineTypePicker)
+        {
+            // The same rule ForAlter follows (wave-7 reviewer F2): with the F12 type switch off the type list holds
+            // only "Component", so a copied Scrap line would land on it and lose its type and rate.
+            _altersSavedCarveOuts = true;
+            BuildPickerOptions();
+            OnPropertyChanged(nameof(ShowLineTypePicker));
+        }
+
+        Lines.Clear();
+        foreach (var line in source.Lines)
+        {
+            var row = AddBlankLine();
+            row.SelectedItem = row.ItemOptions.FirstOrDefault(i => i.Id == line.ComponentStockItemId);
+            row.SelectedGodown = row.GodownOptions.FirstOrDefault(g => g.Godown?.Id == line.GodownId)
+                ?? row.GodownOptions.FirstOrDefault();
+            row.SelectedType = row.TypeOptions.FirstOrDefault(t => t.Type == line.LineType)
+                ?? row.TypeOptions.FirstOrDefault();
+            row.QuantityText = line.QuantityPerBlock.ToString("0.######", CultureInfo.InvariantCulture);
+            row.CarveOutRateText = line.Rate is { } r ? r.Amount.ToString("0.00", CultureInfo.InvariantCulture) : string.Empty;
+            row.CarveOutPercentText = line.PercentOfFinishedGoodCost is { } p
+                ? p.ToString("0.######", CultureInfo.InvariantCulture)
+                : string.Empty;
+        }
+        EnsureTrailingBlank();
+        UnitOfManufactureText = string.Empty;
+
+        var from = _company.FindStockItem(source.StockItemId)?.Name;
+        Message = $"Copied {source.Lines.Count} line(s) from BOM '{source.Name}' of {from}. " +
+                  "Enter the Unit of manufacture, then press Ctrl+A to save.";
+    }
+
     /// <inheritdoc/>
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
 

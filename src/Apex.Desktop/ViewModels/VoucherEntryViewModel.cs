@@ -2844,8 +2844,19 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
               + $"this note is within the limit.";
     }
 
-    partial void OnIsSection34NoteChanged(bool value) => UpdateSection34Panel();
-    partial void OnSelectedCdnOriginalInvoiceChanged(CdnOriginalInvoiceOption? value) => UpdateSection34Panel();
+    // T2-163: both of these can move a debit note between the Input and the Output head, so the item-invoice
+    // preview (the derived-legs line) is recomputed too; Accept re-derives the tax regardless.
+    partial void OnIsSection34NoteChanged(bool value)
+    {
+        UpdateSection34Panel();
+        if (IsItemInvoice) RecalculateItemInvoice();
+    }
+
+    partial void OnSelectedCdnOriginalInvoiceChanged(CdnOriginalInvoiceOption? value)
+    {
+        UpdateSection34Panel();
+        if (IsItemInvoice) RecalculateItemInvoice();
+    }
     partial void OnCdnOriginalInvoiceNumberChanged(string value) => UpdateSection34Panel();
     partial void OnCdnOriginalInvoiceDateTextChanged(string value) => UpdateSection34Panel();
 
@@ -6180,8 +6191,39 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <c>GstService.ComputeInvoiceTax</c>). Flipping the direction on a note would post a sales return against
     /// Input CGST — claiming ITC on a sale, in a filed return.</para>
     /// </summary>
+    ///
+    /// <para>🔴 <b>T2-163 (wave 9) — THE ONE EXCEPTION: A §34 DEBIT NOTE TO A CUSTOMER.</b> A Debit Note is a
+    /// purchase-side base type, so the rule above posted every debit note against INPUT tax. That is right for a
+    /// purchase return and wrong for a §34(3) debit note WE issue to OUR customer (an upward revision of our own
+    /// sale): it increases our OUTPUT liability. Measured through the real keys (Alt+F5, Ctrl+H, the customer, §34
+    /// on, "Consolidated…"): <c>Input CGST Cr 54 / Input SGST Cr 54</c>, and GSTR-9 Table 18 filed a NEGATIVE inward
+    /// row. Such a note now takes the head and the side <see cref="CreditDebitNoteService.BuildCreditDebitNote"/>
+    /// gives a <see cref="CdnType.Debit"/> note — Output, on the Credit (increasing) side — see
+    /// <see cref="IsOutwardSection34DebitNote"/> and <see cref="ReverseTaxSides"/>.</para>
     private GstTaxDirection GstDirection =>
-        IsPurchaseSideInvoice ? GstTaxDirection.Input : GstTaxDirection.Output;
+        IsPurchaseSideInvoice && !IsOutwardSection34DebitNote ? GstTaxDirection.Input : GstTaxDirection.Output;
+
+    /// <summary>
+    /// 🔴 <b>T2-163 — whether this voucher is a §34 debit note to a CUSTOMER.</b> True when the §34 details are on,
+    /// the note is a debit note, and the counterparty is on the sales side: the original invoice it adjusts is a
+    /// SALES voucher, or — with no linked original ("Consolidated / unregistered") — the party ledger sits under
+    /// Sundry Debtors. A §34 debit note against a PURCHASE original, or to a supplier, is a purchase return and keeps
+    /// its Input head. The counterparty test is OURS (IV-278): the §34 link records no direction of its own.
+    /// </summary>
+    private bool IsOutwardSection34DebitNote =>
+        ShowSection34Details
+        && Section34Type == CdnType.Debit
+        && (SelectedCdnOriginalInvoice?.Invoice is { } original
+            ? _company.FindVoucherType(original.TypeId)?.BaseType == VoucherBaseType.Sales
+            : SelectedParty?.Ledger is { } party
+              && ClassificationRules.GroupIsUnder(party.GroupId, "Sundry Debtors", _company));
+
+    /// <summary>
+    /// Whether the tax legs post on the side OPPOSITE the head's ordinary one (census 4.7/4.8). True on a return
+    /// note — EXCEPT a §34 debit note to a customer (T2-163), which raises our Output tax exactly as a sale does, so
+    /// its Output legs sit on the Credit side like <see cref="CreditDebitNoteService"/>'s.
+    /// </summary>
+    private bool ReverseTaxSides => IsReturnNote && !IsOutwardSection34DebitNote;
 
     /// <summary>The outcome of computing GST over the current complete item lines (for both display and posting).</summary>
     private readonly record struct ItemInvoiceGst(
@@ -6235,7 +6277,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         // Census 4.7/4.8: `reverseSides` on a return note puts every tax leg on the opposite side while keeping the
         // Output/Input head — a credit note DEBITS Output CGST. False on an invoice ⇒ byte-identical (ER-13).
-        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection, reverseSides: IsReturnNote);
+        var tax = _gst.ComputeInvoiceTax(taxable, interState, GstDirection, reverseSides: ReverseTaxSides);
         return new ItemInvoiceGst(tax, interState, UnresolvedItem: null);
     }
 
@@ -6285,7 +6327,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
 
         // Census 4.7/4.8 — the ALTERATION projection must mirror the entry path exactly, or re-saving a posted
         // credit note would move every tax leg to the other side. Same one flag, same one reason.
-        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection, reverseSides: IsReturnNote);
+        return _gst.ComputeInvoiceTax(taxable, interState, GstDirection, reverseSides: ReverseTaxSides);
     }
 
     // =============================================================== batch allocation → posted lines (G-5)
@@ -7173,7 +7215,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         var valueIsDebit = ItemInvoiceValueSide == DrCr.Debit;
         var side = valueIsDebit ? "Dr" : "Cr";
         // The tax HEAD does not reverse with the note — see GstDirection.
-        var head = IsPurchaseSideInvoice ? "Input" : "Output";
+        var head = GstDirection == GstTaxDirection.Input ? "Input" : "Output";   // T2-163: one rule, not two
 
         var extraLegs = new List<string>();
         // Additional-cost legs (Purchase invoice only) — each posts a Dr to its Direct-Expenses ledger (RQ-19).
