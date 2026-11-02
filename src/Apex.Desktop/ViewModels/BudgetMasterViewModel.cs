@@ -52,6 +52,29 @@ public sealed class BudgetTargetOption
     public bool IsCostCentre => CostCentreId is not null;
 }
 
+/// <summary>
+/// W10 gb (census 2.9) — one entry in the budget's <b>Under</b> picker: <b>Primary</b> (a top-level budget,
+/// <see cref="GroupId"/> = <c>null</c>) or a group. <b>R7:</b> <c>help.tallysolutions.com/budgets-tally/</c>,
+/// opened by content 2026-11-02, step 3 of both "Create Budget for Ledgers" and "Create Budget for Cost Centres":
+/// <i>"Under: Select Primary or any other predefined groups, based on your requirement."</i>
+/// <para><see cref="Name"/> is what the app-wide type-to-jump (<c>PickerTextSearch</c>) searches, so typing
+/// "Ind" on the focused picker lands on "Indirect Expenses".</para>
+/// </summary>
+public sealed class BudgetUnderOption
+{
+    /// <summary>The label every picker search and paint uses: "Primary" or the group's name.</summary>
+    public const string PrimaryLabel = "Primary";
+
+    /// <summary>The group the budget is filed under; <c>null</c> for Primary.</summary>
+    public Guid? GroupId { get; init; }
+
+    /// <summary>"Primary" or the group name — searched by the picker's type-to-jump.</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
+    public override string ToString() => Name;
+}
+
 /// <summary>One pending budget line shown in the "Budget Lines" grid before the budget is created.</summary>
 public sealed class PendingBudgetLineRow
 {
@@ -103,11 +126,15 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     // The vendor's own route is "Gateway of Tally > Alter > Budgets"; OURS is arrows + Ctrl+Enter on the
     // existing-list, this product's established shape, and it is labelled ours here rather than passed off.
     //
-    // 🔴 WHAT IS STILL NOT CLOSED, SAID HERE SO NOBODY READS THIS AS COMPLETING ROW 2.9. The same vendor
-    // sentence quoted above names COST CENTRES as a budget target, and `budget_lines` has group_id and
-    // ledger_id and no cost_centre_id, so that target needs a SCHEMA MIGRATION. v66 ownership is an open user
-    // decision (T2-125) and this track did not take it. Removing a line from the pending grid is also still
-    // absent. 2.9 stays PARTIAL.
+    // ~~🔴 WHAT IS STILL NOT CLOSED … COST CENTRES … needs a SCHEMA MIGRATION … 2.9 stays PARTIAL.~~
+    // 🔴 STALE, STRUCK W10 gb (2026-11-02): the cost-centre target shipped in v67 (BudgetLine.ForCostCentre,
+    // budget_lines.cost_centre_id; see BuildTargets/AddLine), and the Under picker shipped in W10 gb
+    // (UnderOptions/SelectedUnder). ⚠️ CITATION DRIFT: the vendor page was re-published 2026-10-15 at
+    // help.tallysolutions.com/budgets-tally/ (the old /tally-prime/budgets-and-scenario/ URL now redirects there),
+    // and the "Alter a Budget" sentences quoted above are NO LONGER on it. What the live page says, read by
+    // content 2026-11-02: "You can alter the Budgets whenever your business requirements change, and delete them
+    // when they are no longer needed." Removing a line from the pending grid is still absent (ours; not a
+    // vendor clause the census names).
 
     /// <summary>The id of the budget being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
     private Guid _editingId = Guid.Empty;
@@ -152,6 +179,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     {
         ArgumentNullException.ThrowIfNull(budget);
         Name = budget.Name;
+        SelectedUnder = UnderOptionFor(budget.UnderId);
         PeriodFromText = budget.PeriodFrom.ToString(DateFormat, CultureInfo.InvariantCulture);
         PeriodToText = budget.PeriodTo.ToString(DateFormat, CultureInfo.InvariantCulture);
 
@@ -226,8 +254,10 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         var beforeFrom = budget.PeriodFrom;
         var beforeTo = budget.PeriodTo;
         var beforeLines = budget.Lines.ToList();
+        var beforeUnder = budget.UnderId;
 
         budget.Name = name;
+        budget.UnderId = SelectedUnder?.GroupId;   // W10 gb (census 2.9): the Under picker; Primary = null
         budget.PeriodFrom = from;
         budget.PeriodTo = to;
         budget.ReplaceLines(PendingLines.Select(r => r.Line));
@@ -237,6 +267,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         }
         catch (Exception ex)
         {
+            budget.UnderId = beforeUnder;
             budget.Name = beforeName;
             budget.PeriodFrom = beforeFrom;
             budget.PeriodTo = beforeTo;
@@ -309,6 +340,19 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     /// <summary>The existing budgets, refreshed after each create.</summary>
     public ObservableCollection<BudgetListRow> Existing { get; } = new();
 
+    /// <summary>
+    /// W10 gb (census 2.9) — the <b>Under</b> picker: <b>Primary</b> first, then every group name-sorted. Before
+    /// this, <c>Budget.UnderId</c> was stored, round-tripped and guarded on group delete
+    /// (<c>MasterDeletionRules.EnsureGroupDeletable</c>), yet no screen could set it, so every budget an operator
+    /// created was Primary. 🔴 <b>OURS:</b> every group is offered, not only the predefined ones — the vendor's
+    /// step continues <i>"Press Alt+C to create a new group, if needed"</i>, so an operator-created group is a
+    /// valid parent; the Alt+C create-on-the-fly itself is not built here.
+    /// </summary>
+    public ObservableCollection<BudgetUnderOption> UnderOptions { get; } = new();
+
+    /// <summary>The chosen Under option; defaults to Primary. A null selection is saved as Primary.</summary>
+    [ObservableProperty] private BudgetUnderOption? _selectedUnder;
+
     // ---- budget header ----
     [ObservableProperty] private string _name = string.Empty;
     [ObservableProperty] private string _periodFromText;
@@ -332,9 +376,34 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         _periodFromText = fyStart.ToString(DateFormat, CultureInfo.InvariantCulture);
         _periodToText = fyStart.AddYears(1).AddDays(-1).ToString(DateFormat, CultureInfo.InvariantCulture);
 
+        BuildUnderOptions();
+        SelectedUnder = UnderOptions[0];
         BuildTargets();
         SelectedTarget = Targets.FirstOrDefault();
         RefreshList();
+    }
+
+    /// <summary>W10 gb (census 2.9): Primary, then every group by name.</summary>
+    private void BuildUnderOptions()
+    {
+        UnderOptions.Clear();
+        UnderOptions.Add(new BudgetUnderOption { GroupId = null, Name = BudgetUnderOption.PrimaryLabel });
+        foreach (var g in _company.Groups.OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase))
+            UnderOptions.Add(new BudgetUnderOption { GroupId = g.Id, Name = g.Name });
+    }
+
+    /// <summary>
+    /// The option for a stored <c>UnderId</c>. 🔴 An id that resolves to no group (an imported book whose parent
+    /// is gone) gets its OWN option carrying that id rather than collapsing to Primary — otherwise an Alter that
+    /// touched only the name would silently re-file the budget at the top level.
+    /// </summary>
+    private BudgetUnderOption UnderOptionFor(Guid? underId)
+    {
+        var match = UnderOptions.FirstOrDefault(o => o.GroupId == underId);
+        if (match is not null) return match;
+        var orphan = new BudgetUnderOption { GroupId = underId, Name = "(unknown group)" };
+        UnderOptions.Add(orphan);
+        return orphan;
     }
 
     /// <summary>Fills the target picker: every group (rolls up its ledgers), then every ledger.</summary>
@@ -494,6 +563,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
 
         var budget = new Budget(
             Guid.NewGuid(), name, from, to,
+            underId: SelectedUnder?.GroupId,   // W10 gb (census 2.9): Primary = null
             lines: PendingLines.Select(r => r.Line).ToList());
 
         // W0-13 A1 — this file previously held NO catch block at all, so ANY failure of the two lines below was an
@@ -518,6 +588,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         RefreshList();
         Message = $"Budget '{name}' created with {budget.Lines.Count} line(s).";
         Name = string.Empty;
+        SelectedUnder = UnderOptions[0];
         PendingLines.Clear();
         _onChanged();
         return true;
