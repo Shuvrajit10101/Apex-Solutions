@@ -813,6 +813,9 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // LoadFrom(null) is the correct reading of a company that declares no default: the block is OFF and every
         // field is blanked, never a previous company's values left on screen after a company switch.
         CompanyGst.LoadFrom(cfg?.DefaultGst);
+        // Census 6.4 (iii): the two source orders. Same re-entry reason as the company rung above — a picker that
+        // re-opened on the default would silently flip a book back to ledger-first on its next Apply.
+        LoadSourceOrders(cfg);
         LoadTdsTcsFromCompany();
         RefreshTaxLedgers();
     }
@@ -2197,6 +2200,10 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // empty block the resolver would stop at with nothing to say. It is also what every pre-v51 book reads as,
         // so a company that never touches this block stays byte-identical (ER-13).
         config.DefaultGst = companyDefaultGst;
+        // Census 6.4 (iii): the two source orders. Written with the other in-place fields, so the capture above and
+        // RestoreGstFields put them back on a failed save (a wrong order re-rates and re-classifies every new line).
+        config.SourceOfGstRate = (SelectedSourceOfGstRate ?? SourceOptions[0]).Value;
+        config.SourceOfHsnSacDetails = (SelectedSourceOfHsnSac ?? SourceOptions[0]).Value;
 
         try
         {
@@ -2547,11 +2554,11 @@ public sealed partial class GstConfigViewModel : ViewModelBase
     private readonly record struct GstFields(
         bool Enabled, string? Gstin, string? HomeStateCode, GstRegistrationType Registration,
         GstReturnPeriodicity Periodicity, CompositionSubType? SubType, DateOnly? OptInDate,
-        MasterGstDetails? DefaultGst);
+        MasterGstDetails? DefaultGst, GstDetailSource RateSource, GstDetailSource HsnSource);
 
     private static GstFields CaptureGstFields(GstConfig c) => new(
         c.Enabled, c.Gstin, c.HomeStateCode, c.RegistrationType, c.Periodicity,
-        c.CompositionSubType, c.CompositionOptInDate, c.DefaultGst);
+        c.CompositionSubType, c.CompositionOptInDate, c.DefaultGst, c.SourceOfGstRate, c.SourceOfHsnSacDetails);
 
     private static void RestoreGstFields(GstConfig c, GstFields f)
     {
@@ -2569,6 +2576,10 @@ public sealed partial class GstConfigViewModel : ViewModelBase
         // built MasterGstDetails to config.DefaultGst (TryBuild constructs a new one every call) and never mutates
         // the existing instance in place, so the old object cannot have been touched.
         c.DefaultGst = f.DefaultGst;
+        // Census 6.4 (iii): the two source orders are wrong-FIGURES fields as well — one picks the rate every new
+        // line resolves, the other the HSN every document files.
+        c.SourceOfGstRate = f.RateSource;
+        c.SourceOfHsnSacDetails = f.HsnSource;
     }
 
     /// <summary>
@@ -2912,4 +2923,46 @@ public sealed partial class GstConfigViewModel : ViewModelBase
                 Under = _company.FindGroup(l.GroupId)?.Name ?? "—",
             });
     }
+
+    // =========================================================== census 6.4 (iii): the two source orders
+
+    /// <summary>
+    /// The two published walk orders, offered for both pickers. <b>VENDOR (R7, opened by content 2026-10-29,
+    /// help.tallysolutions.com "HSN/SAC &amp; GST Rate Hierarchy in TallyPrime"):</b> "The Ledger hierarchy is the
+    /// default option. You can change it from: F11 (Company Features) &gt; Set/Alter Company GST Rate and other
+    /// details &gt; Additional Configurations, select the source of GST Rate &amp; HSN/SAC", and the worked example
+    /// sets "Source of GST Rates in transactions as Stock Item". So the two values are <c>Ledger</c> (first, the
+    /// default) and <c>Stock Item</c>. Offering the order as TWO pickers rather than one is ours (IV-252).
+    /// </summary>
+    public IReadOnlyList<GstDetailSourceOption> SourceOptions { get; } = new[]
+    {
+        new GstDetailSourceOption { Value = GstDetailSource.LedgerFirst, Display = "Ledger" },
+        new GstDetailSourceOption { Value = GstDetailSource.StockItemFirst, Display = "Stock Item" },
+    };
+
+    /// <summary>"Source of GST Rates in transactions" — backs <see cref="GstConfig.SourceOfGstRate"/>, which
+    /// <c>GstService.ResolveRate</c> walks. Until wave 9 no screen could write it; only the canonical importer and
+    /// the v51 back-fill did.</summary>
+    [ObservableProperty] private GstDetailSourceOption? _selectedSourceOfGstRate;
+
+    /// <summary>"Source of HSN/SAC details in transactions" — backs <see cref="GstConfig.SourceOfHsnSacDetails"/>,
+    /// which <c>GstService.ResolveDocumentHsnSac</c> walks for every document's HSN (GSTR-1 Table 12, GSTR-9 Tables
+    /// 17/18, the printed invoice, INV-01, EWB-01).</summary>
+    [ObservableProperty] private GstDetailSourceOption? _selectedSourceOfHsnSac;
+
+    /// <summary>Seeds both pickers from the stored config; a company with no GST config reads the shipped default
+    /// (<see cref="GstDetailSource.LedgerFirst"/>, the same constant <see cref="GstConfig"/> initialises to).</summary>
+    private void LoadSourceOrders(GstConfig? cfg)
+    {
+        SelectedSourceOfGstRate = SourceOptions.First(o => o.Value == (cfg?.SourceOfGstRate ?? GstDetailSource.LedgerFirst));
+        SelectedSourceOfHsnSac = SourceOptions.First(o => o.Value == (cfg?.SourceOfHsnSacDetails ?? GstDetailSource.LedgerFirst));
+    }
+}
+
+/// <summary>Census 6.4 (iii): a "source of GST rate / HSN-SAC details" picker option — which end of the five-rung
+/// hierarchy a lookup starts from (label + the enum value).</summary>
+public sealed class GstDetailSourceOption
+{
+    public GstDetailSource Value { get; init; }
+    public string Display { get; init; } = string.Empty;
 }

@@ -196,6 +196,9 @@ public sealed record Gstr1Amendments(
             // 🔴 T2-123: the §34 note is this registration's amendment only if this registration issued it — a note
             // issued under the Tamil Nadu GSTIN must not appear in, or move the 3B correction of, the Karnataka return.
             if (scope is { } s && GstReportSupport.RegistrationOf(v) != s) continue;
+            // 🔴 T2-162 (wave 9 review, fa): the same skip Gstr1.BuildTable9B makes. A note linked to a PURCHASE is the
+            // supplier's document, not one of our outward notes, so it is no more an amended CDN (CDNRA) than a CDN.
+            if (GstReportSupport.IsInwardLinkedCreditDebitNote(company, v)) continue;
 
             var heads = ReadForwardHeads(v);
             var taxable = GstReportSupport.InvoiceTaxableValue(v).Amount;
