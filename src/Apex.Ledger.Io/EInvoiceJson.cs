@@ -430,7 +430,7 @@ public static class EInvoiceJson
                             isService: legs[i].Ledger.SalesPurchaseGst?.SupplyType == GstSupplyType.Services,
                             // The SAME resolver GSTR-1's Table-12 row uses; a ledger with no declared code still
                             // emits "" (unchanged) rather than a fabricated one.
-                            hsnCd: Gstr1.ServiceSacOf(legs[i].Ledger) ?? "",
+                            hsnCd: Gstr1.ServiceSacOf(company, legs[i].Ledger) ?? "",
                             // A ledger leg carries VALUE, never a quantity — so the optional pair is omitted rather
                             // than declared 0 (which would make the gross-amount identity computable and false).
                             qty: null, unit: null,
@@ -480,7 +480,7 @@ public static class EInvoiceJson
                     // The leg's OWN declared nature and OWN SAC — the same two reads the taxable branch above makes,
                     // so a code and a flag cannot disagree between a taxed and an exempt line of one invoice.
                     isService: ledger.SalesPurchaseGst?.SupplyType == GstSupplyType.Services,
-                    hsnCd: Gstr1.ServiceSacOf(ledger) ?? "",
+                    hsnCd: Gstr1.ServiceSacOf(company, ledger) ?? "",
                     qty: null, unit: null,
                     unitPricePaisa: paisa, taxablePaisa: paisa, rateBasisPoints: 0,
                     cgstPaisa: 0, sgstPaisa: 0, igstPaisa: 0,
@@ -687,10 +687,13 @@ public static class EInvoiceJson
                     "reduction as a credit note against the invoice instead.");
 
             // T1-81 — the ledger declares a GST block, so the HSN/SAC is a field that can be filled.
-            var sac = Gstr1.ServiceSacOf(ledger);
+            // Census 6.4 / IV-254 (wave 10): the code is the HIERARCHY's answer (ledger, then its group, then the
+            // company), so this refuses only when NO rung declares one — a ledger under a group declaring 998311
+            // registers with HsnCd 998311 instead of being refused.
+            var sac = Gstr1.ServiceSacOf(company, ledger);
             if (sac is null)
                 throw new InvalidOperationException(
-                    $"'{ledger.Name}' declares no HSN/SAC code. The NIC INV-01 schema makes HsnCd mandatory on every " +
+                    $"'{ledger.Name}' declares no HSN/SAC code, and neither does its group nor the company. The NIC INV-01 schema makes HsnCd mandatory on every " +
                     "item line (minimum 4 digits), so an e-invoice cannot be generated for this voucher. Enter the " +
                     $"HSN/SAC on the '{ledger.Name}' ledger and generate it again.");
 
