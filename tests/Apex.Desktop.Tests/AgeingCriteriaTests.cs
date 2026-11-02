@@ -460,6 +460,56 @@ public sealed class AgeingCriteriaTests : IDisposable
         window.Close();
     }
 
+    /// <summary>
+    /// Wave 10 review (F1): Ctrl+B stacks Basis of Values over the open criteria, because the report verbs stay live
+    /// there. Esc from it must land on a criteria panel that still works. Before the BindPageColumn arm, the panel
+    /// was drawn and focused but unbound, so the typed windows and Enter did nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void Criteria_still_accept_by_Enter_after_a_column_stacked_over_them_is_closed()
+    {
+        var (window, f) = Open("Crit Keys Stacked", ReportKind.ReceivablesOutstanding);
+
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.Enter);
+        Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
+
+        Press(window, PhysicalKey.B, RawInputModifiers.Control);
+        Assert.Equal(Screen.BasisOfValues, f.Vm.CurrentScreen);
+        Press(window, PhysicalKey.Escape);
+
+        Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
+        Assert.Same(f.Vm.Columns[^1].Page, f.Vm.AgeingCriteria);
+
+        var panel = f.Vm.AgeingCriteria!;
+        panel.Rows[0].To = "15";
+        panel.Rows[1].From = "16";
+        Press(window, PhysicalKey.Enter);
+
+        Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
+        Assert.Equal("1-15 days=999.99", SecondBand(f.Vm.Reports!)[1]);
+        window.Close();
+    }
+
+    /// <summary>Wave 10 review (F2): F6 is refused while the criteria are open, so its badge is dimmed there, and lit
+    /// again on the report.</summary>
+    [AvaloniaFact]
+    public void The_F6_badge_is_dimmed_while_the_criteria_are_open_and_lit_on_the_report()
+    {
+        var (window, f) = Open("Crit Keys Badge", ReportKind.OverduePayables);
+        Assert.True(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+
+        Press(window, PhysicalKey.F6);
+        Press(window, PhysicalKey.Enter);
+        Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
+        Assert.False(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+
+        Press(window, PhysicalKey.Escape);
+        Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
+        Assert.True(f.Vm.ButtonBar.Single(b => b.Key == "F6" && b.Caption == "Ageing Method").Enabled);
+        window.Close();
+    }
+
     // ---------------------------------------------------------------- PDF parse
 
     private static List<string> DrawnStrings(byte[] pdf)

@@ -14950,6 +14950,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case CopyBomDetailsViewModel cbd:
                 CopyBomDetails = cbd;
                 return Screen.CopyBomDetails;
+            // Census 11.13 (IV-305, wave 10 review). The report verbs stay live on the F6 ageing criteria (it is a
+            // page over the report, so IsReportContext holds), so Ctrl+B can stack Basis of Values over it. Without
+            // this arm, Esc from that column left the criteria drawn and focused but unbound, and Enter, Ctrl+A and
+            // the Accept button all did nothing.
+            case AgeingCriteriaViewModel ac:
+                AgeingCriteria = ac;
+                return Screen.AgeingCriteria;
             default:
                 return Screen.Gateway;
         }
@@ -15341,8 +15348,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // over a column that would refuse it. The three contexts are disjoint (a ledger book is not a report page).
         if (IsLedgerBookPage)
             ButtonBar.Add(new ButtonBarItem("F6", "Monthly", OpenMonthlySummaryForLedgerBook, true));
+        // Wave 10 review: OpenAgeingMethodPicker also refuses while the F6 ageing criteria are open (IV-305), so the
+        // badge is dimmed there rather than lit over a door that refuses. It still says Ageing Method, not Receipt.
         else if (IsReportContext && Reports is { SupportsAgeingMethod: true })
-            ButtonBar.Add(new ButtonBarItem("F6", "Ageing Method", OpenAgeingMethodPicker, true));
+            ButtonBar.Add(new ButtonBarItem("F6", "Ageing Method", OpenAgeingMethodPicker,
+                CurrentScreen != Screen.AgeingCriteria && AgeingCriteria is null));
         else
             ButtonBar.Add(new ButtonBarItem("F6", "Receipt", () => OpenVoucherFromTypeKey(VoucherBaseType.Receipt), hasCompany));
         ButtonBar.Add(new ButtonBarItem("F7", "Journal", () => OpenVoucherFromTypeKey(VoucherBaseType.Journal), hasCompany));
