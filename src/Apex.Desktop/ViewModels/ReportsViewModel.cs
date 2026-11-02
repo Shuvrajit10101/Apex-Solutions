@@ -547,6 +547,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// </summary>
     private ReportScale _scale = ReportScale.Default;
 
+    /// <summary>
+    /// Census 11.13 / 11.9 (T2-24) — the <b>F6 Ageing Method</b> of the bills-outstanding views. Handed to the
+    /// engine (<c>Outstandings.Build</c> / <c>OverdueBills.Build</c>), which buckets on it; it never re-nets a bill.
+    /// Starts at <see cref="AgeingMethod.ByDueDate"/>, so an untouched report is the pre-slice output.
+    /// </summary>
+    private AgeingMethod _ageingMethod = AgeingMethod.ByDueDate;
+
+    /// <summary>
+    /// Census 11.13 — the Ctrl+B <b>Basis of Values &gt; Type of Bills</b> choice on Bills Receivable / Payable.
+    /// Handed to <c>Outstandings.Build</c>, which applies the one overdue predicate; nothing here filters.
+    /// </summary>
+    private TypeOfBills _typeOfBills = TypeOfBills.AllBills;
+
     /// <summary>The effective as-of upper bound for the current report — the chosen period end, or the default.</summary>
     private DateOnly _asOf => _options.Period?.To ?? _options.AsOfDate;
 
@@ -714,6 +727,58 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>True for either side of the re-homed Outstandings report (census 11.9).</summary>
     public bool IsOutstandingsReport =>
         Kind is ReportKind.ReceivablesOutstanding or ReportKind.PayablesOutstanding;
+
+    /// <summary>
+    /// Census 11.13 — the reports the Ctrl+B <b>Type of Bills</b> choice acts on: Bills Receivable and Bills
+    /// Payable. Vendor (help.tallysolutions.com/manage-receivables-outstanding-tally/, by content 2026-10-29), in
+    /// both the Receivables and the Payables section: <i>"To view only overdue bills, use Basis of Values to select
+    /// Overdue Bills in Type of Bills."</i>
+    /// </summary>
+    public bool SupportsTypeOfBills => IsOutstandingsReport;
+
+    /// <summary>True when the Ctrl+B Basis of Values panel has at least one option to offer on this report.</summary>
+    public bool SupportsBasisOfValues => SupportsScaleFactor || SupportsTypeOfBills;
+
+    /// <summary>
+    /// Census 11.13 / 11.9 (T2-24) — the reports <b>F6 (Ageing Method)</b> is bound on: Bills Receivable / Payable
+    /// and Overdue Receivables / Payables. Vendor: <i>"Press F6 (Ageing Method) to configure the report view as per
+    /// ageing by bill dates or by due dates and set the ageing windows."</i>
+    /// (help.tallysolutions.com/manage-receivables-outstanding-tally/, by content 2026-10-29).
+    /// </summary>
+    public bool SupportsAgeingMethod => IsOutstandingsReport
+        || Kind is ReportKind.OverdueReceivables or ReportKind.OverduePayables;
+
+    /// <summary>The F6 ageing basis in force.</summary>
+    public AgeingMethod AgeingMethod => _ageingMethod;
+
+    /// <summary>The Ctrl+B Type of Bills in force.</summary>
+    public TypeOfBills TypeOfBills => _typeOfBills;
+
+    /// <summary>The vendor's wording for an ageing basis — the F6 picker's row and the report's ageing heading.</summary>
+    public static string AgeingMethodLabel(AgeingMethod method) =>
+        method == AgeingMethod.ByBillDate ? "Ageing by Bill Date" : "Ageing by Due Date";
+
+    /// <summary>The vendor's wording for a Type of Bills value.</summary>
+    public static string TypeOfBillsLabel(TypeOfBills type) =>
+        type == TypeOfBills.OverdueBills ? "Overdue Bills" : "All Bills";
+
+    /// <summary>F6 — sets the ageing basis and re-projects. A no-op where F6 is not the Ageing Method.</summary>
+    public void SetAgeingMethod(AgeingMethod method)
+    {
+        if (!SupportsAgeingMethod) return;
+        _ageingMethod = method;
+        OnPropertyChanged(nameof(AgeingMethod));
+        Show(Kind);
+    }
+
+    /// <summary>Ctrl+B — sets the Type of Bills and re-projects. A no-op off Bills Receivable / Payable.</summary>
+    public void SetTypeOfBills(TypeOfBills type)
+    {
+        if (!SupportsTypeOfBills) return;
+        _typeOfBills = type;
+        OnPropertyChanged(nameof(TypeOfBills));
+        Show(Kind);
+    }
 
     /// <summary>True for any of the three re-homed cost-centre reports (census 11.10).</summary>
     public bool IsCostCentreReport => Kind is ReportKind.CostCategorySummary
@@ -1736,6 +1801,21 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             _scale = ReportScale.Default;
             OnPropertyChanged(nameof(Scale));
+        }
+        // Census 11.13: the same rule for the F6 basis and the Ctrl+B Type of Bills — a kind that has neither must
+        // not inherit them from the kind before it in this viewer.
+        OnPropertyChanged(nameof(SupportsTypeOfBills));
+        OnPropertyChanged(nameof(SupportsBasisOfValues));
+        OnPropertyChanged(nameof(SupportsAgeingMethod));
+        if (!SupportsAgeingMethod && _ageingMethod != AgeingMethod.ByDueDate)
+        {
+            _ageingMethod = AgeingMethod.ByDueDate;
+            OnPropertyChanged(nameof(AgeingMethod));
+        }
+        if (!SupportsTypeOfBills && _typeOfBills != TypeOfBills.AllBills)
+        {
+            _typeOfBills = TypeOfBills.AllBills;
+            OnPropertyChanged(nameof(TypeOfBills));
         }
         // census 11.4 gap (a): the same argument as the scale reset directly above, for the same reason. A kind
         // that has no F4 (Voucher Type) narrowing and no Show-narration knob must not INHERIT either from the kind
@@ -5329,10 +5409,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private void BuildOverdueBills(OutstandingKind side)
     {
         var asOf = _asOf;
-        var report = OverdueBills.Build(_company, asOf, side);
+        var method = _ageingMethod;
+        var report = OverdueBills.Build(_company, asOf, side, scenario: null, ageingMethod: method);
         var receivable = side == OutstandingKind.Receivable;
         Title = receivable ? "Overdue Receivables" : "Overdue Payables";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}  —  {AgeingMethodLabel(method)}";
         IsTwoColumn = false;
 
         foreach (var party in report.Parties)
@@ -5355,7 +5436,10 @@ public sealed partial class ReportsViewModel : ViewModelBase
                     // with leftmost priority, so the fact this report exists for must not be the part trimmed.
                     Particulars = $"{Or(b.Reference)}  ·  {days.ToString(CultureInfo.InvariantCulture)} "
                                 + (days == 1 ? "day overdue" : "days overdue"),
-                    Secondary = $"Due {FormatDate(b.DueDate)}  ·  Bill date {FormatDate(b.Date)}",
+                    // Census 11.13 F6: the bill's ageing window under the chosen basis rides last, so the basis
+                    // switch is visible on every bill row and not only in the summary band below the total.
+                    Secondary = $"Due {FormatDate(b.DueDate)}  ·  Bill date {FormatDate(b.Date)}  ·  "
+                              + Outstandings.BucketLabel(b, asOf, method),
                     Amount = IndianFormat.Amount(b.Pending),
                     Indent = 18,
                     DrillVoucherId = b.OpeningVoucherId,
@@ -5381,6 +5465,18 @@ public sealed partial class ReportsViewModel : ViewModelBase
             Amount = IndianFormat.AmountAlways(report.Total),
             IsTotal = true,
         });
+
+        // Census 11.13 / 11.9 (T2-24) — the ageing summary of the overdue bills under the F6 basis. The heading
+        // names the basis in the vendor's words, so a printed or exported page says which one it is on. The
+        // buckets are the engine's (OverdueBills.Ageing), over the same bills as the rows above.
+        Rows.Add(new ReportRow { Particulars = AgeingMethodLabel(method), IsHeader = true });
+        foreach (var bucket in report.Ageing)
+            Rows.Add(new ReportRow
+            {
+                Particulars = bucket.Label,
+                Amount = IndianFormat.AmountAlways(bucket.Pending),
+                Indent = 18,
+            });
     }
 
     // --------------------------------------------------------------- Memorandum Register  (Date | Vch No | Party | Amount)
@@ -7717,14 +7813,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// a bill's column headings is the "wrong figure under a right heading" defect this codebase already
     /// records having shipped once (see the PayrollColumns2 comment).
     ///
-    /// <para>🔴 <b>THE AGEING BASIS IS STILL FIXED TO BY-DUE-DATE AND THIS RE-HOME DOES NOT CHANGE THAT.</b>
-    /// Verified by content at help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/,
-    /// which says in as many words <i>"Press F6 (Ageing Method): to display the ageing report for the
-    /// Receivables from each party"</i> and <i>"Select the appropriate Ageing Methods from Ageing by Bill Date
-    /// or Ageing by Due Date and press Enter"</i>. We have neither the chord nor the second basis, and
-    /// <c>Outstandings.DefaultBuckets</c> remains a <c>static readonly</c> field with no parameter behind it, so
-    /// the bucket edges are not configurable either. Row 11.9 stays PARTIAL for those reasons among others;
-    /// nothing here should be read as closing it.</para>
+    /// <para>🟢 <b>THE AGEING BASIS IS NOW THE F6 CHOICE (wave 9, track fd — census 11.13, advancing 11.9 / T2-24).</b>
+    /// Verified by content at help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/
+    /// (<i>"Select the appropriate Ageing Methods from Ageing by Bill Date or Ageing by Due Date and press
+    /// Enter"</i>) and help.tallysolutions.com/manage-receivables-outstanding-tally/ (<i>"Press F6 (Ageing Method)
+    /// to configure the report view as per ageing by bill dates or by due dates and set the ageing windows."</i>).
+    /// F6 opens the two-row picker; the basis is handed to <c>Outstandings.Build</c>, which buckets on
+    /// <c>Outstandings.BucketsFor(method)</c>. 🔴 <b>STILL NOT BUILT:</b> the vendor's "set the ageing windows" —
+    /// the window edges are fixed per basis (IV-286). Ctrl+B Type of Bills = Overdue Bills filters through the
+    /// same engine call (IV-287).</para>
     ///
     /// <para>🔴 <b>A THIRD SENTENCE WAS DELETED FROM THIS COMMENT RATHER THAN SOFTENED.</b> It read
     /// <i>"in the absence of a due date, the bill date becomes the due date"</i>, in quotation marks, attributed
@@ -7735,14 +7832,20 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private void BuildOutstandingsReport(OutstandingsKind side)
     {
         var asOf = _asOf;
-        var report = Outstandings.Build(_company, asOf);
+        var method = _ageingMethod;
+        var typeOfBills = _typeOfBills;
+        // Census 11.13 — Ctrl+B Type of Bills and F6 Ageing Method are both handed to the ONE engine; nothing in
+        // this builder filters or re-buckets a bill.
+        var report = Outstandings.Build(_company, asOf, scenario: null, ageingMethod: method, typeOfBills: typeOfBills);
         var receivable = side == OutstandingsKind.Receivables;
         var bills = receivable ? report.Receivables : report.Payables;
         var ageing = receivable ? report.ReceivableAgeing : report.PayableAgeing;
         var total = receivable ? report.TotalReceivable : report.TotalPayable;
 
         Title = receivable ? "Bills Receivable" : "Bills Payable";
-        Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}";
+        Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}"
+                 + (typeOfBills == TypeOfBills.OverdueBills ? "  —  Overdue Bills" : string.Empty)
+                 + $"  —  {AgeingMethodLabel(method)}";
         IsTwoColumn = false;
 
         WideCol("Party", WideNameWidth, false);
@@ -7767,17 +7870,24 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 // Blank rather than "0" on a bill that is not yet due: a literal zero in an "Overdue Days"
                 // column reads as "due today and unpaid", which is a different fact from "not due yet".
                 overdue > 0 ? overdue.ToString(CultureInfo.InvariantCulture) : string.Empty,
-                Outstandings.DefaultBuckets[Outstandings.BucketIndex(overdue)].Label));
+                Outstandings.BucketLabel(b, asOf, method)));
         }
 
+        // Census 11.13 (wave 9 review): under Type of Bills = Overdue Bills the total is the OVERDUE total, and the
+        // row says so. The CSV carries no subtitle, so a bare "Total Receivable" there would read as the whole
+        // receivable while it is only the overdue part. The label is the one Overdue Receivables / Payables uses.
         PayrollRows.Add(WideRow(true,
-            receivable ? "Total Receivable" : "Total Payable",
+            typeOfBills == TypeOfBills.OverdueBills
+                ? (receivable ? "Total Overdue Receivables" : "Total Overdue Payables")
+                : (receivable ? "Total Receivable" : "Total Payable"),
             string.Empty, string.Empty, string.Empty, string.Empty,
             IndianFormat.AmountAlways(total),
             string.Empty, string.Empty));
 
         // Second band — the ageing summary, with its OWN two columns.
-        PayrollSection2Title = "Ageing Analysis (by due date)";
+        PayrollSection2Title = method == AgeingMethod.ByBillDate
+            ? "Ageing Analysis (by bill date)"
+            : "Ageing Analysis (by due date)";
         WideCol2("Ageing Bucket", WideNameWidth, false);
         WideCol2("Pending", WideMoneyWidth, true);
         foreach (var bucket in ageing)
@@ -7791,16 +7901,19 @@ public sealed partial class ReportsViewModel : ViewModelBase
             });
         HasPayrollSection2 = PayrollRows2.Count > 0;
 
-        MarkStatutoryFormEmpty(bills.Count == 0, receivable
-            ? "No pending receivables as at this date."
-            : "No pending payables as at this date.");
+        MarkStatutoryFormEmpty(bills.Count == 0, typeOfBills == TypeOfBills.OverdueBills
+            ? (receivable ? "No overdue receivable bills as at this date." : "No overdue payable bills as at this date.")
+            : (receivable ? "No pending receivables as at this date." : "No pending payables as at this date."));
 
         // The footnote says which basis the figures are on. It is not decoration: the reference product lets an
         // operator switch the basis on F6, so a reader arriving from it will reasonably assume a basis was
         // chosen. Saying which one is what stops a by-due-date bucket being read as a by-bill-date one.
-        Footnote("Ageing is measured from each bill's DUE date. A bill's due date is its own credit period when "
-               + "one was entered on the reference, else the party ledger's default credit period. Ageing from "
-               + "the BILL date is not offered on this report.");
+        Footnote(method == AgeingMethod.ByBillDate
+            ? "Ageing is measured from each bill's BILL date (F6: Ageing by Bill Date). The Overdue Days column is "
+              + "still counted from the due date."
+            : "Ageing is measured from each bill's DUE date (F6: Ageing by Due Date). A bill's due date is its own "
+              + "credit period when one was entered on the reference, else the party ledger's default credit "
+              + "period, else the bill date. Press F6 for Ageing by Bill Date.");
     }
 
     // --------------------------------------------------------------- 11.10 Cost Centre reports (three)

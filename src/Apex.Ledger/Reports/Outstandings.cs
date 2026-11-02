@@ -16,6 +16,35 @@ public enum OutstandingKind
 }
 
 /// <summary>
+/// The <b>F6 Ageing Method</b> of the bills-outstanding views (census 11.13 / 11.9, T2-24). Vendor, TallyPrime,
+/// help.tallysolutions.com/manage-receivables-outstanding-tally/ (opened by content 2026-10-29): <i>"Press F6
+/// (Ageing Method) to configure the report view as per ageing by bill dates or by due dates and set the ageing
+/// windows."</i>
+/// </summary>
+public enum AgeingMethod
+{
+    /// <summary>Age each bill from its due date — the shipped default, and the basis "overdue" is defined on.</summary>
+    ByDueDate,
+
+    /// <summary>Age each bill from its own bill (voucher) date.</summary>
+    ByBillDate,
+}
+
+/// <summary>
+/// The <b>Basis of Values &gt; Type of Bills</b> choice on Bills Receivable / Bills Payable (census 11.13). Vendor,
+/// the same page: <i>"To view only overdue bills, use Basis of Values to select Overdue Bills in Type of
+/// Bills."</i> Only the two values below are built; the vendor's other bill types are not (IV-287).
+/// </summary>
+public enum TypeOfBills
+{
+    /// <summary>Every open bill (the shipped default).</summary>
+    AllBills,
+
+    /// <summary>Only the bills <see cref="OutstandingBill.IsOverdue"/> as of the report date.</summary>
+    OverdueBills,
+}
+
+/// <summary>
 /// One open bill in the Outstandings projection (catalog §5). A bill is opened by a
 /// New-Ref/Advance allocation and reduced ("knocked off") by later Agst-Ref allocations on the
 /// same party ledger and reference name; <see cref="Pending"/> is the still-unsettled magnitude.
@@ -64,6 +93,20 @@ public sealed record OutstandingBill(
     public bool IsOverdue(DateOnly asOf) => OverdueDays(asOf) > 0;
 
     /// <summary>
+    /// The age of this bill as of <paramref name="asOf"/> under the chosen F6 <paramref name="method"/>, floored
+    /// at 0 — <see cref="AgeingMethod.ByDueDate"/> counts from <see cref="DueDate"/> (identical to
+    /// <see cref="OverdueDays"/>), <see cref="AgeingMethod.ByBillDate"/> from the bill's own <see cref="Date"/>.
+    /// Census 11.13 / 11.9 (T2-24). Vendor (help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/,
+    /// opened by content 2026-10-29): <i>"Select Ageing by Bill Date or Ageing by Due Date."</i>
+    /// </summary>
+    public int AgeDays(DateOnly asOf, AgeingMethod method)
+    {
+        if (method == AgeingMethod.ByDueDate) return OverdueDays(asOf);
+        var days = asOf.DayNumber - Date.DayNumber;
+        return days > 0 ? days : 0;
+    }
+
+    /// <summary>
     /// The voucher whose New-Ref / Advance allocation OPENED this bill (the latest such voucher when a bill was
     /// re-opened), or <see cref="Guid.Empty"/> when only Agst-Ref allocations name it. Census 11.13: the drill
     /// key the Overdue Receivables / Payables rows open, so Enter on a bill lands on the invoice that raised it.
@@ -88,6 +131,12 @@ public sealed record OutstandingsReport(
     IReadOnlyList<AgeingBucket> ReceivableAgeing,
     IReadOnlyList<AgeingBucket> PayableAgeing)
 {
+    /// <summary>The F6 basis <see cref="ReceivableAgeing"/> / <see cref="PayableAgeing"/> were bucketed on.</summary>
+    public AgeingMethod AgeingMethod { get; init; } = AgeingMethod.ByDueDate;
+
+    /// <summary>The Basis-of-Values Type of Bills the bill lists (and so every total and bucket) were filtered to.</summary>
+    public TypeOfBills TypeOfBills { get; init; } = TypeOfBills.AllBills;
+
     /// <summary>Σ pending across all receivable bills.</summary>
     public Money TotalReceivable => Sum(Receivables);
 
@@ -125,7 +174,8 @@ public sealed record OutstandingsReport(
 /// </summary>
 public static class Outstandings
 {
-    /// <summary>Default ageing bucket edges (upper-inclusive day counts); the tail is open-ended.</summary>
+    /// <summary>Default ageing bucket edges (upper-inclusive day counts); the tail is open-ended. These are the
+    /// <see cref="AgeingMethod.ByDueDate"/> windows: zero days past due is "Not due".</summary>
     public static readonly IReadOnlyList<(string Label, int Lower, int? Upper)> DefaultBuckets = new[]
     {
         ("Not due", int.MinValue, 0),
@@ -136,13 +186,52 @@ public static class Outstandings
     };
 
     /// <summary>
+    /// The <see cref="AgeingMethod.ByBillDate"/> windows. A bill's age from its own date is never "not due" — that
+    /// is a due-date fact — so the first window starts at day 0 (a bill raised on the as-of date). The edges are
+    /// the same 30/60/90 the due-date set uses, so the two bases differ only in the date counted from. OURS
+    /// (IV-286): the vendor lets the operator "set the ageing windows"; these are fixed.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Label, int Lower, int? Upper)> BillDateBuckets = new[]
+    {
+        ("0-30 days", int.MinValue, 30),
+        ("31-60 days", 31, 60),
+        ("61-90 days", 61, 90),
+        ("90+ days", 91, (int?)null),
+    };
+
+    /// <summary>The bucket windows the given F6 basis ages on.</summary>
+    public static IReadOnlyList<(string Label, int Lower, int? Upper)> BucketsFor(AgeingMethod method)
+        => method == AgeingMethod.ByBillDate ? BillDateBuckets : DefaultBuckets;
+
+    /// <summary>The label of the bucket <paramref name="bill"/> falls in as of <paramref name="asOf"/> under
+    /// <paramref name="method"/> — the per-bill "Ageing" cell, from the same windows as the summary band.</summary>
+    public static string BucketLabel(OutstandingBill bill, DateOnly asOf, AgeingMethod method)
+    {
+        ArgumentNullException.ThrowIfNull(bill);
+        var buckets = BucketsFor(method);
+        return buckets[BucketIndex(bill.AgeDays(asOf, method), buckets)].Label;
+    }
+
+    /// <summary>
     /// Builds the Outstandings projection for the whole company as of <paramref name="asOf"/>, optionally
     /// under a <paramref name="scenario"/> (catalog §7). Passing <c>null</c> reproduces the actual books
     /// exactly, so a report builder can thread its <c>options.Scenario</c> through unconditionally — the same
     /// optional-trailing-parameter shape <see cref="BalanceSheet"/> and
     /// <see cref="LedgerBalances.SignedClosing(Company, Domain.Ledger, DateOnly, Scenario?)"/> already use.
     /// </summary>
-    public static OutstandingsReport Build(Company company, DateOnly asOf, Scenario? scenario = null)
+    ///
+    /// <para><paramref name="ageingMethod"/> is the F6 basis the two ageing summaries bucket on, and
+    /// <paramref name="typeOfBills"/> the Basis-of-Values filter: <see cref="TypeOfBills.OverdueBills"/> keeps only
+    /// the bills <see cref="OutstandingBill.IsOverdue"/> — the ONE overdue predicate, which
+    /// <see cref="OverdueBills"/> also reaches through this method — and the totals and buckets are taken over
+    /// the kept bills. Neither changes the netting: every bill's pending amount is the one the unfiltered build
+    /// computes.</para>
+    public static OutstandingsReport Build(
+        Company company,
+        DateOnly asOf,
+        Scenario? scenario = null,
+        AgeingMethod ageingMethod = AgeingMethod.ByDueDate,
+        TypeOfBills typeOfBills = TypeOfBills.AllBills)
     {
         // 🔴 ONE voucher pass for the WHOLE company. This used to call OpenBillsFor per bill-wise ledger, and
         // each of those calls walked every voucher — so a report that merely opens this projection paid
@@ -169,6 +258,7 @@ public static class Outstandings
         {
             foreach (var bill in BillsOf(ledger, sets[ledger.Id], KindOf(company, ledger)))
             {
+                if (typeOfBills == TypeOfBills.OverdueBills && !bill.IsOverdue(asOf)) continue;
                 if (bill.Kind == OutstandingKind.Receivable) receivables.Add(bill);
                 else payables.Add(bill);
             }
@@ -178,8 +268,12 @@ public static class Outstandings
             asOf,
             receivables,
             payables,
-            AgeingOf(receivables, asOf),
-            AgeingOf(payables, asOf));
+            AgeingOf(receivables, asOf, ageingMethod),
+            AgeingOf(payables, asOf, ageingMethod))
+        {
+            AgeingMethod = ageingMethod,
+            TypeOfBills = typeOfBills,
+        };
     }
 
     /// <summary>
@@ -412,36 +506,40 @@ public static class Outstandings
             : OutstandingKind.Receivable;
     }
 
-    private static IReadOnlyList<AgeingBucket> AgeingOf(IReadOnlyList<OutstandingBill> bills, DateOnly asOf)
+    /// <summary>Ages <paramref name="bills"/> into the windows of <paramref name="method"/> — the shared ageing
+    /// summary of Bills Receivable / Payable and Overdue Receivables / Payables.</summary>
+    public static IReadOnlyList<AgeingBucket> AgeingOf(
+        IReadOnlyList<OutstandingBill> bills, DateOnly asOf, AgeingMethod method = AgeingMethod.ByDueDate)
     {
-        var totals = new decimal[DefaultBuckets.Count];
+        ArgumentNullException.ThrowIfNull(bills);
+        var buckets = BucketsFor(method);
+        var totals = new decimal[buckets.Count];
         foreach (var b in bills)
-        {
-            var overdue = b.OverdueDays(asOf);
-            var idx = BucketIndex(overdue);
-            totals[idx] += b.Pending.Amount;
-        }
+            totals[BucketIndex(b.AgeDays(asOf, method), buckets)] += b.Pending.Amount;
 
-        var result = new List<AgeingBucket>(DefaultBuckets.Count);
-        for (var i = 0; i < DefaultBuckets.Count; i++)
+        var result = new List<AgeingBucket>(buckets.Count);
+        for (var i = 0; i < buckets.Count; i++)
         {
-            var (label, lower, upper) = DefaultBuckets[i];
+            var (label, lower, upper) = buckets[i];
             result.Add(new AgeingBucket(label, lower, upper, new Money(totals[i])));
         }
         return result;
     }
 
-    /// <summary>Index of the ageing bucket an overdue-day count falls in.</summary>
-    public static int BucketIndex(int overdueDays)
+    /// <summary>Index of the <see cref="DefaultBuckets"/> (by-due-date) bucket an overdue-day count falls in.</summary>
+    public static int BucketIndex(int overdueDays) => BucketIndex(overdueDays, DefaultBuckets);
+
+    /// <summary>Index of the bucket of <paramref name="buckets"/> a day count falls in (the tail if none).</summary>
+    public static int BucketIndex(int days, IReadOnlyList<(string Label, int Lower, int? Upper)> buckets)
     {
-        for (var i = 0; i < DefaultBuckets.Count; i++)
+        ArgumentNullException.ThrowIfNull(buckets);
+        for (var i = 0; i < buckets.Count; i++)
         {
-            var (_, lower, upper) = DefaultBuckets[i];
-            var lo = lower == int.MinValue ? int.MinValue : lower;
-            if (overdueDays >= lo && (upper is null || overdueDays <= upper.Value))
+            var (_, lower, upper) = buckets[i];
+            if (days >= lower && (upper is null || days <= upper.Value))
                 return i;
         }
-        return DefaultBuckets.Count - 1;
+        return buckets.Count - 1;
     }
 
     /// <summary>One ledger's bills, keyed by reference name, with first-seen order preserved.</summary>
