@@ -160,6 +160,34 @@ public class VoucherPostDatedStateVerbTests
         Assert.Equal(VoucherEditVerb.SetOptional, b.Company.LastVoucherEditLogEntry!.Verb);
     }
 
+    /// <summary>
+    /// The stock verbs' two guards (wave-10 verification, second pass; the first was unpinned): a move to the value
+    /// already held is a no-op with NO log line, and a cancelled stock voucher is refused in both directions.
+    /// <b>Mutations:</b> deleting <c>if (read(v) == value) return v;</c> from <c>InventoryPostingService.SetFlag</c>
+    /// (measured: the whole Apex.Ledger.Tests project stayed green) reddens the log-count assertions; deleting the
+    /// cancelled refusal reddens the throws.
+    /// </summary>
+    [Fact]
+    public void A_stock_flag_set_to_its_current_value_logs_nothing_and_a_cancelled_stock_voucher_is_refused()
+    {
+        var b = StockBookWith(optional: false, postDated: false);
+        var logBefore = b.Company.VoucherEditLog.Count;
+
+        b.Posting.SetOptional(b.ReceiptId, false);
+        b.Posting.SetPostDated(b.ReceiptId, false);
+        Assert.Equal(logBefore, b.Company.VoucherEditLog.Count);
+        Assert.Equal(13m, OnHand(b));
+
+        b.Posting.Cancel(b.ReceiptId);
+        var logAfterCancel = b.Company.VoucherEditLog.Count;
+        Assert.Throws<InvalidOperationException>(() => b.Posting.SetOptional(b.ReceiptId, true));
+        Assert.Throws<InvalidOperationException>(() => b.Posting.SetPostDated(b.ReceiptId, true));
+        var cancelled = b.Company.FindInventoryVoucher(b.ReceiptId)!;
+        Assert.False(cancelled.Optional);
+        Assert.False(cancelled.PostDated);
+        Assert.Equal(logAfterCancel, b.Company.VoucherEditLog.Count);
+    }
+
     /// <summary>The Optional register lists an Optional stock voucher (pre-v69 it read the accounting aggregate
     /// only). <b>Mutation:</b> restoring the <c>!row.IsInventory &amp;&amp;</c> arm reddens it.</summary>
     [Fact]
