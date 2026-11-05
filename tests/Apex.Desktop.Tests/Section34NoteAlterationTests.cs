@@ -459,6 +459,48 @@ public sealed class Section34NoteAlterationTests : IDisposable
     }
 
     /// <summary>
+    /// 🔴 <b>Wave-10 verification (track gd, census 5.8) — THE SAME §34 REFUSAL WITH A Ctrl+T MOVE IN IT.</b>
+    /// Ctrl+T in alteration is applied through <c>LedgerService.SetPostDated</c> BEFORE <c>Replace</c>, so when the
+    /// §34 link refuses AFTER <c>Replace</c> the Post-Dated move has to be put back too. Measured before this test:
+    /// deleting <c>RollBackPostDated</c> from the link-refusal arm of <c>CommitAlteration</c> left the 218 provisional-flag, alteration and exception-report Desktop
+    /// tests green, and the note stayed CURRENT in memory with a SetPostDated line no file held — persisted by the
+    /// next save on any screen. The observable artefact is exactly that next save, read back off a reloaded book.
+    /// <b>Mutation:</b> deleting that <c>RollBackPostDated</c> call reddens this test.
+    /// </summary>
+    [Fact]
+    public void A_section34_refusal_after_Ctrl_T_puts_the_post_dated_flag_back_even_after_a_later_save()
+    {
+        var k = NewKit("S34 PostDated Co");
+        var sale = PostOriginalInvoice(k, VoucherBaseType.Sales, 10m, "150.00");
+        var note = PostSection34Note(k, VoucherBaseType.CreditNote, sale, 4m, "150.00");
+
+        // The note is post-dated through the verb the alteration screen's Ctrl+T uses, and saved.
+        var c = k.Vm.Company!;
+        new LedgerService(c).SetPostDated(note.Id, true);
+        _storage.Save(c);
+        var beforeLog = Reload(k).VoucherEditLog.Select(e => e.Id).ToList();
+        Assert.True(Reload(k).FindVoucher(note.Id)!.PostDated);
+
+        var open = VoucherEntryViewModel.ForAlter(c, note.Id, _storage, () => { }, () => { });
+        var entry = open.Entry!;
+        Assert.True(entry.IsPostDated);
+        entry.TogglePostDated();                                  // Ctrl+T (Current)
+        entry.InventoryLines[0].QuantityText = "3";
+        entry.IsSection34Note = false;                            // the §34 link refuses this, after Replace
+
+        Assert.False(entry.AcceptAlteration());
+        Assert.Contains("withdraw it from a filed return", entry.Message);
+
+        Assert.True(c.FindVoucher(note.Id)!.PostDated);           // in memory, the flag is back…
+        _storage.Save(c);                                         // …so the next save writes nothing fictitious
+        var reloaded = Reload(k);
+        Assert.True(reloaded.FindVoucher(note.Id)!.PostDated);
+        Assert.Equal(4m, reloaded.FindVoucher(note.Id)!.InventoryLines.Single().Quantity);
+        Assert.Equal(beforeLog, reloaded.VoucherEditLog.Select(e => e.Id).ToList());
+        Assert.Single(reloaded.CreditDebitNoteLinks.Where(l => l.CdnVoucherId == note.Id));
+    }
+
+    /// <summary>
     /// 🔴 <b>TICKING §34 ON DURING AN ALTERATION IS REFUSED BY NAME</b> — it would create a statutory
     /// declaration from an alteration screen. Before this slice the same keystroke was a SILENT no-op: the
     /// alteration path called nothing at all, so the tick posted and no link appeared.
