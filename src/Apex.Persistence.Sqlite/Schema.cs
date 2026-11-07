@@ -286,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 68;
+    public const int CurrentVersion = 69;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1793,7 +1793,10 @@ public static class Schema
             narration   TEXT        NULL,
             party_id    TEXT        NULL REFERENCES ledgers(id),
             cancelled   INTEGER NOT NULL DEFAULT 0,           -- 0/1
-            post_dated  INTEGER NOT NULL DEFAULT 0            -- 0/1
+            post_dated  INTEGER NOT NULL DEFAULT 0,           -- 0/1
+            -- v69 (census 5.7): Ctrl+L on a stock/order voucher. 0 = live = every pre-v69 voucher.
+            -- Declaration byte-identical to MigrateV68ToV69.
+            optional              INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE inventory_allocations (
@@ -5617,6 +5620,42 @@ public static class Schema
         -- pre-v67 company had neither switch — so the Godown Creation screen shows exactly what it showed.
         ALTER TABLE companies ADD COLUMN config_allow_storage_of_materials INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE companies ADD COLUMN config_use_address_for_locations  INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v69 — THE OPTIONAL FLAG ON THE PURE-STOCK AGGREGATE (census row 5.7). Object names are published here ONCE so
+    // the migration, CreateV1, the downgrade and the tests all speak about the SAME set.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The one <c>inventory_vouchers</c> column v69 adds — the exact set <see cref="MigrateV68ToV69"/> adds
+    /// and <c>SchemaDowngrade.V69ToV68</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V69InventoryVoucherColumns = new[] { "optional" };
+
+    /// <summary>
+    /// v68 → v69 (census row <b>5.7</b>, Optional voucher): ONE column, <c>inventory_vouchers.optional</c>, which
+    /// gives the pure-stock aggregate the Ctrl+L flag the accounting aggregate has carried since the start
+    /// (<c>vouchers.optional</c>). The same rung also gives <c>voucher_edit_log.verb</c> its sixth ordinal,
+    /// <c>SetPostDated = 5</c> (census row 5.8) — no DDL, because the column is already an INTEGER ordinal; the
+    /// version marker is what tells an older build it cannot read that ordinal.
+    ///
+    /// <para>🔴 <b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/,
+    /// opened BY CONTENT 2026-11-02: <i>"Any voucher in TallyPrime can be marked as Optional by pressing Ctrl+L
+    /// (Optional) during voucher entry or in alteration mode."</i></para>
+    ///
+    /// <para>🔴 <b>NOTHING IS BACK-FILLED.</b> DEFAULT 0 = live, which is what every pre-v69 stock voucher was
+    /// (there was no way to mark one Optional), so every closing stock reads exactly as it did at v68 (ER-13).
+    /// There is no <c>UPDATE</c> in this migration.</para>
+    ///
+    /// <para>⚠️ <c>inventory_vouchers</c> is an FK <b>PARENT</b> (allocations, order lines, physical lines,
+    /// additional-cost lines, job-work orders and material links all reference it), so
+    /// <c>SchemaDowngrade.V69ToV68</c> uses <c>RebuildPreservingShape</c>, which keeps the PRIMARY KEY.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 69.</para>
+    /// </summary>
+    public const string MigrateV68ToV69 = """
+        -- v69 (census 5.7): Ctrl+L on a stock/order voucher. DEFAULT 0 = live = every pre-v69 voucher, so there is
+        -- deliberately no UPDATE. Declaration byte-identical to its counterpart in CreateV1.
+        ALTER TABLE inventory_vouchers ADD COLUMN optional              INTEGER NOT NULL DEFAULT 0;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

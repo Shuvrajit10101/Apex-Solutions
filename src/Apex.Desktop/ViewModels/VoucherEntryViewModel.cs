@@ -4149,6 +4149,28 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             optionalEntry = _company.LastVoucherEditLogEntry;
         }
 
+        // 🔴 Census 5.8 (wave 10) — Ctrl+T in alteration, through its OWN verb, for the identical reason as Ctrl+L
+        // above: §7.4 of Replace refuses a Post-Dated move. Applied AFTER SetOptional, so every rollback below
+        // undoes it FIRST (LIFO). Before LedgerService.SetPostDated existed a post-dated cheque could never be
+        // marked current from this screen; the operator got "Cannot alter: Replace does not change a voucher's
+        // provisional state".
+        var postDatedWas = existing.PostDated;
+        VoucherEditLogEntry? postDatedEntry = null;
+        if (replacement.PostDated != postDatedWas)
+        {
+            try
+            {
+                _service.SetPostDated(existing.Id, replacement.PostDated);
+            }
+            catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
+            {
+                RollBackOptional(existing.Id, optionalEntry, optionalWas);
+                Message = $"Cannot alter: {ex.Message}";
+                return false;
+            }
+            postDatedEntry = _company.LastVoucherEditLogEntry;
+        }
+
         IReadOnlyList<VoucherAlterationWarning> warnings;
         try
         {
@@ -4156,12 +4178,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         }
         catch (UnbalancedVoucherException)
         {
+            RollBackPostDated(existing.Id, postDatedEntry, postDatedWas);
             RollBackOptional(existing.Id, optionalEntry, optionalWas);
             Message = unbalancedMessage;
             return false;
         }
         catch (Exception ex) when (ex is InvalidVoucherException or InvalidOperationException)
         {
+            RollBackPostDated(existing.Id, postDatedEntry, postDatedWas);
             RollBackOptional(existing.Id, optionalEntry, optionalWas);
             Message = $"Cannot alter: {ex.Message}";
             return false;
@@ -4194,6 +4218,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 if (_company.LastVoucherEditLogEntry is { } appended)
                     _service.DiscardUncommittedEditLogEntry(appended);
 
+            RollBackPostDated(existing.Id, postDatedEntry, postDatedWas);
             RollBackOptional(existing.Id, optionalEntry, optionalWas);
             Message = linkRefusal;
             return false;
@@ -4226,6 +4251,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 // recent one only once they are gone. `RollBackOptional` puts the flag back in the same call,
                 // which matters more than the log line: a save that did not commit must not leave a voucher
                 // Optional (or live) on the book while the .db holds the other state.
+                RollBackPostDated(existing.Id, postDatedEntry, postDatedWas);
                 RollBackOptional(existing.Id, optionalEntry, optionalWas);
 
                 Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
@@ -4246,6 +4272,19 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                 + WarningNote(warnings);
         _onSaved();
         return true;
+    }
+
+    private void RollBackPostDated(Guid voucherId, VoucherEditLogEntry? entry, bool restoreTo)
+    {
+        // The Ctrl+T sibling of RollBackOptional (census 5.8), bounded and swallowed the same way.
+        if (entry is null) return;
+        try
+        {
+            _service.DiscardUncommittedPostDatedChange(voucherId, entry, restoreTo);
+        }
+        catch (InvalidOperationException)
+        {
+        }
     }
 
     /// <summary>

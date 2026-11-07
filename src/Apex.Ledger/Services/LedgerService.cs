@@ -1091,6 +1091,73 @@ public sealed class LedgerService
         v.Optional = restoreTo;
     }
 
+    /// <summary>
+    /// Moves <see cref="Voucher.PostDated"/> on a POSTED voucher, in either direction — the engine half of
+    /// <b>Ctrl+T</b> pressed on a voucher opened in alteration (census row 5.8). The exact sibling of
+    /// <see cref="SetOptional"/>, and it exists for the identical reason: §7.4 of <see cref="Replace(Guid, Voucher)"/>
+    /// refuses a replacement that moves the provisional-state vector and names this verb as the door —
+    /// <i>"a UI that wants Ctrl+L / Ctrl+T must call THAT verb rather than Replace."</i> Until this method existed
+    /// there was no such verb for Post-Dated, so a post-dated cheque could never be marked current.
+    ///
+    /// <para><b>R7 grounding, opened by content 2026-11-02.</b>
+    /// <c>help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/</c>: <i>"Mark vouchers Post-Dated
+    /// by pressing Ctrl+T (Post-Dated) button from the Button Bar."</i> and <i>"This button toggles with
+    /// Current."</i> — both directions of one button. 🔴 <b>What the page does NOT say:</b> it attests the toggle on
+    /// the voucher screen without naming alteration mode the way it does for Ctrl+L, and it describes the vendor's
+    /// OWN clearing as automatic (<i>"when the DATE OF LAST ENTRY surpasses the Post-Dated voucher, it gets updated
+    /// automatically"</i>). Offering the toggle on an altered voucher is therefore partly ours and is logged as a
+    /// divergence (docs/invented-vs-cloned.md, IV-310); the automatic last-entry trigger is NOT built here.</para>
+    ///
+    /// <para>A no-op, appending NO log line, when the flag already holds <paramref name="postDated"/>.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The voucher is unknown, or is cancelled (a cancelled voucher
+    /// affects nothing whatever its date, so moving the flag would claim a state change that does not
+    /// happen).</exception>
+    public Voucher SetPostDated(Guid voucherId, bool postDated)
+    {
+        var voucher = _company.FindVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        if (voucher.Cancelled)
+            throw new InvalidOperationException(
+                $"Voucher {voucherId} is cancelled; a cancelled voucher affects no balance whether it is "
+                + "post-dated or not, so there is nothing to mark current.");
+
+        if (voucher.PostDated == postDated) return voucher;
+
+        RecordEdit(voucher, VoucherEditVerb.SetPostDated);
+        voucher.PostDated = postDated;
+        return voucher;
+    }
+
+    /// <summary>
+    /// The compensating undo for a <see cref="SetPostDated"/> whose save did not commit — the mirror of
+    /// <see cref="DiscardUncommittedOptionalChange"/>, bounded the same way: the entry must be a
+    /// <see cref="VoucherEditVerb.SetPostDated"/> of this voucher and the most recent one, and
+    /// <paramref name="restoreTo"/> must differ from the flag's current value (so it cannot be used to set it).
+    /// </summary>
+    public void DiscardUncommittedPostDatedChange(
+        Guid voucherId, VoucherEditLogEntry entry, bool restoreTo)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+
+        if (entry.Verb != VoucherEditVerb.SetPostDated || entry.VoucherId != voucherId)
+            throw new InvalidOperationException(
+                $"Edit-log entry {entry.Id} is a {entry.Verb} on voucher {entry.VoucherId}; it cannot roll back "
+                + $"a Post-Dated change on voucher {voucherId}.");
+
+        var v = _company.FindVoucher(voucherId)
+            ?? throw new InvalidOperationException($"Voucher {voucherId} not found.");
+
+        if (v.PostDated == restoreTo)
+            throw new InvalidOperationException(
+                $"Voucher {voucherId} already has PostDated = {restoreTo}, so there is no uncommitted Post-Dated "
+                + "change to discard. This verb rolls one back; it does not set the flag (use SetPostDated).");
+
+        DiscardUncommittedEditLogEntry(entry);
+        v.PostDated = restoreTo;
+    }
+
     /// <summary>Next automatic number for a voucher type = max existing + 1 (per type, per company).
     /// <para><b>Computed by SCANNING the posted vouchers</b> — there is no stored counter and no
     /// <c>last_used_number</c> column anywhere in the schema, so this is not monotone across a
