@@ -872,7 +872,9 @@ public static class CanonicalXml
         var el = new XElement("inventoryVoucher",
             Attr("id", v.Id), Attr("typeId", v.TypeId), Attr("number", v.Number), Attr("date", v.Date),
             Opt("narration", v.Narration), OptId("partyId", v.PartyId),
-            Attr("cancelled", v.Cancelled), Attr("postDated", v.PostDated));
+            Attr("cancelled", v.Cancelled), Attr("postDated", v.PostDated),
+            // v69 (census 5.7): written only when true, so a pre-v69 book's XML is byte-identical (ER-13).
+            OptTrue("optional", v.Optional));
         el.Add(List("allocations", "allocation", v.Allocations, BuildInventoryAllocation));
         el.Add(List("destinationAllocations", "allocation", v.DestinationAllocations, BuildInventoryAllocation));
         el.Add(List("orderLines", "orderLine", v.OrderLines, BuildOrderLine));
@@ -1945,7 +1947,7 @@ public static class CanonicalXml
     {
         Id = Guid(e, "id"), TypeId = Guid(e, "typeId"), Number = Int(e, "number"),
         Date = Str(e, "date") ?? string.Empty, Narration = Str(e, "narration"), PartyId = OptGuid(e, "partyId"),
-        Cancelled = Bool(e, "cancelled"), PostDated = Bool(e, "postDated"),
+        Cancelled = Bool(e, "cancelled"), PostDated = Bool(e, "postDated"), Optional = Bool(e, "optional"),
         Allocations = (e.Element("allocations")?.Elements("allocation") ?? Enumerable.Empty<XElement>())
             .Select(ReadInventoryAllocation).ToList(),
         DestinationAllocations = (e.Element("destinationAllocations")?.Elements("allocation") ?? Enumerable.Empty<XElement>())

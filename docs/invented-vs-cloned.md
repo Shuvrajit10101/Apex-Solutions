@@ -3490,6 +3490,78 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | `JobWorkChallanPrintProjector.cs:175` reads `GstReportSupport.HsnSacOf(company, item, null)`: the item, stock-group and company rungs under `SourceOfHsnSacDetails` (a challan has no value ledger, so the ledger rungs are silent). IV-279 is amended in place. |
 | **Tests** | `JobWorkChallanRouteTests.A_material_out_of_an_item_with_no_hsn_prints_its_stock_groups_hsn_on_the_reloaded_challan` (item with no HSN under a stock group declaring 741220; keyed with the real Ctrl+A, then re-read through a fresh `CompanyStorage`; `(741220) Tj`). **M10** (the call replaced by `ItemRungHsnSacOf(item)`) reddens it. |
 
+## 2AA. ADDED 2026-11-02 — WAVE 10 TRACK `gd`: CTRL+T IN ALTERATION, OPTIONAL STOCK VOUCHERS (SCHEMA v69) AND THE GATEWAY PROVISIONAL REGISTERS (census rows 5.8 / 5.7, IV-310..IV-314)
+
+> **This track's block is IV-310..IV-314.** The section letter `2AA` is the wave plan's pre-assignment; the entry
+> NUMBERS are the stable handle.
+>
+> **Vendor ground for the whole section** (TallyPrime), opened BY CONTENT on 2026-11-02:
+> - `help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/` — **"Any voucher in TallyPrime can be
+>   marked as Optional by pressing Ctrl+L (Optional) during voucher entry or in alteration mode"**, **"Once the actual
+>   date of such transaction occurs you can regularise the transaction by opening it and pressing Ctrl+L"**, **"Mark
+>   vouchers Post-Dated by pressing Ctrl+T (Post-Dated) button from the Button Bar."**, **"This button toggles with
+>   Current."**, **"After you pass a voucher, when the DATE OF LAST ENTRY surpasses the Post-Dated voucher, it gets
+>   updated automatically."**, **"All Post-dated vouchers are maintained in a Post-Dated voucher Register."**, and the
+>   routes **"Gateway of Tally > Display More Reports > Exception Reports > Optional Vouchers."** / **"… > Exception
+>   Reports > Post-Dated Vouchers."** (each followed by **"Press Enter on the selected period to view the Voucher
+>   Register report."**).
+> - `help.tallysolutions.com/tally-prime/accounting-financial-reports/day-book-tally/` — **"The Exception Reports
+>   available in the Day Book in TallyPrime are of Optional Vouchers, Cancelled Vouchers, and Post-Dated Vouchers."**
+>
+> **What is built.** `LedgerService.SetPostDated` / `InventoryPostingService.SetPostDated` (edit-log verb
+> `SetPostDated = 5`) and `InventoryPostingService.SetOptional`, each with a bounded compensating undo. Both
+> alteration screens apply a Ctrl+L / Ctrl+T delta through those verbs BEFORE `Replace` (whose provisional-state
+> guard is unchanged on the accounting side and NEW on the stock side), and roll the flags back newest-first on
+> every failure path. `inventory_vouchers.optional` (schema **v69**, no back-fill), the store's writer and reader,
+> the canonical JSON/XML member (written only when true) and the import. Ctrl+L, its checkbox and its button-bar
+> badge on the stock/order entry screen. Every stock-quantity, stock-value and order/job-work/bills-pending walk
+> skips an Optional stock voucher. The Optional register reads both aggregates (its "accounting only" scope note is
+> struck because it became false), and both registers are on Gateway > Exception Reports (so Alt+G finds them).
+
+### IV-310 · **Ctrl+T toggles Post-Dated / Current on a voucher opened in ALTERATION; the vendor's automatic clearing is not built** (wave 10, track gd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape) plus an unbuilt vendor half. Area: VCH.** |
+| **What TallyPrime does** | Ctrl+T on the voucher screen's button bar, which *"toggles with Current"*; a post-dated voucher is *"updated automatically"* once the date of last entry passes it. The page names alteration mode for Ctrl+L, not for Ctrl+T. |
+| **What we ship** | Ctrl+T works on both entry screens in alteration as well as entry; Ctrl+A applies the move through `SetPostDated` and logs it as its own verb. **OURS:** offering the toggle on an altered voucher. **NOT BUILT:** the automatic last-entry trigger — a post-dated voucher stays flagged until the operator presses Ctrl+T (its figures still count from its own date onward, `LedgerBalances.CountsAsOf`), and there is no Ctrl+T button-bar badge. |
+| **Tests** | `ProvisionalVoucherFlagsRouteTests.Ctrl_T_in_accounting_alteration_marks_a_post_dated_cheque_current_off_the_reloaded_book`, `…Ctrl_T_in_stock_alteration_marks_a_post_dated_voucher_current_off_the_reloaded_book`, `VoucherPostDatedStateVerbTests.*`. Disabling either screen's SetPostDated split reddens its route test by name. |
+
+### IV-311 · **An Optional stock/order voucher moves no stock and no stock value, and drops out of the order, job-work and bills-pending registers** (wave 10, track gd)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours, by extension). Area: INV.** |
+| **What TallyPrime does** | *"Marking voucher as Optional will remove the accounting impact of the transactions from the books of account."* — stated for the accounting impact; *"Any voucher"* can be Optional. No page read says what an Optional stock voucher does to stock. |
+| **What we ship** | The stock mirror of the accounting rule: `InventoryLedger`, `StockValuationService`, `BatchStockService`, `InventoryMovements`, `ItemCostAnalysis`, `NegativeStock`, `OrderFulfilment`, `InventoryRegisters`, `JobWorkReports`, `BillsPending` and the negative-stock detector all skip it; the Day Book and the Optional Vouchers register still list it. **OURS:** the whole stock-side reading. |
+| **Tests** | `VoucherPostDatedStateVerbTests.An_optional_stock_voucher_moves_no_stock_until_it_is_regularised` (on-hand 4 → 13, and the closing value exactly 40.04 while Optional), `InventoryOptionalV69SchemaTests.Optional_and_post_dated_moves_are_read_back_off_a_fresh_store_handle_with_their_verbs`. Removing the Optional skip from `InventoryLedger.Counts` or `StockValuationService.Counts` reddens them by name. **Wave-10 review:** the other walks are pinned by `OptionalStockVoucherWalkTests` (ten facts, each reading the report the walk feeds while Optional and again after regularising); every one of the sixteen skips the branch added reddens one of them when removed, except the negative-stock detector's, which is an equivalent mutant (it only narrows candidates `InventoryLedger.Counts` re-evaluates). |
+
+### IV-312 · **A flag move on a cancelled voucher is refused; a move to the value already held writes no log line** (wave 10, track gd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: VCH / AUD.** |
+| **What we ship** | `SetOptional` / `SetPostDated` throw on a cancelled voucher (it affects nothing whatever its flags) and are a silent no-op when the flag already holds the value. Each move appends ONE edit-log line under its own verb (`SetOptional = 4`, `SetPostDated = 5`), never an `Alter`. **OURS:** no source speaks to any of it. |
+| **Tests** | `VoucherPostDatedStateVerbTests.A_cancelled_voucher_cannot_be_marked_current`, `…Setting_post_dated_to_its_current_value_appends_no_log_line`, `…Discarding_an_uncommitted_post_dated_change_restores_the_register_and_the_log`, `…Replace_refuses_a_stock_replacement_that_moves_optional_or_post_dated`. |
+
+### IV-313 · **Gateway > Exception Reports > Optional / Post-Dated Vouchers opens the register directly on the default period** (wave 10, track gd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape). Area: RPT / NAV.** |
+| **What TallyPrime does** | The Gateway route, then *"Press Enter on the selected period to view the Voucher Register report."* — a period list first. |
+| **What we ship** | The two Gateway rows open the same Day-Book-shaped register the Day Book's Ctrl+J opens, over the report's default period (F2 changes it). **NOT BUILT:** the intermediate period list. **OURS:** the register's Day-Book columns (IV-73 already records the Ctrl+J side). |
+| **Tests** | `ExceptionReportsViewModelTests.ExceptionReports_menu_lists_the_eight_reports_under_one_section`, `…Activating_an_exception_item_opens_that_report_proving_labels_match_routing` (two new cases), and the arrows + Enter route inside `ProvisionalVoucherFlagsRouteTests.Ctrl_L_marks_a_stock_voucher_optional_and_Ctrl_L_in_alteration_regularises_it_off_the_reloaded_book`, which also asserts the register's CSV bytes. Deleting the `"Optional Vouchers"` dispatch arm reddens both by name. |
+
+### IV-314 · **Residuals of the Optional stock voucher: no scenario view, no Alt+F8, and the Material picker still offers an Optional order** (wave 10, track gd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Unbuilt vendor halves plus one ours. Area: INV / RPT.** |
+| **What TallyPrime does** | *"Use Scenarios to see the effect of Optional voucher entries on reports and statements."* and *"Press Alt+F8 (Incl Post-Dated) to include the values for post-dated transactions in the report."* |
+| **What we ship** | **NOT BUILT:** no scenario includes an Optional STOCK voucher (the stock walks take no scenario), and no report offers Alt+F8. **OURS, recorded rather than fixed:** the Material In / Material Out entry's order picker (`MaterialMovementEntryViewModel`) still offers an Optional Job Work order; a material voucher linked to it posts, but `JobWorkReports` skips the order, so its fulfilment is not reported until the order is regularised. |
+| **Tests** | None — these are the open halves. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

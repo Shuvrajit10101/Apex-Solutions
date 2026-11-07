@@ -1036,6 +1036,7 @@ public static class CanonicalMapper
     {
         Id = v.Id, TypeId = v.TypeId, Number = v.Number, Date = Iso(v.Date),
         Narration = v.Narration, PartyId = v.PartyId, Cancelled = v.Cancelled, PostDated = v.PostDated,
+        Optional = v.Optional,   // v69 (census 5.7)
         Allocations = v.Allocations.Select(MapInventoryAllocation).ToList(),
         DestinationAllocations = v.DestinationAllocations.Select(MapInventoryAllocation).ToList(),
         OrderLines = v.OrderLines.Select(MapOrderLine).ToList(),

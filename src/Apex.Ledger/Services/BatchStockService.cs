@@ -238,7 +238,7 @@ public sealed class BatchStockService
 
         foreach (var v in _company.InventoryVouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;
             var type = _company.FindVoucherType(v.TypeId);
             if (type is null || !type.AffectsStock) continue;
             foreach (var a in v.Allocations.Concat(v.DestinationAllocations))
@@ -368,7 +368,7 @@ public sealed class BatchStockService
 
         foreach (var v in _company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             foreach (var a in v.Allocations.Concat(v.DestinationAllocations))
                 if (a.StockItemId == bucket.StockItemId && a.GodownId == bucket.GodownId &&
                     Normalise(a.BatchLabel) == bucket.Batch && a.Direction == StockDirection.Inward)

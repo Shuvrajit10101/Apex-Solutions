@@ -85,14 +85,14 @@ public sealed class LineNarrationV68SchemaTests
             var linesBefore = ReadScalar(path, "SELECT COUNT(*) FROM entry_lines;");
             Assert.True(billRowsBefore >= 2);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(67L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.DoesNotContain("narration", ColumnNames(path, "entry_lines"));
 
             Company reloaded;
             using (var store = new SqliteCompanyStore(path)) reloaded = store.Load(company.Id)!;
 
-            Assert.Equal(68L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Contains("narration", ColumnNames(path, "entry_lines"));
             Assert.Equal(linesBefore, ReadScalar(path, "SELECT COUNT(*) FROM entry_lines;"));
             Assert.Equal(billRowsBefore, ReadScalar(path, "SELECT COUNT(*) FROM bill_allocations;"));
@@ -123,14 +123,15 @@ public sealed class LineNarrationV68SchemaTests
             using (var store = new SqliteCompanyStore(migratedPath))
                 store.Save(CompanyFactory.CreateSeeded("Migrated Narration Co", FyStart));
 
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
             Assert.DoesNotContain("narration", ColumnNames(migratedPath, "entry_lines"));
 
             using (new SqliteCompanyStore(migratedPath)) { }
             Assert.Equal(TableInfo(freshPath, "entry_lines"), TableInfo(migratedPath, "entry_lines"));
             Assert.Equal(Schema.V68EntryLineColumns, new[] { "narration" });
             Assert.DoesNotContain("UPDATE ", Schema.MigrateV67ToV68);
-            Assert.Equal(68, Schema.CurrentVersion);
+            // Re-baselined 68 -> 69 (census 5.7, wave 10): v69 adds only inventory_vouchers.optional.
+            Assert.Equal(69, Schema.CurrentVersion);
         }
         finally
         {
@@ -154,7 +155,7 @@ public sealed class LineNarrationV68SchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(company);
             var indexesBefore = IndexNames(path, "entry_lines").OrderBy(n => n).ToList();
 
-            using (var conn = Open(path)) { SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "entry_lines"));
             Assert.Equal(indexesBefore, IndexNames(path, "entry_lines").OrderBy(n => n).ToList());
@@ -163,7 +164,7 @@ public sealed class LineNarrationV68SchemaTests
 
             Company reloaded;
             using (var store = new SqliteCompanyStore(path)) reloaded = store.Load(company.Id)!;
-            Assert.Equal(68L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             // What a downgrade means: the narration is gone, the figures are not.
             Assert.All(reloaded.Vouchers.SelectMany(x => x.Lines), l => Assert.Null(l.Narration));
             Assert.Equal(2, reloaded.Vouchers.Count);

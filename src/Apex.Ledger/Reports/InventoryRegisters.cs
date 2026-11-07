@@ -128,7 +128,7 @@ public static class InventoryRegisters
         var rows = new List<OrderRegisterRow>();
         foreach (var v in company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             if (v.Date < from || v.Date > to) continue;
             if (v.PostDated && v.Date > to) continue;
             var type = company.FindVoucherType(v.TypeId);
@@ -174,7 +174,7 @@ public static class InventoryRegisters
 
         foreach (var v in company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             if (v.Date < from || v.Date > to) continue;
             if (v.PostDated && v.Date > to) continue;
             var type = company.FindVoucherType(v.TypeId);

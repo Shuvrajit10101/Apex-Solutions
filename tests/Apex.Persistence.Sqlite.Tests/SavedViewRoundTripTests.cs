@@ -297,6 +297,10 @@ public sealed class SavedViewRoundTripTests
             id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL, stock_item_id TEXT NOT NULL,
             godown_id TEXT NOT NULL, batch_label TEXT NULL, quantity_micro INTEGER NOT NULL,
             rate_paisa INTEGER NOT NULL, mfg_date TEXT NULL, expiry_date TEXT NULL);
+        -- inventory_vouchers is required because the chain now runs through the v68 -> v69 Optional
+        -- stock voucher migration (census 5.7), whose ALTER TABLE inventory_vouchers ADD COLUMN optional needs
+        -- the table to exist (a real book has had it since the inventory-voucher rung).
+        CREATE TABLE inventory_vouchers (id TEXT NOT NULL PRIMARY KEY);
         CREATE TABLE inventory_allocations (
             id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL,
             line_order INTEGER NOT NULL, role INTEGER NOT NULL, stock_item_id TEXT NOT NULL,
