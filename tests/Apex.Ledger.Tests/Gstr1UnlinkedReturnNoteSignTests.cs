@@ -303,9 +303,15 @@ public class Gstr1UnlinkedReturnNoteSignTests
         Assert.Equal(3_600.00m, r.TotalCgst.Amount);
         Assert.Equal(3_600.00m, r.TotalSgst.Amount);
 
-        // And the linked note stays OUT of the HSN sweep, as it always has: Table 12 shows the sale only.
-        Assert.Equal(50_000.00m, Row(r, TaxedHsn).TaxableValue.Amount);
-        Assert.Equal(20_000.00m, r.ExemptNilNonGstValue.Amount);
+        // ~~And the linked note stays OUT of the HSN sweep, as it always has: Table 12 shows the sale only.~~
+        // 🔴 T2-167 (census 6.12, wave 10, track ga, §2X IV-297): THAT WAS THE DEFECT, AND THIS LINE PINNED IT. Keeping
+        // the linked note out of Table 12 while its tax nets the header is what made GSTR-9 Table 17 (Σ Table 12)
+        // disagree with Table 4 / 3.1(a). The note now nets Table 12 and the exempt bucket ONCE, off BuildTable9B — so
+        // the linked shape files exactly what the UNLINKED shape files in this same class (40,000 / 15,000, lines
+        // 86 and 103), and "not twice" now reads: never 30,000 / 10,000.
+        Assert.Equal(40_000.00m, Row(r, TaxedHsn).TaxableValue.Amount);   // was 50,000 (the note ignored)
+        Assert.Equal(3_600.00m, Row(r, TaxedHsn).Cgst.Amount);            // == the header, head by head
+        Assert.Equal(15_000.00m, r.ExemptNilNonGstValue.Amount);          // was 20,000
     }
 
     /// <summary>

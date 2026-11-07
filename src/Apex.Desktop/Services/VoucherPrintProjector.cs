@@ -785,7 +785,7 @@ public static class VoucherPrintProjector
             items.Add(new InvoiceItemRow
             {
                 Description = ReportPrintProjector.Ascii(ledger.Name),
-                HsnSac = ReportPrintProjector.Ascii(Gstr1.ServiceSacOf(ledger) ?? string.Empty),
+                HsnSac = ReportPrintProjector.Ascii(Gstr1.ServiceSacOf(company, ledger) ?? string.Empty),
                 QuantityText = string.Empty, // a service carries no quantity …
                 RateText = string.Empty,     // … and no per-unit rate
                 TaxableValue = new Money(value),

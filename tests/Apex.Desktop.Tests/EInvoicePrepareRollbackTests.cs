@@ -230,7 +230,7 @@ public sealed class EInvoicePrepareRollbackTests : IDisposable
 
         // The IRP path is genuinely reachable: this is a refusal of something the app would otherwise have emitted.
         Assert.Equal(EInvoiceCoverage.Covered, new EInvoiceService(c).CoverageOf(sale));
-        Assert.Null(Gstr1.ServiceSacOf(consultancy));
+        Assert.Null(Gstr1.ServiceSacOf(c, consultancy));
         _storage.Save(c);
         return (c, sale, consultancy);
     }
