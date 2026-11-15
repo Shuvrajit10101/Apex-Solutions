@@ -212,6 +212,10 @@ public sealed class JobWorkSchemaTests
         -- they are declared here for the ALTERs to land on — exactly as voucher_inventory_lines is.
         CREATE TABLE cost_centres (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
+        -- inventory_vouchers is required because the chain now runs through the v68 -> v69 Optional
+        -- stock voucher migration (census 5.7), whose ALTER TABLE inventory_vouchers ADD COLUMN optional needs
+        -- the table to exist (a real book has had it since the inventory-voucher rung).
+        CREATE TABLE inventory_vouchers (id TEXT NOT NULL PRIMARY KEY);
         CREATE TABLE inventory_allocations (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, inventory_voucher_id TEXT NOT NULL DEFAULT '', line_order INTEGER NOT NULL DEFAULT 0, stock_item_id TEXT NOT NULL DEFAULT '', godown_id TEXT NOT NULL DEFAULT '', quantity_micro INTEGER NOT NULL DEFAULT 0, direction INTEGER NOT NULL DEFAULT 0);
         -- ledgers + stock_items are required because the chain now runs through the v24→v25 TDS/TCS migration,
         -- whose ALTER TABLE ledgers/stock_items ADD COLUMN … need the tables to exist.

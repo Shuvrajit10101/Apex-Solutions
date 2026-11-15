@@ -63,7 +63,7 @@ public sealed class InventoryLedger
         // vouchers carry their counts on PhysicalLines (not Allocations), so they contribute nothing here.
         foreach (var v in _company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             if (v.Date <= from || v.Date > to) continue;
             var type = _company.FindVoucherType(v.TypeId);
             if (type is null || !type.AffectsStock) continue;
@@ -281,7 +281,7 @@ public sealed class InventoryLedger
     /// </summary>
     private bool Counts(InventoryVoucher v, DateOnly asOf)
     {
-        if (v.Cancelled) return false;
+        if (v.Cancelled || v.Optional) return false;
         if (v.Date > asOf) return false;
         if (v.PostDated && v.Date > asOf) return false; // redundant with the date bound, kept for clarity
         var type = _company.FindVoucherType(v.TypeId);

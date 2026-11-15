@@ -755,6 +755,30 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV68ToV69"/> (census rows <b>5.7 / 5.8</b>): removes
+    /// <see cref="Schema.V69InventoryVoucherColumns"/> (<c>inventory_vouchers.optional</c>) and stamps
+    /// <c>schema_version</c> back to <b>68</b>.
+    ///
+    /// <para>🔴 <b><see cref="RebuildPreservingShape"/>, NOT <see cref="DropColumns"/></b>: <c>inventory_vouchers</c>
+    /// is the FK PARENT of the allocation, order-line, physical-line, additional-cost, job-work and material-link
+    /// tables, and a rebuild of a parent must keep its PRIMARY KEY. Its key is a TEXT id (no AUTOINCREMENT), so
+    /// this rung carries no residual.</para>
+    ///
+    /// <para><b>WHAT IS LOST:</b> every Optional mark on a stock/order voucher — such a voucher becomes LIVE and
+    /// moves stock again. A <c>SetPostDated</c> (ordinal 5) edit-log row is left in place: the downgrade is a
+    /// test-fixture manoeuvre, and the reader casts the ordinal without validating it. ⚠️ <b>This is now the TOP
+    /// rung</b> — to reach v67 run this, then <see cref="V68ToV67"/>.</para>
+    /// </summary>
+    public static void V69ToV68(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "inventory_vouchers", Schema.V69InventoryVoucherColumns, "inventory_vouchers_v68");
+
+        Exec(connection, "UPDATE schema_version SET version = 68;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV67ToV68"/> (census row <b>5.11</b>): removes
     /// <see cref="Schema.V68EntryLineColumns"/> (<c>entry_lines.narration</c>) and stamps <c>schema_version</c>
     /// back to <b>67</b>.
@@ -773,7 +797,7 @@ public static class SchemaDowngrade
     /// path.</para>
     ///
     /// <para><b>WHAT IS LOST:</b> every per-ledger narration. No figure moves; the voucher-level narration on
-    /// <c>vouchers</c> is untouched. ⚠️ <b>This is now the TOP rung</b> — to reach v66 run this, then
+    /// <c>vouchers</c> is untouched. ⚠️ To reach v66 from a v69 file run <see cref="V69ToV68"/>, then this, then
     /// <see cref="V67ToV66"/>.</para>
     /// </summary>
     public static void V68ToV67(SqliteConnection connection)

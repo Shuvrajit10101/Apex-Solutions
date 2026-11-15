@@ -478,7 +478,7 @@ public sealed class StockValuationService
 
     private bool Counts(InventoryVoucher v, DateOnly asOf)
     {
-        if (v.Cancelled) return false;
+        if (v.Cancelled || v.Optional) return false;
         if (v.Date > asOf) return false;
         var type = _company.FindVoucherType(v.TypeId);
         return type is not null && type.AffectsStock;

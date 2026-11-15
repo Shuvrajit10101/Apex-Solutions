@@ -164,6 +164,14 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     /// <summary>Ctrl+T — marks the voucher post-dated (excluded from on-hand until its date is reached).</summary>
     [ObservableProperty] private bool _isPostDated;
 
+    /// <summary>
+    /// Ctrl+L — marks the stock/order voucher <b>Optional</b> (schema v69, census 5.7): posted and listed in the
+    /// Day Book and the Optional Vouchers register, moving no stock until it is regularised with Ctrl+L again.
+    /// Vendor: <i>"Any voucher in TallyPrime can be marked as Optional by pressing Ctrl+L (Optional) during voucher
+    /// entry or in alteration mode"</i> (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/).
+    /// </summary>
+    [ObservableProperty] private bool _isOptional;
+
     /// <summary>Error/status line surfaced under the grid (rejected posting, blank rows, imbalance, …).</summary>
     [ObservableProperty] private string? _message;
 
@@ -539,6 +547,7 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         VoucherNumber = v.Number;
         Narration = v.Narration ?? string.Empty;
         IsPostDated = v.PostDated;
+        IsOptional = v.Optional;          // v69 (census 5.7) — seeded so Ctrl+L in alteration regularises it
         SelectedParty = v.PartyId is { } pid
             ? Parties.First(p => p.Ledger?.Id == pid)
             : Parties.First(p => p.IsNone);
@@ -1195,12 +1204,42 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
         // unable to ask for one by accident.
         if (!TryBuild(existing.Id, existing.Number, existing.Cancelled, out var replacement)) return false;
 
+        // 🔴 Census 5.7 / 5.8 (v69) — THE PROVISIONAL-STATE DELTA IS APPLIED THROUGH ITS OWN VERBS, FIRST. Replace
+        // refuses a replacement that moves Optional or Post-Dated (that move decides whether the voucher moves
+        // stock at all, and must be logged as SetOptional / SetPostDated, not as an Alter). So Ctrl+L / Ctrl+T on
+        // this screen are applied by those verbs before Replace runs, which then sees no delta. The accounting
+        // screen's CommitAlteration does the same. Every failure path below puts both flags back, newest first.
+        var optionalWas = existing.Optional;
+        var postDatedWas = existing.PostDated;
+        VoucherEditLogEntry? optionalEntry = null;
+        VoucherEditLogEntry? postDatedEntry = null;
+        try
+        {
+            if (replacement.Optional != optionalWas)
+            {
+                _service.SetOptional(existing.Id, replacement.Optional);
+                optionalEntry = _company.LastVoucherEditLogEntry;
+            }
+            if (replacement.PostDated != postDatedWas)
+            {
+                _service.SetPostDated(existing.Id, replacement.PostDated);
+                postDatedEntry = _company.LastVoucherEditLogEntry;
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            RollBackFlags(existing.Id, optionalEntry, optionalWas, postDatedEntry, postDatedWas);
+            Message = $"Cannot alter: {ex.Message}";
+            return false;
+        }
+
         try
         {
             _service.Replace(existing.Id, replacement);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
+            RollBackFlags(existing.Id, optionalEntry, optionalWas, postDatedEntry, postDatedWas);
             Message = $"Cannot alter: {ex.Message}";
             return false;
         }
@@ -1233,6 +1272,11 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
                     if (_company.LastVoucherEditLogEntry is { } appended)
                         _service.DiscardUncommittedEditLogEntry(appended);
 
+                // v69 — and the flag moves, which were appended BEFORE the two above (LIFO is the only order the
+                // discard accepts). A save that did not commit must not leave the voucher Optional / post-dated
+                // on the book while the .db holds the other state.
+                RollBackFlags(existing.Id, optionalEntry, optionalWas, postDatedEntry, postDatedWas);
+
                 Message = $"Could not save the company: {ex.Message} The alteration was not kept — nothing was "
                         + "changed.";
             }
@@ -1252,6 +1296,26 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
     }
 
     /// <summary>
+    /// Puts back the Ctrl+L / Ctrl+T flag moves of an alteration that did not commit, newest first (Post-Dated was
+    /// applied after Optional). A no-op for a flag that did not move. Swallows a refusal so the caller's own, more
+    /// precise message survives — the engine's guard refuses only a rollback that describes no change.
+    /// </summary>
+    private void RollBackFlags(Guid voucherId, VoucherEditLogEntry? optionalEntry, bool optionalWas,
+        VoucherEditLogEntry? postDatedEntry, bool postDatedWas)
+    {
+        if (postDatedEntry is not null)
+        {
+            try { _service.DiscardUncommittedPostDatedChange(voucherId, postDatedEntry, postDatedWas); }
+            catch (InvalidOperationException) { }
+        }
+        if (optionalEntry is not null)
+        {
+            try { _service.DiscardUncommittedOptionalChange(voucherId, optionalEntry, optionalWas); }
+            catch (InvalidOperationException) { }
+        }
+    }
+
+    /// <summary>
     /// The one build path both verbs use: dispatches on the base type to the four builders and turns a friendly
     /// pre-validation failure into <see cref="Message"/>. Returns false with <see cref="Message"/> set.
     /// </summary>
@@ -1267,6 +1331,9 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
                 VoucherBaseType.StockJournal => BuildStockJournal(narration, id, number, cancelled),
                 _ => BuildMovementNote(narration, id, number, cancelled),
             };
+            // v69 (census 5.7): Ctrl+L. Set here, once, for all four builders — the domain takes it after
+            // construction, exactly as the store's reader does.
+            voucher.Optional = IsOptional;
             return true;
         }
         catch (InvalidValidationException ex)
@@ -1408,6 +1475,11 @@ public sealed partial class InventoryVoucherEntryViewModel : ViewModelBase, ISet
 
     /// <summary>Ctrl+T — toggles the post-dated flag for this voucher.</summary>
     public void TogglePostDated() => IsPostDated = !IsPostDated;
+
+    /// <summary>Ctrl+L — toggles the Optional flag for this voucher (census 5.7, schema v69). In alteration the
+    /// move is applied through <c>InventoryPostingService.SetOptional</c> at Ctrl+A (the vendor's
+    /// <i>"regularise the transaction by opening it and pressing Ctrl+L"</i>).</summary>
+    public void ToggleOptional() => IsOptional = !IsOptional;
 
     /// <summary>Esc / the Cancel button: discards the in-progress voucher and returns to the Gateway. (Alt+X
     /// stopped reaching here in Phase 10.11 S3 — it now cancels a POSTED voucher from a report.)</summary>

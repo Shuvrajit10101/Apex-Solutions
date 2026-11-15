@@ -206,7 +206,7 @@ public static class ItemCostAnalysis
         // only; that is why the quantity columns are reported beside the money instead of being derived from it.
         foreach (var v in company.InventoryVouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;
             foreach (var a in v.Allocations.Concat(v.DestinationAllocations))
             {
                 if (a.CostTrackingNumber is not { } tracking) continue;

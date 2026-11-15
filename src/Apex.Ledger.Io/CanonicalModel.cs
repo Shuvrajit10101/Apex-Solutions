@@ -1914,6 +1914,16 @@ public sealed record InventoryVoucherDto
     public Guid? PartyId { get; init; }
     public bool Cancelled { get; init; }
     public bool PostDated { get; init; }
+
+    /// <summary>
+    /// Ctrl+L on a stock/order voucher (schema v69, census 5.7). Written only when true
+    /// (<see cref="System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault"/>), so every pre-v69
+    /// book exports byte-identically (ER-13) and an older file without the member reads as live.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+    public bool Optional { get; init; }
+
     public IReadOnlyList<InventoryAllocationDto> Allocations { get; init; } = [];
     public IReadOnlyList<InventoryAllocationDto> DestinationAllocations { get; init; } = [];
     public IReadOnlyList<OrderLineDto> OrderLines { get; init; } = [];

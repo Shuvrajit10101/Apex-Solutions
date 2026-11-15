@@ -141,7 +141,7 @@ internal static class InventoryMovements
     /// <summary>Mirrors <see cref="InventoryLedger"/>'s counting rule for pure-stock vouchers.</summary>
     private static bool CountsPureStock(Company company, InventoryVoucher v, DateOnly asOf)
     {
-        if (v.Cancelled) return false;
+        if (v.Cancelled || v.Optional) return false;
         if (v.Date > asOf) return false;
         var type = company.FindVoucherType(v.TypeId);
         // Physical-Stock counts are checkpoints, surfaced separately — they are not linear movements.

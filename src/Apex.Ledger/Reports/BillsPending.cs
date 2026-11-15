@@ -131,7 +131,7 @@ public sealed record PendingTrackingNumber(
 /// <para><b>The bill side uses the SHARED voucher filter</b> (<see cref="LedgerBalances.CountsAsOf"/>): cancelled
 /// and <b>optional</b> vouchers are excluded and a post-dated one counts only once its date has arrived, so this
 /// report can never disagree with the balances about which bills exist. The goods side excludes cancelled notes
-/// and not-yet-due post-dated ones — an inventory voucher has no Optional flag. A row whose two sides agree
+/// and not-yet-due post-dated ones, and (since v69) Optional notes. A row whose two sides agree
 /// exactly is omitted from both sections rather than listed with a zero.</para>
 ///
 /// <para><b>R7 — ATTESTED.</b> <c>help.tallysolutions.com/purchase-order-tally/</c> names the report
@@ -274,8 +274,8 @@ public static class BillsPending
         // ── The GOODS side: pure-inventory note vouchers. ────────────────────────────────────────────────
         foreach (var v in company.InventoryVouchers)
         {
-            // An InventoryVoucher has no Optional flag, so Cancelled + the date bound is the whole rule here.
-            if (v.Cancelled || v.Date > asOf) continue;
+            // v69: an InventoryVoucher carries Optional too (census 5.7), so it is excluded alongside Cancelled.
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;
             var type = company.FindVoucherType(v.TypeId);
             if (type is null || type.BaseType != notesType) continue;
 

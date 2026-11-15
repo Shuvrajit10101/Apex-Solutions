@@ -301,7 +301,7 @@ public sealed class ExceptionReportsViewModelTests : IDisposable
     // =============================================================== shell nav wiring (Reports → Exception Reports)
 
     [Fact]
-    public void ExceptionReports_menu_lists_the_six_reports_under_one_section()
+    public void ExceptionReports_menu_lists_the_eight_reports_under_one_section()
     {
         var vm = new MainWindowViewModel(_storage);
         vm.LoadRobertDemo();
@@ -311,8 +311,11 @@ public sealed class ExceptionReportsViewModelTests : IDisposable
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
         Assert.Equal(GatewayMenu.ExceptionReports, vm.CurrentGatewayMenu);
 
-        // One "Exception Reports" section header, six report items — never a flat dump. Census 11.13 (wave 8)
+        // One "Exception Reports" section header, eight report items — never a flat dump. Census 11.13 (wave 8)
         // added Overdue Receivables / Overdue Payables; Alt+G Go To reaches them through these rows (IV-247).
+        // Census 5.7 / 5.8 (wave 10) added Optional Vouchers / Post-Dated Vouchers — the vendor's own route,
+        // "Gateway of Tally > Display More Reports > Exception Reports > Optional Vouchers" (and Post-Dated
+        // Vouchers), help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/.
         var headers = vm.Menu.Where(m => m.IsHeader).Select(m => m.Label).ToArray();
         Assert.Equal(new[] { "Exception Reports" }, headers);
         var items = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
@@ -320,7 +323,7 @@ public sealed class ExceptionReportsViewModelTests : IDisposable
             new[]
             {
                 "Negative Stock", "Negative Cash / Bank", "Memorandum Register", "Reversing Journal Register",
-                "Overdue Receivables", "Overdue Payables",
+                "Optional Vouchers", "Post-Dated Vouchers", "Overdue Receivables", "Overdue Payables",
             },
             items);
     }
@@ -330,6 +333,8 @@ public sealed class ExceptionReportsViewModelTests : IDisposable
     [InlineData("Negative Cash / Bank", ReportKind.NegativeCashBank)]
     [InlineData("Memorandum Register", ReportKind.MemorandumRegister)]
     [InlineData("Reversing Journal Register", ReportKind.ReversingJournalRegister)]
+    [InlineData("Optional Vouchers", ReportKind.OptionalVouchersRegister)]
+    [InlineData("Post-Dated Vouchers", ReportKind.PostDatedVouchersRegister)]
     [InlineData("Overdue Receivables", ReportKind.OverdueReceivables)]
     [InlineData("Overdue Payables", ReportKind.OverduePayables)]
     public void Activating_an_exception_item_opens_that_report_proving_labels_match_routing(
