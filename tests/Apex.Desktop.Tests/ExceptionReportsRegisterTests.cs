@@ -55,9 +55,8 @@ public sealed class ExceptionReportsRegisterTests : IDisposable
     /// fixture posted accounting vouchers only, and <see cref="ListedNumbers"/> resolved through the accounting
     /// slot alone, so a listed stock row (which carries <see cref="Guid.Empty"/> there) would have been silently
     /// DROPPED rather than caught. That two-aggregate discipline is the defect class census rows 4.9–4.16 exist
-    /// to record. The Post-Dated register is the one of the three that can carry it: <c>InventoryVoucher</c> has
-    /// <c>PostDated</c> and <c>Cancelled</c> but no <c>Optional</c> member at all (see
-    /// <c>ExceptionVouchers.OptionalScopeNote</c>), and census 5.2 records that no stock voucher can be cancelled
+    /// to record. Since schema v69 (census 5.7) both the Post-Dated and the Optional registers carry one (905 and
+    /// 907); before v69 <c>InventoryVoucher</c> had no <c>Optional</c> member at all. Census 5.2 records that no stock voucher can be cancelled
     /// through any route in this product — so an inventory row on the Cancelled register would be a fixture
     /// asserting something the product cannot produce.</para>
     /// </summary>
@@ -117,6 +116,13 @@ public sealed class ExceptionReportsRegisterTests : IDisposable
 
         posting.Post(Stock(905, postDated: true));
         posting.Post(Stock(906, postDated: false));   // ordinary stock — must appear in NO register
+
+        // v69 (census 5.7): a pure-stock voucher marked OPTIONAL. Until v69 InventoryVoucher had no Optional member
+        // and the Optional register carried a scope note saying so; the register must now list this one, through
+        // the pure-stock drill slot, and only on the Optional register.
+        var optional = Stock(907, postDated: false);
+        optional.Optional = true;
+        posting.Post(optional);
     }
 
     private static void Key(MainWindow window, PhysicalKey key, RawInputModifiers mods = RawInputModifiers.None)
@@ -221,7 +227,7 @@ public sealed class ExceptionReportsRegisterTests : IDisposable
     /// list only 904; one that listed every stock row regardless of the flag would also pick up 906.</para>
     /// </summary>
     [AvaloniaTheory]
-    [InlineData("Optional Vouchers", new[] { 902 })]
+    [InlineData("Optional Vouchers", new[] { 902, 907 })]
     [InlineData("Cancelled Vouchers", new[] { 903 })]
     [InlineData("Post-Dated Vouchers", new[] { 904, 905 })]
     public void Each_register_lists_only_the_vouchers_carrying_its_own_flag(string label, int[] expected)
@@ -517,26 +523,19 @@ public sealed class ExceptionReportsRegisterTests : IDisposable
         finally { window.Close(); }
     }
 
-    // ===================================================== F2: the Optional scope limit reaches the screen
+    // ===================================================== v69: the Optional register reads BOTH aggregates
 
     /// <summary>
-    /// 🔴 <b>REVIEW FINDING F2 (SEV1) — THE OPTIONAL REGISTER'S SCOPE LIMIT IS A DEAD KNOB UNLESS IT IS A ROW.</b>
+    /// 🔴 <b>CENSUS 5.7 (v69) — THE OPTIONAL REGISTER CARRIES A STOCK VOUCHER IN THE PURE-STOCK DRILL SLOT.</b>
+    /// The former F2 scope note ("a stock/order voucher cannot be marked Optional in this application") is struck
+    /// at v69 because it became false; this test is what replaces it. Receipt Note 907 is Optional and must be
+    /// listed with its id in <c>DrillInventoryVoucherId</c> and an empty accounting slot.
     ///
-    /// <para><b>The defect.</b> <c>ExceptionVouchers.OptionalScopeNote</c> carries a red-flag comment insisting
-    /// the limit must be surfaced — a stock/order voucher cannot be marked Optional in this product at all, so an
-    /// Optional register that says nothing reads as "no stock voucher is Optional", which is a different and
-    /// untrue statement. The builder surfaced it by calling <c>Footnote()</c>, which appends to
-    /// <c>PayrollFootnotes</c>; the only panel bound to that collection is inside a Grid gated on
-    /// <c>IsPayrollMatrix</c>, and <c>IsPayrollMatrix</c> does not list the exception registers. The sentence was
-    /// therefore written into a panel this report kind can never render. It is now a trailing
-    /// <c>ReportRow</c> — the same mechanism the empty state already uses.</para>
-    ///
-    /// <para>Asserted on <c>Reports.Rows</c>, which is what the grid renders and what both projectors read, so it
-    /// also travels into the print and the export. The other two registers must NOT carry it — the limit is real
-    /// only for Optional, and a note repeated on a register it does not apply to is its own defect.</para>
+    /// <para><b>Mutation:</b> restoring the pre-v69 <c>!row.IsInventory &amp;&amp; …</c> arm of
+    /// <c>ExceptionVouchers.Matches</c> reddens this (907 is not listed).</para>
     /// </summary>
     [AvaloniaFact]
-    public void The_optional_register_states_its_accounting_only_scope_on_the_register_itself()
+    public void The_optional_register_carries_an_optional_stock_voucher_in_the_pure_stock_drill_slot()
     {
         var (window, vm) = NewWindow();
         try
@@ -545,42 +544,12 @@ public sealed class ExceptionReportsRegisterTests : IDisposable
             Key(window, PhysicalKey.J, RawInputModifiers.Control);
             ArrowToAndEnter(window, vm, "Optional Vouchers");
 
-            Assert.Contains(vm.Reports!.Rows, r => r.Particulars == ExceptionVouchers.OptionalScopeNote);
-
-            // It is NOT on the other two, whose flags both aggregates can carry.
-            foreach (var other in new[] { "Cancelled Vouchers", "Post-Dated Vouchers" })
-            {
-                OpenDayBook(vm);
-                Key(window, PhysicalKey.J, RawInputModifiers.Control);
-                ArrowToAndEnter(window, vm, other);
-                Assert.DoesNotContain(vm.Reports!.Rows, r => r.Particulars == ExceptionVouchers.OptionalScopeNote);
-            }
-        }
-        finally { window.Close(); }
-    }
-
-    /// <summary>
-    /// 🔴 <b>THE EMPTY REGISTER IS WHERE FINDING F2 BIT HARDEST.</b> With nothing marked Optional the only
-    /// visible sentence was "No voucher in this period is marked Optional" — precisely the reading
-    /// <c>OptionalScopeNote</c>'s own comment says must be prevented, because a stock voucher could not have been
-    /// marked one in the first place. Both sentences must be on the screen together.
-    /// </summary>
-    [AvaloniaFact]
-    public void An_empty_optional_register_still_states_the_scope_limit_beside_its_empty_note()
-    {
-        var (window, vm) = NewWindow();
-        try
-        {
-            // A window with no vouchers at all in it, so the register is genuinely empty.
-            var empty = Day.AddYears(5);
-            vm.OpenExceptionRegister(ReportKind.OptionalVouchersRegister, empty, empty.AddDays(1));
-            Dispatcher.UIThread.RunJobs();
-            var register = vm.Reports!;
-
-            Assert.DoesNotContain(register.Rows, r => r.DrillVoucherId != Guid.Empty);
-            Assert.Contains(register.Rows,
-                r => r.Particulars == ExceptionVouchers.EmptyNoteFor(ExceptionVoucherKind.Optional));
-            Assert.Contains(register.Rows, r => r.Particulars == ExceptionVouchers.OptionalScopeNote);
+            var stockId = vm.Company!.InventoryVouchers.Single(v => v.Number == 907).Id;
+            var row = Assert.Single(vm.Reports!.Rows, r => r.DrillInventoryVoucherId == stockId);
+            Assert.Equal(Guid.Empty, row.DrillVoucherId);
+            // And no row on the register still claims a stock voucher cannot be Optional.
+            Assert.DoesNotContain(vm.Reports!.Rows,
+                r => (r.Particulars ?? "").Contains("cannot be marked Optional", StringComparison.Ordinal));
         }
         finally { window.Close(); }
     }

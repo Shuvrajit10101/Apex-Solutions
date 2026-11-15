@@ -1641,10 +1641,12 @@ internal sealed class ImportPlan
             : t.FindInventoryVoucher(id)?.Id
             ?? throw new InvalidOperationException($"Material voucher references unknown Job Work order {id}.")).ToList();
 
-        return InventoryVoucher.FromStorage(Guid.NewGuid(), typeId, date,
+        var imported = InventoryVoucher.FromStorage(Guid.NewGuid(), typeId, date,
             source, destination, orderLines, physicalLines,
             v.Number, v.Narration, party, v.Cancelled, v.PostDated,
             additionalCostLines, jobWorkOrder, orderLinks);
+        imported.Optional = v.Optional;   // v69 (census 5.7): Ctrl+L on a stock/order voucher
+        return imported;
     }
 
     private JobWorkOrder BuildJobWorkOrder(

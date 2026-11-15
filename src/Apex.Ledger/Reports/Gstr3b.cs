@@ -680,6 +680,8 @@ public sealed record Gstr3b(
             // A §34 CDN-linked voucher is projected — signed — by its own table (3.1(a) via ReadCdn / GSTR-1 Table 9B),
             // so a zero-tax (exempt) §34 note must NOT also land in the exempt/nil/non-GST bucket, else GSTR-3B over-states
             // exempt outward and diverges from the GSTR-1 main sweep (which already skips CDN-linked vouchers). Finding #6.
+            // 🔴 T2-166 (wave 10): "projected by its own table" covered the note's TAX only — its exempt value is
+            // netted after this loop, off the link walk, exactly once (see the block below the loop).
             // 🔴 THE RCM AND §34 GUARDS STAY AHEAD OF THE MIXED-INVOICE BRANCH BELOW, deliberately: before T2-93 a
             // taxable voucher short-circuited on `Any(l => l.HasGst)` before ever reaching them, so admitting mixed
             // vouchers without this ordering would newly feed an RCM or linked-§34 voucher's exempt leg into 3.1(c) —
@@ -706,17 +708,50 @@ public sealed record Gstr3b(
             // — ER-5: an UNRESOLVED rate is not an exemption), so the two returns cannot drift. The taxed lines'
             // value is still counted exactly once, by ReadSide via InvoiceTaxableValue, which reads the POSTED tax
             // lines' TaxableValue and therefore never includes an exempt line — so there is no double count.
-            if (v.Lines.Any(l => l.HasGst))
-            {
-                var valueLedger = GstReportSupport.BucketingValueLedger(company, v);
-                foreach (var il in v.InventoryLines)
-                    if (GstReportSupport.IsNonTaxableStockLine(company, v, valueLedger, il))
-                        exempt += sign * il.Value.Amount;
-                continue;
-            }
+            exempt += sign * ExemptValueOf(company, v);
+        }
 
-            exempt += sign * v.InventoryLinesValue.Amount;
+        // 🔴 T2-166 (census 6.12, wave 10, §2X) — A LINKED §34 NOTE OF AN EXEMPT SUPPLY REDUCES 3.1(c).
+        // The sweep above `continue`s on every linked note, and the comment there said the note is "projected —
+        // signed — by its own table (3.1(a) via ReadCdn)". That is true of its TAX and its TAXED value only:
+        // ReadCdn reads InvoiceTaxableValue, which is the posted tax lines' TaxableValue and so 0 for an exempt line.
+        // An exempt credit note linked to a sale therefore reduced nothing at all — GSTR-9C 5R −370.35 on a reloaded
+        // book (books turnover netted the return; the returns did not). It is netted HERE, off the SAME link walk
+        // and filters ReadCdn uses (date, CountsAsOf, registration, the T2-162 inward-original skip) and ReadCdn's
+        // own sign (Credit −1, Debit +1), so the exempt half and the taxed half of one note cannot be counted under
+        // two different rules. The per-line split is ExemptValueOf, the same one the sweep above uses, so a taxed
+        // line is never counted here (it is in ReadCdn) and an exempt line never in ReadCdn. GSTR-1's exempt bucket
+        // nets the same notes (Gstr1.BuildTable9B, T2-167), so the two returns still agree.
+        // OURS, NOT YET FIXED: a note linked to a PURCHASE is skipped here as it is in ReadCdn — it is the
+        // supplier's document. Where the screen posts such a note against a SALES ledger the books still move; that
+        // is the posting-side T2-164 class and is recorded in IV-297.
+        if (company.CreditDebitNoteLinks.Count == 0) return exempt;
+        foreach (var link in company.CreditDebitNoteLinks)
+        {
+            var v = company.FindVoucher(link.CdnVoucherId);
+            if (v is null || v.Date < from) continue;
+            var type = company.FindVoucherType(v.TypeId);
+            if (type is null || !LedgerBalances.CountsAsOf(v, to, type.BaseType)) continue;
+            if (registrationId is { } reg && GstReportSupport.RegistrationOf(v) != reg) continue;
+            if (GstReportSupport.IsInwardLinkedCreditDebitNote(company, v)) continue;
+            if (GstReportSupport.IsOutwardReverseChargeSupply(company, v)) continue;
+            var sign = link.CdnType == CdnType.Credit ? -1m : 1m;
+            exempt += sign * ExemptValueOf(company, v);
         }
         return exempt;
+    }
+
+    /// <summary>The exempt/nil/non-GST stock value one outward document carries: its non-taxable stock lines when it
+    /// posted any tax (T2-93's mixed invoice, the shared per-line engine predicate — ER-5: an unresolved rate is not an
+    /// exemption), else its whole stock value. Unsigned; the caller applies the document's sign.</summary>
+    private static decimal ExemptValueOf(Company company, Voucher v)
+    {
+        if (!v.Lines.Any(l => l.HasGst)) return v.InventoryLinesValue.Amount;
+        var valueLedger = GstReportSupport.BucketingValueLedger(company, v);
+        var value = 0m;
+        foreach (var il in v.InventoryLines)
+            if (GstReportSupport.IsNonTaxableStockLine(company, v, valueLedger, il))
+                value += il.Value.Amount;
+        return value;
     }
 }

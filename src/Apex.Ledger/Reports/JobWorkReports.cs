@@ -115,7 +115,7 @@ public static class JobWorkReports
         var rows = new List<JobWorkOrderRow>();
         foreach (var v in company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             if (v.Date < from || v.Date > to) continue;
             if (v.PostDated && v.Date > to) continue;
             if (v.JobWorkOrder is not { } jwo || jwo.Direction != direction) continue;
@@ -162,7 +162,7 @@ public static class JobWorkReports
         var total = 0m;
         foreach (var mv in company.InventoryVouchers)
         {
-            if (mv.Cancelled) continue;
+            if (mv.Cancelled || mv.Optional) continue;
             if (!mv.OrderLinks.Contains(orderId)) continue;
             if (company.FindVoucherType(mv.TypeId)?.BaseType != fulfillingBaseType) continue;
             var lines = fulfilling == StockDirection.Outward ? mv.Allocations : mv.DestinationAllocations;
@@ -179,7 +179,7 @@ public static class JobWorkReports
         var rows = new List<MaterialRegisterRow>();
         foreach (var v in company.InventoryVouchers)
         {
-            if (v.Cancelled) continue;
+            if (v.Cancelled || v.Optional) continue;
             if (v.Date < from || v.Date > to) continue;
             if (v.PostDated && v.Date > to) continue;
             var type = company.FindVoucherType(v.TypeId);

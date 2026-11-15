@@ -43,6 +43,17 @@ public enum VoucherEditVerb
     /// move is still a real edit and still appends a line; only the label is now the truth.</para>
     /// </summary>
     SetOptional = 4,
+
+    /// <summary>
+    /// <b>Ctrl+T</b> — <c>LedgerService.SetPostDated</c> / <c>InventoryPostingService.SetPostDated</c>. The
+    /// voucher's Post-Dated flag moved, in either direction, and nothing else about it changed (schema <b>v69</b>,
+    /// census row 5.8). Its own ordinal for the reason <see cref="SetOptional"/> got one: the discard guard of the
+    /// compensating undo must be able to tell its own entry from a content <see cref="Alter"/>.
+    ///
+    /// <para><b>Additive, and inert for every existing book.</b> No pre-v69 <c>voucher_edit_log</c> row can carry
+    /// this ordinal, so no stored entry's meaning changes and the v69 migration back-fills nothing (ER-13).</para>
+    /// </summary>
+    SetPostDated = 5,
 }
 
 /// <summary>

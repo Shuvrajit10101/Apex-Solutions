@@ -266,7 +266,7 @@ public sealed class Inv01LedgerLegPreflightTests
         var exempt = Gstr1.ServiceLegs(company, sale)
             .Single(l => Gstr1.IsNonTaxableServiceLedger(l.Ledger)).Ledger;
         Assert.NotNull(exempt.SalesPurchaseGst);
-        Assert.Null(Gstr1.ServiceSacOf(exempt));
+        Assert.Null(Gstr1.ServiceSacOf(company, exempt));
 
         var ex = Assert.Throws<InvalidOperationException>(() => EInvoiceJson.BuildInv01(company, sale));
         Assert.Contains("Exempt Income", ex.Message);
@@ -309,7 +309,7 @@ public sealed class Inv01LedgerLegPreflightTests
         var (company, sale) = TaxableOnlyServiceInvoice(taxedSac: sac);
 
         // The premise: the code IS declared, so the T1-81 blank guard does not fire and this is the only thing left.
-        Assert.Equal(sac, Gstr1.ServiceSacOf(company.FindLedgerByName("Consultancy Income")!));
+        Assert.Equal(sac, Gstr1.ServiceSacOf(company, company.FindLedgerByName("Consultancy Income")!));
 
         var ex = Assert.Throws<InvalidOperationException>(() => EInvoiceJson.BuildInv01(company, sale));
         Assert.Contains("Consultancy Income", ex.Message);

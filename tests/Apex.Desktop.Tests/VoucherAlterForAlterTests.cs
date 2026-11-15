@@ -587,8 +587,11 @@ public sealed class VoucherAlterForAlterTests
     /// and the screen now calls <c>LedgerService.SetOptional</c>. The divergence that ends is the SCREEN's
     /// refusal, not the engine primitive's.</para>
     ///
-    /// <para><b>Ctrl+T is deliberately NOT changed in the same way</b> — see the post-dated sibling below, which
-    /// still asserts a refusal. The two are not symmetrical: a post-dated voucher releases itself when its date is
+    /// <para>~~<b>Ctrl+T is deliberately NOT changed in the same way</b> — see the post-dated sibling below, which
+    /// still asserts a refusal.~~ 🔴 <b>SUPERSEDED, wave 10 (census 5.8, track gd):</b> the wave plan's brief ruled
+    /// that Ctrl+T in alteration reaches <c>LedgerService.SetPostDated</c> the way Ctrl+L reaches SetOptional, and
+    /// the sibling below now asserts the move (IV-310 records the part that is ours). The original reasoning is kept
+    /// struck-through below for the record. The two are not symmetrical: a post-dated voucher releases itself when its date is
     /// reached (<c>LedgerBalances.CountsAsOf</c>: <c>if (v.PostDated &amp;&amp; v.Date &gt; asOf) return false;</c>),
     /// which is what the vendor describes as happening "automatically", so no operator verb is owed. An Optional
     /// voucher releases on nothing at all, which is why it needed one.</para>
@@ -627,10 +630,17 @@ public sealed class VoucherAlterForAlterTests
             book.Company.VoucherEditLog[0].BeforeSnapshot, StringComparison.Ordinal);
     }
 
-    /// <summary>Dropping a Memorandum's Post-Dated flag mid-alteration is refused by name (row 28's stated
-    /// outcome: it fails the refusal, not a balance check).</summary>
+    /// <summary>
+    /// ~~Dropping a Memorandum's Post-Dated flag mid-alteration is refused by name (row 28's stated outcome: it fails
+    /// the refusal, not a balance check).~~ 🔴 <b>INVERTED, wave 10 (census 5.8):</b> Ctrl+T in alteration now marks
+    /// the voucher Current through <c>LedgerService.SetPostDated</c>, logged under its own verb BEFORE the content
+    /// replace — the exact shape the Optional sibling above took. Vendor, opened by content 2026-11-02
+    /// (help.tallysolutions.com/tally-prime/accounting/accounting-entry-tally/): <i>"This button toggles with
+    /// Current."</i> The engine guard is unchanged: <c>LedgerService.Replace</c> still refuses the move for every
+    /// other caller.
+    /// </summary>
     [Fact]
-    public void Constraint2_dropping_the_post_dated_flag_during_an_alteration_is_refused_by_name()
+    public void Constraint2_dropping_the_post_dated_flag_during_an_alteration_marks_it_current_through_its_own_verb()
     {
         using var book = AlterationBook.New("postdated");
         var dr = book.Ledger("Memo Dr", "Indirect Expenses");
@@ -644,9 +654,18 @@ public sealed class VoucherAlterForAlterTests
         var open = book.ForAlter(posted.Id);
         open.Entry!.TogglePostDated();
 
-        Assert.False(open.Entry.AcceptAlteration());
-        Assert.Contains("Post-dated", open.Entry.Message!, StringComparison.Ordinal);
-        Assert.Equal(before, book.Export());
+        Assert.True(open.Entry.AcceptAlteration(), open.Entry.Message);
+
+        var live = book.Company.FindVoucher(posted.Id)!;
+        Assert.False(live.PostDated);
+        Assert.Equal(posted.Number, live.Number);
+        Assert.NotEqual(before, book.Export());
+
+        // The flag verb's line first, then the content replace's — never one Alter that hides the flag move.
+        Assert.Equal(2, book.Company.VoucherEditLog.Count);
+        Assert.Equal(VoucherEditVerb.SetPostDated, book.Company.VoucherEditLog[0].Verb);
+        Assert.Contains("\"PostDated\":true",
+            book.Company.VoucherEditLog[0].BeforeSnapshot, StringComparison.Ordinal);
     }
 
     /// <summary>Moving a Reversing Journal's Applicable Upto mid-alteration is refused, and the refusal names
