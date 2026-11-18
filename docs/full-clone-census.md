@@ -122,6 +122,13 @@ A **capability** is one thing a user would name when asking "can it do X" — th
 > THAN THE PRODUCT: THE DESKTOP SUITE WRITES 30 MB OF REAL BACKUP FILES INTO THE USER'S ONEDRIVE-SYNCED
 > `Documents` FOLDER, WHERE ONEDRIVE LOCKS THEM AND THE LOCAL GATE GOES NON-DETERMINISTIC.**
 >
+> 🟡 **"THE ONE WAVE-10 LANDING" WAS TRUE WHEN WRITTEN AND IS STALE NOW — CORRECTED 2026-11-18 BY A12 WHILE
+> LANDING THIS CENSUS.** Wave 10 had **four** tracks, and all four are now merged on `main` (`0843b83`):
+> `gd` PR #201 (`8aa61cf`), `ga` PR #202 (`e8c44ca`, 2026-11-07), `gb` PR #204 (`ba3d06b`, 2026-11-18) and
+> `gc` PR #205 (`0843b83`, 2026-11-18), with the CI fix PR #206 (`d38c1b4`) between them. **No row moved for
+> any of them:** rows 6.4 and 6.12 (`ga`) stay `PARTIAL`, as do 5.7 and 5.8 (`gd`); the wave's total move is
+> still **ZERO**, and the `awk` `TOTAL` below is unchanged on the merged tree. No state token is changed by this note.
+>
 > Literal `awk` output before this commit, on `main` at **`fdc94d7`**: **`TOTAL rows=219 C=86 P=128 A=5 U=0
 > sum=219`**. Literal `awk` output after it, on merged `main` at **`8aa61cf`**: **`TOTAL rows=219 C=86 P=128
 > A=5 U=0 sum=219`**. **The move is `+0 rows, +0 complete, +0 partial, +0 absent` — ZERO.** Area 5's heading
