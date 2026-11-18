@@ -18,8 +18,17 @@ public enum ClosingStockMode
 /// owning ledger's stable id (RQ-7 universal drill-down): Enter on the line opens that ledger's vouchers
 /// (a <see cref="LedgerBook"/>) for the period. A default (<c>Guid.Empty</c>) id marks a non-drillable
 /// synthetic line; <see cref="IsDrillable"/> is the guard the UI checks.
+///
+/// <para>Census 11.2 (wave 10, track gc, IV-309): <see cref="GroupName"/> / <see cref="GroupId"/> name the line's
+/// PRIMARY group (Sales Accounts, Direct Expenses, Indirect Incomes, ...), the key the condensed (Alt+F1) view rolls
+/// up on. Vendor (TallyPrime), help.tallysolutions.com/working-with-reports/, opened by content 2026-11-02:
+/// <i>"Press Alt+F1 or Alt+F5 (Detailed/Condensed) to view the next level of details for all line entries"</i>;
+/// help.tallysolutions.com/profit-and-loss-statement-tally/, same day: <i>"Indirect Expenses will be deducted from
+/// the Gross Profit to show the Nett Profit."</i> Empty on a line built without a group (it then rolls up under its
+/// section header, the pre-wave-10 behaviour).</para>
 /// </summary>
-public sealed record ProfitAndLossLine(string LedgerName, Money Amount, Guid LedgerId = default)
+public sealed record ProfitAndLossLine(
+    string LedgerName, Money Amount, Guid LedgerId = default, string GroupName = "", Guid GroupId = default)
 {
     /// <summary>True iff Enter should drill this line into its ledger's vouchers (a real ledger line).</summary>
     public bool IsDrillable => LedgerId != Guid.Empty;
@@ -145,7 +154,8 @@ public sealed record ProfitAndLoss(
             if (!ClassificationRules.IsProfitAndLossGroup(group, company))
                 continue; // Balance-Sheet ledger
 
-            var nature = ClassificationRules.PrimaryNatureOf(group, company);
+            var primary = ClassificationRules.PrimaryAncestorOf(group, company);
+            var nature = primary.Nature;
             var signed = SignedFor(ledger);
 
             if (nature == GroupNature.Income)
@@ -154,7 +164,7 @@ public sealed record ProfitAndLoss(
                 var magnitude = -signed;
                 if (magnitude != 0m)
                 {
-                    income.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id));
+                    income.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id, primary.Name, primary.Id));
                     totalIncome += magnitude;
                 }
             }
@@ -163,7 +173,7 @@ public sealed record ProfitAndLoss(
                 var magnitude = signed; // debit side, positive
                 if (magnitude != 0m)
                 {
-                    expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id));
+                    expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id, primary.Name, primary.Id));
                     totalExpense += magnitude;
                 }
             }

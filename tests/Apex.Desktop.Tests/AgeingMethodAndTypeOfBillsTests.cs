@@ -449,6 +449,10 @@ public sealed class AgeingMethodAndTypeOfBillsTests : IDisposable
         Assert.Equal("Ageing by Due Date", f.Vm.Columns[f.Vm.ActiveColumnIndex].Selected?.Label);
 
         ArrowToAndEnter(window, f.Vm, "Ageing by Bill Date");
+        // Wave 10 (IV-305): the vendor's step 4, "Specify the required ageing criteria and press Enter." — Enter on
+        // the seeded criteria accepts the basis's own windows.
+        Assert.Equal(Screen.AgeingCriteria, f.Vm.CurrentScreen);
+        Press(window, PhysicalKey.Enter);
 
         Assert.Equal(Screen.Report, f.Vm.CurrentScreen);
         Assert.Equal(kind, f.Vm.Reports!.Kind);
@@ -462,6 +466,7 @@ public sealed class AgeingMethodAndTypeOfBillsTests : IDisposable
         // And back: F6, Enter on "Ageing by Due Date".
         Press(window, PhysicalKey.F6);
         ArrowToAndEnter(window, f.Vm, "Ageing by Due Date");
+        Press(window, PhysicalKey.Enter);
         Assert.Equal(AgeingMethod.ByDueDate, f.Vm.Reports!.AgeingMethod);
         if (kind == ReportKind.ReceivablesOutstanding)
             Assert.Equal(DueBucketsAll, SecondBand(f.Vm.Reports!));

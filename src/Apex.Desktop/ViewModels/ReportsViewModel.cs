@@ -555,6 +555,13 @@ public sealed partial class ReportsViewModel : ViewModelBase
     private AgeingMethod _ageingMethod = AgeingMethod.ByDueDate;
 
     /// <summary>
+    /// Census 11.13 / 11.9 (T2-24, IV-305) — the operator's F6 ageing windows, or null for the basis's own fixed
+    /// set. Handed to the engine with <see cref="_ageingMethod"/>; reset with it when the viewer moves to a kind
+    /// without F6, and not captured by Alt+K saved views (IV-308).
+    /// </summary>
+    private AgeingPeriod[]? _ageingPeriods;
+
+    /// <summary>
     /// Census 11.13 — the Ctrl+B <b>Basis of Values &gt; Type of Bills</b> choice on Bills Receivable / Payable.
     /// Handed to <c>Outstandings.Build</c>, which applies the one overdue predicate; nothing here filters.
     /// </summary>
@@ -762,13 +769,42 @@ public sealed partial class ReportsViewModel : ViewModelBase
     public static string TypeOfBillsLabel(TypeOfBills type) =>
         type == TypeOfBills.OverdueBills ? "Overdue Bills" : "All Bills";
 
-    /// <summary>F6 — sets the ageing basis and re-projects. A no-op where F6 is not the Ageing Method.</summary>
+    /// <summary>Sets the ageing basis alone and re-projects; a no-op where F6 is not the Ageing Method. Not on the
+    /// keyboard path: there F6 goes picker, then criteria (<c>MainWindowViewModel.OpenAgeingCriteria</c>), which
+    /// accepts basis and windows together through <see cref="SetAgeingCriteria"/>. Operator windows in force are
+    /// kept only on a same-basis call. A due-date set starts at day 1 and a bill-date set at day 0, so no set is
+    /// valid on both bases and a real basis switch always falls back to the new basis's own windows (IV-307).</summary>
     public void SetAgeingMethod(AgeingMethod method)
     {
-        if (!SupportsAgeingMethod) return;
+        var keep = _ageingPeriods is { } p && Outstandings.TryWindowsFor(method, p, out _) is not null ? p : null;
+        SetAgeingCriteria(method, keep);
+    }
+
+    /// <summary>
+    /// Census 11.13 / 11.9 (T2-24, IV-305) — the <b>F6 ageing criteria</b>: the operator's own windows, or null for
+    /// the basis's fixed set. Handed to the engine with the basis; nothing here buckets a bill.
+    /// </summary>
+    public IReadOnlyList<AgeingPeriod>? AgeingPeriods => _ageingPeriods;
+
+    /// <summary>
+    /// F6 then the ageing criteria — sets the basis AND the windows, then re-projects. Periods equal to the basis's
+    /// defaults are stored as null, so an unchanged accept is the untouched report. Returns the refusal text when
+    /// the engine refuses the periods (nothing changes then), else an empty string. A no-op off the four views.
+    /// </summary>
+    public string SetAgeingCriteria(AgeingMethod method, IReadOnlyList<AgeingPeriod>? periods)
+    {
+        if (!SupportsAgeingMethod) return string.Empty;
+        if (periods is not null)
+        {
+            if (Outstandings.TryWindowsFor(method, periods, out var error) is null) return error;
+            if (Outstandings.SamePeriods(periods, Outstandings.DefaultPeriodsFor(method))) periods = null;
+        }
         _ageingMethod = method;
+        _ageingPeriods = periods is null ? null : periods.ToArray();
         OnPropertyChanged(nameof(AgeingMethod));
+        OnPropertyChanged(nameof(AgeingPeriods));
         Show(Kind);
+        return string.Empty;
     }
 
     /// <summary>Ctrl+B — sets the Type of Bills and re-projects. A no-op off Bills Receivable / Payable.</summary>
@@ -1811,6 +1847,12 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             _ageingMethod = AgeingMethod.ByDueDate;
             OnPropertyChanged(nameof(AgeingMethod));
+        }
+        // IV-305: the operator's windows follow the basis — a kind without F6 does not carry them to the next one.
+        if (!SupportsAgeingMethod && _ageingPeriods is not null)
+        {
+            _ageingPeriods = null;
+            OnPropertyChanged(nameof(AgeingPeriods));
         }
         if (!SupportsTypeOfBills && _typeOfBills != TypeOfBills.AllBills)
         {
@@ -3076,9 +3118,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         IsTwoColumn = false;
 
         AddProfitAndLossSide("Income", "Total Income",
-            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId)), pl.TotalIncome);
+            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId, i.GroupName)), pl.TotalIncome);
         AddProfitAndLossSide("Expenses", "Total Expenses",
-            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId)), pl.TotalExpenses);
+            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId, e.GroupName)), pl.TotalExpenses);
 
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
@@ -3089,18 +3131,22 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// <summary>Adds one P&amp;L side (Income/Expenses) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>
     private void AddProfitAndLossSide(
         string header, string totalLabel,
-        IEnumerable<(string LedgerName, Money Amount, Guid LedgerId)> lines, Money total)
+        IEnumerable<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> lines, Money total)
     {
         Rows.Add(new ReportRow { Particulars = header, IsHeader = true });
 
-        // P&L lines carry no group key on the projection; the summary roll-up keys on the section header so a
-        // rolled-up side collapses to a single "Income"/"Expenses" total row (still Σ==detailed). A rolled-up
-        // row is NOT a single ledger, so it carries Guid.Empty (not drillable); a detailed row keeps its
-        // ledger id so Enter (RQ-7) drills into that ledger's vouchers.
+        // Census 11.2 (wave 10, track gc, IV-309): the condensed (Alt+F1) view rolls each side up to one row per
+        // PRIMARY group — Sales Accounts, Direct Incomes, Purchase Accounts, Indirect Expenses, ... — the key the
+        // projection now carries (ProfitAndLossLine.GroupName). Vendor: "Press Alt+F1 or Alt+F5 (Detailed/Condensed)
+        // to view the next level of details for all line entries" (help.tallysolutions.com/working-with-reports/).
+        // Before wave 10 the key was the section header, so each side collapsed to ONE row. A line with no group
+        // still falls back to the header. Σ of the group rows == the side total == Σ detailed. A rolled-up row is
+        // NOT a single ledger, so it carries Guid.Empty (not drillable); a detailed row keeps its ledger id so
+        // Enter (RQ-7) drills into that ledger's vouchers.
         var all = lines.ToList();
         IReadOnlyList<(string Name, Money Amount, Guid LedgerId)> shown = _options.Detailed
             ? all.Select(l => (l.LedgerName, l.Amount, l.LedgerId)).ToList()
-            : ReportGrouping.RollUp(all, _ => header, l => l.Amount)
+            : ReportGrouping.RollUp(all, l => string.IsNullOrEmpty(l.GroupName) ? header : l.GroupName, l => l.Amount)
                 .Select(g => (g.Key, g.Amount, Guid.Empty)).ToList();
 
         if (_options.HideZeroBalances)
@@ -5395,7 +5441,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
     {
         var asOf = _asOf;
         var method = _ageingMethod;
-        var report = OverdueBills.Build(_company, asOf, side, scenario: null, ageingMethod: method);
+        // IV-305: the operator's F6 windows ride into the same engine call as the basis.
+        var report = OverdueBills.Build(_company, asOf, side, scenario: null, ageingMethod: method,
+            ageingPeriods: _ageingPeriods);
         var receivable = side == OutstandingKind.Receivable;
         Title = receivable ? "Overdue Receivables" : "Overdue Payables";
         Subtitle = $"{CompanyName}  —  as at {FormatDate(asOf)}  —  {AgeingMethodLabel(method)}";
@@ -5424,7 +5472,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                     // Census 11.13 F6: the bill's ageing window under the chosen basis rides last, so the basis
                     // switch is visible on every bill row and not only in the summary band below the total.
                     Secondary = $"Due {FormatDate(b.DueDate)}  ·  Bill date {FormatDate(b.Date)}  ·  "
-                              + Outstandings.BucketLabel(b, asOf, method),
+                              + Outstandings.BucketLabel(b, asOf, method, report.Windows),
                     Amount = IndianFormat.Amount(b.Pending),
                     Indent = 18,
                     DrillVoucherId = b.OpeningVoucherId,
@@ -7804,9 +7852,11 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// Enter"</i>) and help.tallysolutions.com/manage-receivables-outstanding-tally/ (<i>"Press F6 (Ageing Method)
     /// to configure the report view as per ageing by bill dates or by due dates and set the ageing windows."</i>).
     /// F6 opens the two-row picker; the basis is handed to <c>Outstandings.Build</c>, which buckets on
-    /// <c>Outstandings.BucketsFor(method)</c>. 🔴 <b>STILL NOT BUILT:</b> the vendor's "set the ageing windows" —
-    /// the window edges are fixed per basis (IV-286). Ctrl+B Type of Bills = Overdue Bills filters through the
-    /// same engine call (IV-287).</para>
+    /// <c>Outstandings.BucketsFor(method)</c>. 🟢 <b>WAVE 10 (track gc, IV-305):</b> the vendor's "set the ageing
+    /// windows" is built — after the basis, F6 opens the ageing criteria (From/To days), and the operator's periods
+    /// are handed to the same <c>Outstandings.Build</c> call; the per-bill Ageing cell is labelled from the report's
+    /// own <c>Windows</c>, so it cannot disagree with the summary band. Ctrl+B Type of Bills = Overdue Bills filters
+    /// through the same engine call (IV-287).</para>
     ///
     /// <para>🔴 <b>A THIRD SENTENCE WAS DELETED FROM THIS COMMENT RATHER THAN SOFTENED.</b> It read
     /// <i>"in the absence of a due date, the bill date becomes the due date"</i>, in quotation marks, attributed
@@ -7821,7 +7871,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var typeOfBills = _typeOfBills;
         // Census 11.13 — Ctrl+B Type of Bills and F6 Ageing Method are both handed to the ONE engine; nothing in
         // this builder filters or re-buckets a bill.
-        var report = Outstandings.Build(_company, asOf, scenario: null, ageingMethod: method, typeOfBills: typeOfBills);
+        var report = Outstandings.Build(_company, asOf, scenario: null, ageingMethod: method, typeOfBills: typeOfBills,
+            ageingPeriods: _ageingPeriods);
         var receivable = side == OutstandingsKind.Receivables;
         var bills = receivable ? report.Receivables : report.Payables;
         var ageing = receivable ? report.ReceivableAgeing : report.PayableAgeing;
@@ -7855,7 +7906,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
                 // Blank rather than "0" on a bill that is not yet due: a literal zero in an "Overdue Days"
                 // column reads as "due today and unpaid", which is a different fact from "not due yet".
                 overdue > 0 ? overdue.ToString(CultureInfo.InvariantCulture) : string.Empty,
-                Outstandings.BucketLabel(b, asOf, method)));
+                Outstandings.BucketLabel(b, asOf, method, report.Windows)));
         }
 
         // Census 11.13 (wave 9 review): under Type of Bills = Overdue Bills the total is the OVERDUE total, and the
@@ -7893,12 +7944,14 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // The footnote says which basis the figures are on. It is not decoration: the reference product lets an
         // operator switch the basis on F6, so a reader arriving from it will reasonably assume a basis was
         // chosen. Saying which one is what stops a by-due-date bucket being read as a by-bill-date one.
-        Footnote(method == AgeingMethod.ByBillDate
+        Footnote((method == AgeingMethod.ByBillDate
             ? "Ageing is measured from each bill's BILL date (F6: Ageing by Bill Date). The Overdue Days column is "
               + "still counted from the due date."
             : "Ageing is measured from each bill's DUE date (F6: Ageing by Due Date). A bill's due date is its own "
               + "credit period when one was entered on the reference, else the party ledger's default credit "
-              + "period, else the bill date. Press F6 for Ageing by Bill Date.");
+              + "period, else the bill date. Press F6 for Ageing by Bill Date.")
+            // IV-305: say when the windows are the operator's, so a printed page is not read as the default set.
+            + (_ageingPeriods is null ? string.Empty : " The ageing windows were set on F6 (ageing criteria)."));
     }
 
     // --------------------------------------------------------------- 11.10 Cost Centre reports (three)

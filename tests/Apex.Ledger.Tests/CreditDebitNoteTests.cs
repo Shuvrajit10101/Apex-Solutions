@@ -300,8 +300,17 @@ public sealed class CreditDebitNoteTests
 
         var g1 = Gstr1.Build(c, FyStart, ToEnd);
         var g3 = Gstr3b.Build(c, FyStart, ToEnd);
-        // Only the ₹1,000 plain sale is exempt outward — the CDN-linked voucher is excluded by BOTH returns, so they agree.
-        Assert.Equal(1000m, g1.ExemptNilNonGstValue.Amount);
+        // ~~Only the ₹1,000 plain sale is exempt outward — the CDN-linked voucher is excluded by BOTH returns, so they agree.~~
+        // 🔴 T2-166 / T2-167 (census 6.12, wave 10, track ga, §2X IV-297/IV-298): "excluded by both" was the defect —
+        // a linked exempt note reduced neither return's exempt turnover while the books netted it. Both returns now net
+        // it ONCE, off the link walk, with the link's own sign (Credit −1, the same sign BuildTable9B and ReadCdn give
+        // its tax), so the invariant this test exists for — the two returns AGREE — still holds, at 1,000 − 300.
+        // CAVEAT, said out loud: this fixture's "note" is a SALES voucher tagged with a Credit link (the latent shape
+        // the comment above names), so its BOOKS raise turnover while the link says reduce it. The returns follow the
+        // link, as they already did for a taxed note of this shape; the posting-side mismatch is the T2-164/T2-165
+        // class, deferred this wave. The 700 is pinned as "the link's sign, once, in both returns", not as a claim
+        // that this posting is a valid credit note.
+        Assert.Equal(700m, g1.ExemptNilNonGstValue.Amount);
         Assert.Equal(g1.ExemptNilNonGstValue.Amount, g3.ExemptNilNonGstOutward.Amount);
     }
 

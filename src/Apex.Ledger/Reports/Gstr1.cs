@@ -442,12 +442,14 @@ public sealed record Gstr1(
             .Select(kv => new Gstr1RateRow(kv.Key, new Money(kv.Value.Taxable), new Money(kv.Value.Tax)))
             .ToList();
 
-        var hsnRows = ToHsnRows(hsnAcc);
-
         // Phase 9 slice 2b: Table 9B (§34 CDN) — signed by note type — is folded into the output totals; 11A/11B are
         // projected off the advance records. All skipped byte-identically when the collections are empty (ER-13).
+        // 🔴 T2-167 (wave 10, §2X): BuildTable9B now also nets each LINKED outward note into the HSN summary and the
+        // exempt bucket, so the HSN rows are taken AFTER it rather than before.
         var table9B = BuildTable9B(
-            company, from, to, registrationId, unlinked9B, ref totalCgst, ref totalSgst, ref totalIgst);
+            company, from, to, registrationId, unlinked9B, ref totalCgst, ref totalSgst, ref totalIgst,
+            hsnAcc, ref exempt);
+        var hsnRows = ToHsnRows(hsnAcc);
         var (table11A, table11B) = BuildAdvanceTables(company, from, to, registrationId);
 
         return new Gstr1(from, to, b2b, b2cRows, rateRows, hsnRows,
@@ -552,7 +554,8 @@ public sealed record Gstr1(
     /// <c>GstRegistration.PrimaryId</c> and the filter is a no-op — every pre-v61 book is byte-identical (ER-13).</param>
     private static IReadOnlyList<Gstr1Table9BRow> BuildTable9B(
         Company company, DateOnly from, DateOnly to, Guid? registrationId, List<Gstr1Table9BRow> unlinked,
-        ref decimal totalCgst, ref decimal totalSgst, ref decimal totalIgst)
+        ref decimal totalCgst, ref decimal totalSgst, ref decimal totalIgst,
+        Dictionary<string, HsnAcc> hsnAcc, ref decimal exempt)
     {
         if (company.CreditDebitNoteLinks.Count == 0 && unlinked.Count == 0) return [];
 
@@ -582,6 +585,21 @@ public sealed record Gstr1(
             totalCgst += sign * heads.Cgst;
             totalSgst += sign * heads.Sgst;
             totalIgst += sign * heads.Igst;
+
+            // 🔴 T2-167 (census 6.12, wave 10, §2X) — A LINKED NOTE IS AN AGGREGATE ADJUSTMENT TOO, NOT ONLY A 9B
+            // DOCUMENT. The main sweep `continue`s on every linked note (load-bearing: it keeps the note's TAX out of
+            // the totals there, because this method folds it), and nothing else ever netted the note's value, tax
+            // and quantity into Table 12 — so a sales-linked credit note reduced 3.1(a) and the header but not the
+            // HSN summary, and GSTR-9 Table 17 (Σ Table 12) filed CGST 77.78 against Table 4 / 3.1(a) 44.45 on one
+            // annual return. The fix nets it HERE, off the SAME link walk and the SAME filters (date, registration,
+            // the T2-162 inward-original skip) that fold its tax, with the SAME sign — so Table 12 and the header
+            // cannot disagree about which notes count. An exempt line of the note nets the exempt bucket down, which
+            // is what keeps this bucket equal to GSTR-3B 3.1(c) (Gstr3b.ExemptOutwardValue, T2-166). An outward
+            // reverse-charge note with no forward tax is kept out exactly as the main sweep keeps its invoice out.
+            // Covers a sales-linked DEBIT note as well (§34(3), DirectionOf = Input, so the main sweep never saw it).
+            var noteHasTax = heads.Cgst != 0m || heads.Sgst != 0m || heads.Igst != 0m;
+            if (noteHasTax || !GstReportSupport.IsOutwardReverseChargeSupply(company, v))
+                AccumulateHsn(company, v, heads, hsnAcc, ref exempt, sign);
 
             rows.Add(new Gstr1Table9BRow(
                 link.CdnType, link.OriginalInvoiceVoucherId, link.OriginalInvoiceNumber, link.OriginalInvoiceDate,
@@ -920,7 +938,7 @@ public sealed record Gstr1(
                     if (IsNonTaxableServiceLedger(ledger))
                     {
                         exempt += sign * value;
-                        AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc, sign);
+                        AddServiceHsnRow(company, ledger, value, 0m, 0m, 0m, hsnAcc, sign);
                     }
             return;
         }
@@ -1350,7 +1368,7 @@ public sealed record Gstr1(
             if (IsNonTaxableServiceLedger(ledger))
             {
                 exempt += sign * value;
-                AddServiceHsnRow(ledger, value, 0m, 0m, 0m, hsnAcc, sign);
+                AddServiceHsnRow(company, ledger, value, 0m, 0m, 0m, hsnAcc, sign);
                 continue;
             }
             taxableLegs.Add((ledger, value));
@@ -1396,7 +1414,7 @@ public sealed record Gstr1(
                     igst = Apportion(group.Igst, value, groupValue);
                     runCgst += cgst; runSgst += sgst; runIgst += igst;
                 }
-                AddServiceHsnRow(ledger, value, cgst, sgst, igst, hsnAcc, sign);
+                AddServiceHsnRow(company, ledger, value, cgst, sgst, igst, hsnAcc, sign);
             }
         }
     }
@@ -1420,13 +1438,27 @@ public sealed record Gstr1(
     public static bool IsNonTaxableServiceLedger(Domain.Ledger ledger) =>
         ledger.SalesPurchaseGst is { IsTaxable: false };
 
-    /// <summary>The SAC a service-income ledger declares, or <c>null</c> when it declares none. The single resolver
-    /// GSTR-1's Table-12 rows and the e-invoice <c>HsnCd</c> both read, so the two can never disagree (FIX-6).</summary>
-    public static string? ServiceSacOf(Domain.Ledger ledger) =>
-        string.IsNullOrWhiteSpace(ledger.SalesPurchaseGst?.HsnSac) ? null : ledger.SalesPurchaseGst!.HsnSac;
+    /// <summary>The SAC a service-income ledger leg files, or <c>null</c> when no rung of the hierarchy declares one.
+    /// The single resolver GSTR-1's Table-12 rows, the e-invoice <c>HsnCd</c> and the printed invoice's HSN/SAC column
+    /// all read, so the three can never disagree (FIX-6).
+    /// <para>🔴 <b>Census 6.4, IV-254 closed (wave 10, §2X).</b> This used to read the ledger's OWN SAC block and
+    /// nothing else, so a service ledger that declared no SAC under a group declaring 998311 filed <c>(none)</c> in
+    /// Table 12, had its INV-01 refused, and printed a blank — while the stock path already walked the hierarchy. It
+    /// now walks the SAME five-rung hierarchy the stock path does, under <see cref="GstConfig.SourceOfHsnSacDetails"/>,
+    /// with no stock item (<see cref="GstReportSupport.HsnSacOf"/>). VENDOR (R7, help.tallysolutions.com "How to
+    /// Manage HSN Codes/SAC and Tax Rates in TallyPrime", opened by content 2026-11-02): "TallyPrime first checks the
+    /// ledger for the details. If not found there, it will move to the Group, then Stock Item, and so on", and "The
+    /// same explanation is true for even HSN/SAC details". With no stock item the two item rungs declare nothing, so
+    /// the effective order is Ledger → Group → Company under either option.</para></summary>
+    public static string? ServiceSacOf(Company company, Domain.Ledger ledger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(ledger);
+        return GstReportSupport.HsnSacOf(company, item: null, ledger);
+    }
 
     /// <summary>
-    /// Adds/accumulates a service-income ledger's SAC row: SAC = <c>ledger.SalesPurchaseGst.HsnSac</c>, description =
+    /// Adds/accumulates a service-income ledger's SAC row: SAC = <see cref="ServiceSacOf"/> (the hierarchy walk), description =
     /// the ledger name, taxable = the leg value, tax = the attributed heads. A service carries no unit, so the row
     /// declares a blank UQC and zero quantity (Table-12 rows for services have no quantity).
     /// </summary>
@@ -1435,10 +1467,10 @@ public sealed record Gstr1(
     /// ADDED to its SAC row files the same overstatement, and fixing only the goods half is exactly how the
     /// sign-of-a-note defect came back four times on this project.</param>
     private static void AddServiceHsnRow(
-        Domain.Ledger ledger, decimal value, decimal cgst, decimal sgst, decimal igst,
+        Company company, Domain.Ledger ledger, decimal value, decimal cgst, decimal sgst, decimal igst,
         Dictionary<string, HsnAcc> hsnAcc, decimal sign)
     {
-        var sac = ledger.SalesPurchaseGst?.HsnSac ?? "(none)";
+        var sac = ServiceSacOf(company, ledger) ?? "(none)";
         if (!hsnAcc.TryGetValue(sac, out var acc))
         {
             acc = new HsnAcc { HsnSac = sac, Description = ledger.Name };

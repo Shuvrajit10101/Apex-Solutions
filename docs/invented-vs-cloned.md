@@ -3228,8 +3228,8 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 |---|---|
 | **Severity** | **LOW. Class C. Area: GST (census 6.4).** |
 | **What the sources say** | The vendor hierarchy applies to "HSN/SAC details" generally. |
-| **What we ship** | **OURS, and a known gap.** The walk covers every STOCK line on GSTR-1 Table 12, GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01. An accounting (service) invoice's SAC is still read by `Gstr1.ServiceSacOf` off the service ledger's own block, so a service ledger that declares no SAC does not inherit its group's or the company's. Routing it would change which vouchers classify as service invoices (`IsServiceAccountingInvoice` keys on a SAC-bearing leg), which is wider than this track. |
-| **Tests** | None; filed so the row is not read as covering service legs. |
+| **What we ship** | ~~**OURS, and a known gap.** The walk covers every STOCK line on GSTR-1 Table 12, GSTR-9 Tables 17/18, the printed invoice, INV-01 and EWB-01. An accounting (service) invoice's SAC is still read by `Gstr1.ServiceSacOf` off the service ledger's own block, so a service ledger that declares no SAC does not inherit its group's or the company's. Routing it would change which vouchers classify as service invoices (`IsServiceAccountingInvoice` keys on a SAC-bearing leg), which is wider than this track.~~ 🔴 ~~**CLOSED in wave 10 (track `ga`, §2X, IV-295).**~~ 🟡 **HALF CLOSED in wave 10 (track `ga`, §2X, IV-295) — corrected by the wave-10 `ga` reviewer: the half for a ledger that HAS a GST block but no SAC is closed; the NO-BLOCK half is still open (see IV-295, "Still open").** `Gstr1.ServiceSacOf(company, ledger)` now walks `GstReportSupport.HsnSacOf(company, null, ledger)` under `SourceOfHsnSacDetails`, and every service-leg consumer reads it (GSTR-1 Table 12 and so GSTR-9 Table 17, INV-01 `HsnCd` on both the taxed and the exempt leg, the INV-01 T1-81 refusal, the printed invoice). **The classification worry struck above was wrong:** `Gstr1.ServiceLegs` keys on the ledger HAVING a `SalesPurchaseGst` block (`Gstr1.cs`, "not a service-income / SAC-bearing ledger" guard), not on the SAC string, so no voucher changes class. |
+| **Tests** | ~~None; filed so the row is not read as covering service legs.~~ See IV-295. |
 
 ## 2V. ADDED 2026-10-29 — WAVE 9 TRACK `fc`: THE JOB-WORK DELIVERY CHALLAN AND THE OUTWARD §34 DEBIT NOTE (census rows 5.11 / T2-163, IV-275..IV-279)
 
@@ -3299,7 +3299,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | | |
 |---|---|
 | **Severity** | **LOW. Class C. Area: PRN / GST.** |
-| **What we ship** | The HSN column is `GstReportSupport.HsnSacOf(item)`: the stock item's own HSN. Track `fa` is building the census 6.4 hierarchy walk (`SourceOfHsnSacDetails`) this wave and owns `GstReportSupport.cs`; this track did not touch it. When that walk lands, this call site should move to it along with the other HSN consumers. Until then, an item with no HSN of its own prints a blank HSN even if its group carries one. |
+| **What we ship** | ~~The HSN column is `GstReportSupport.HsnSacOf(item)`: the stock item's own HSN. Track `fa` is building the census 6.4 hierarchy walk (`SourceOfHsnSacDetails`) this wave and owns `GstReportSupport.cs`; this track did not touch it. When that walk lands, this call site should move to it along with the other HSN consumers. Until then, an item with no HSN of its own prints a blank HSN even if its group carries one.~~ 🔴 **STALE — corrected in wave 10 (track `ga`, §2X, IV-299).** The merge already moved this call site: `JobWorkChallanPrintProjector.cs:175` reads `GstReportSupport.HsnSacOf(company, item, null)`, the hierarchy walk under `SourceOfHsnSacDetails` (item, stock group, company rungs; no value ledger, because a job-work challan posts none). An item with no HSN of its own under a stock group or company that declares one prints that code. |
 | **Tests** | The HSN Tj is asserted for an item that carries its own HSN. The inherited case is not tested here. |
 
 ## 2U. ADDED 2026-10-29 — WAVE 9 TRACK `fb`: Ctrl+C COPY BoM AND ESCAPE BACK TO THE M BOM LIST (census row 3.9, IV-265..IV-268)
@@ -3433,6 +3433,135 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | The per-bill *Ageing* cell, the second-band buckets and its heading ("Ageing Analysis (by bill date)") follow F6; the *Overdue Days* column does not, because overdue is defined on the due date. A bill with no due date (and no credit period) is due on its bill date, so it ages identically under both bases. **OURS.** |
 | **Tests** | `AgeingMethodAndTypeOfBillsTests.Bills_receivable_buckets_under_both_bases_off_the_reloaded_book` (INV-A reads 80 overdue days and `90+ days` under bill-date ageing; INV-C with no due date reads `31-60 days` under both), `AgeingMethodTests.A_bill_without_a_due_date_ages_identically_under_both_bases_and_one_due_on_the_as_of_date_is_not_due`. M3 (builder ignores the basis) reddens five by name. |
 
+## 2X. ADDED 2026-11-02 — WAVE 10 TRACK `ga`: THE SERVICE-LEG SAC WALK AND THE LINKED §34 NOTE IN THE HSN SUMMARY AND 3.1(c) (census rows 6.4, 6.12 `T2-167` / `T2-166`, IV-295..IV-299)
+
+> **This track's block is IV-295..IV-299 and it takes all five.** The section letter `2X` is the wave plan's
+> pre-assignment; the entry NUMBERS are the stable handle.
+>
+> **Vendor ground** (TallyPrime), opened BY CONTENT on 2026-11-02:
+> `help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` ("How to Manage HSN Codes/SAC and
+> Tax Rates in TallyPrime") gives the two orders "Ledger → Group → Stock Item → Stock Group → Company" and
+> "Stock Item → Stock Group → Ledger → Group → Company", says "If not found there, it will move to the Group, then
+> Stock Item, and so on", and says "The same explanation is true for even HSN/SAC details." The page does NOT
+> discuss service ledgers specifically; applying the walk to a ledger-only (service) leg is the plain reading of
+> "HSN/SAC details", not a separate attestation. **No vendor page speaks to how a linked credit/debit note nets in
+> the HSN summary or in 3.1(c)**; IV-297 and IV-298 are therefore OURS, grounded in the returns' own arithmetic
+> (GSTR-9 Table 17 = Σ Table 12; GSTR-9C 5R = books − returns).
+
+### IV-295 · A service (ledger) leg files the hierarchy's SAC — closes the with-block half of IV-254 (census 6.4; the no-block half stays open)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C → cloned. Area: GST (census 6.4).** Filed returns and a government-portal document. |
+| **What TallyPrime does** | Walks Ledger → Group → … → Company for HSN/SAC details under the company's hierarchy option (vendor quotes above). |
+| **What we ship** | `Gstr1.ServiceSacOf(company, ledger)` = `GstReportSupport.HsnSacOf(company, null, ledger)` (`GstService.ResolveDocumentHsnSac`, under `SourceOfHsnSacDetails`). With no stock item both item rungs are silent, so either order reaches Ledger → Group → Company. Read by GSTR-1 Table 12 (`AddServiceHsnRow`, taxed and exempt service rows) and so GSTR-9 Table 17, INV-01 `HsnCd` on the taxed leg and on the exempt (`NonTaxableServiceLegs`) leg, the INV-01 T1-81 refusal (now refuses only when no rung declares a SAC, and says so), and the printed service invoice's HSN/SAC column. Measured before (origin/main fdc94d7): Table 12 `(none)`, INV-01 refused, the PDF cell blank. **Unchanged:** a ledger's own SAC still wins over its group's; classification (`IsServiceAccountingInvoice` / `Gstr1.ServiceLegs`) keys on the ledger HAVING a GST block, not on its SAC string, so no voucher changes class. The resolver now trims the code (it did not before). 🔴 **STILL OPEN — THE NO-BLOCK HALF OF IV-254 (added by the wave-10 `ga` reviewer; the census 6.4 cell names it, from the wave-9 review's probe P2).** Because `Gstr1.ServiceLegs`, `EInvoiceJson.ServiceLegsByRate` and the print projector's service lines all key on the ledger HAVING a `SalesPurchaseGst` block, a service ledger with NO block is not a service leg at all, so the hierarchy walk above is never asked. And the Ledger master screen never writes that block (`LedgerMasterViewModel`, "NOT written, on purpose … SalesPurchaseGst"), so every ledger a user creates in the app has none. Measured by the reviewer on f876b26 through the real Accounting Invoice entry mode, then reloaded through a fresh `CompanyStorage`: a ledger with no block under Sales Accounts declaring 998311 / 18% is offered, the rate walk taxes ₹12,345.67 at 18% (Output CGST and SGST ₹1,111.11 each), and then GSTR-1 Table 12 has **no row**, GSTR-9 Table 17 files **0** against Table 4 ₹12,345.67 / ₹1,111.11, INV-01 emits one item with **`HsnCd ""`** (not refused), and the tax-invoice print is **refused** (Grand Total 2,222.22 against the party leg 14,567.89). The same ledger WITH a block and no SAC files 998311 on every document (the half this entry closes). Not fixed here, because widening the service-leg predicate changes which vouchers classify as service invoices on every GST surface. |
+| **Tests** | `ServiceSacHierarchyWalkTests` (Desktop; book reloaded through a fresh `SqliteCompanyStore`; GSTR-1 / GSTR-9 JSON bytes, INV-01 JSON bytes, invoice PDF `Tj`; odd paisa ₹12,345.67): group and company carriers under both orders, own-SAC-wins control, exempt service leg, and the no-rung refusal. Mutations, each reverted at once: **M1** `ServiceSacOf` → ledger-only reddens 5 of 8 (all four carrier cases + the exempt case); **M2** the print call site → ledger-only reddens the same 5 at the PDF `Tj`; **M3** INV-01 taxed-leg `hsnCd` → ledger-only reddens 5 at `HsnCd`; **M4** INV-01 exempt-leg `hsnCd` → ledger-only reddens `An_exempt_service_leg_with_no_sac_files_its_groups_sac_too` at `HsnCd` index 1; **M5** the T1-81 refusal → ledger-only reddens 5 (refused); **M6** `AddServiceHsnRow` → ledger-only reddens 5 at Table 12. |
+
+### IV-296 · The INV-01 refusal text now names the group and the company
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: GST / e-invoice.** |
+| **What we ship** | **OURS.** When no rung declares a SAC the refusal reads "'X' declares no HSN/SAC code, and neither does its group nor the company. …" and still tells the user to enter it on the ledger. Under the Stock-Item-first option the two stock rungs are also consulted, but a ledger leg has no stock item, so they can never answer; the message does not mention them. |
+| **Tests** | `ServiceSacHierarchyWalkTests.When_no_rung_declares_a_sac_the_inv01_is_still_refused`. |
+
+### IV-297 · A linked §34 note nets into GSTR-1 Table 12 and the GSTR-1 exempt bucket (census 6.12 `T2-167`)
+
+| | |
+|---|---|
+| **Severity** | **HIGH. Class C (ours). Area: GST (census 6.12).** Wrong money on an annual return. |
+| **What the sources say** | No vendor page speaks. The return's own structure does: GSTR-9 Table 17 is the HSN summary of outward supplies, and Table 4 / GSTR-3B 3.1(a) already net the note. |
+| **What we ship** | **OURS.** `Gstr1.BuildTable9B` now also calls `AccumulateHsn` for each linked note, off the SAME link walk, filters (date, `CountsAsOf`, registration, the T2-162 inward-original skip) and sign (Credit −1, Debit +1) that fold its tax into the header, and the HSN rows are taken after it. An outward reverse-charge note with no forward tax is kept out, as the main sweep keeps its invoice out. The main sweep's `continue` on linked notes is unchanged (it is load-bearing for the tax). Measured before (sale 7 @ ₹123.45, linked credit note 3 @ ₹123.45, 18%): Table 12 / Table 17 taxable 864.15, CGST 77.78, qty 7 against 3.1(a) CGST 44.45. After: 493.80 / 44.45 / 44.44 / 4, equal to Table 4 head by head. **Residuals, not fixed:** a sales-linked DEBIT note is covered by the same code but has no test (the wave-10 reviewer measured one from outside on a reloaded book with Purchase Returns as its value ledger, the screen's shape: Table 12 / Table 17 = Table 4 head by head, 1,234.50 / 111.11 / 111.10; its 9C 5R −370.35 is `T2-165`); ~~the reverse-charge guard on this path is unpinned~~ the reverse-charge guard on this path is now pinned by `LinkedNoteGuardReloadTests.A_linked_credit_note_of_an_outward_reverse_charge_supply_files_no_hsn_row_and_no_exempt_value` (reviewer, mutation RM3); posting-side `T2-164` / `T2-165` (a note keyed against the wrong direction) are untouched. |
+| **Tests** | `LinkedNoteHsnAndExemptReloadTests.A_sales_linked_credit_note_nets_in_table_12_so_table_17_equals_3_1_a` (Persistence; reloaded book; GSTR-1 / 3B / 9 JSON bytes; 9C Table 11 and 5R 0.00). **M7** (the `AccumulateHsn` call disabled) reddens it (expected 49,380, actual 86,415) and `An_exempt_sales_linked_credit_note_reduces_3_1_c_so_9c_5r_is_zero` at the GSTR-1 exempt bucket. 🔴 **Two existing `Apex.Ledger.Tests` pinned the defect and were amended (old line struck in place, reason in the comment):** `Gstr1UnlinkedReturnNoteSignTests.A_linked_section_34_note_is_still_projected_once_through_Table_9B` asserted the linked note "stays OUT of the HSN sweep" (Table 12 50,000, exempt 20,000); it now asserts 40,000 / CGST 3,600 / 15,000, the same figures the UNLINKED shape files in that class. `CreditDebitNoteTests.A_cdn_linked_exempt_outward_voucher_reconciles_between_gstr1_and_gstr3b` asserted 1,000 ("excluded by both"); it now asserts 700 and that 3B agrees (its fixture is a Sales voucher tagged with a Credit link, a latent shape whose books and link disagree; the comment says so). M7 reddens both. |
+
+### IV-298 · A linked exempt §34 note reduces GSTR-3B 3.1(c) (census 6.12 `T2-166`)
+
+| | |
+|---|---|
+| **Severity** | **HIGH. Class C (ours). Area: GST (census 6.12).** |
+| **What we ship** | **OURS.** `Gstr3b.ExemptOutwardValue` keeps its `continue` on linked notes in the voucher sweep and then nets each linked note's exempt value once, off the link walk, with `ReadCdn`'s filters (date, `CountsAsOf`, registration, T2-162 inward-original skip, outward reverse charge) and sign. The per-line split is the shared `ExemptValueOf` (non-taxable stock lines of a taxed note; the whole stock value of an untaxed one), so a taxed line is counted only by `ReadCdn` and an exempt line only here. Measured before: 3.1(c) 864.15 and GSTR-9C 5R −370.35. After: 3.1(c) 493.80 = GSTR-1 exempt bucket = GSTR-9 Table 5 exempt; 5R 0. An UNLINKED exempt credit note gives the same 493.80 (control). **Residuals, not fixed:** 3.1(c) reads STOCK lines only; an exempt SERVICE ledger leg is in GSTR-1's exempt bucket but not in 3.1(c) for invoices and notes alike (pre-existing, not widened here); a linked note mixing taxed and exempt lines is covered by `ExemptValueOf` but not tested (the wave-10 reviewer measured one from outside on a reloaded book: 3.1(c) = GSTR-1 exempt = Table 5 = 285.72, Table 17 taxed = Table 4, 5R 0). The walk's reverse-charge and purchase-linked guards were unpinned on the builder's head; they are now pinned by `LinkedNoteGuardReloadTests` (reviewer, mutations RM4 and RM5). The exempt-service residual above is measured by the reviewer on a linked note too: an exempt service sale 1,234.57 with a linked credit note 400.01 files GSTR-1 exempt 834.56 against 3.1(c) and GSTR-9 Table 5 0, so 9C 5R reads 834.56 (on main the note was out of both returns and GSTR-1 read 1,234.57, so the two returns disagreed before this change as well). |
+| **Tests** | `LinkedNoteHsnAndExemptReloadTests.An_exempt_sales_linked_credit_note_reduces_3_1_c_so_9c_5r_is_zero`, `…An_unlinked_exempt_credit_note_files_the_same_3_1_c_as_the_linked_one`. **M8** (the netting loop short-circuited) reddens the first (expected 49,380, actual 86,415); **M9** (the note sign flipped) reddens it (actual 123,450). The walk's own filters (wave-10 `ga` verifier): the date floor (**FM2**) and the `CountsAsOf` ceiling (**FM3**) each redden the first test through GSTR-9's month-by-month fold (actual −283,935 and −24,690); the registration filter (**FM4**) was dead in `Apex.Ledger.Tests` and `Apex.Persistence.Sqlite.Tests` and is now pinned by `LinkedNoteRegistrationScopeReloadTests.An_exempt_linked_note_under_another_registration_does_not_move_this_registrations_3_1_c` (two-registration book, reloaded; Maharashtra 3.1(c) expected 35,715, actual 14,286). |
+
+### IV-299 · Correction: the job-work challan already walks the HSN hierarchy (IV-279 was stale)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Correction of record. Area: PRN / GST.** |
+| **What we ship** | `JobWorkChallanPrintProjector.cs:175` reads `GstReportSupport.HsnSacOf(company, item, null)`: the item, stock-group and company rungs under `SourceOfHsnSacDetails` (a challan has no value ledger, so the ledger rungs are silent). IV-279 is amended in place. |
+| **Tests** | `JobWorkChallanRouteTests.A_material_out_of_an_item_with_no_hsn_prints_its_stock_groups_hsn_on_the_reloaded_challan` (item with no HSN under a stock group declaring 741220; keyed with the real Ctrl+A, then re-read through a fresh `CompanyStorage`; `(741220) Tj`). **M10** (the call replaced by `ItemRungHsnSacOf(item)`) reddens it. |
+
+## 2Y. ADDED 2026-11-02 — WAVE 10 TRACK `gb`: THE BUDGET'S PARENT (OPEN), AND BUDGET / SCENARIO VERBS BY KEYS (census rows 2.9, 2.10, IV-300..IV-304)
+
+> **This track's block is IV-300..IV-304.** It takes **IV-300 … IV-303** and leaves IV-304 unused. The section
+> letter `2Y` is the wave plan's pre-assignment; the entry NUMBERS are the stable handle.
+>
+> **Vendor ground for the whole section** (TallyPrime). Every page below was opened BY CONTENT on 2026-11-02.
+> - **Live budget page** — `help.tallysolutions.com/budgets-tally/` (canonical `help.tallysolutions.com/budgets/`,
+>   "Last updated on: October 15, 2026"): step 3 of both "Create Budget for Ledgers" and "Create Budget for Cost
+>   Centres" reads **"Under : Select Primary or any other predefined groups, based on your requirement."**; the
+>   introduction reads **"You can also create multiple budgets with a hierarchical structure"**; and **"You can
+>   alter the Budgets whenever your business requirements change, and delete them when they are no longer
+>   needed."** The live page names no key for altering or deleting.
+> - **November 3, 2025 budget page** — the same URL, title "Create, Alter, and Delete Budgets in TallyPrime",
+>   "Last updated on: November 3, 2025", read off the web.archive.org snapshot **20260310093634** (the review cited
+>   20260617104331; the archive served the 20260310093634 capture for that request, and its content carries the
+>   same "November 3, 2025" stamp). It says: **"you need to create the budget under Primary from the List of
+>   Budgets. After the Department Budget is created, you can further go ahead and create specific Department
+>   Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main Department
+>   Budget. This shows the budget structure in a hierarchical form."** Its "Delete a Budget" section reads
+>   **"Select the required budget."** then **"Press Alt + D and press Y to delete."** and **"As a budget is only an
+>   estimation you can delete a budget without any dependency."** Its "Alter a Budget" section gives the route
+>   "Gateway of Tally > Alter > Budgets" and **"As always press Ctrl + A to save the Budget Alteration screen."**
+> - **Scenario pages** — live `help.tallysolutions.com/scenarios/` ("last updated October 15, 2026"): fields Name /
+>   Include actuals / Include / Exclude, **"Select the voucher types to Exclude."**, and **"You can alter the
+>   Scenarios whenever your business requirements change, and delete them when they are no longer needed."** The
+>   November 3, 2025 version (`help.tallysolutions.com/scenarios-tally/`, web.archive.org snapshot
+>   **20260617102932**, "Scenario Management in TallyPrime") additionally carries the two conditional "Exclude …
+>   calculations" switches (IV-303) and the route "Gateway of Tally > Alter > Scenario"; it names **no** delete key.
+>
+> **What is built.** **Nothing for the budget's Under.** A group picker was built in this track (commit
+> `b7ad7ff`) and **removed** (A12 decision, following the review): it listed ACCOUNT GROUPS, while the vendor's
+> worked example files a budget under another BUDGET; `budgets.under_id REFERENCES groups(id)`, so the picker's
+> only effect was to make the chosen group undeletable. Every budget the Budget master writes is Primary
+> (`under_id` NULL). Scenario exclusion, alteration and deletion, and budget deletion, were already built (W46 AF,
+> W33 C3); this track proves them by the real keys on a fresh store.
+
+### IV-300 · **A budget cannot be filed under a parent budget: the vendor's budget hierarchy is OPEN and needs a migration** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class A (missing capability). Area: MST. OPEN.** |
+| **What TallyPrime does** | Budgets form a hierarchy of BUDGETS. The November 3, 2025 page: *"you need to create the budget under Primary from the List of Budgets"* and *"create specific Department Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main Department Budget. This shows the budget structure in a hierarchical form."* The live page (October 15, 2026) keeps *"You can also create multiple budgets with a hierarchical structure"*. ⚠️ **The two vendor texts disagree on the Under field's list:** the live page's step 3 reads *"Under : Select Primary or any other predefined groups"*, while the 2025 page's worked example takes the parent from the *List of Budgets*. A12 has taken the parent-budget model (the worked example, and the only reading under which "a hierarchical structure" of budgets means anything) as the vendor shape; the live step-3 wording is recorded here, not hidden. |
+| **What we ship** | **No Under control at all.** Every budget is Primary (`budgets.under_id` NULL). The column exists but `REFERENCES groups(id)`, and `MasterDeletionRules.EnsureGroupDeletable` counts budgets filed under a group because that FK would otherwise fail the next Save. That guard predates this track, is kept (it protects the FK for any book whose column is already set), and is unreachable from any screen now that nothing writes the column. **NOT BUILT, and why:** the parent-budget model needs `under_id → budgets(id)` (plus a cycle guard, and a budget-delete rule for a budget with children, which would qualify the vendor's "without any dependency"). That is a schema migration; this wave's migration (v69) belongs to track gd, so the gap stays **OPEN for a later wave**. A group picker was built and removed in this track; it is not to come back. |
+| **Tests** | `BudgetUnderAbsenceTests.Tab_from_the_budget_Name_box_lands_on_the_From_date_and_no_Under_control_is_realised`, `BudgetUnderAbsenceTests.Typing_a_group_name_on_every_budget_selector_still_files_the_budget_at_Primary_and_the_group_stays_deletable` (Tab through the whole header typing a custom group's name on every selector, Ctrl+A, then the raw `budgets.under_id` column and a fresh `CompanyStorage`). Restoring the group picker of `b7ad7ff` (view model + view) reddens both: the first lands on a ComboBox, the second stores the group's id. |
+
+### IV-301 · **WITHDRAWN — the "(unknown group)" option belonged to the removed group picker** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **None. WITHDRAWN.** |
+| **What TallyPrime does** | Not stated. |
+| **What we ship** | Nothing. This entry recorded an orphan-parent option on the group picker of IV-300's first cut; that picker is removed, so the option does not exist. The number is kept so the handle stays stable. |
+| **Tests** | None. |
+
+### IV-302 · **Budget Alter / Delete keys: Alt+D then Y is VENDOR-ATTESTED for budgets; Ctrl+Enter, and every scenario key, are ours** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (route). Area: MST / NAV.** |
+| **What TallyPrime does** | **Budget delete keys are vendor-attested:** the November 3, 2025 budget page, "Delete a Budget": *"Select the required budget."*, *"Press Alt + D and press Y to delete."*, and *"As a budget is only an estimation you can delete a budget without any dependency."* The vendor reaches the budget through *Gateway of Tally > Alter > Budgets* (or *Alt+G > Alter Master > Budgets*). Budget alteration saves with *Ctrl + A* (same page, "Alter a Budget"). The live pages (October 15, 2026) attest both verbs for budgets and scenarios but name no key. **No version of the scenario page read here names a scenario delete key.** |
+| **What we ship** | On the Budget and Scenario masters' existing-lists: arrows to the row, **Ctrl+Enter** opens the alteration screen pre-filled, **Ctrl+A** saves; **Alt+D** then **Y** deletes. Neither delete is guarded (nothing points at a budget or a scenario, consistent with "without any dependency"). **CLONED:** Alt+D then Y, and Ctrl+A, on a budget. **OURS:** reaching the row from the Create screen's existing-list with arrows and Ctrl+Enter (the vendor goes through the Alter menu), and Alt+D then Y on a scenario. This supersedes the "scenario DELETE verb is OURS" note in `ScenarioMasterViewModel` and `BudgetScenarioAlterAndExcludeTests` — the verb is vendor-attested on the live page; only its keys are ours. |
+| **Tests** | `ScenarioBudgetByKeysTests.A_scenario_exclusion_ticked_with_Tab_and_Space_is_stored_as_excluded`, `…A_scenario_altered_by_keys_persists_its_rename_untick_and_new_exclusion`, `…A_scenario_deleted_with_AltD_then_Y_is_gone_from_the_reloaded_book`, `…A_budget_deleted_with_AltD_then_Y_is_gone_from_the_reloaded_book` — Tab and Space to tick, real chords to commit, then a fresh `CompanyStorage` the test never saved through. Removing the shell's post-delete `_storage.Save(Company)` reddens both delete tests while every `MasterVerbsW33ResidualDeleteTests` case stays green; dropping the exclusions in `Create` / `Alter` reddens the exclusion and alter tests respectively. |
+
+### IV-303 · **The scenario's two "Exclude … calculations" switches are vendor-attested (November 2025) and NOT built; the live pages have dropped them and the budget "Alter a Budget" section** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class A (missing capability) + GROUNDING. Area: MST. OPEN.** |
+| **What TallyPrime does** | The November 3, 2025 scenario page (snapshot 20260617102932): *"Set Exclude forex gain/loss calculations to Yes, if you do not want the Unadjusted Forex Gain/Loss to reflect in the scenario."* — *"This option appears only when you have maintained more than one currency."* — and *"Set Exclude inventory tracking calculations to Yes, if you do not want the Sales/Purchase Bills Pending details to reflect in the scenario."* — *"This option appears only when one of these inventory vouchers is activated – delivery note, receipt note, rejection in or rejection out vouchers."* As read on 2026-11-02 the LIVE scenario page carries neither switch, and the live budget page carries no "Alter a Budget" heading. Silence on the live page is not a ground for removing an attested capability. |
+| **What we ship** | Nothing for the two switches (they need new `scenarios` columns, and this wave's migration belongs to track gd). The census 2.10 cell does not name them; **proposed to A12 as a new 2.10 clause.** The older quotes stay in source, marked as no longer on the live page. |
+| **Tests** | None — nothing is built. |
+
 ## 2AA. ADDED 2026-11-02 — WAVE 10 TRACK `gd`: CTRL+T IN ALTERATION, OPTIONAL STOCK VOUCHERS (SCHEMA v69) AND THE GATEWAY PROVISIONAL REGISTERS (census rows 5.8 / 5.7, IV-310..IV-314)
 
 > **This track's block is IV-310..IV-314.** The section letter `2AA` is the wave plan's pre-assignment; the entry
@@ -3504,6 +3633,72 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What TallyPrime does** | *"Use Scenarios to see the effect of Optional voucher entries on reports and statements."* and *"Press Alt+F8 (Incl Post-Dated) to include the values for post-dated transactions in the report."* |
 | **What we ship** | **NOT BUILT:** no scenario includes an Optional STOCK voucher (the stock walks take no scenario), and no report offers Alt+F8. **OURS, recorded rather than fixed:** the Material In / Material Out entry's order picker (`MaterialMovementEntryViewModel`) still offers an Optional Job Work order; a material voucher linked to it posts, but `JobWorkReports` skips the order, so its fulfilment is not reported until the order is regularised. |
 | **Tests** | None — these are the open halves. |
+
+## 2Z. ADDED 2026-11-02 — WAVE 10 TRACK `gc`: F6 AGEING CRITERIA (OPERATOR-SET WINDOWS) AND THE CONDENSED P&L (census rows 11.13 and 11.2, advancing 11.9 / T2-24, IV-305..IV-309)
+
+> **This track's block is IV-305..IV-309; it takes all five.** The section letter `2Z` is the wave plan's
+> pre-assignment. **This section SUPERSEDES** the "no criteria step" sentence of IV-285 and the "NOT BUILT:
+> operator-set windows" sentence of IV-286; both are left as written above so the history reads.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT on 2026-11-02:
+> - `help.tallysolutions.com/manage-receivables-outstanding-tally/` — **"Press F6 (Ageing Method) to configure the
+>   report view as per ageing by bill dates or by due dates and set the ageing windows."** The page does not say
+>   how the windows are entered.
+> - `help.tallysolutions.com/tally-prime/analysis-verification/outstandings-tally/` — **"Select the appropriate
+>   Ageing Methods from Ageing by Bill Date or Ageing by Due Date and press Enter."** then **"Specify the required
+>   ageing criteria and press Enter."** The page does not name a From / To shape.
+> - `help.tallysolutions.com/stock-ageing-analysis-report-tally/` — **"Enter the From and To days."** (the F6 step of
+>   Stock Ageing Analysis; borrowed for the outstandings views, IV-306).
+> - `help.tallysolutions.com/working-with-reports/` — **"Press Alt+F1 or Alt+F5 (Detailed/Condensed) to view the next
+>   level of details for all line entries"**.
+> - `help.tallysolutions.com/profit-and-loss-statement-tally/` — **"Indirect Expenses will be deducted from the Gross
+>   Profit to show the Nett Profit."** and, of the vertical form, that **"the groups now appear under Trading Account
+>   and Income Statements"**.
+
+### IV-305 · **F6 is now basis THEN criteria: Enter on a basis opens the ageing criteria, and Enter there applies both** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape). Area: RPT / NAV.** |
+| **What TallyPrime does** | F6, choose the basis, Enter, then *"Specify the required ageing criteria and press Enter."* |
+| **What we ship** | Enter on the F6 picker pops it and pushes the *Ageing Criteria — F6* page column (`Screen.AgeingCriteria`, the Ctrl+B Basis of Values shape) over the live report. Nothing re-projects until the criteria are accepted with Enter, Ctrl+A or the Accept button; Esc pops the column and leaves both basis and windows as they were. The caret starts in period 1's From box. The operator's windows go into the ONE engine call (`Outstandings.Build(..., ageingPeriods)`), which buckets both summaries and is the only source of the per-bill *Ageing* cell's label (`OutstandingsReport.Windows`), on Bills Receivable / Payable and on Overdue Receivables / Payables (via `OverdueBills.Build`). When the windows are the operator's, the Bills Receivable / Payable footnote adds "The ageing windows were set on F6 (ageing criteria)." **OURS:** that footnote sentence. |
+| **Tests** | `AgeingCriteriaTests.F6_then_typed_windows_and_Enter_re_age_bills_receivable_by_keyboard`, `…A_refused_set_stays_on_the_criteria_with_the_reason_and_Escape_leaves_the_report_unchanged`, `…Ctrl_A_accepts_the_criteria_and_a_second_F6_reseeds_with_the_windows_in_force`, the four `AgeingMethodAndTypeOfBillsTests.F6_opens_the_ageing_method_picker_and_Enter_on_bill_date_re_ages_the_report` cases (now pressing Enter on the criteria). Mutations: disabling the focus-on-open reddens the three keyboard tests; removing the bare-Enter arm reddens six by name; the engine ignoring the periods reddens seven. |
+
+### IV-306 · **The criteria are six From / To day rows; blank rows are ignored** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours, borrowed shape). Area: RPT.** |
+| **What TallyPrime does** | The outstandings pages do not describe the criteria's fields. Stock Ageing Analysis's own F6 says *"Enter the From and To days."* |
+| **What we ship** | Six numbered rows of From / To whole-day boxes, seeded with the windows in force (or the basis's defaults: 0-30/31-60/61-90/91+ by bill date, 1-30/31-60/61-90/91+ by due date). Blank rows are skipped; a non-number is refused with the row named. **OURS:** the From / To shape (borrowed from the stock-ageing page), the six-row cap, and the labels (`"16-60 days"`, `"61+ days"`). |
+| **Tests** | `AgeingCriteriaTests.F6_then_typed_windows_and_Enter_re_age_bills_receivable_by_keyboard` (types 15 and 16 into the realised boxes; buckets `Not due`/`1-15`/`16-60`/`61-90`/`91+` read back to the paisa). |
+
+### IV-307 · **Window rules: contiguous from day 1 (due) or day 0 (bill), only the last open, an "Over N days" tail when it is closed, and Not due stays fixed** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | Not stated on any page read. |
+| **What we ship** | `Outstandings.TryWindowsFor` refuses: no periods; a first period not starting at 1 (by due date) or 0 (by bill date); a gap or overlap (each period starts the day after the previous one ends); To below From; To above 36,500; an open To before the last row. When the last period is closed, `"Over N days"` is appended so no pending amount drops out of the summary. By due date the `Not due` window (0 or fewer days past due) is always first and is not an operator period. Periods equal to the basis's defaults return the basis's own window list, so an unchanged accept is byte-identical to never opening the criteria. A refused set changes nothing on the report; the refusal names the rule (`"Period 1 must start from day 1 …"`, `"Period 2 must start from day 16, the day after period 1 ends."`). **A basis switch never carries operator windows across.** Because a due-date set must start at day 1 and a bill-date set at day 0, no set is valid on both bases. So choosing the other basis on the F6 picker opens the criteria seeded with that basis's own default periods. The windows in force stay on the report until the criteria are accepted, and Esc keeps them. Reopening F6 on the SAME basis reseeds with the windows in force. **OURS:** all of it. |
+| **Tests** | `AgeingWindowsTests.Refused_periods_name_the_rule_and_the_engine_refuses_them_too` (eight cases), `…The_default_periods_give_the_basis_own_windows_byte_for_byte`, `…Custom_bill_date_windows_append_an_open_tail_and_lose_no_pending`, `AgeingCriteriaTests.Refused_windows_leave_the_report_exactly_as_it_was`, the keyboard `…The_drawn_refusal_for_a_due_date_period_1_from_0_reads_from_day_1` and `…A_basis_switch_on_F6_seeds_the_new_basis_defaults_and_keeps_the_report_until_accepted`, plus the reloaded-book figures `AgeingCriteriaTests.Bills_receivable_custom_windows_bucket_and_label_every_bill_under_both_bases_off_the_reloaded_book`, `…Bills_payable_…`, `…Overdue_views_take_the_same_custom_windows_under_both_bases_off_the_reloaded_book`, and the egress `…Bills_receivable_csv_and_pdf_carry_the_custom_windows_under_both_bases`, `…Overdue_receivables_csv_and_pdf_carry_the_custom_windows_under_both_bases`. |
+
+### IV-308 · **The ageing windows live on the report viewer only: not saved with an Alt+K view, not stored in the book** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | Not stated on any page read. |
+| **What we ship** | The operator's windows sit beside the basis on the report viewer. They follow the viewer across the four F6 views, are dropped when it moves to a kind without F6, and are lost when the report closes. They are not captured by Alt+K saved views and not persisted (no schema this wave). **OURS.** |
+| **Tests** | None beyond reseeding within one viewer (`AgeingCriteriaTests.Ctrl_A_accepts_the_criteria_and_a_second_F6_reseeds_with_the_windows_in_force`). |
+
+### IV-309 · **The condensed (Alt+F1) Profit & Loss rolls up to PRIMARY groups, and a group row does not drill** (wave 10, track gc)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (shape) / C. Area: RPT.** |
+| **What TallyPrime does** | *"Press Alt+F1 or Alt+F5 (Detailed/Condensed) to view the next level of details for all line entries"*; the P&L page names groups (*"Indirect Expenses will be deducted from the Gross Profit"*). |
+| **What we ship** | `ProfitAndLossLine` carries its ledger's primary group (`GroupName`, `GroupId`). The condensed view shows one row per primary group under each side (Sales Accounts, Direct Incomes, Indirect Incomes / Purchase Accounts, Direct Expenses, Indirect Expenses, ...) in first-posted ledger order, with the side total and Net Profit / Loss unchanged. A ledger under a user sub-group (e.g. *Office Expenses* under Indirect Expenses) rolls into the primary group. Before this wave each side collapsed to a single "Income" / "Expenses" row. **OURS:** rolling to the primary rather than the immediate group (the detailed view is ledgers, not the next sub-group level); the row order; a condensed group row is not drillable (Enter does nothing), as on the condensed Balance Sheet. **NOT BUILT:** the vertical P&L form (census 11.2's other clause). |
+| **Tests** | `ProfitAndLossCondensedTests.Condensed_view_rolls_each_side_up_to_its_primary_groups_off_the_reloaded_book`, `…Condensed_csv_and_pdf_carry_one_row_per_primary_group`, `…Alt_F1_on_the_profit_and_loss_toggles_the_primary_group_view_by_keyboard`. Mutations: keying on the section header again (N1) and keying on the immediate group (N2) each redden all three by name. |
 
 ## 3. Grouped by area
 
