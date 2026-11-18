@@ -2488,8 +2488,9 @@ public partial class MainWindow : Window
     // 🔴 Both of these called Create() unconditionally while their Ctrl+A arms branched on IsAltering, so the
     // pointer path on either ALTERATION screen tried to create a duplicate and failed on the name clash. Same
     // defect, same fix, same reason as the account group below: the button and the accelerator must run the
-    // same verb. Budget and Scenario deliberately keep a bare Create() — neither has a ForAlter factory, so
-    // neither can be altering, and giving them this branch would imply a verb that does not exist.
+    // same verb. ~~Budget and Scenario deliberately keep a bare Create() — neither has a ForAlter factory.~~
+    // 🔴 STALE, CORRECTED W10 gb (census 2.9/2.10): both have had ForAlter since W46 AF, and their handlers
+    // (OnCreateBudgetClick / OnCreateScenarioClick, below) branch on IsAltering exactly like these two.
     private void OnCreateCostCategoryClick(object? sender, RoutedEventArgs e)
     {
         if (Vm?.CostCategoryMaster is not { } master) return;

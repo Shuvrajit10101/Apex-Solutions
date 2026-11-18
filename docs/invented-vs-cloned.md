@@ -3490,6 +3490,78 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | `JobWorkChallanPrintProjector.cs:175` reads `GstReportSupport.HsnSacOf(company, item, null)`: the item, stock-group and company rungs under `SourceOfHsnSacDetails` (a challan has no value ledger, so the ledger rungs are silent). IV-279 is amended in place. |
 | **Tests** | `JobWorkChallanRouteTests.A_material_out_of_an_item_with_no_hsn_prints_its_stock_groups_hsn_on_the_reloaded_challan` (item with no HSN under a stock group declaring 741220; keyed with the real Ctrl+A, then re-read through a fresh `CompanyStorage`; `(741220) Tj`). **M10** (the call replaced by `ItemRungHsnSacOf(item)`) reddens it. |
 
+## 2Y. ADDED 2026-11-02 — WAVE 10 TRACK `gb`: THE BUDGET'S PARENT (OPEN), AND BUDGET / SCENARIO VERBS BY KEYS (census rows 2.9, 2.10, IV-300..IV-304)
+
+> **This track's block is IV-300..IV-304.** It takes **IV-300 … IV-303** and leaves IV-304 unused. The section
+> letter `2Y` is the wave plan's pre-assignment; the entry NUMBERS are the stable handle.
+>
+> **Vendor ground for the whole section** (TallyPrime). Every page below was opened BY CONTENT on 2026-11-02.
+> - **Live budget page** — `help.tallysolutions.com/budgets-tally/` (canonical `help.tallysolutions.com/budgets/`,
+>   "Last updated on: October 15, 2026"): step 3 of both "Create Budget for Ledgers" and "Create Budget for Cost
+>   Centres" reads **"Under : Select Primary or any other predefined groups, based on your requirement."**; the
+>   introduction reads **"You can also create multiple budgets with a hierarchical structure"**; and **"You can
+>   alter the Budgets whenever your business requirements change, and delete them when they are no longer
+>   needed."** The live page names no key for altering or deleting.
+> - **November 3, 2025 budget page** — the same URL, title "Create, Alter, and Delete Budgets in TallyPrime",
+>   "Last updated on: November 3, 2025", read off the web.archive.org snapshot **20260310093634** (the review cited
+>   20260617104331; the archive served the 20260310093634 capture for that request, and its content carries the
+>   same "November 3, 2025" stamp). It says: **"you need to create the budget under Primary from the List of
+>   Budgets. After the Department Budget is created, you can further go ahead and create specific Department
+>   Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main Department
+>   Budget. This shows the budget structure in a hierarchical form."** Its "Delete a Budget" section reads
+>   **"Select the required budget."** then **"Press Alt + D and press Y to delete."** and **"As a budget is only an
+>   estimation you can delete a budget without any dependency."** Its "Alter a Budget" section gives the route
+>   "Gateway of Tally > Alter > Budgets" and **"As always press Ctrl + A to save the Budget Alteration screen."**
+> - **Scenario pages** — live `help.tallysolutions.com/scenarios/` ("last updated October 15, 2026"): fields Name /
+>   Include actuals / Include / Exclude, **"Select the voucher types to Exclude."**, and **"You can alter the
+>   Scenarios whenever your business requirements change, and delete them when they are no longer needed."** The
+>   November 3, 2025 version (`help.tallysolutions.com/scenarios-tally/`, web.archive.org snapshot
+>   **20260617102932**, "Scenario Management in TallyPrime") additionally carries the two conditional "Exclude …
+>   calculations" switches (IV-303) and the route "Gateway of Tally > Alter > Scenario"; it names **no** delete key.
+>
+> **What is built.** **Nothing for the budget's Under.** A group picker was built in this track (commit
+> `b7ad7ff`) and **removed** (A12 decision, following the review): it listed ACCOUNT GROUPS, while the vendor's
+> worked example files a budget under another BUDGET; `budgets.under_id REFERENCES groups(id)`, so the picker's
+> only effect was to make the chosen group undeletable. Every budget the Budget master writes is Primary
+> (`under_id` NULL). Scenario exclusion, alteration and deletion, and budget deletion, were already built (W46 AF,
+> W33 C3); this track proves them by the real keys on a fresh store.
+
+### IV-300 · **A budget cannot be filed under a parent budget: the vendor's budget hierarchy is OPEN and needs a migration** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class A (missing capability). Area: MST. OPEN.** |
+| **What TallyPrime does** | Budgets form a hierarchy of BUDGETS. The November 3, 2025 page: *"you need to create the budget under Primary from the List of Budgets"* and *"create specific Department Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main Department Budget. This shows the budget structure in a hierarchical form."* The live page (October 15, 2026) keeps *"You can also create multiple budgets with a hierarchical structure"*. ⚠️ **The two vendor texts disagree on the Under field's list:** the live page's step 3 reads *"Under : Select Primary or any other predefined groups"*, while the 2025 page's worked example takes the parent from the *List of Budgets*. A12 has taken the parent-budget model (the worked example, and the only reading under which "a hierarchical structure" of budgets means anything) as the vendor shape; the live step-3 wording is recorded here, not hidden. |
+| **What we ship** | **No Under control at all.** Every budget is Primary (`budgets.under_id` NULL). The column exists but `REFERENCES groups(id)`, and `MasterDeletionRules.EnsureGroupDeletable` counts budgets filed under a group because that FK would otherwise fail the next Save. That guard predates this track, is kept (it protects the FK for any book whose column is already set), and is unreachable from any screen now that nothing writes the column. **NOT BUILT, and why:** the parent-budget model needs `under_id → budgets(id)` (plus a cycle guard, and a budget-delete rule for a budget with children, which would qualify the vendor's "without any dependency"). That is a schema migration; this wave's migration (v69) belongs to track gd, so the gap stays **OPEN for a later wave**. A group picker was built and removed in this track; it is not to come back. |
+| **Tests** | `BudgetUnderAbsenceTests.Tab_from_the_budget_Name_box_lands_on_the_From_date_and_no_Under_control_is_realised`, `BudgetUnderAbsenceTests.Typing_a_group_name_on_every_budget_selector_still_files_the_budget_at_Primary_and_the_group_stays_deletable` (Tab through the whole header typing a custom group's name on every selector, Ctrl+A, then the raw `budgets.under_id` column and a fresh `CompanyStorage`). Restoring the group picker of `b7ad7ff` (view model + view) reddens both: the first lands on a ComboBox, the second stores the group's id. |
+
+### IV-301 · **WITHDRAWN — the "(unknown group)" option belonged to the removed group picker** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **None. WITHDRAWN.** |
+| **What TallyPrime does** | Not stated. |
+| **What we ship** | Nothing. This entry recorded an orphan-parent option on the group picker of IV-300's first cut; that picker is removed, so the option does not exist. The number is kept so the handle stays stable. |
+| **Tests** | None. |
+
+### IV-302 · **Budget Alter / Delete keys: Alt+D then Y is VENDOR-ATTESTED for budgets; Ctrl+Enter, and every scenario key, are ours** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B (route). Area: MST / NAV.** |
+| **What TallyPrime does** | **Budget delete keys are vendor-attested:** the November 3, 2025 budget page, "Delete a Budget": *"Select the required budget."*, *"Press Alt + D and press Y to delete."*, and *"As a budget is only an estimation you can delete a budget without any dependency."* The vendor reaches the budget through *Gateway of Tally > Alter > Budgets* (or *Alt+G > Alter Master > Budgets*). Budget alteration saves with *Ctrl + A* (same page, "Alter a Budget"). The live pages (October 15, 2026) attest both verbs for budgets and scenarios but name no key. **No version of the scenario page read here names a scenario delete key.** |
+| **What we ship** | On the Budget and Scenario masters' existing-lists: arrows to the row, **Ctrl+Enter** opens the alteration screen pre-filled, **Ctrl+A** saves; **Alt+D** then **Y** deletes. Neither delete is guarded (nothing points at a budget or a scenario, consistent with "without any dependency"). **CLONED:** Alt+D then Y, and Ctrl+A, on a budget. **OURS:** reaching the row from the Create screen's existing-list with arrows and Ctrl+Enter (the vendor goes through the Alter menu), and Alt+D then Y on a scenario. This supersedes the "scenario DELETE verb is OURS" note in `ScenarioMasterViewModel` and `BudgetScenarioAlterAndExcludeTests` — the verb is vendor-attested on the live page; only its keys are ours. |
+| **Tests** | `ScenarioBudgetByKeysTests.A_scenario_exclusion_ticked_with_Tab_and_Space_is_stored_as_excluded`, `…A_scenario_altered_by_keys_persists_its_rename_untick_and_new_exclusion`, `…A_scenario_deleted_with_AltD_then_Y_is_gone_from_the_reloaded_book`, `…A_budget_deleted_with_AltD_then_Y_is_gone_from_the_reloaded_book` — Tab and Space to tick, real chords to commit, then a fresh `CompanyStorage` the test never saved through. Removing the shell's post-delete `_storage.Save(Company)` reddens both delete tests while every `MasterVerbsW33ResidualDeleteTests` case stays green; dropping the exclusions in `Create` / `Alter` reddens the exclusion and alter tests respectively. |
+
+### IV-303 · **The scenario's two "Exclude … calculations" switches are vendor-attested (November 2025) and NOT built; the live pages have dropped them and the budget "Alter a Budget" section** (wave 10, track gb)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class A (missing capability) + GROUNDING. Area: MST. OPEN.** |
+| **What TallyPrime does** | The November 3, 2025 scenario page (snapshot 20260617102932): *"Set Exclude forex gain/loss calculations to Yes, if you do not want the Unadjusted Forex Gain/Loss to reflect in the scenario."* — *"This option appears only when you have maintained more than one currency."* — and *"Set Exclude inventory tracking calculations to Yes, if you do not want the Sales/Purchase Bills Pending details to reflect in the scenario."* — *"This option appears only when one of these inventory vouchers is activated – delivery note, receipt note, rejection in or rejection out vouchers."* As read on 2026-11-02 the LIVE scenario page carries neither switch, and the live budget page carries no "Alter a Budget" heading. Silence on the live page is not a ground for removing an attested capability. |
+| **What we ship** | Nothing for the two switches (they need new `scenarios` columns, and this wave's migration belongs to track gd). The census 2.10 cell does not name them; **proposed to A12 as a new 2.10 clause.** The older quotes stay in source, marked as no longer on the live page. |
+| **Tests** | None — nothing is built. |
+
 ## 2AA. ADDED 2026-11-02 — WAVE 10 TRACK `gd`: CTRL+T IN ALTERATION, OPTIONAL STOCK VOUCHERS (SCHEMA v69) AND THE GATEWAY PROVISIONAL REGISTERS (census rows 5.8 / 5.7, IV-310..IV-314)
 
 > **This track's block is IV-310..IV-314.** The section letter `2AA` is the wave plan's pre-assignment; the entry

@@ -103,11 +103,23 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     // The vendor's own route is "Gateway of Tally > Alter > Budgets"; OURS is arrows + Ctrl+Enter on the
     // existing-list, this product's established shape, and it is labelled ours here rather than passed off.
     //
-    // 🔴 WHAT IS STILL NOT CLOSED, SAID HERE SO NOBODY READS THIS AS COMPLETING ROW 2.9. The same vendor
-    // sentence quoted above names COST CENTRES as a budget target, and `budget_lines` has group_id and
-    // ledger_id and no cost_centre_id, so that target needs a SCHEMA MIGRATION. v66 ownership is an open user
-    // decision (T2-125) and this track did not take it. Removing a line from the pending grid is also still
-    // absent. 2.9 stays PARTIAL.
+    // ~~🔴 WHAT IS STILL NOT CLOSED … COST CENTRES … needs a SCHEMA MIGRATION … 2.9 stays PARTIAL.~~
+    // 🔴 STALE, STRUCK W10 gb (2026-11-02): the cost-centre target shipped in v67 (BudgetLine.ForCostCentre,
+    // budget_lines.cost_centre_id; see BuildTargets/AddLine). ⚠️ CITATION DRIFT: the page is now served at
+    // help.tallysolutions.com/budgets-tally/ ("Last updated on: October 15, 2026"), and the "Alter a Budget"
+    // heading and sentences quoted above are NO LONGER on the live page; they ARE on the November 3, 2025 version
+    // (web.archive.org snapshot 20260310093634 of the same URL, read by content 2026-11-02), which also says, under
+    // "Delete a Budget": "Select the required budget. Press Alt + D and press Y to delete." Removing a line from
+    // the pending grid is still absent (ours; not a vendor clause the census names).
+    //
+    // 🔴 THE BUDGET'S "UNDER" IS NOT BUILT, AND A GROUP PICKER WAS BUILT AND DELIBERATELY REMOVED (W10 gb,
+    // A12 decision). The November 3, 2025 page gives the vendor shape: "you need to create the budget under
+    // Primary from the List of Budgets … create specific Department Budgets such as Sales Department Budget …
+    // under the main Department Budget. This shows the budget structure in a hierarchical form." A budget's
+    // parent is another BUDGET. `budgets.under_id` REFERENCES groups(id), so a group picker wrote a value with no
+    // downstream effect except making that group undeletable. The parent-budget model needs a migration
+    // (under_id → budgets(id)) and is OPEN for a later wave (docs/invented-vs-cloned.md IV-300). Every budget
+    // this screen writes is Primary (UnderId = null); BudgetUnderAbsenceTests reddens if a group picker returns.
 
     /// <summary>The id of the budget being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
     private Guid _editingId = Guid.Empty;

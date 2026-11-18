@@ -110,8 +110,25 @@ public sealed partial class ScenarioMasterViewModel : ViewModelBase, IMasterList
     //       is Name, Include actuals, the two Exclude switches above, Include, Exclude — checked twice by
     //       content on the page above). A scenario period is a Tally.ERP 9 artefact, which R7 does not make
     //       ground truth; building one would repeat census 2.3's alias fault exactly.
-    //   (c) Our DELETE verb is OURS. The vendor page documents no scenario deletion. The cell's "no Delete"
-    //       is stale — DeleteMaster below has shipped since W33 C3 — but it is a divergence, not fidelity.
+    //   (c) ~~Our DELETE verb is OURS. The vendor page documents no scenario deletion.~~
+    //
+    // 🔴 W10 gb (2026-11-02) — CITATION DRIFT, RE-READ BY CONTENT. The page above now redirects to
+    // help.tallysolutions.com/scenarios/ ("last updated October 15, 2026"). As read on 2026-11-02 it carries the
+    // four fields Name / Include actuals / Include / Exclude, "Select the voucher types to Exclude.", and
+    // "You can alter the Scenarios whenever your business requirements change, and delete them when they are no
+    // longer needed." So:
+    //   · (c) is SUPERSEDED: deletion IS now vendor-attested. Only the KEYS (Alt+D + Y; Ctrl+Enter to alter)
+    //     are ours — the page names no key for either verb (docs/invented-vs-cloned.md IV-302).
+    //   · (a)'s two switches ("Exclude forex gain/loss calculations", "Exclude inventory tracking
+    //     calculations") are NOT on the live page as read on 2026-11-02, and the four Alt+G alteration bullets
+    //     quoted above are not either. They ARE on the November 3, 2025 version (web.archive.org snapshot
+    //     20260617102932 of help.tallysolutions.com/scenarios-tally/, read by content 2026-11-02), each
+    //     conditional: the forex switch "appears only when you have maintained more than one currency", the
+    //     inventory switch "only when one of these inventory vouchers is activated". Nothing is built for the
+    //     switches; they need storage (IV-303), proposed to A12 as a new census 2.10 clause. That snapshot names
+    //     no scenario delete key, so Alt+D + Y stays ours for scenarios (it IS vendor-attested for budgets).
+    //   · Exclusion capture, Alter and Delete are proven by the real keys on a fresh store in
+    //     ScenarioBudgetByKeysTests.
 
     /// <summary>The id of the scenario being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
     private Guid _editingId = Guid.Empty;
