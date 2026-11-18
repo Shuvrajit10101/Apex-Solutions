@@ -447,7 +447,7 @@ public sealed class KeralaFloodCessRouteTests
     /// 🔴 <b>THE CULTURE LOCK — a defect found in this screen's own first draft.</b> The return's dates and its
     /// export filename were originally written with plain interpolation (<c>$"{period.FirstDay:dd-MMM-yyyy}"</c>,
     /// <c>$"…-{period.FirstDay:yyyy-MM}.csv"</c>), which formats in the <b>current culture</b>. Under a culture whose
-    /// default calendar is not Gregorian — <c>ar-SA</c> uses Umm al-Qura — that changes not just the month
+    /// calendar is not Gregorian — <c>ar-SA</c> with Umm al-Qura, set explicitly — that changes not just the month
     /// abbreviation but <b>the year and month numbers</b>, so the exported return would be filed under a
     /// completely different month's name. The gate runs on ubuntu and macOS as well as Windows.
     ///
@@ -459,13 +459,10 @@ public sealed class KeralaFloodCessRouteTests
     [Fact]
     public void The_return_dates_and_export_filename_do_not_move_with_the_current_culture()
     {
-        var hostile = new System.Globalization.CultureInfo("ar-SA");
-        var probe = new DateOnly(2019, 8, 1);
-
-        Assert.True(
-            probe.ToString("yyyy-MM", hostile) != "2019-08",
-            "this runner does not distinguish the ar-SA calendar from the invariant one, so this culture lock "
-            + "would pass without exercising anything. Treat it as un-run, not as green.");
+        // The calendar is SET, not inherited: ubuntu-26.04's CLDR gives ar-SA a Gregorian default, which made
+        // the old `new CultureInfo("ar-SA")` harmless there. See HostileCalendarCulture.
+        var hostile = HostileCalendarCulture.Create("ar-SA");
+        HostileCalendarCulture.AssertHostile(hostile);
 
         var dir = TempDir();
         var previous = System.Globalization.CultureInfo.CurrentCulture;

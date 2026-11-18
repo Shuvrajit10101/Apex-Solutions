@@ -50,6 +50,14 @@ public sealed class MultiAccountPrintCultureTests
     public static TheoryData<string> ForeignCultures() => new() { "en-US", "de-DE", "th-TH", "ar-SA" };
 
     /// <summary>
+    /// The two cultures above that are here FOR their calendar. Their calendar is set explicitly through
+    /// <see cref="HostileCalendarCulture"/> and proven non-Gregorian before printing, because the default is
+    /// ICU/CLDR data that moves between runner images: ubuntu-26.04 gives <c>ar-SA</c> a Gregorian default, which
+    /// made its row of the theory pass without exercising the calendar at all.
+    /// </summary>
+    private static readonly string[] HostileCalendars = { "th-TH", "ar-SA" };
+
+    /// <summary>
     /// The Robert fixture's own period, in the invariant Gregorian form the books carry — measured, not assumed.
     /// Written out rather than derived from the shell so a failure states the expected DATE, which is the thing
     /// the defect got wrong.
@@ -76,7 +84,11 @@ public sealed class MultiAccountPrintCultureTests
         {
             var culture = cultureName.Length == 0
                 ? CultureInfo.InvariantCulture
-                : CultureInfo.GetCultureInfo(cultureName);
+                : HostileCalendars.Contains(cultureName)
+                    ? HostileCalendarCulture.Create(cultureName)
+                    : CultureInfo.GetCultureInfo(cultureName);
+            if (HostileCalendars.Contains(cultureName))
+                HostileCalendarCulture.AssertHostile(culture);
             Thread.CurrentThread.CurrentCulture = culture;
             Thread.CurrentThread.CurrentUICulture = culture;
 
