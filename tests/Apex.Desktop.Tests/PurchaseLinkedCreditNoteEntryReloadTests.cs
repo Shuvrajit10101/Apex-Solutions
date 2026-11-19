@@ -24,6 +24,13 @@ namespace Apex.Desktop.Tests;
 /// CGST ₹180 against books ₹162 and 4(A)(5) ₹72 against books ₹90, and GSTR-9C 12F <b>+36.00</b> and Table 11
 /// <b>+36.00</b>, where the returns had reconciled before it. A return must say what the books posted.</para>
 ///
+/// <para>🔴 <b>Wave 11 (T2-164, IV-320): the screen no longer offers a Purchase original to a CREDIT note</b> — the
+/// supplier's credit note on our purchase is keyed as a Debit Note, the vendor's purchase-return shape. So the shape
+/// this test pins is now a BOOK POSTED BEFORE wave 11: the note is keyed against the sale through the screen and its
+/// link is then re-pointed at the purchase, keeping the link id, exactly what the old screen persisted. What it pins is
+/// unchanged: a note whose tax sits on an Output ledger keeps its outward routing, so the returns say what the books
+/// posted.</para>
+///
 /// <para>Figures: sale 20 @ ₹100 = ₹2,000 @ 18% intra ⇒ ₹180 / ₹180; purchase 10 @ ₹100 = ₹1,000 ⇒ ₹90 / ₹90;
 /// credit note 2 @ ₹100 = ₹200 ⇒ ₹18 / ₹18 on OUTPUT. Everything is read off a book loaded through a FRESH
 /// <see cref="CompanyStorage"/> over the same folder, on the emitted JSON bytes.</para>
@@ -96,9 +103,16 @@ public sealed class PurchaseLinkedCreditNoteEntryReloadTests : IDisposable
             return vm.Company!.Vouchers.Last(v => v.TypeId == typeId);
         }
 
-        Post(VoucherBaseType.Sales, customer, sales, "20", null);
+        var sale = Post(VoucherBaseType.Sales, customer, sales, "20", null);
         var purchase = Post(VoucherBaseType.Purchase, supplier, purchases, "10", null);
-        var note = Post(VoucherBaseType.CreditNote, supplier, salesReturns, "2", purchase);
+        var note = Post(VoucherBaseType.CreditNote, supplier, salesReturns, "2", sale);
+
+        // The pre-wave-11 book: the same note, its link (same id) naming the purchase. See the class summary.
+        var keyed = vm.Company!.CreditDebitNoteLinks.Single(l => l.CdnVoucherId == note.Id);
+        vm.Company!.RemoveCreditDebitNoteLink(keyed);
+        vm.Company!.AddCreditDebitNoteLink(new GstCreditDebitNoteLink(keyed.Id, note.Id, keyed.CdnType, purchase.Id,
+            vm.Company!.FormatVoucherNumber(purchase), purchase.Date, keyed.ReasonCode, keyed.Is9BTarget));
+        storage.Save(vm.Company!);
 
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         var fresh = new CompanyStorage(_dir);

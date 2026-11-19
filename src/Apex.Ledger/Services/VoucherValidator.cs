@@ -350,6 +350,27 @@ public static class VoucherValidator
         }
 
         var itemLinesValue = v.InventoryLinesValue.Amount;
+
+        // 🔴 T2-165 (wave 11, IV-321) — A DEBIT NOTE MAY BE BACKED BY A SALES LEDGER INSTEAD. A §34(3) debit note to a
+        // customer revises our own sale, and the vendor's steps for it select the Sales ledger
+        // (help.tallysolutions.com/increase-in-sale-value/: "Select the Sales ledger."). The §34 link that says which
+        // nature the note has is registered AFTER the voucher posts, so it cannot be read here; instead a Debit Note
+        // foots if EITHER family alone backs the stock, which leaves every note that footed before still footing.
+        // Only the purchase family was accepted, so the outward note's value had to post to Purchase Returns and
+        // GSTR-9C filed 5R = −value.
+        if (accountingStockAmount != itemLinesValue && type.BaseType == VoucherBaseType.DebitNote)
+        {
+            var salesFamilyAmount = 0m;
+            foreach (var line in v.Lines)
+            {
+                if (line.Side != wantSide) continue;
+                var ledger = c.FindLedger(line.LedgerId);
+                if (ledger is not null && IsStockLegLedger(ledger, c, isPurchaseSide: false))
+                    salesFamilyAmount += line.Amount.Amount;
+            }
+            if (salesFamilyAmount == itemLinesValue) return;
+        }
+
         if (accountingStockAmount != itemLinesValue)
         {
             var family = isPurchaseSide ? "Purchases / Stock-in-Hand" : "Sales";
