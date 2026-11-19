@@ -428,16 +428,8 @@ public sealed class InventoryCostingTrackingReachabilityTests
     /// <summary>Drives the real keyboard route an operator uses: arrow to the label, then Enter. Deliberately NOT
     /// a direct OpenReport call — that would prove the report builds, not that the MENU reaches it, and a
     /// missing dispatch case is exactly the dead-end this file exists to catch.</summary>
-    private static void ArrowToAndActivate(MainWindowViewModel vm, string label)
-    {
-        var guard = 0;
-        while (vm.Menu[vm.SelectedIndex].Label != label)
-        {
-            vm.MoveDown();
-            Assert.True(++guard < 200, $"'{label}' is not reachable by arrowing through this menu column.");
-        }
-        vm.ActivateSelected();
-    }
+    private static void ArrowToAndActivate(MainWindowViewModel vm, string label) =>
+        MenuWalk.ArrowToAndActivate(vm, label);
 
     private static void SeedMasters(MainWindowViewModel vm)
     {

@@ -381,7 +381,7 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
         vm.LoadRobertDemo();
         vm.ShowAccountBooksMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
+        MenuWalk.ArrowTo(vm, label);
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
@@ -396,7 +396,7 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
         vm.LoadRobertDemo();
         vm.ShowAccountBooksMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != "Group Summary") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "Group Summary");
         vm.ActivateSelected();
 
         // The picker is a data-driven column of the company's own groups.
@@ -404,7 +404,7 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
         var groups = vm.Menu.Where(m => m.IsSelectable).Select(m => m.Label).ToArray();
         Assert.Contains("Sundry Debtors", groups);
 
-        while (vm.Menu[vm.SelectedIndex].Label != "Sundry Debtors") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "Sundry Debtors");
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
@@ -419,11 +419,11 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
         vm.LoadRobertDemo();
         vm.ShowAccountBooksMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != "Group Vouchers") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "Group Vouchers");
         vm.ActivateSelected();
 
         Assert.Equal(GatewayMenu.GroupVouchersPicker, vm.CurrentGatewayMenu);
-        while (vm.Menu[vm.SelectedIndex].Label != "Sundry Debtors") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "Sundry Debtors");
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
@@ -450,7 +450,7 @@ public sealed class ReportFamiliesViewModelTests : IDisposable
             },
             items);
 
-        while (vm.Menu[vm.SelectedIndex].Label != "Statistics") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "Statistics");
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
