@@ -82,6 +82,14 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
     /// </summary>
     public bool SupportsNarration => _report.SupportsNarration;
 
+    /// <summary>
+    /// True when F12's <b>Show Vertical Profit &amp; Loss</b> acts on this report (the Profit &amp; Loss A/c with no
+    /// comparative column open). Census 11.2, IV-330. Vendor, help.tallysolutions.com/profit-and-loss-statement-tally/:
+    /// <i>"If your business prefers the vertical format, then you can set the option Show Vertical Profit &amp; Loss
+    /// to Yes."</i>
+    /// </summary>
+    public bool SupportsVerticalProfitAndLoss => _report.SupportsVerticalProfitAndLoss;
+
     // ---- RQ-6: F12 display config ----
 
     /// <summary>Hide rows whose balance is exactly zero.</summary>
@@ -92,6 +100,9 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
 
     /// <summary>Show each voucher's narration beside its party (Day-Book family only — see <see cref="SupportsNarration"/>).</summary>
     [ObservableProperty] private bool _showNarration;
+
+    /// <summary>Show the Profit &amp; Loss A/c in its vertical form (default No: the horizontal form).</summary>
+    [ObservableProperty] private bool _showVerticalProfitAndLoss;
 
     /// <summary>The closing-stock valuation basis passed through to the P&amp;L / Balance-Sheet build.</summary>
     [ObservableProperty] private ClosingStockOption? _selectedClosingStock;
@@ -134,6 +145,7 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         HideZeroBalances = _report.HideZeroBalances;
         ShowPercentages = _report.ShowPercentages;
         ShowNarration = _report.ShowNarration;
+        ShowVerticalProfitAndLoss = _report.ShowVerticalProfitAndLoss;
 
         foreach (var opt in ClosingStockOptions)
             if (opt.Mode == _report.ClosingStock)
@@ -197,6 +209,9 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         // so an Apply with the box UNTOUCHED is a single build. The double build is a wasted projection, not a
         // wrong figure (the second build is over the same state), so it is recorded rather than fixed here.
         if (SupportsNarration) _report.SetShowNarration(ShowNarration);
+
+        // Census 11.2 (IV-330): the vertical form, applied before the single re-projection below for the same reason.
+        if (SupportsVerticalProfitAndLoss) _report.SetShowVerticalProfitAndLoss(ShowVerticalProfitAndLoss);
 
         // RQ-6: hide-zero / percentages / closing-stock basis (a single re-projection).
         var closingStock = SelectedClosingStock?.Mode ?? _report.ClosingStock;

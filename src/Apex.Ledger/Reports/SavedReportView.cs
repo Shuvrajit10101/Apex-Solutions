@@ -108,6 +108,13 @@ public sealed record SavedReportView
     /// </summary>
     public bool ShowNarration { get; init; }
 
+    /// <summary>
+    /// F12 <b>Show Vertical Profit &amp; Loss</b> on the Profit &amp; Loss A/c (census 11.2, IV-330). Defaults to
+    /// <c>false</c> (the horizontal form), which is what every view saved before this change implies. Like the two
+    /// above it lives in the JSON blob, so it needs no migration.
+    /// </summary>
+    public bool ShowVerticalProfitAndLoss { get; init; }
+
 
     // ---- Comparative columns (RQ-4) --------------------------------------------------------------
 
@@ -141,6 +148,7 @@ public sealed record SavedReportView
             // go missing in the first place.
             && VoucherTypeFilterId == other.VoucherTypeFilterId
             && ShowNarration == other.ShowNarration
+            && ShowVerticalProfitAndLoss == other.ShowVerticalProfitAndLoss
             && ColumnsEqual(ComparativeColumns, other.ComparativeColumns);
     }
 
@@ -163,6 +171,7 @@ public sealed record SavedReportView
         hash.Add(FilterNameContains);
         hash.Add(VoucherTypeFilterId);   // T2-125(iv) — kept in lock-step with Equals above
         hash.Add(ShowNarration);
+        hash.Add(ShowVerticalProfitAndLoss);   // census 11.2 - kept in lock-step with Equals above
         if (ComparativeColumns is not null)
             foreach (var c in ComparativeColumns) hash.Add(c);
         return hash.ToHashCode();
