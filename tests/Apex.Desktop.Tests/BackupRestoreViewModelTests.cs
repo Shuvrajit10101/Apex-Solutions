@@ -107,7 +107,8 @@ public sealed class BackupRestoreViewModelTests : IDisposable
     private MainWindowViewModel ShellWith(Company company)
     {
         _storage.Save(company);
-        var vm = new MainWindowViewModel(_storage);
+        // T2-173: the Backup panel must never default into the real (possibly OneDrive-synced) Documents folder.
+        var vm = new MainWindowViewModel(_storage) { BackupFolderOverride = _outDir };
         vm.ShowCompanySelect();
         // Open it exactly the way the Company-Select screen does — by activating its row.
         vm.Menu.Single(m => m.Label == company.Name).Activate();
@@ -178,10 +179,29 @@ public sealed class BackupRestoreViewModelTests : IDisposable
 
         vm.OpenBackupCompany();
         Assert.NotNull(vm.BackupCompanyPanel);
+        Assert.Equal(_outDir, vm.BackupCompanyPanel!.Folder);   // T2-173: the per-test folder, not Documents
         Assert.Null(vm.ExportDataPanel);
         Assert.Null(vm.ImportDataPanel);
         Assert.Equal("Backup Company", vm.BackupCompanyPanel!.Title);
         Assert.NotEqual("Export Data", vm.BackupCompanyPanel.Title);
+    }
+
+    /// <summary>
+    /// T2-173: the shell (no override) still opens the Backup panel on the production default folder. Asserted by
+    /// reading the panel's folder only — this test takes NO backup, so it writes nothing into that folder.
+    /// </summary>
+    [Fact]
+    public void Without_an_override_the_backup_panel_opens_on_the_production_default_folder()
+    {
+        var company = OddPaisaCompany("Default Folder Co");
+        _storage.Save(company);
+        var vm = new MainWindowViewModel(_storage);
+        vm.ShowCompanySelect();
+        vm.Menu.Single(m => m.Label == company.Name).Activate();
+
+        vm.OpenBackupCompany();
+
+        Assert.Equal(ExportFolderDefault.Resolve(), vm.BackupCompanyPanel!.Folder);
     }
 
     // ---------------------------------------------------------------- the round trip at the VM layer

@@ -6027,12 +6027,22 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// version-stamped snapshot of the open company's DATABASE to a single <c>.apexbak</c> archive. A no-op
     /// unless a company is open; re-opening while the panel is up is a no-op (one column, not a stack).
     /// </summary>
+    /// <summary>
+    /// T2-173: the folder the Backup panel opens on, when set. Null in the shell, where the panel keeps its production
+    /// default (<see cref="Services.ExportFolderDefault"/>, i.e. My Documents). It exists so the test suite can point
+    /// the panel at a per-test temp directory: on a OneDrive-redirected Documents folder the old tests wrote real
+    /// archives into the user's synced cloud storage, and the sync lock made the local gate non-deterministic.
+    /// </summary>
+    internal string? BackupFolderOverride { get; set; }
+
     public void OpenBackupCompany()
     {
         if (BackupCompanyPanel is not null) return;
         if (Company is null) return;
 
-        var panel = new BackupCompanyViewModel(Company, _storage);
+        var panel = BackupFolderOverride is { } folder
+            ? new BackupCompanyViewModel(Company, _storage, folder, DateTime.Now)
+            : new BackupCompanyViewModel(Company, _storage);
         BackupCompanyPanel = panel;
         Columns.Add(new GatewayColumn(panel.Title, panel));
         ActiveColumnIndex = Columns.Count - 1;
