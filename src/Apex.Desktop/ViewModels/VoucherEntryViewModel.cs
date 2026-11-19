@@ -4424,6 +4424,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             .Where(l => !ReferenceEquals(l, partyLeg) && l.Side == valueSide && !l.HasGst
                         && StockLedgers.Any(sl => sl.Id == l.LedgerId))
             .ToList();
+        // 🔴 T2-165 residual (IV-324) — an outward §34 debit note posted before wave 11 carries its value on a
+        // PURCHASE-family ledger (Purchase Returns), which the Sales-family picker no longer offers. Accept that one
+        // legacy leg when this voucher already posts it, keep its ledger in the picker, and re-key it as posted:
+        // re-opening must not move a figure, and the operator can still choose a Sales ledger before accepting.
+        if (valueLegs.Count == 0 && IsOutwardSection34DebitNote)
+        {
+            var legacyLegs = voucher.Lines
+                .Where(l => !ReferenceEquals(l, partyLeg) && l.Side == valueSide && !l.HasGst
+                            && _company.FindLedger(l.LedgerId) is { } legacyLedger
+                            && IsStockLegLedgerOfFamily(legacyLedger, purchaseFamily: true))
+                .ToList();
+            if (legacyLegs.Count == 1)
+            {
+                _carriedLegacyValueLedgerId = legacyLegs[0].LedgerId;
+                _stockLedgersBuiltForPurchaseFamily = null;   // force the rebuild so the carried ledger is listed
+                RefreshValueLedgerFamily();
+                valueLegs = legacyLegs;
+            }
+        }
         if (valueLegs.Count != 1)
             return valueLegs.Count == 0
                 ? $"no {StockLedgerCaption} leg on it points at a ledger this screen offers for the value leg, so "
@@ -5929,11 +5948,23 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// Sales ledger." (help.tallysolutions.com/increase-in-sale-value/). Drawing it from Purchase Accounts posted the
     /// value to Purchase Returns and filed GSTR-9C 5R = −value. The family therefore follows
     /// <see cref="ValueLegIsPurchaseFamily"/>, the same flag the engine's pairing accepts.</para>
-    private bool IsStockLegLedger(DomainLedger ledger)
+    private bool IsStockLegLedger(DomainLedger ledger) =>
+        ledger.Id == _carriedLegacyValueLedgerId || IsStockLegLedgerOfFamily(ledger, ValueLegIsPurchaseFamily);
+
+    /// <summary>
+    /// 🔴 <b>T2-165 residual (wave 11 fix pass, IV-324) — the Purchase-family ledger an outward §34 debit note
+    /// posted BEFORE wave 11 carries its value on</b>, or <c>null</c>. Set only by
+    /// <see cref="RehydrateItemInvoiceFrom"/>, and only when the voucher being altered already posts its value
+    /// there; it keeps that ONE ledger in the (now Sales-family) picker so the note re-opens with its own figures
+    /// instead of being refused. The operator may move it to a Sales ledger; nothing moves it silently.
+    /// </summary>
+    private Guid? _carriedLegacyValueLedgerId;
+
+    private bool IsStockLegLedgerOfFamily(DomainLedger ledger, bool purchaseFamily)
     {
         var group = _company.FindGroup(ledger.GroupId);
         if (group is null) return false;
-        if (ValueLegIsPurchaseFamily)
+        if (purchaseFamily)
         {
             if (ClassificationRules.IsStockInHandLedger(ledger, _company)) return true;
             return string.Equals(ClassificationRules.PrimaryAncestorOf(group, _company).Name,

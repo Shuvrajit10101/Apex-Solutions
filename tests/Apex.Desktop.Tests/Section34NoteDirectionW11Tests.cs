@@ -73,7 +73,7 @@ public sealed class Section34NoteDirectionW11Tests : IDisposable
         return l;
     }
 
-    private Kit Seed(string name)
+    private Kit Seed(string name, bool secondSalesLedger = false)
     {
         var storage = new CompanyStorage(_dir);
         var vm = new MainWindowViewModel(storage);
@@ -98,6 +98,8 @@ public sealed class Section34NoteDirectionW11Tests : IDisposable
         var pr = AddLedger(c, "Purchase Returns", "Purchase Accounts");
         var sales = AddLedger(c, "Sales", "Sales Accounts");
         var sr = AddLedger(c, "Sales Returns", "Sales Accounts");
+        // Sorts FIRST in the Sales family, so a family refresh that falls back to the first ledger picks it.
+        if (secondSalesLedger) AddLedger(c, "Alpha Sales", "Sales Accounts");
         var customer = AddLedger(c, "Beta Buyers", "Sundry Debtors", GstinParty);
         var supplier = AddLedger(c, "Acme Supplies", "Sundry Creditors", GstinSupplier);
         storage.Save(c);
@@ -315,6 +317,26 @@ public sealed class Section34NoteDirectionW11Tests : IDisposable
         storage.Save(legacy);
 
         var book = Reload(name);
+
+        // R3 (fix pass) — THE TAXED TWIN, measured. On this legacy book the credit note on a purchase still posts
+        // Output CGST Dr 11.25, and its GSTR-1 cdnr row says exactly that: one Credit row naming the supplier with
+        // camt 11.25, and 3.1(a) CGST is the sale's 22.50 less the same 11.25. The return agrees with the books for
+        // this note (IV-253's Output-leg clause); the row's original is the purchase, so the filed row names the
+        // supplier's invoice as if it were ours. What it does NOT agree with is the zero-tax twin, which is absent
+        // from cdnr (Zero_tax_notes_…): T2-168's inconsistency survives on a legacy book and is closed by
+        // prevention only (IV-322). A "fix" that dropped this row while the Output legs stay posted would make the
+        // return disagree with the books, which is what this assertion refuses.
+        var outCgstId = book.FindLedgerByName(GstService.TaxLedgerName(GstTaxHead.Central, GstTaxDirection.Output))!.Id;
+        var postedOut = Assert.Single(book.FindVoucher(noteId)!.Lines, l => l.LedgerId == outCgstId);
+        Assert.Equal((DrCr.Debit, 11.25m), (postedOut.Side, postedOut.Amount.Amount));
+        var twin = Assert.Single(Cdnr(book));
+        Assert.Equal("Credit", twin.GetProperty("ntty").GetString());
+        Assert.Equal(book.FormatVoucherNumber(book.FindVoucher(purchaseId)!), twin.GetProperty("orig_inum").GetString());
+        Assert.Equal(-1_125L, twin.GetProperty("camt_paisa").GetInt64());   // the emitter signs a Credit row negative
+        var (from3b, to3b) = Fy(book);
+        using (var g3b = JsonDocument.Parse(GstReturnJson.Gstr3b(book, from3b, to3b)))
+            Assert.Equal(1_125L, g3b.RootElement.GetProperty("tbl3_1a_camt_paisa").GetInt64());   // 22.50 − 11.25
+
         var open = VoucherEntryViewModel.ForAlter(book, noteId, new CompanyStorage(_dir), () => { }, () => { });
         Assert.Null(open.Refusal);
         var entry = open.Entry!;
@@ -434,6 +456,198 @@ public sealed class Section34NoteDirectionW11Tests : IDisposable
         var (from, to) = Fy(c);
         using var g9c = JsonDocument.Parse(GstReturnJson.Gstr9c(c, from, to));
         Assert.Equal(0L, g9c.RootElement.GetProperty("tbl5r_unreconciled_turnover_paisa").GetInt64());
+    }
+
+    /// <summary>Re-points one posted line's ledger in the saved file: the shape an outward debit note had when the
+    /// screen posted it before wave 11 (value on Purchase Returns). Returns the number of rows changed.</summary>
+    private static int RewriteLineLedger(string dbPath, Guid voucherId, Guid fromLedgerId, Guid toLedgerId)
+    {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        using var cn = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + dbPath);
+        cn.Open();
+        using var cmd = cn.CreateCommand();
+        cmd.CommandText = "UPDATE entry_lines SET ledger_id = $to WHERE voucher_id = $v AND ledger_id = $from";
+        cmd.Parameters.AddWithValue("$to", toLedgerId.ToString("D"));
+        cmd.Parameters.AddWithValue("$v", voucherId.ToString("D"));
+        cmd.Parameters.AddWithValue("$from", fromLedgerId.ToString("D"));
+        var n = cmd.ExecuteNonQuery();
+        cn.Close();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        return n;
+    }
+
+    /// <summary>
+    /// 🔴 <b>R2 (fix pass, IV-324) — an outward debit note POSTED BEFORE WAVE 11, value on Purchase Returns, re-opens
+    /// for alteration with its own figures, and the operator can then move it to Sales.</b> The legacy book is built
+    /// by re-pointing the saved note's value line from Sales to Purchase Returns in the file (the exact rows the old
+    /// screen wrote: Purchase Returns Cr 125.01, Output CGST/SGST Cr 11.25/11.25, customer Dr 147.51), then reloaded
+    /// through a fresh store handle. Re-opening is not refused; the picker holds the Sales family PLUS the carried
+    /// Purchase Returns, which is selected; an unchanged Accept leaves the reloaded book byte-for-byte on the same
+    /// ledgers (nothing moved silently); a second alteration choosing Sales posts Sales Cr 125.01 and 9C 5R reads 0.
+    /// <para><b>Mutation M1</b> (the legacy-leg acceptance in <c>RehydrateItemInvoiceFrom</c> removed) reddens this at
+    /// the refusal assertion. <b>Mutation M2</b> (<c>IsStockLegLedger</c> ignoring the carried id) reddens it too:
+    /// the rebuilt picker no longer lists Purchase Returns, so the rehydrate's selection throws.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_pre_wave_11_outward_debit_note_valued_on_purchase_returns_reopens_and_can_move_to_sales()
+    {
+        const string name = "S34 Legacy Outward DN Co";
+        var k = Seed(name);
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        Guid noteId, saleId;
+        try
+        {
+            w.Show();
+            Pump(w);
+            var sale = PostInvoice(w, k, VoucherBaseType.Sales, k.CustomerId, k.SalesId, k.WidgetId, "6");
+            saleId = sale.Id;
+            var e = OpenNote(w, k, VoucherBaseType.DebitNote, k.CustomerId, k.WidgetId, sale);
+            e.SelectedStockLedger = e.StockLedgers.Single(l => l.Id == k.SalesId);
+            noteId = AcceptNote(w, k, e).Id;
+        }
+        finally { w.Close(); }
+
+        var dbPath = new CompanyStorage(_dir).ListCompanies().Single(x => x.Name == name).DatabasePath;
+        Assert.Equal(1, RewriteLineLedger(dbPath, noteId, k.SalesId, k.PurchaseReturnsId));
+
+        var legacy = Reload(name);
+        var outCgst = legacy.FindLedgerByName(GstService.TaxLedgerName(GstTaxHead.Central, GstTaxDirection.Output))!.Id;
+        var legacyNote = legacy.FindVoucher(noteId)!;
+        var pr0 = Assert.Single(legacyNote.Lines, l => l.LedgerId == k.PurchaseReturnsId);
+        Assert.Equal((DrCr.Credit, 125.01m), (pr0.Side, pr0.Amount.Amount));
+        Assert.DoesNotContain(legacyNote.Lines, l => l.LedgerId == k.SalesId);   // premise: the legacy shape
+
+        var open = VoucherEntryViewModel.ForAlter(legacy, noteId, new CompanyStorage(_dir), () => { }, () => { });
+        Assert.Null(open.Refusal);
+        var entry = open.Entry!;
+        Assert.Equal(saleId, entry.SelectedCdnOriginalInvoice?.Invoice?.Id);
+        Assert.Equal("Sales", entry.StockLedgerCaption);
+        Assert.Equal(k.PurchaseReturnsId, entry.SelectedStockLedger?.Id);
+        Assert.Contains(entry.StockLedgers, l => l.Id == k.SalesId);
+        Assert.DoesNotContain(entry.StockLedgers, l => l.Id == k.PurchasesId);   // only the carried ledger, not its family
+        Assert.True(entry.AcceptAlteration(), "unchanged alteration refused: " + entry.Message);
+
+        var kept = Reload(name);
+        var keptNote = kept.FindVoucher(noteId)!;
+        var pr = Assert.Single(keptNote.Lines, l => l.LedgerId == k.PurchaseReturnsId);
+        Assert.Equal((DrCr.Credit, 125.01m), (pr.Side, pr.Amount.Amount));
+        Assert.DoesNotContain(keptNote.Lines, l => l.LedgerId == k.SalesId);
+        var cg = Assert.Single(keptNote.Lines, l => l.LedgerId == outCgst);
+        Assert.Equal((DrCr.Credit, 11.25m), (cg.Side, cg.Amount.Amount));
+        var party = Assert.Single(keptNote.Lines, l => l.LedgerId == k.CustomerId);
+        Assert.Equal((DrCr.Debit, 147.51m), (party.Side, party.Amount.Amount));
+        Assert.Equal(saleId, kept.CreditDebitNoteLinks.Single(l => l.CdnVoucherId == noteId).OriginalInvoiceVoucherId);
+
+        var reopen = VoucherEntryViewModel.ForAlter(kept, noteId, new CompanyStorage(_dir), () => { }, () => { });
+        Assert.Null(reopen.Refusal);
+        var again = reopen.Entry!;
+        again.SelectedStockLedger = again.StockLedgers.Single(l => l.Id == k.SalesId);
+        Assert.True(again.AcceptAlteration(), "move to Sales refused: " + again.Message);
+
+        var moved = Reload(name);
+        var movedNote = moved.FindVoucher(noteId)!;
+        var value = Assert.Single(movedNote.Lines, l => l.LedgerId == k.SalesId);
+        Assert.Equal((DrCr.Credit, 125.01m), (value.Side, value.Amount.Amount));
+        Assert.DoesNotContain(movedNote.Lines, l => l.LedgerId == k.PurchaseReturnsId);
+        var (from, to) = Fy(moved);
+        using var g9c = JsonDocument.Parse(GstReturnJson.Gstr9c(moved, from, to));
+        Assert.Equal(0L, g9c.RootElement.GetProperty("tbl5r_unreconciled_turnover_paisa").GetInt64());
+    }
+
+    /// <summary>
+    /// 🔴 <b>R5 (fix pass) — a NEW outward debit note re-opens on the Sales ledger it was posted on, not the first
+    /// Sales ledger alphabetically.</b> The book has two Sales-family ledgers, "Alpha Sales" (first) and "Sales"; the
+    /// note is keyed on "Sales" in the order that leaves the ORIGINAL picker as the only handler that can move the
+    /// family (§34 ticked with no party, then the Sale picked, then the customer), saved, reloaded, re-opened: the
+    /// picker shows "Sales" selected. An unchanged Accept keeps Sales Cr 125.01 on the reloaded book.
+    /// <para><b>Mutation M3</b> (the original picker's <c>RefreshValueLedgerFamily</c> removed) reddens this at the
+    /// first family assertion. <b>Mutation M4</b> (the rehydrate's <c>SelectedStockLedger</c> assignment removed)
+    /// reddens it at the re-opened selection, which falls to "Alpha Sales".</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_new_outward_debit_note_reopens_on_the_sales_ledger_it_was_posted_on()
+    {
+        const string name = "S34 Two Sales Co";
+        var k = Seed(name, secondSalesLedger: true);
+        var alphaId = k.Vm.Company!.FindLedgerByName("Alpha Sales")!.Id;
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        Guid noteId;
+        try
+        {
+            w.Show();
+            Pump(w);
+            var sale = PostInvoice(w, k, VoucherBaseType.Sales, k.CustomerId, k.SalesId, k.WidgetId, "6");
+            w.KeyPressQwerty(PhysicalKey.F5, RawInputModifiers.Alt);
+            Pump(w);
+            var e = k.Vm.VoucherEntry!;
+            w.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(w);
+            Assert.True(e.IsItemInvoice);
+            e.IsSection34Note = true;                                             // no party, no original: inward
+            Assert.Contains(e.StockLedgers, l => l.Id == k.PurchaseReturnsId);
+            e.SelectedCdnOriginalInvoice = e.CdnOriginalInvoices.Single(o => o.Invoice?.Id == sale.Id);
+            Assert.Contains(e.StockLedgers, l => l.Id == k.SalesId);              // only the original handler moved it
+            Assert.DoesNotContain(e.StockLedgers, l => l.Id == k.PurchaseReturnsId);
+            e.SelectedParty = e.Parties.Single(p => p.Ledger?.Id == k.CustomerId);
+            e.SelectedCdnReasonCode = "04 Correction in invoice";
+            e.SelectedStockLedger = e.StockLedgers.Single(l => l.Id == k.SalesId);
+            var line = e.InventoryLines[0];
+            line.SelectedItem = e.StockItems.Single(i => i.Id == k.WidgetId);
+            line.SelectedGodown = e.Godowns.Single(g => g.Id == k.GodownId);
+            line.QuantityText = "3";
+            line.RateText = "41.67";
+            Pump(w);
+            noteId = AcceptNote(w, k, e).Id;
+        }
+        finally { w.Close(); }
+
+        var book = Reload(name);
+        var open = VoucherEntryViewModel.ForAlter(book, noteId, new CompanyStorage(_dir), () => { }, () => { });
+        Assert.Null(open.Refusal);
+        var entry = open.Entry!;
+        Assert.Equal("Sales", entry.StockLedgerCaption);
+        Assert.Contains(entry.StockLedgers, l => l.Id == alphaId);
+        Assert.Equal(k.SalesId, entry.SelectedStockLedger?.Id);
+        Assert.True(entry.AcceptAlteration(), "unchanged alteration refused: " + entry.Message);
+
+        var after = Reload(name);
+        var note = after.FindVoucher(noteId)!;
+        var value = Assert.Single(note.Lines, l => l.LedgerId == k.SalesId);
+        Assert.Equal((DrCr.Credit, 125.01m), (value.Side, value.Amount.Amount));
+        Assert.DoesNotContain(note.Lines, l => l.LedgerId == alphaId);
+    }
+
+    /// <summary>
+    /// <b>R5 (fix pass) — the §34 TICK alone moves the family.</b> The customer is chosen while §34 is off (an
+    /// ordinary purchase-side Debit Note: Purchase family), then §34 is ticked with no original picked, which makes
+    /// the note outward through the party's Sundry Debtors group (IV-278); no other handler fires between the two
+    /// assertions. <b>Mutation M5</b> (the tick's <c>RefreshValueLedgerFamily</c> removed) reddens this.
+    /// </summary>
+    [AvaloniaFact]
+    public void Ticking_section_34_on_a_debit_note_to_a_debtor_moves_the_picker_to_sales()
+    {
+        var k = Seed("S34 Tick Family Co", secondSalesLedger: true);
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        try
+        {
+            w.Show();
+            Pump(w);
+            w.KeyPressQwerty(PhysicalKey.F5, RawInputModifiers.Alt);
+            Pump(w);
+            var e = k.Vm.VoucherEntry!;
+            w.KeyPressQwerty(PhysicalKey.H, RawInputModifiers.Control);
+            Pump(w);
+            Assert.True(e.IsItemInvoice);
+            e.SelectedParty = e.Parties.Single(p => p.Ledger?.Id == k.CustomerId);
+            Assert.Contains(e.StockLedgers, l => l.Id == k.PurchaseReturnsId);   // §34 off: a purchase-side note
+            Assert.DoesNotContain(e.StockLedgers, l => l.Id == k.SalesId);
+            e.IsSection34Note = true;
+            Pump(w);
+            Assert.Equal("Sales", e.StockLedgerCaption);
+            Assert.Contains(e.StockLedgers, l => l.Id == k.SalesId);
+            Assert.DoesNotContain(e.StockLedgers, l => l.Id == k.PurchaseReturnsId);
+        }
+        finally { w.Close(); }
     }
 
     // ================================================================================================= T2-168
