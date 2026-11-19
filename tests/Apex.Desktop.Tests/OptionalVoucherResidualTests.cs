@@ -13,9 +13,10 @@ using DomainLedger = Apex.Ledger.Domain.Ledger;
 namespace Apex.Desktop.Tests;
 
 /// <summary>
-/// Census <b>5.7</b> wrong-figure residuals (wave 11, track hd). Vendor (TallyPrime), the Optional-voucher page
-/// recorded on IV-311: <i>"Marking voucher as Optional will remove the accounting impact of the transactions from the
-/// books of account."</i>
+/// Census <b>5.7</b> wrong-figure residuals (wave 11, track hd, IV-334). Vendor (TallyPrime),
+/// help.tallysolutions.com/create-optional-voucher/, opened by content 2026-11-19: Optional Vouchers <i>"record
+/// tentative or future transactions without affecting your books of accounts"</i>, and when due you can <i>"make the
+/// entry regular to include its accounting impact in the books of accounts."</i>
 /// <list type="bullet">
 ///   <item><b>T2-170</b> — Item Cost Analysis's accounting item-invoice walk did not skip an Optional voucher, while its
 ///     pure-inventory walk did, so an Optional cost-tracked item invoice still moved Cost and Revenue.</item>

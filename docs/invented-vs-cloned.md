@@ -3700,6 +3700,69 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | `ProfitAndLossLine` carries its ledger's primary group (`GroupName`, `GroupId`). The condensed view shows one row per primary group under each side (Sales Accounts, Direct Incomes, Indirect Incomes / Purchase Accounts, Direct Expenses, Indirect Expenses, ...) in first-posted ledger order, with the side total and Net Profit / Loss unchanged. A ledger under a user sub-group (e.g. *Office Expenses* under Indirect Expenses) rolls into the primary group. Before this wave each side collapsed to a single "Income" / "Expenses" row. **OURS:** rolling to the primary rather than the immediate group (the detailed view is ledgers, not the next sub-group level); the row order; a condensed group row is not drillable (Enter does nothing), as on the condensed Balance Sheet. **NOT BUILT:** the vertical P&L form (census 11.2's other clause). |
 | **Tests** | `ProfitAndLossCondensedTests.Condensed_view_rolls_each_side_up_to_its_primary_groups_off_the_reloaded_book`, `…Condensed_csv_and_pdf_carry_one_row_per_primary_group`, `…Alt_F1_on_the_profit_and_loss_toggles_the_primary_group_view_by_keyboard`. Mutations: keying on the section header again (N1) and keying on the immediate group (N2) each redden all three by name. |
 
+## 2AE. ADDED 2026-11-19 — WAVE 11 TRACK `hd`: THE VERTICAL PROFIT & LOSS A/c AND TWO OPTIONAL-VOUCHER RESIDUALS (census rows 11.2 / 5.7, IV-330..IV-334)
+
+> **This track's block is IV-330..IV-334.** The section letter `2AE` is the wave plan's pre-assignment; the entry
+> NUMBERS are the stable handle. **This section SUPERSEDES the "NOT BUILT: the vertical P&L form" sentence of IV-309**,
+> which is left as written above so the history reads.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT on 2026-11-19:
+> - `help.tallysolutions.com/profit-and-loss-statement-tally/` (last updated November 5, 2026) — **"By default, the
+>   Profit & Loss A/c appears in the horizontal format."**; **"If your business prefers the vertical format, then you
+>   can set the option Show Vertical Profit & Loss to Yes."**; **"Press F12 to explore and apply the required
+>   format."**; of the vertical form, that the groups appear under **"Trading Account and Income Statements"**; of
+>   *Show with Gross Profit*, **"This option is available only in the horizontal form of the Profit & Loss A/c."**;
+>   and of *Show Percentages*, that each line is expressed as a percentage of sales, sales being 100%. The page does
+>   not draw the vertical rows, name their columns, or mention Alt+F1.
+> - `help.tallysolutions.com/create-optional-voucher/` (last updated November 6, 2026) — Optional Vouchers **"record
+>   tentative or future transactions without affecting your books of accounts"**, and when due you can **"make the
+>   entry regular to include its accounting impact in the books of accounts."**
+
+### IV-330 · **F12 "Show Vertical Profit & Loss" (default No) switches the Profit & Loss A/c to a Trading Account / Income Statement form** (wave 11, track hd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class A (cloned) for the option, its default and its two section names. Area: RPT.** |
+| **What TallyPrime does** | Horizontal by default; F12 *Show Vertical Profit & Loss* = Yes gives the vertical form, with the groups under Trading Account and Income Statements. |
+| **What we ship** | A *Show Vertical Profit & Loss* check box on the F12 Configure column, shown only over the Profit & Loss A/c (`ReportsViewModel.SupportsVerticalProfitAndLoss`), default unticked. Space toggles it once it has focus, and Ctrl+A applies it. The test focuses the realised box directly; the Tab path to it is not pinned. When ticked, `BuildVerticalProfitAndLoss` emits a **Trading Account** header and an **Income Statement** header in place of the Income / Expenses sides. The split comes from the new `ProfitAndLossLine.IsTrading`. That flag marks the head set `ComputeGrossProfit` walks: the four seeded trading heads, plus any primary group marked *Does it affect Gross Profits*. Gross Profit and Net Profit are the engine's own figures, never re-summed. The rows reach the screen, the PDF print and the CSV export through the existing row projectors unchanged. The flag is a P&L-only setting: a move to another report kind resets it. It is saved and re-applied by an Alt+K saved view (`SavedReportView.ShowVerticalProfitAndLoss`, in the JSON blob, so no migration). |
+| **Tests** | `ProfitAndLossVerticalTests.Default_is_the_horizontal_form_and_the_switch_gives_the_trading_account_and_income_statement`, `…Condensed_vertical_form_rolls_each_block_up_to_primary_groups`, `…A_gross_loss_is_carried_down_as_a_deduction_to_a_net_loss`, `…Vertical_switch_is_offered_on_the_profit_and_loss_only_and_does_not_follow_to_another_report`, `…Csv_and_pdf_carry_each_form_off_the_reloaded_book`, `…The_vertical_form_survives_a_saved_view_through_a_fresh_store_handle`, `…F12_show_vertical_by_keyboard_then_Alt_F1_toggles_both_forms` (all on an odd-paisa book reloaded through a fresh `CompanyStorage`). Mutations: the builder ignoring the flag reddens six by name; `IsTrading` always false reddens four; the F12 Apply not passing the flag reddens the keyboard test; `ToSavedView` dropping it reddens the saved-view test; removing the kind-change reset reddens the scope test. |
+
+### IV-331 · **The vertical rows: one Amount column, "Less:" marks a deduction, Gross Profit is carried down as "Gross Profit b/f"** (wave 11, track hd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | The page names the two sections and draws nothing inside them. |
+| **What we ship** | **Trading Account:** trading income lines (Sales Accounts, Direct Incomes). Then *Add: Closing Stock*, on the inventory-derived closing-stock basis only. On the as-posted basis, closing stock already arrives as a Direct Income adjustment line, so adding it again would count it twice. Then *Less: Opening Stock* (when non-zero), *Less:* each purchase / direct-expense line, and a **Gross Profit** or **Gross Loss** total. **Income Statement:** *Gross Profit b/f* (or *Less: Gross Loss b/f*), the indirect income lines, *Less:* each indirect expense line, and a **Net Profit** or **Net Loss** total. Every amount is a magnitude in one column. A detailed ledger line keeps its drill (Enter opens the ledger's vouchers); the computed stock and b/f lines do not drill. **OURS:** all of the row order, the labels and the one-column shape. |
+| **Tests** | As IV-330; the exact detailed, condensed and gross-loss row lists are pinned to the paisa. |
+
+### IV-332 · **Alt+F1, hide-zero, percentages and the Alt+F12 sort/filter act within each block of the vertical form** (wave 11, track hd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | Alt+F1 / Alt+F5 show the next level of detail (help.tallysolutions.com/working-with-reports/, IV-309). The P&L page describes *Show Percentages* as a share of sales, with sales at 100%. |
+| **What we ship** | The four blocks are trading income, trading expenses, indirect income and indirect expenses. Each rolls up to its primary groups on Alt+F1, exactly as the horizontal sides do (IV-309). Hide-zero, the sort/filter view and percentages each apply inside one block, as they already do inside one horizontal side. **OURS:** the per-block scope. **DIVERGENCE KEPT:** our percentages are a share of the block, not of sales. That matches what the horizontal form already ships, and this track did not change it. |
+| **Tests** | `ProfitAndLossVerticalTests.Condensed_vertical_form_rolls_each_block_up_to_primary_groups`, `…F12_show_vertical_by_keyboard_then_Alt_F1_toggles_both_forms`. Hide-zero, percentages and sort/filter in the vertical form have **no dedicated test**. |
+
+### IV-333 · **Not built beside the vertical form: the vertical comparative grid, Show with Gross Profit, and a two-sided horizontal form** (wave 11, track hd)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class D (not built). Area: RPT.** |
+| **What TallyPrime does** | *Show with Gross Profit* exists in the horizontal form only. The horizontal form is the vendor's default. |
+| **What we ship** | (a) **Over a comparative (Alt+C) grid the option is not offered.** That grid is a separate projection which this flag does not reshape, and an F12 box that answers "Applied" while changing nothing is the defect the other F12 gates record. The chosen form comes back when the columns are closed. (b) **No *Show with Gross Profit* option exists.** Our horizontal form is the pre-existing stacked Income / Expenses / Net Profit list. It shows no Gross Profit line and no opening-stock line, and it is single-column, not the two-sided horizontal account. This track did not change that form. |
+| **Tests** | None for (a) or (b). |
+
+### IV-334 · **An Optional item invoice moves nothing in Item Cost Analysis, and an Optional Job Work order is not offered to Material In / Out** (wave 11, track hd; T2-170, T2-171)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM (T2-170, a wrong figure) / LOW (T2-171). Class A for the accounting impact; Class C (ours, by extension) for the order picker. Area: INV.** |
+| **What TallyPrime does** | Optional Vouchers record transactions *"without affecting your books of accounts"*, and regularising one includes its accounting impact. The page does not mention order pickers. |
+| **What we ship** | `ItemCostAnalysis.Accumulate`'s accounting item-invoice walk now skips `v.Optional`, as its pure-inventory walk already did. Before, one report's two walks disagreed, and an Optional cost-tracked sales or purchase invoice moved Cost and Revenue. The Material In / Out *Order No.* list (`MaterialMovementEntryViewModel`) now also drops an Optional Job Work order, as it already dropped a cancelled one. **OURS:** hiding a provisional order from the picker. Regularising the order brings it back. |
+| **Tests** | `OptionalVoucherResidualTests.An_optional_cost_tracked_item_invoice_adds_no_cost_or_revenue_until_it_is_regularised` (Cost 1,037.00 / Revenue 568.40 while Optional, then 1,425.85 / 1,568.30 regularised, off a reloaded book), `…The_material_order_picker_does_not_offer_an_optional_job_work_order_until_it_is_regularised`. Mutations: removing `|| v.Optional` from the item-invoice walk reddens the first; removing `&& !v.Optional` from the picker filter reddens the second. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
