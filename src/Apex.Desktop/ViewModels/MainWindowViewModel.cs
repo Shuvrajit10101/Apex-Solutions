@@ -6023,11 +6023,6 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     // =============================================================== screen: backup / restore company (R-7)
 
     /// <summary>
-    /// Gateway → Data → Backup / Restore → <b>Backup Company</b>: opens the panel that writes a consistent,
-    /// version-stamped snapshot of the open company's DATABASE to a single <c>.apexbak</c> archive. A no-op
-    /// unless a company is open; re-opening while the panel is up is a no-op (one column, not a stack).
-    /// </summary>
-    /// <summary>
     /// T2-173: the folder the Backup panel opens on, when set. Null in the shell, where the panel keeps its production
     /// default (<see cref="Services.ExportFolderDefault"/>, i.e. My Documents). It exists so the test suite can point
     /// the panel at a per-test temp directory: on a OneDrive-redirected Documents folder the old tests wrote real
@@ -6035,6 +6030,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     internal string? BackupFolderOverride { get; set; }
 
+    /// <summary>
+    /// Gateway → Data → Backup / Restore → <b>Backup Company</b>: opens the panel that writes a consistent,
+    /// version-stamped snapshot of the open company's DATABASE to a single <c>.apexbak</c> archive. A no-op
+    /// unless a company is open; re-opening while the panel is up is a no-op (one column, not a stack).
+    /// </summary>
     public void OpenBackupCompany()
     {
         if (BackupCompanyPanel is not null) return;
