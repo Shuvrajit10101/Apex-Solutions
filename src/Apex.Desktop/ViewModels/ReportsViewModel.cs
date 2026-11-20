@@ -3166,15 +3166,60 @@ public sealed partial class ReportsViewModel : ViewModelBase
             return;
         }
 
-        AddProfitAndLossSide("Income", "Total Income",
-            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId, i.GroupName)), pl.TotalIncome);
-        AddProfitAndLossSide("Expenses", "Total Expenses",
-            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId, e.GroupName)), pl.TotalExpenses);
+        // Census 11.2 (wave 11, track hd fix pass, IV-333): the default form must FOOT — Total Income minus Total
+        // Expenses IS the Net Profit row. The engine charges opening stock and (inventory-derived basis) credits the
+        // derived closing stock OUTSIDE its ledger lines, so both are shown here as synthetic, non-drillable lines
+        // and carried into the side totals. Vendor, help.tallysolutions.com/stock-valuation-faq/ (updated
+        // 2026-06-05, opened by content 2026-11-20): "the manually entered opening and closing stock balances will
+        // be displayed in the Profit & Loss Account." On the books (as-posted) basis the closing stock is already an
+        // income line — its own Direct Income adjustment ledger — so it is NOT added again (that would double it).
+        var (incomeLines, totalIncome, expenseLines, totalExpenses) = HorizontalProfitAndLossSides(pl);
+        AddProfitAndLossSide("Income", "Total Income", incomeLines, totalIncome);
+        AddProfitAndLossSide("Expenses", "Total Expenses", expenseLines, totalExpenses);
 
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
         var magnitude = new Money(Math.Abs(pl.NetProfit.Amount));
         Rows.Add(ReportRow.Total(label, Scaled(magnitude)));
+    }
+
+    /// <summary>Label of the synthetic opening-stock line on the horizontal P&amp;L (also its condensed roll-up key).</summary>
+    internal const string OpeningStockLine = "Opening Stock";
+
+    /// <summary>Label of the synthetic closing-stock line on the horizontal P&amp;L (inventory-derived basis only).</summary>
+    internal const string ClosingStockLine = "Closing Stock";
+
+    /// <summary>
+    /// The two sides of the horizontal P&amp;L with the stock lines placed and the totals widened to match, so that
+    /// <c>income total - expense total == pl.NetProfit</c> on both closing-stock bases (IV-333). Opening Stock heads the
+    /// expense side; the inventory-derived Closing Stock follows the last trading income line (Sales Accounts /
+    /// Direct Incomes), or heads the income side when there is none. Both carry <see cref="Guid.Empty"/> (not
+    /// drillable) and their own label as group, so Alt+F1 keeps each as its own row.
+    /// </summary>
+    private (List<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> Income, Money TotalIncome,
+        List<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> Expenses, Money TotalExpenses)
+        HorizontalProfitAndLossSides(ProfitAndLoss pl)
+    {
+        var income = pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId, i.GroupName)).ToList();
+        var totalIncome = pl.TotalIncome;
+        if (_options.ClosingStock == ClosingStockMode.InventoryDerived && pl.ClosingStock != Money.Zero)
+        {
+            var lastTrading = -1;
+            for (var i = 0; i < pl.Income.Count; i++)
+                if (pl.Income[i].IsTrading) lastTrading = i;
+            income.Insert(lastTrading + 1, (ClosingStockLine, pl.ClosingStock, Guid.Empty, ClosingStockLine));
+            totalIncome = new Money(totalIncome.Amount + pl.ClosingStock.Amount);
+        }
+
+        var expenses = pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId, e.GroupName)).ToList();
+        var totalExpenses = pl.TotalExpenses;
+        if (pl.OpeningStock != Money.Zero)
+        {
+            expenses.Insert(0, (OpeningStockLine, pl.OpeningStock, Guid.Empty, OpeningStockLine));
+            totalExpenses = new Money(totalExpenses.Amount + pl.OpeningStock.Amount);
+        }
+
+        return (income, totalIncome, expenses, totalExpenses);
     }
 
     /// <summary>
@@ -3189,7 +3234,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
     ///   Less: Opening Stock
     ///   Less: [trading expenses]         Purchase Accounts, Direct Expenses
     ///   Gross Profit | Gross Loss        = ProfitAndLoss.GrossProfit
-    /// Income Statement
+    /// Income Statements
     ///   Gross Profit b/f | Less: Gross Loss b/f
     ///   [indirect income]
     ///   Less: [indirect expenses]
@@ -3217,7 +3262,7 @@ public sealed partial class ReportsViewModel : ViewModelBase
         var gross = new Money(Math.Abs(pl.GrossProfit.Amount));
         Rows.Add(ReportRow.Total(isGrossProfit ? "Gross Profit" : "Gross Loss", Scaled(gross)));
 
-        Rows.Add(new ReportRow { Particulars = "Income Statement", IsHeader = true });
+        Rows.Add(new ReportRow { Particulars = "Income Statements", IsHeader = true });
         Rows.Add(ReportRow.Line(isGrossProfit ? "Gross Profit b/f" : "Less: Gross Loss b/f", Scaled(gross)));
         AddVerticalBlock(Of(pl.Income.Where(l => !l.IsTrading)), "Indirect Incomes", string.Empty);
         AddVerticalBlock(Of(pl.Expenses.Where(l => !l.IsTrading)), "Indirect Expenses", "Less: ");

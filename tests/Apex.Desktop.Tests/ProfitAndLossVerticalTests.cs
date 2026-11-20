@@ -126,11 +126,15 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
     private static string[] Headers(ReportsViewModel r) =>
         r.Rows.Where(x => x.IsHeader).Select(x => x.Particulars).ToArray();
 
+    // The DEFAULT form FOOTS (IV-333, wave 11 hd fix pass): the opening stock the engine charges is a line on the
+    // expense side and inside Total Expenses, so 13,777.87 - 9,679.02 = 4,098.85 is the Net Profit row. Before the fix
+    // this array pinned Total Expenses 8,444.46 with no opening-stock line, a statement whose sides did not reach
+    // its own Net Profit.
     private static readonly string[] Horizontal =
     {
         "Sales VPL=12,345.67", "Sales Export VPL=1,000.01", "Commission Received=432.19", "Total Income=13,777.87",
-        "Purchases VPL=5,555.55", "Freight Inward=111.11", "Rent=2,000.03", "Electricity=777.77",
-        "Total Expenses=8,444.46", "Net Profit=4,098.85",
+        "Opening Stock=1,234.56", "Purchases VPL=5,555.55", "Freight Inward=111.11", "Rent=2,000.03",
+        "Electricity=777.77", "Total Expenses=9,679.02", "Net Profit=4,098.85",
     };
 
     private static readonly string[] VerticalDetailed =
@@ -162,7 +166,7 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
 
         r.SetShowVerticalProfitAndLoss(true);
 
-        Assert.Equal(new[] { "Trading Account", "Income Statement" }, Headers(r));
+        Assert.Equal(new[] { "Trading Account", "Income Statements" }, Headers(r));
         Assert.Equal(VerticalDetailed, Lines(r));
         // A detailed ledger line still drills (RQ-7); the computed lines do not.
         var rent = Assert.Single(r.Rows, x => x.Particulars == "Less: Rent");
@@ -230,9 +234,13 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
 
         var hCsv = Csv(r);
         Assert.Contains("Total Income,13777.87", hCsv);
+        Assert.Contains("Opening Stock,1234.56", hCsv);
+        Assert.Contains("Total Expenses,9679.02", hCsv);
         Assert.DoesNotContain("Gross Profit", hCsv);
         var hPdf = Pdf(r);
         Assert.Contains("Total Expenses", hPdf);
+        Assert.Contains("Opening Stock", hPdf);
+        Assert.Contains("9,679.02", hPdf);
         Assert.DoesNotContain("Trading Account", hPdf);
 
         r.SetShowVerticalProfitAndLoss(true);
@@ -241,7 +249,7 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
         Assert.Contains("Trading Account", vCsv);
         Assert.Contains("Less: Opening Stock,1234.56", vCsv);
         Assert.Contains("Gross Profit,6444.46", vCsv);
-        Assert.Contains("Income Statement", vCsv);
+        Assert.Contains("Income Statements", vCsv);
         Assert.Contains("Gross Profit b/f,6444.46", vCsv);
         Assert.Contains("Less: Electricity,777.77", vCsv);
         Assert.Contains("Net Profit,4098.85", vCsv);
@@ -249,7 +257,7 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
 
         var vPdf = Pdf(r);
         Assert.Contains("Trading Account", vPdf);
-        Assert.Contains("Income Statement", vPdf);
+        Assert.Contains("Income Statements", vPdf);
         Assert.Contains("Gross Profit", vPdf);
         Assert.Contains("6,444.46", vPdf);
         Assert.Contains("Net Profit", vPdf);
@@ -329,6 +337,183 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
         Pump(window);
         Assert.Equal(VerticalDetailed, Lines(f.Vm.Reports!));
         window.Close();
+    }
+
+    /// <summary>
+    /// An inventory book for the inventory-derived closing-stock basis (RQ-6), odd paisa: Purchase 100 Widgets at 10.37
+    /// (1,037.00) and Sales 40 at 14.21 (568.40), so 60 remain and the derived Closing Stock is 622.20. Commission
+    /// Received 12.34 is an indirect income, so the income side carries a line AFTER the trading block. Net Profit =
+    /// 568.40 + 622.20 - 1,037.00 + 12.34 = 165.94; Gross Profit = 153.60.
+    /// </summary>
+    private Fixture BuildInventory(string name)
+    {
+        var vm = new MainWindowViewModel(_storage);
+        vm.NewCompanyName = name + " " + Guid.NewGuid().ToString("N")[..6];
+        vm.CreateCompany();
+        var c = vm.Company!;
+        var s = c.BooksBeginFrom;
+        var inventory = new InventoryService(c);
+        var unit = inventory.CreateSimpleUnit("Nos", "Numbers");
+        var group = c.FindStockGroupByName("Primary") ?? inventory.CreateStockGroup("Primary");
+        var item = inventory.CreateStockItem("Widget INV", group.Id, unit.Id);
+        var main = c.MainLocation!;
+
+        DomainLedger L(string n, string g, bool dr)
+        {
+            var l = new DomainLedger(Guid.NewGuid(), n, c.FindGroupByName(g)!.Id, Money.Zero, dr);
+            c.AddLedger(l);
+            return l;
+        }
+
+        var supplier = L("Supplier INV", "Sundry Creditors", false);
+        var customer = L("Customer INV", "Sundry Debtors", true);
+        var cash = L("Cash INV", "Cash-in-Hand", true);
+        var purchases = L("Purchases INV", "Purchase Accounts", true);
+        var sales = L("Sales INV", "Sales Accounts", false);
+        var commission = L("Commission INV", "Indirect Incomes", false);
+        var svc = new LedgerService(c);
+        var number = 0;
+
+        void Bill(string type, DomainLedger nominal, DomainLedger party, StockDirection dir, decimal qty, decimal rate,
+            int day)
+        {
+            var value = Money.FromRupees(qty * rate);
+            var inward = dir == StockDirection.Inward;
+            svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName(type)!.Id, s.AddDays(day),
+                new[]
+                {
+                    new EntryLine(nominal.Id, value, inward ? DrCr.Debit : DrCr.Credit),
+                    new EntryLine(party.Id, value, inward ? DrCr.Credit : DrCr.Debit),
+                },
+                number: ++number, partyId: party.Id,
+                inventoryLines: new[] { new VoucherInventoryLine(item.Id, main.Id, qty, Money.FromRupees(rate), dir) }));
+        }
+
+        Bill("Purchase", purchases, supplier, StockDirection.Inward, 100m, 10.37m, 3);
+        Bill("Sales", sales, customer, StockDirection.Outward, 40m, 14.21m, 9);
+        svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, s.AddDays(11), new[]
+        {
+            new EntryLine(cash.Id, Money.FromRupees(12.34m), DrCr.Debit),
+            new EntryLine(commission.Id, Money.FromRupees(12.34m), DrCr.Credit),
+        }));
+
+        _storage.Save(c);
+        return new Fixture(vm, c, s.AddDays(60));
+    }
+
+    private ReportsViewModel InventoryDerivedReport(Fixture f)
+    {
+        var r = new ReportsViewModel(Reload(f.Company), ReportKind.ProfitAndLoss);
+        r.SetAsOf(f.AsOf);
+        r.ApplyConfiguration(hideZero: false, showPercentages: false, closingStock: ClosingStockMode.InventoryDerived);
+        Assert.Equal(ClosingStockMode.InventoryDerived, r.ClosingStock);
+        return r;
+    }
+
+    /// <summary>
+    /// Reads the EMITTED CSV of a horizontal P&amp;L and checks it foots by its own figures: the lines under each side
+    /// sum to that side's total, and Total Income - Total Expenses is the Net Profit row (a Net Loss row is the
+    /// negative). Returns (total income, total expenses, net) for the caller to pin.
+    /// </summary>
+    private static (decimal Income, decimal Expenses, decimal Net) AssertHorizontalCsvFoots(string csv)
+    {
+        var rows = new List<(string Label, decimal? Amount)>();
+        foreach (var raw in csv.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length == 0) continue;
+            var comma = line.LastIndexOf(',');
+            if (comma < 0) { rows.Add((line, null)); continue; }
+            var tail = line[(comma + 1)..].Trim('"');
+            rows.Add((line[..comma].Trim('"'),
+                decimal.TryParse(tail, System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : null));
+        }
+
+        decimal Side(string header, string total)
+        {
+            var start = rows.FindIndex(x => x.Label == header);
+            var end = rows.FindIndex(x => x.Label == total);
+            Assert.True(start >= 0 && end > start, $"'{header}'..'{total}' not found in:\n{csv}");
+            var sum = rows.Skip(start + 1).Take(end - start - 1).Sum(x => x.Amount ?? 0m);
+            var stated = rows[end].Amount ?? throw new Xunit.Sdk.XunitException($"no amount on '{total}'");
+            Assert.True(sum == stated, $"{header} lines sum to {sum} but {total} says {stated}:\n{csv}");
+            return stated;
+        }
+
+        var income = Side("Income", "Total Income");
+        var expenses = Side("Expenses", "Total Expenses");
+        var profit = rows.FindIndex(x => x.Label == "Net Profit");
+        var loss = rows.FindIndex(x => x.Label == "Net Loss");
+        Assert.True(profit >= 0 ^ loss >= 0, $"exactly one of Net Profit / Net Loss expected:\n{csv}");
+        var net = profit >= 0 ? rows[profit].Amount!.Value : -rows[loss].Amount!.Value;
+        Assert.True(income - expenses == net,
+            $"Total Income {income} - Total Expenses {expenses} = {income - expenses}, but the statement says {net}:\n{csv}");
+        return (income, expenses, net);
+    }
+
+    [Fact]
+    public void Horizontal_form_foots_on_the_books_basis_in_both_views_off_the_reloaded_book()
+    {
+        foreach (var purchases in new[] { 5_555.55m, 15_555.55m })   // a profit book and a loss book
+        {
+            var f = Build("PL Foots Books " + purchases, purchases);
+            var r = new ReportsViewModel(Reload(f.Company), ReportKind.ProfitAndLoss);
+            r.SetAsOf(f.AsOf);
+            Assert.Equal(ClosingStockMode.AsPostedLedger, r.ClosingStock);
+
+            var detailed = AssertHorizontalCsvFoots(Csv(r));
+            Assert.Equal(purchases == 5_555.55m ? 4_098.85m : -5_901.15m, detailed.Net);
+            Assert.Equal(purchases + 111.11m + 2_777.80m + 1_234.56m, detailed.Expenses);
+
+            r.ToggleDetailed();                                       // Alt+F1: primary-group roll-ups
+            Assert.Equal(detailed, AssertHorizontalCsvFoots(Csv(r)));
+            Assert.Contains("Opening Stock=1,234.56", Lines(r));
+        }
+    }
+
+    [Fact]
+    public void Horizontal_form_foots_on_the_inventory_derived_basis_with_the_closing_stock_on_the_income_side()
+    {
+        var f = BuildInventory("PL Foots Inventory");
+        var r = InventoryDerivedReport(f);
+
+        Assert.Equal(new[]
+        {
+            "Sales INV=568.40", "Closing Stock=622.20", "Commission INV=12.34", "Total Income=1,202.94",
+            "Purchases INV=1,037.00", "Total Expenses=1,037.00", "Net Profit=165.94",
+        }, Lines(r));
+        Assert.Equal(Guid.Empty, Assert.Single(r.Rows, x => x.Particulars == "Closing Stock").DrillLedgerId);
+
+        var csv = Csv(r);
+        Assert.Equal((1_202.94m, 1_037.00m, 165.94m), AssertHorizontalCsvFoots(csv));
+        Assert.Contains("Closing Stock,622.20", csv);
+        var pdf = Pdf(r);
+        Assert.Contains("Closing Stock", pdf);
+        Assert.Contains("1,202.94", pdf);
+
+        r.ToggleDetailed();
+        Assert.Equal((1_202.94m, 1_037.00m, 165.94m), AssertHorizontalCsvFoots(Csv(r)));
+        Assert.Contains("Closing Stock=622.20", Lines(r));
+    }
+
+    [Fact]
+    public void Vertical_form_adds_the_inventory_derived_closing_stock_in_the_trading_account()
+    {
+        var f = BuildInventory("PL Vertical Inventory");
+        var r = InventoryDerivedReport(f);
+        r.SetShowVerticalProfitAndLoss(true);
+
+        // 568.40 + 622.20 - 1,037.00 = Gross Profit 153.60; 153.60 + 12.34 = Net Profit 165.94.
+        Assert.Equal(new[]
+        {
+            "Sales INV=568.40", "Add: Closing Stock=622.20", "Less: Purchases INV=1,037.00", "Gross Profit=153.60",
+            "Gross Profit b/f=153.60", "Commission INV=12.34", "Net Profit=165.94",
+        }, Lines(r));
+        var csv = Csv(r);
+        Assert.Contains("Add: Closing Stock,622.20", csv);
+        Assert.Contains("Gross Profit,153.60", csv);
+        Assert.Contains("Net Profit,165.94", csv);
     }
 
     private static CheckBox VerticalBox(Visual root) =>

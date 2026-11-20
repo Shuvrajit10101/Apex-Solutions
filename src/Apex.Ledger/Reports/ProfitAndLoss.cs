@@ -30,7 +30,7 @@ public enum ClosingStockMode
 /// <para>Census 11.2 (wave 11, track hd, IV-330): <see cref="IsTrading"/> is true when the line's primary group is a
 /// trading head (Sales Accounts, Direct Incomes, Purchase Accounts, Direct Expenses, or a primary group marked
 /// "Does it affect Gross Profits") — exactly the set <see cref="ProfitAndLoss.GrossProfit"/> is computed over. The
-/// vertical form puts these lines in its Trading Account section and the rest in its Income Statement section.</para>
+/// vertical form puts these lines in its Trading Account section and the rest in its Income Statements section.</para>
 /// </summary>
 public sealed record ProfitAndLossLine(
     string LedgerName, Money Amount, Guid LedgerId = default, string GroupName = "", Guid GroupId = default,
