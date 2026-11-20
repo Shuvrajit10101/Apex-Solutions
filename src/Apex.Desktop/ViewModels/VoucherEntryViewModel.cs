@@ -3744,6 +3744,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // duplicate of a note adjusting an invoice is a note adjusting that same invoice, and `Accept` mints it
         // a link of its own through `RegisterSection34Link`.
         CdnOverrideTimeLimit = false;
+
+        // 🔴 T2-165 / IV-324 — THE LEGACY VALUE-LEDGER CARRY IS DROPPED ON A DUPLICATE, for the same reason. The
+        // rehydrate carries a pre-wave-11 outward debit note's Purchase Returns ledger so an ALTERATION re-opens on
+        // its own figures; on a duplicate it would stay selected and Ctrl+A would post a NEW outward note with its
+        // value on Purchase Returns, the T2-165 shape (GSTR-9C 5R = −value). The picker is rebuilt to today's family
+        // (Sales) and falls to its first ledger, which the operator sees before accepting.
+        if (_carriedLegacyValueLedgerId is not null)
+        {
+            _carriedLegacyValueLedgerId = null;
+            _stockLedgersBuiltForPurchaseFamily = null;   // force the rebuild so the carried ledger leaves the picker
+            RefreshValueLedgerFamily();
+        }
     }
 
     /// <summary>

@@ -650,6 +650,60 @@ public sealed class Section34NoteDirectionW11Tests : IDisposable
         finally { w.Close(); }
     }
 
+    /// <summary>
+    /// 🔴 <b>Re-review (w11c) — a DUPLICATE (Alt+2) of a pre-wave-11 outward debit note is a NEW note and takes a
+    /// Sales ledger; the legacy Purchase Returns carry is for ALTERATION only.</b> <c>ForDuplicate</c> re-keys the
+    /// screen through the same rehydrate as <c>ForAlter</c>, so the carried ledger used to survive
+    /// <c>DetachAsDuplicate</c> and stay selected: Ctrl+A then posted a FRESH outward note with its value on Purchase
+    /// Returns, the exact T2-165 shape (GSTR-9C 5R = −value) the wave closed for new notes. A duplicate "is a NEW
+    /// document and must be stamped by today's masters" (<c>DetachAsDuplicate</c>'s own rule). On the reloaded book
+    /// the copy posts Sales Cr 125.01 and no Purchase Returns leg; the legacy source is untouched.
+    /// <para><b>Mutation R1</b> (the carry-clear in <c>DetachAsDuplicate</c> removed) reddens this at the picker
+    /// assertion.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void A_duplicate_of_a_pre_wave_11_outward_debit_note_posts_its_value_to_sales()
+    {
+        const string name = "S34 Legacy Dup DN Co";
+        var k = Seed(name);
+        var w = new MainWindow { DataContext = k.Vm, Width = 1440, Height = 900 };
+        Guid noteId;
+        try
+        {
+            w.Show();
+            Pump(w);
+            var sale = PostInvoice(w, k, VoucherBaseType.Sales, k.CustomerId, k.SalesId, k.WidgetId, "6");
+            var e = OpenNote(w, k, VoucherBaseType.DebitNote, k.CustomerId, k.WidgetId, sale);
+            e.SelectedStockLedger = e.StockLedgers.Single(l => l.Id == k.SalesId);
+            noteId = AcceptNote(w, k, e).Id;
+        }
+        finally { w.Close(); }
+
+        var dbPath = new CompanyStorage(_dir).ListCompanies().Single(x => x.Name == name).DatabasePath;
+        Assert.Equal(1, RewriteLineLedger(dbPath, noteId, k.SalesId, k.PurchaseReturnsId));
+
+        var legacy = Reload(name);
+        var open = VoucherEntryViewModel.ForDuplicate(legacy, noteId, new CompanyStorage(_dir), () => { }, () => { });
+        Assert.Null(open.Refusal);
+        var dup = open.Entry!;
+        Assert.False(dup.IsAltering);
+        Assert.Equal("Sales", dup.StockLedgerCaption);
+        Assert.DoesNotContain(dup.StockLedgers, l => l.Id == k.PurchaseReturnsId || l.Id == k.PurchasesId);
+        Assert.Equal(k.SalesId, dup.SelectedStockLedger?.Id);
+        Assert.True(dup.Accept(), "duplicate refused: " + dup.Message);
+
+        var book = Reload(name);
+        var noteTypeId = book.FindVoucher(noteId)!.TypeId;
+        var notes = book.Vouchers.Where(v => v.TypeId == noteTypeId).ToList();
+        Assert.Equal(2, notes.Count);
+        var copy = Assert.Single(notes, v => v.Id != noteId);
+        var value = Assert.Single(copy.Lines, l => l.LedgerId == k.SalesId);
+        Assert.Equal((DrCr.Credit, 125.01m), (value.Side, value.Amount.Amount));
+        Assert.DoesNotContain(copy.Lines, l => l.LedgerId == k.PurchaseReturnsId || l.LedgerId == k.PurchasesId);
+        var source = Assert.Single(book.FindVoucher(noteId)!.Lines, l => l.LedgerId == k.PurchaseReturnsId);
+        Assert.Equal((DrCr.Credit, 125.01m), (source.Side, source.Amount.Amount));
+    }
+
     // ================================================================================================= T2-168
 
     /// <summary>
