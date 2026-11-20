@@ -516,6 +516,56 @@ public sealed class ProfitAndLossVerticalTests : IDisposable
         Assert.Contains("Net Profit,165.94", csv);
     }
 
+    /// <summary>
+    /// Every Alt+C column of the realised comparative grid foots: its Income cells minus its Expenses cells is that
+    /// column's own Net Profit / Net Loss caption. Returns the per-column nets.
+    /// </summary>
+    private static decimal[] AssertComparativeColumnsFoot(ReportsViewModel r)
+    {
+        Assert.True(r.IsComparative);
+        static decimal Parse(string s) => string.IsNullOrWhiteSpace(s)
+            ? 0m
+            : decimal.Parse(s.Trim(), System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture);
+        var nets = new decimal[r.ComparativeColumns.Count];
+        for (var i = 0; i < r.ComparativeColumns.Count; i++)
+        {
+            var income = r.ComparativeRows.Where(x => x.GroupName == "Income").Sum(x => Parse(x.Cells[i]));
+            var expenses = r.ComparativeRows.Where(x => x.GroupName == "Expenses").Sum(x => Parse(x.Cells[i]));
+            var caption = r.ComparativeColumns[i].TotalText;
+            var m = System.Text.RegularExpressions.Regex.Match(caption, @"Net (Profit|Loss)\s+([\d,]+\.\d{2})");
+            Assert.True(m.Success, $"no Net Profit / Net Loss in column caption '{caption}'");
+            var net = Parse(m.Groups[2].Value) * (m.Groups[1].Value == "Loss" ? -1m : 1m);
+            Assert.True(income - expenses == net,
+                $"column {i}: income {income} - expenses {expenses} = {income - expenses}, but its caption says {caption}");
+            nets[i] = net;
+        }
+        return nets;
+    }
+
+    [Fact]
+    public void Comparative_columns_foot_with_the_stock_lines_on_both_bases_off_the_reloaded_book()
+    {
+        var books = Build("PL Foots Alt C");
+        var r = new ReportsViewModel(Reload(books.Company), ReportKind.ProfitAndLoss);
+        r.SetAsOf(books.AsOf);
+        Assert.True(r.AddComparisonColumn("Whole period",
+            new PeriodRange(books.Company.BooksBeginFrom, books.AsOf), scenario: null));
+        Assert.All(AssertComparativeColumnsFoot(r), n => Assert.Equal(4_098.85m, n));
+        var opening = Assert.Single(r.ComparativeRows, x => x.Label == "Opening Stock");
+        Assert.All(opening.Cells, c => Assert.Equal("1,234.56", c));
+        Assert.Contains("Opening Stock (Expenses)", Csv(r));
+
+        var inv = BuildInventory("PL Foots Alt C Inventory");
+        var ri = InventoryDerivedReport(inv);
+        Assert.True(ri.AddComparisonColumn("Whole period",
+            new PeriodRange(inv.Company.BooksBeginFrom, inv.AsOf), scenario: null));
+        Assert.All(AssertComparativeColumnsFoot(ri), n => Assert.Equal(165.94m, n));
+        var closing = Assert.Single(ri.ComparativeRows, x => x.Label == "Closing Stock");
+        Assert.All(closing.Cells, c => Assert.Equal("622.20", c));
+        Assert.Contains("Closing Stock (Income)", Csv(ri));
+    }
+
     private static CheckBox VerticalBox(Visual root) =>
         Assert.Single(root.GetVisualDescendants().OfType<CheckBox>()
             .Where(cb => cb.IsEffectivelyVisible && cb.Content as string == "Show Vertical Profit & Loss"));
