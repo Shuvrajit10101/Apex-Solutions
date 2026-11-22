@@ -368,7 +368,7 @@ public sealed class InventoryReportsViewModelTests : IDisposable
         k.Vm.ShowInventoryReportsMenu();
 
         // Drive the highlight to "Godown Summary" via the public arrow API, then activate it.
-        while (k.Vm.Menu[k.Vm.SelectedIndex].Label != "Godown Summary") k.Vm.MoveDown();
+        MenuWalk.ArrowTo(k.Vm, "Godown Summary");
         k.Vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, k.Vm.CurrentScreen);

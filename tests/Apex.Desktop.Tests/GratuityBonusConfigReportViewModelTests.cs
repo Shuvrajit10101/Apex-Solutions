@@ -397,7 +397,7 @@ public sealed class GratuityBonusConfigReportViewModelTests : IDisposable
         _storage.Save(c);
 
         vm.ShowPayrollStatutoryReportsMenu();
-        while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
+        MenuWalk.ArrowTo(vm, label);
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);

@@ -26,9 +26,15 @@ public enum ClosingStockMode
 /// help.tallysolutions.com/profit-and-loss-statement-tally/, same day: <i>"Indirect Expenses will be deducted from
 /// the Gross Profit to show the Nett Profit."</i> Empty on a line built without a group (it then rolls up under its
 /// section header, the pre-wave-10 behaviour).</para>
+///
+/// <para>Census 11.2 (wave 11, track hd, IV-330): <see cref="IsTrading"/> is true when the line's primary group is a
+/// trading head (Sales Accounts, Direct Incomes, Purchase Accounts, Direct Expenses, or a primary group marked
+/// "Does it affect Gross Profits") — exactly the set <see cref="ProfitAndLoss.GrossProfit"/> is computed over. The
+/// vertical form puts these lines in its Trading Account section and the rest in its Income Statements section.</para>
 /// </summary>
 public sealed record ProfitAndLossLine(
-    string LedgerName, Money Amount, Guid LedgerId = default, string GroupName = "", Guid GroupId = default)
+    string LedgerName, Money Amount, Guid LedgerId = default, string GroupName = "", Guid GroupId = default,
+    bool IsTrading = false)
 {
     /// <summary>True iff Enter should drill this line into its ledger's vouchers (a real ledger line).</summary>
     public bool IsDrillable => LedgerId != Guid.Empty;
@@ -164,7 +170,8 @@ public sealed record ProfitAndLoss(
                 var magnitude = -signed;
                 if (magnitude != 0m)
                 {
-                    income.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id, primary.Name, primary.Id));
+                    income.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id, primary.Name, primary.Id,
+                        IsTradingHead(primary)));
                     totalIncome += magnitude;
                 }
             }
@@ -173,7 +180,8 @@ public sealed record ProfitAndLoss(
                 var magnitude = signed; // debit side, positive
                 if (magnitude != 0m)
                 {
-                    expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id, primary.Name, primary.Id));
+                    expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(magnitude), ledger.Id, primary.Name, primary.Id,
+                        IsTradingHead(primary)));
                     totalExpense += magnitude;
                 }
             }

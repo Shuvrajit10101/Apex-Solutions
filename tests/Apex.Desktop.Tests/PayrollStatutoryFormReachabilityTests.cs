@@ -102,13 +102,7 @@ public sealed class PayrollStatutoryFormReachabilityTests : IDisposable
         var vm = BuildPfAndEsiCompany();
 
         vm.ShowPayrollStatutoryReportsMenu();
-        var guard = 0;
-        while (vm.Menu[vm.SelectedIndex].Label != label)
-        {
-            vm.MoveDown();
-            Assert.True(++guard < 100, $"'{label}' is not reachable by arrowing through the payroll statutory menu.");
-        }
-        vm.ActivateSelected();
+        MenuWalk.ArrowToAndActivate(vm, label);
 
         Assert.NotNull(vm.Reports);
         Assert.Equal(expected, vm.Reports!.Kind);

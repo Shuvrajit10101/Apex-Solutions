@@ -537,7 +537,7 @@ public sealed class StatutoryReportsViewModelTests : IDisposable
         EnableTds(vm);
         vm.ShowTdsReportsMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
+        MenuWalk.ArrowTo(vm, label);
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
@@ -556,7 +556,7 @@ public sealed class StatutoryReportsViewModelTests : IDisposable
         EnableTcs(vm);
         vm.ShowTcsReportsMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
+        MenuWalk.ArrowTo(vm, label);
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
@@ -571,7 +571,7 @@ public sealed class StatutoryReportsViewModelTests : IDisposable
         EnableTds(vm);
         vm.ShowStatutoryReportsMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != "Ledgers without PAN") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "Ledgers without PAN");
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);

@@ -181,7 +181,8 @@ public static class ItemCostAnalysis
         // money. Direction decides which column: an inward line is cost, an outward line is revenue.
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            // T2-170: an Optional voucher is provisional and moves no money, here as in the inventory walk below.
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;
             foreach (var line in v.InventoryLines)
             {
                 if (line.CostTrackingNumber is not { } tracking) continue;

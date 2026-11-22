@@ -221,17 +221,33 @@ public sealed record ComparativeReport(
     {
         var options = OptionsFor(company, spec);
         var report = ProfitAndLoss.Build(company, options.AsOfDate, options);
+
+        // Census 11.2 (wave 11, track hd fix pass, IV-333): a column FOOTS — Σ of its signed cells, and TotalIncome -
+        // TotalExpenses, are its NetProfit. The engine charges opening stock and (inventory-derived basis only) credits
+        // the derived closing stock outside its ledger lines, so both become cells here and widen the column totals,
+        // exactly as the single-column horizontal form does. On the books (as-posted) basis closing stock is already a
+        // Direct Income adjustment ledger line, so it is not added a second time.
+        var derivedClosing = options.ClosingStock == ClosingStockMode.InventoryDerived && report.ClosingStock != Money.Zero
+            ? report.ClosingStock.Amount
+            : 0m;
+        var opening = report.OpeningStock.Amount;
         column = new Column(
             spec.Label,
-            TotalIncome: report.TotalIncome,
-            TotalExpenses: report.TotalExpenses,
+            TotalIncome: new Money(report.TotalIncome.Amount + derivedClosing),
+            TotalExpenses: new Money(report.TotalExpenses.Amount + opening),
             NetProfit: report.NetProfit);
 
-        var cells = new List<Cell>(report.Income.Count + report.Expenses.Count);
+        var cells = new List<Cell>(report.Income.Count + report.Expenses.Count + 2);
         // Income lines carry a positive magnitude; expense lines a negative one, so a single column of signed
         // values reads unambiguously (credit income up, debit expense down) and blanks stay blank.
         foreach (var line in report.Income)
             cells.Add(new Cell(Key: "I:" + line.LedgerName, Label: line.LedgerName, GroupName: "Income", Value: line.Amount));
+        if (derivedClosing != 0m)
+            cells.Add(new Cell(Key: "I:\u0001Closing Stock", Label: "Closing Stock", GroupName: "Income",
+                Value: new Money(derivedClosing)));
+        if (opening != 0m)
+            cells.Add(new Cell(Key: "E:\u0001Opening Stock", Label: "Opening Stock", GroupName: "Expenses",
+                Value: new Money(-opening)));
         foreach (var line in report.Expenses)
             cells.Add(new Cell(Key: "E:" + line.LedgerName, Label: line.LedgerName, GroupName: "Expenses", Value: -line.Amount));
         return cells;

@@ -668,7 +668,7 @@ public sealed class StatementReportsViewModelTests : IDisposable
         vm.LoadRobertDemo();
         vm.ShowStatementsMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
+        MenuWalk.ArrowTo(vm, label);
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
