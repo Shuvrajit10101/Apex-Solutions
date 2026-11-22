@@ -320,7 +320,11 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// <summary>The accounting-leg caption for the derived-summary line. On a return note the leg is the RETURNS
     /// side of the same family — the operator picks a "Purchase Returns" (under Purchase Accounts) or "Sales
     /// Returns" (under Sales Accounts) ledger, so the caption names the family, not the document.</summary>
-    public string StockLedgerCaption => IsPurchaseSideInvoice
+    /// <para>T2-165 (wave 11): an outward §34 debit note revises our own SALE, so its leg is captioned "Sales", the
+    /// family the vendor's steps select ("Select the Sales ledger.", help.tallysolutions.com/increase-in-sale-value/).</para>
+    public string StockLedgerCaption => IsOutwardSection34DebitNote
+        ? "Sales"
+        : IsPurchaseSideInvoice
         ? (IsReturnNote ? "Purchase Returns" : "Purchases")
         : (IsReturnNote ? "Sales Returns" : "Sales");
 
@@ -2737,10 +2741,17 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // nothing, carried into GSTR-1 against a document the recipient can never match. The leak was latent only
         // because nothing in the UI could cancel a voucher; it goes live the moment this slice ships, which is
         // why it is closed HERE and not deferred.
+        //
+        // 🔴 T2-164 (wave 11, IV-320) — A CREDIT NOTE IS OFFERED SALES ORIGINALS ONLY. §34(1) gives a credit note to
+        // "the registered person, who has supplied", so on this voucher that is us, and the original it adjusts is
+        // OUR sale. The supplier's credit note on one of OUR purchases is recorded on a DEBIT NOTE: the vendor's
+        // purchase-return steps record the return "using a Debit Note" and enter "the credit note number provided by
+        // the supplier" (help.tallysolutions.com/tally-prime/gst-purchase/record-a-debit-note-under-gst/). Offering a
+        // purchase here let the screen post a sales-return-shaped note (Output tax, stock IN) against a supplier: a
+        // GSTR-1 cdnr row naming the supplier and a 3.1(a) reduction. A Debit Note keeps both natures: a Sales
+        // original is our §34(3) note (T2-163), a Purchase original a purchase return.
         foreach (var v in _company.Vouchers
-                     .Where(v => !v.Cancelled
-                         && _company.FindVoucherType(v.TypeId)?.BaseType
-                             is VoucherBaseType.Sales or VoucherBaseType.Purchase)
+                     .Where(v => !v.Cancelled && IsOfferableSection34Original(v))
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault();
@@ -2759,6 +2770,28 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
                  })
             CdnReasonCodes.Add(r);
     }
+
+    /// <summary>
+    /// Whether a voucher's nature may be the ORIGINAL this note adjusts: a Sales invoice for either note, and a
+    /// Purchase invoice for a Debit Note only (T2-164; see <see cref="BuildSection34Pickers"/>).
+    /// </summary>
+    private bool IsOfferableSection34Original(Voucher v) =>
+        _company.FindVoucherType(v.TypeId)?.BaseType switch
+        {
+            VoucherBaseType.Sales => true,
+            VoucherBaseType.Purchase => Section34Type == CdnType.Debit,
+            _ => false,
+        };
+
+    /// <summary>
+    /// The refusal for a §34 CREDIT note whose original is a PURCHASE (T2-164), or <c>null</c>. The picker no longer
+    /// offers that pair, so this is reached only by re-opening a note posted before wave 11 (an alteration
+    /// re-seeds the posted link), and it names the verb the operator should use instead.
+    /// </summary>
+    internal const string CreditNoteOnPurchaseRefusal =
+        "A credit note on this voucher is OUR note to a customer, so the original it adjusts must be one of our sales. "
+        + "A credit note received from a supplier against a purchase is recorded on a Debit Note (purchase return). "
+        + "Cancel this note and enter it as a Debit Note against the purchase.";
 
     /// <summary>A one-line description of a candidate original invoice (type, number, date, party, value).</summary>
     private string CdnCandidateDisplay(Voucher v)
@@ -2849,12 +2882,14 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     partial void OnIsSection34NoteChanged(bool value)
     {
         UpdateSection34Panel();
+        RefreshValueLedgerFamily();   // T2-165: the tick can make a debit note outward, which moves its value family
         if (IsItemInvoice) RecalculateItemInvoice();
     }
 
     partial void OnSelectedCdnOriginalInvoiceChanged(CdnOriginalInvoiceOption? value)
     {
         UpdateSection34Panel();
+        RefreshValueLedgerFamily();   // T2-165: so can picking a Sales original
         if (IsItemInvoice) RecalculateItemInvoice();
     }
     partial void OnCdnOriginalInvoiceNumberChanged(string value) => UpdateSection34Panel();
@@ -2879,6 +2914,15 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         if (string.IsNullOrWhiteSpace(SelectedCdnReasonCode))
         {
             Message = "Select the §34 reason this credit/debit note is issued under.";
+            return false;
+        }
+        // T2-164: a credit note against one of our PURCHASES is the supplier's document, recorded on a Debit Note.
+        if (Section34Type == CdnType.Credit
+            && voucherId is { } originalVoucherId
+            && _company.FindVoucher(originalVoucherId) is { } original
+            && _company.FindVoucherType(original.TypeId)?.BaseType == VoucherBaseType.Purchase)
+        {
+            Message = CreditNoteOnPurchaseRefusal;
             return false;
         }
 
@@ -2957,6 +3001,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         IsSection34Note = true;
         SelectedCdnReasonCode = link.ReasonCode;
         CdnIs9BTarget = link.Is9BTarget;
+
+        // 🔴 T2-164 — a CREDIT note posted before wave 11 may link a PURCHASE, which the picker no longer offers. Put
+        // that one original back rather than fall through to the consolidated branch below: re-accepting through that
+        // branch would silently rewrite the link to a consolidated reference and change the note's GST routing.
+        // ValidateSection34 then refuses it by name (CreditNoteOnPurchaseRefusal).
+        if (link.OriginalInvoiceVoucherId is { } legacyId
+            && CdnOriginalInvoices.All(o => o.Invoice?.Id != legacyId)
+            && _company.FindVoucher(legacyId) is { Cancelled: false } legacy
+            && _company.FindVoucherType(legacy.TypeId)?.BaseType == VoucherBaseType.Purchase)
+        {
+            CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = legacy, Display = CdnCandidateDisplay(legacy) });
+        }
 
         if (link.OriginalInvoiceVoucherId is { } originalId
             && CdnOriginalInvoices.FirstOrDefault(o => o.Invoice?.Id == originalId) is { } picked)
@@ -3688,6 +3744,18 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // duplicate of a note adjusting an invoice is a note adjusting that same invoice, and `Accept` mints it
         // a link of its own through `RegisterSection34Link`.
         CdnOverrideTimeLimit = false;
+
+        // 🔴 T2-165 / IV-324 — THE LEGACY VALUE-LEDGER CARRY IS DROPPED ON A DUPLICATE, for the same reason. The
+        // rehydrate carries a pre-wave-11 outward debit note's Purchase Returns ledger so an ALTERATION re-opens on
+        // its own figures; on a duplicate it would stay selected and Ctrl+A would post a NEW outward note with its
+        // value on Purchase Returns, the T2-165 shape (GSTR-9C 5R = −value). The picker is rebuilt to today's family
+        // (Sales) and falls to its first ledger, which the operator sees before accepting.
+        if (_carriedLegacyValueLedgerId is not null)
+        {
+            _carriedLegacyValueLedgerId = null;
+            _stockLedgersBuiltForPurchaseFamily = null;   // force the rebuild so the carried ledger leaves the picker
+            RefreshValueLedgerFamily();
+        }
     }
 
     /// <summary>
@@ -4368,6 +4436,25 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             .Where(l => !ReferenceEquals(l, partyLeg) && l.Side == valueSide && !l.HasGst
                         && StockLedgers.Any(sl => sl.Id == l.LedgerId))
             .ToList();
+        // 🔴 T2-165 residual (IV-324) — an outward §34 debit note posted before wave 11 carries its value on a
+        // PURCHASE-family ledger (Purchase Returns), which the Sales-family picker no longer offers. Accept that one
+        // legacy leg when this voucher already posts it, keep its ledger in the picker, and re-key it as posted:
+        // re-opening must not move a figure, and the operator can still choose a Sales ledger before accepting.
+        if (valueLegs.Count == 0 && IsOutwardSection34DebitNote)
+        {
+            var legacyLegs = voucher.Lines
+                .Where(l => !ReferenceEquals(l, partyLeg) && l.Side == valueSide && !l.HasGst
+                            && _company.FindLedger(l.LedgerId) is { } legacyLedger
+                            && IsStockLegLedgerOfFamily(legacyLedger, purchaseFamily: true))
+                .ToList();
+            if (legacyLegs.Count == 1)
+            {
+                _carriedLegacyValueLedgerId = legacyLegs[0].LedgerId;
+                _stockLedgersBuiltForPurchaseFamily = null;   // force the rebuild so the carried ledger is listed
+                RefreshValueLedgerFamily();
+                valueLegs = legacyLegs;
+            }
+        }
         if (valueLegs.Count != 1)
             return valueLegs.Count == 0
                 ? $"no {StockLedgerCaption} leg on it points at a ledger this screen offers for the value leg, so "
@@ -5665,6 +5752,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // Sales (Sales Accounts) ledger for a Sales — the exact groups the pairing invariant recognises as the
         // stock leg. Offer only those ledgers and default to the first one.
         StockLedgers.Clear();
+        _stockLedgersBuiltForPurchaseFamily = ValueLegIsPurchaseFamily;   // T2-165: the family this list holds
         foreach (var l in _company.Ledgers
                      .Where(IsStockLegLedger)
                      .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
@@ -5704,6 +5792,7 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         SelectedParty = Parties.FirstOrDefault(p => p.Ledger?.Id == partyId) ?? Parties.FirstOrDefault();
 
         StockLedgers.Clear();
+        _stockLedgersBuiltForPurchaseFamily = ValueLegIsPurchaseFamily;   // T2-165: the family this list holds
         foreach (var l in _company.Ledgers
                      .Where(IsStockLegLedger)
                      .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
@@ -5866,11 +5955,28 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
     /// Mirrors <c>VoucherValidator.IsStockLegLedger</c> so the auto-derived leg always satisfies the engine —
     /// census 4.7/4.8 widened both together, and asking the family (not the base type) is what keeps them equal.
     /// </summary>
-    private bool IsStockLegLedger(DomainLedger ledger)
+    /// <para>🔴 <b>T2-165 (wave 11, IV-321) — an outward §34 debit note draws its value leg from SALES.</b> A debit
+    /// note to a customer is an upward revision of our own sale, and the vendor's own steps for it say "Select the
+    /// Sales ledger." (help.tallysolutions.com/increase-in-sale-value/). Drawing it from Purchase Accounts posted the
+    /// value to Purchase Returns and filed GSTR-9C 5R = −value. The family therefore follows
+    /// <see cref="ValueLegIsPurchaseFamily"/>, the same flag the engine's pairing accepts.</para>
+    private bool IsStockLegLedger(DomainLedger ledger) =>
+        ledger.Id == _carriedLegacyValueLedgerId || IsStockLegLedgerOfFamily(ledger, ValueLegIsPurchaseFamily);
+
+    /// <summary>
+    /// 🔴 <b>T2-165 residual (wave 11 fix pass, IV-324) — the Purchase-family ledger an outward §34 debit note
+    /// posted BEFORE wave 11 carries its value on</b>, or <c>null</c>. Set only by
+    /// <see cref="RehydrateItemInvoiceFrom"/>, and only when the voucher being altered already posts its value
+    /// there; it keeps that ONE ledger in the (now Sales-family) picker so the note re-opens with its own figures
+    /// instead of being refused. The operator may move it to a Sales ledger; nothing moves it silently.
+    /// </summary>
+    private Guid? _carriedLegacyValueLedgerId;
+
+    private bool IsStockLegLedgerOfFamily(DomainLedger ledger, bool purchaseFamily)
     {
         var group = _company.FindGroup(ledger.GroupId);
         if (group is null) return false;
-        if (IsPurchaseSideInvoice)
+        if (purchaseFamily)
         {
             if (ClassificationRules.IsStockInHandLedger(ledger, _company)) return true;
             return string.Equals(ClassificationRules.PrimaryAncestorOf(group, _company).Name,
@@ -5880,8 +5986,45 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             "Sales Accounts", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Whether the value leg is drawn from the PURCHASE family (Purchase Accounts / Stock-in-Hand). True on the
+    /// purchase side — EXCEPT an outward §34 debit note (T2-165), which revises our own sale and so takes a Sales
+    /// ledger, exactly as the vendor's "increase in sale value" steps do.
+    /// </summary>
+    private bool ValueLegIsPurchaseFamily => IsPurchaseSideInvoice && !IsOutwardSection34DebitNote;
+
+    /// <summary>The family <see cref="StockLedgers"/> was last built for; <c>null</c> until first built.</summary>
+    private bool? _stockLedgersBuiltForPurchaseFamily;
+
+    /// <summary>
+    /// 🔴 <b>T2-165 — re-reads the value-ledger picker when the note's direction moves it to the other family.</b>
+    /// The §34 tick, the picked original and (for a consolidated note) the party can each turn a Debit Note into an
+    /// outward one, and the picker was built once in the constructor, so without this the operator was offered only
+    /// Purchase Returns / Purchases for a note to a customer. A selection still valid in the new family is kept;
+    /// otherwise the first ledger of that family is selected. A no-op when the family did not change, which is
+    /// every voucher that is not a Debit Note (ER-13).
+    /// </summary>
+    private void RefreshValueLedgerFamily()
+    {
+        var purchaseFamily = ValueLegIsPurchaseFamily;
+        if (_stockLedgersBuiltForPurchaseFamily == purchaseFamily) return;
+        _stockLedgersBuiltForPurchaseFamily = purchaseFamily;
+
+        var keepId = SelectedStockLedger?.Id;
+        StockLedgers.Clear();
+        foreach (var l in _company.Ledgers
+                     .Where(IsStockLegLedger)
+                     .OrderBy(l => l.Name, StringComparer.OrdinalIgnoreCase))
+            StockLedgers.Add(l);
+        SelectedStockLedger = StockLedgers.FirstOrDefault(l => l.Id == keepId) ?? StockLedgers.FirstOrDefault();
+        OnPropertyChanged(nameof(StockLedgerCaption));
+    }
+
     partial void OnSelectedPartyChanged(PartyOption? value)
     {
+        // T2-165: a consolidated §34 debit note is outward when its party is a debtor, so the party can move the
+        // value-ledger family. Re-read it before the recalculation below prices the invoice.
+        if (CanBeSection34Note) RefreshValueLedgerFamily();
         // Default the Price-Level header from the party's default level (slice 5; RQ-30), still overridable. Only
         // when the feature is on; otherwise the header is inert. Assigning re-runs the auto-fill via its handler.
         if (ShowPriceLevelSelector)
