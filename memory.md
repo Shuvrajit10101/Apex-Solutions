@@ -3185,3 +3185,40 @@ reached by Alt+G (11.13). `IV-164` letter shape (12.7). Inert-verb notices (`IV-
 refused stock-item ALTER leaves the in-memory item half-altered (MEDIUM, pre-existing). VF3 BOM picker scope
 (LOW). The non-contiguous year list on books aged 2+ years (LOW). `ImsActionsViewModel` has no export seam
 (INFO). **Schema v69 is free.** The deferred 5.6(b) stretch was not attempted.
+
+## 2026-11-22 — PLAN WAVE 11 (A12): TWO TRACKS LANDED (PRs #207, #208), CENSUS GRADED — `C=86` UNCHANGED, SCHEMA **v69** UNCHANGED
+
+> ⚠️ **R5 gap, recorded rather than back-filled:** this log has no entries for waves 8, 9 and 10. Their record is the
+> census's dated wave blocks (`docs/full-clone-census.md`, top of §1.2) and the T2 register. Read those for 2026-10-29
+> to 2026-11-18.
+
+**▶ WHAT LANDED.** `hb` (GST note direction) as **PR #207**, head `4fa707c`, merge `9e51d56`. `hd` (vertical P&L, the
+test-instrument fixes and the Optional residuals) as **PR #208**, head `d279945` (reviewed `3413e23` plus a merge of
+#207), merge **`348b4c4`** = `origin/main`. Both final reviews READY (`Apex-Review-Artifacts/w11d/review-hb.json`,
+`review-hd.json`). The first round (`w11a/`) was NOT-READY for both, only because C: was full and no Desktop gate could
+run.
+
+**▶ GATES.** Reviewer gates: `hb` 868 / 3232 / 445 / 5498, `hd` 868 / 3232 / 445 / 5504. Merged tree, all three CI legs
+(run `44998764668`), read from each job log: **868 / 3232 / 445 / 5514, 0 skipped**.
+
+**▶ GRADES (A12's, on `main`).** Awk before and after: **`TOTAL rows=219 C=86 P=128 A=5 U=0 sum=219`**. No row moves.
+**11.2 held `PARTIAL`.** Its two named gaps are closed: Alt+F1 roll-up (wave 10 `gc`) and the vertical form (`hd`). Still
+open: *Show with Gross Profit* on the horizontal form (`IV-333`) and `T2-177`. **6.12 held `PARTIAL`.** O1-O4 untouched;
+`T2-166`, `T2-167` and `T2-176` open. **5.7 held `PARTIAL`.** POS / manufacturing / job-work Ctrl+L, `IV-314` and
+`T2-174` open. All three were already `PARTIAL` before the landings, so none is a "move".
+
+**▶ T2 REGISTER.** **Closed:** `T2-165`; `T2-164` (screen path); `T2-168` (by prevention); `T2-169`; `T2-170`;
+`T2-171`; `T2-173` (code only — the ~521 archives in the user's OneDrive `Documents` are still the user's call).
+**Filed:** **`T2-177` HIGH, pre-existing** — on the inventory-derived basis the P&L omits item-master opening stock
+(`ProfitAndLoss.cs:128-139`; Net 257.30 vs 153.60, and the BS still balances, so nothing catches it) and double-counts a
+posted closing-stock adjustment (Net 879.50; BS 2,020.20 vs 1,294.30). **`T2-178` MEDIUM** — books-basis no-double-add
+guard unpinned (mutation MG green) plus the single-Sales-ledger duplicate fixture. **`T2-179` LOW** — legacy/import
+credit notes on purchases (`ImportPlan.cs:1066-1073`). `hd` already filed `T2-174..176` (the Optional-leak shape, the
+`IV-311` citation, the outward value debit note moving stock); not duplicated. **Not filed:** the `hb` builder's
+unverified note that an exempt credit note's cdnr row files `txval_paisa` 0 (in `Gstr1.cs`). It is a builder note, not
+a review finding, and nobody has measured it.
+
+**▶ NEXT.** Cut the two remaining wave-11 tracks from `Apex-Review-Artifacts/w11-plan.md`: **`ha`** (row 6.4, the ledger
+GST block, `claude/apex-ha-ledger-gst-block`, IV-315..319, **no migration**) and **`hc`** (row 2.9, budget parent,
+`claude/apex-hc-budget-parent-v70`, IV-325..329, **OWNS v70**, lands last). C: had 38 GB free at the start of this pass.
+`T2-177` is the highest-value open wrong figure outside Area 6 and wants its own track.
