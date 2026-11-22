@@ -37,6 +37,9 @@ public sealed record BalanceSheet(
 {
     public bool Balanced => TotalLiabilities == TotalAssets;
 
+    /// <summary>Label (and roll-up group) of the synthetic opening-difference line (IV-357, inventory-derived basis).</summary>
+    public const string OpeningDifferenceLine = "Difference in Opening Balances";
+
     /// <summary>
     /// Builds the Balance Sheet as of a date. When <paramref name="mode"/> is
     /// <see cref="ClosingStockMode.InventoryDerived"/> the Stock-in-Hand asset is the derived Σ item-closing
@@ -135,6 +138,24 @@ public sealed record BalanceSheet(
             {
                 assets.Add(new BalanceSheetLine("Stock-in-Hand", "Stock-in-Hand", new Money(derived)));
                 totalAsset += derived;
+            }
+
+            // T2-177 (wave 12, track he, IV-357): the P&L now charges the stock summary's opening (item-master
+            // allocations) rather than the Stock-in-Hand ledgers' openings. When the two differ — typically item
+            // openings entered with no matching ledger/capital opening — the opening position was itself out of
+            // balance by that difference, and the sheet carries it as one synthetic, non-drillable line on the
+            // side that restores the balance. Equal openings (the usual integrated book) add no line.
+            var openingDifference = InventoryDerivedStock.OpeningValuation(company, windowFrom: null)
+                - InventoryDerivedStock.StockLedgerSignedOpenings(company);
+            if (openingDifference > 0m)
+            {
+                liabilities.Add(new BalanceSheetLine(OpeningDifferenceLine, OpeningDifferenceLine, new Money(openingDifference)));
+                totalLiab += openingDifference;
+            }
+            else if (openingDifference < 0m)
+            {
+                assets.Add(new BalanceSheetLine(OpeningDifferenceLine, OpeningDifferenceLine, new Money(-openingDifference)));
+                totalAsset += -openingDifference;
             }
         }
 
