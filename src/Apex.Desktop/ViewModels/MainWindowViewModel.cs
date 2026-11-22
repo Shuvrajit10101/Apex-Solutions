@@ -10642,6 +10642,12 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                 or Screen.ReorderLevelsMaster
                 => RequestDeleteMasterListRow(),
 
+            // Census 6.28 (wave 12, track hf) — the Nature of Payment master, through that same shared arm. 🔴 This
+            // switch IS a second hand-maintained list beside MasterListScreen, whatever the comments above say:
+            // joining MasterListScreen alone gave this screen the arrows and Ctrl+Enter but left Alt+D a dead key,
+            // and NatureOfPaymentAlterDeleteTests' delete tests were red until this line was added.
+            Screen.NatureOfPaymentMaster => RequestDeleteMasterListRow(),
+
             _ => false,
         };
     }
