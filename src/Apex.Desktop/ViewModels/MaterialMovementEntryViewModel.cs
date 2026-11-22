@@ -219,7 +219,7 @@ public sealed partial class MaterialMovementEntryViewModel : ViewModelBase, ISet
         // Open orders (any Job Work order voucher, not cancelled) — the fulfilment target.
         Orders.Add(new JobWorkOrderOption { Voucher = null, Display = "◦ (none)" });
         foreach (var v in company.InventoryVouchers)
-            if (!v.Cancelled && v.JobWorkOrder is { } jwo)
+            if (!v.Cancelled && !v.Optional && v.JobWorkOrder is { } jwo)   // T2-171: a provisional order is not offered
             {
                 var fg = company.FindStockItem(jwo.FinishedGoodStockItemId)?.Name ?? "(item)";
                 Orders.Add(new JobWorkOrderOption

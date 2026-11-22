@@ -65,7 +65,8 @@ public sealed class ReportChordFidelityTests : IDisposable
 
     private MainWindowViewModel NewCompany(string name)
     {
-        var vm = new MainWindowViewModel(_storage);
+        // T2-173: the Backup panel writes into this test's temp folder, never the real (OneDrive-synced) Documents.
+        var vm = new MainWindowViewModel(_storage) { BackupFolderOverride = Path.Combine(_tempDir, "backups") };
         vm.NewCompanyName = name;
         vm.CreateCompany();
         Assert.Equal(Screen.Gateway, vm.CurrentScreen);
@@ -452,7 +453,10 @@ public sealed class ReportChordFidelityTests : IDisposable
             vm.OpenBackupCompany();
             Pump(window);
             var archive = vm.BackupCompanyPanel!.FullPath;
+            // T2-173: the archive this test takes lands under its own temp folder, not the user's Documents.
+            Assert.StartsWith(Path.Combine(_tempDir, "backups") + Path.DirectorySeparatorChar, archive);
             Assert.True(vm.ApplyBackup(), vm.BackupCompanyPanel.Status);
+            Assert.True(File.Exists(archive), "the backup was not written where the panel said it would be");
             window.KeyPressQwerty(PhysicalKey.Escape, RawInputModifiers.None);
             Pump(window);
 

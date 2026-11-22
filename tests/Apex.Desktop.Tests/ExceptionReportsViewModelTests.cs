@@ -344,7 +344,7 @@ public sealed class ExceptionReportsViewModelTests : IDisposable
         vm.LoadRobertDemo();
         vm.ShowExceptionReportsMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != label) vm.MoveDown();
+        MenuWalk.ArrowTo(vm, label);
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);

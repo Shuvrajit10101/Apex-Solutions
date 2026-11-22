@@ -20128,6 +20128,13 @@
                                           IsChecked="{Binding ShowNarration, Mode=TwoWay}"
                                           IsVisible="{Binding SupportsNarration}"
                                           Foreground="{StaticResource BrandNavy}"/>
+                                <!-- census 11.2 (IV-330): "If your business prefers the vertical format, then you can
+                                     set the option Show Vertical Profit & Loss to Yes."
+                                     (help.tallysolutions.com/profit-and-loss-statement-tally/). P&L only. -->
+                                <CheckBox Content="Show Vertical Profit &amp; Loss"
+                                          IsChecked="{Binding ShowVerticalProfitAndLoss, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsVerticalProfitAndLoss}"
+                                          Foreground="{StaticResource BrandNavy}"/>
                                 <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsClosingStockBasis}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>

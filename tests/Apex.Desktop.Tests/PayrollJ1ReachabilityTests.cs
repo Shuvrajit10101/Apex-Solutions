@@ -675,15 +675,7 @@ public sealed class PayrollJ1ReachabilityTests : IDisposable
 
     // ------------------------------------------------------------------------------------------- harness
 
-    private static void ArrowTo(MainWindowViewModel vm, string label)
-    {
-        var guard = 0;
-        while (vm.Menu[vm.SelectedIndex].Label != label)
-        {
-            vm.MoveDown();
-            Assert.True(++guard < 100, $"'{label}' is not reachable by arrowing through the open menu.");
-        }
-    }
+    private static void ArrowTo(MainWindowViewModel vm, string label) => MenuWalk.ArrowTo(vm, label);
 
     private (MainWindow Window, MainWindowViewModel Vm) OpenWindow()
     {

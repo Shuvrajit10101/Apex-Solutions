@@ -1647,6 +1647,33 @@ public sealed partial class ReportsViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// True when F12's <b>Show Vertical Profit &amp; Loss</b> acts on this report: the Profit &amp; Loss A/c, while
+    /// no comparative (Alt+C) column is open. Census 11.2 (wave 11, track hd, IV-330). Vendor (TallyPrime),
+    /// help.tallysolutions.com/profit-and-loss-statement-tally/, opened by content 2026-11-19: <i>"By default, the
+    /// Profit &amp; Loss A/c appears in the horizontal format."</i> and <i>"If your business prefers the vertical
+    /// format, then you can set the option Show Vertical Profit &amp; Loss to Yes."</i>
+    /// <para>Not offered over a comparative grid: that grid is built by its own projection, which this flag does not
+    /// reshape (IV-333), and a knob that answers "Applied" and changes nothing is the defect the other F12 gates
+    /// record.</para>
+    /// </summary>
+    public bool SupportsVerticalProfitAndLoss => Kind is ReportKind.ProfitAndLoss && !IsComparative;
+
+    /// <summary>True while F12's <b>Show Vertical Profit &amp; Loss</b> is on (default off: the horizontal form).</summary>
+    public bool ShowVerticalProfitAndLoss => _showVerticalProfitAndLoss;
+
+    private bool _showVerticalProfitAndLoss;
+
+    /// <summary>F12 — switches the Profit &amp; Loss A/c between its horizontal and vertical forms and re-projects.
+    /// A no-op where it is inert.</summary>
+    public void SetShowVerticalProfitAndLoss(bool show)
+    {
+        if (!SupportsVerticalProfitAndLoss || _showVerticalProfitAndLoss == show) return;
+        _showVerticalProfitAndLoss = show;
+        OnPropertyChanged(nameof(ShowVerticalProfitAndLoss));
+        Show(Kind);
+    }
+
+    /// <summary>
     /// The subtitle clause naming the active F4 narrowing, e.g. <c>"  —  Purchase only"</c>; empty when
     /// unfiltered.
     ///
@@ -1742,7 +1769,8 @@ public sealed partial class ReportsViewModel : ViewModelBase
     /// mirror of the defect this property's own remarks record (a heading standing over nothing).</para>
     /// </summary>
     public bool SupportsDisplayOptions =>
-        SupportsHideZeroBalances || SupportsPercentages || SupportsClosingStockBasis || SupportsNarration;
+        SupportsHideZeroBalances || SupportsPercentages || SupportsClosingStockBasis || SupportsNarration
+        || SupportsVerticalProfitAndLoss;
 
     /// <summary>F2 — sets the as-of date and clears any period window, then re-projects (RQ-1).</summary>
     public void SetAsOf(DateOnly asOf)
@@ -1881,6 +1909,15 @@ public sealed partial class ReportsViewModel : ViewModelBase
         {
             _showNarration = false;
             OnPropertyChanged(nameof(ShowNarration));
+        }
+        // Census 11.2 (IV-330): the vertical P&L form is a P&L-only setting; another kind never inherits it.
+        // Keyed on the KIND, not on SupportsVerticalProfitAndLoss, so closing the comparative columns brings the
+        // operator's chosen form back rather than silently resetting it.
+        OnPropertyChanged(nameof(SupportsVerticalProfitAndLoss));
+        if (kind is not ReportKind.ProfitAndLoss && _showVerticalProfitAndLoss)
+        {
+            _showVerticalProfitAndLoss = false;
+            OnPropertyChanged(nameof(ShowVerticalProfitAndLoss));
         }
         // The layout flags are computed from Kind; notify the view so the right DataTemplate shows.
         OnPropertyChanged(nameof(IsInventoryReport));
@@ -2628,6 +2665,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         // viewer moves to a kind that does not support them, so there is no inert value here to capture.
         VoucherTypeFilterId = _voucherTypeFilterId,
         ShowNarration = _showNarration,
+        // Census 11.2 (IV-330): captured unconditionally for the same reason as the two above - Show(Kind) resets
+        // it on every kind but the P&L, so there is no inert value to capture.
+        ShowVerticalProfitAndLoss = _showVerticalProfitAndLoss,
         ComparativeColumns = _extraColumns.Count == 0
             ? null
             : _extraColumns.Select(c => new SavedComparativeColumn
@@ -2705,6 +2745,9 @@ public sealed partial class ReportsViewModel : ViewModelBase
         OnPropertyChanged(nameof(VoucherTypeFilterId));
         OnPropertyChanged(nameof(VoucherTypeFilterName));
         OnPropertyChanged(nameof(ShowNarration));
+        // Census 11.2 (IV-330): keyed on the kind, as the Show(Kind) reset is.
+        _showVerticalProfitAndLoss = Kind is ReportKind.ProfitAndLoss && view.ShowVerticalProfitAndLoss;
+        OnPropertyChanged(nameof(ShowVerticalProfitAndLoss));
 
         // ---- comparative columns (RQ-4) ----
         _extraColumns.Clear();
@@ -3117,15 +3160,142 @@ public sealed partial class ReportsViewModel : ViewModelBase
         Subtitle = $"{CompanyName}  —  {plClause}{ScenarioSuffix}{DetailSuffix}{ScaleSuffix}";
         IsTwoColumn = false;
 
-        AddProfitAndLossSide("Income", "Total Income",
-            pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId, i.GroupName)), pl.TotalIncome);
-        AddProfitAndLossSide("Expenses", "Total Expenses",
-            pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId, e.GroupName)), pl.TotalExpenses);
+        if (_showVerticalProfitAndLoss)
+        {
+            BuildVerticalProfitAndLoss(pl);
+            return;
+        }
+
+        // Census 11.2 (wave 11, track hd fix pass, IV-333): the default form must FOOT — Total Income minus Total
+        // Expenses IS the Net Profit row. The engine charges opening stock and (inventory-derived basis) credits the
+        // derived closing stock OUTSIDE its ledger lines, so both are shown here as synthetic, non-drillable lines
+        // and carried into the side totals. Vendor, help.tallysolutions.com/stock-valuation-faq/ (updated
+        // 2026-06-05, opened by content 2026-11-20): "the manually entered opening and closing stock balances will
+        // be displayed in the Profit & Loss Account." On the books (as-posted) basis the closing stock is already an
+        // income line — its own Direct Income adjustment ledger — so it is NOT added again (that would double it).
+        var (incomeLines, totalIncome, expenseLines, totalExpenses) = HorizontalProfitAndLossSides(pl);
+        AddProfitAndLossSide("Income", "Total Income", incomeLines, totalIncome);
+        AddProfitAndLossSide("Expenses", "Total Expenses", expenseLines, totalExpenses);
 
         var isProfit = pl.NetProfit.Amount >= 0m;
         var label = isProfit ? "Net Profit" : "Net Loss";
         var magnitude = new Money(Math.Abs(pl.NetProfit.Amount));
         Rows.Add(ReportRow.Total(label, Scaled(magnitude)));
+    }
+
+    /// <summary>Label of the synthetic opening-stock line on the horizontal P&amp;L (also its condensed roll-up key).</summary>
+    internal const string OpeningStockLine = "Opening Stock";
+
+    /// <summary>Label of the synthetic closing-stock line on the horizontal P&amp;L (inventory-derived basis only).</summary>
+    internal const string ClosingStockLine = "Closing Stock";
+
+    /// <summary>
+    /// The two sides of the horizontal P&amp;L with the stock lines placed and the totals widened to match, so that
+    /// <c>income total - expense total == pl.NetProfit</c> on both closing-stock bases (IV-333). Opening Stock heads the
+    /// expense side; the inventory-derived Closing Stock follows the last trading income line (Sales Accounts /
+    /// Direct Incomes), or heads the income side when there is none. Both carry <see cref="Guid.Empty"/> (not
+    /// drillable) and their own label as group, so Alt+F1 keeps each as its own row.
+    /// </summary>
+    private (List<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> Income, Money TotalIncome,
+        List<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> Expenses, Money TotalExpenses)
+        HorizontalProfitAndLossSides(ProfitAndLoss pl)
+    {
+        var income = pl.Income.Select(i => (i.LedgerName, i.Amount, i.LedgerId, i.GroupName)).ToList();
+        var totalIncome = pl.TotalIncome;
+        if (_options.ClosingStock == ClosingStockMode.InventoryDerived && pl.ClosingStock != Money.Zero)
+        {
+            var lastTrading = -1;
+            for (var i = 0; i < pl.Income.Count; i++)
+                if (pl.Income[i].IsTrading) lastTrading = i;
+            income.Insert(lastTrading + 1, (ClosingStockLine, pl.ClosingStock, Guid.Empty, ClosingStockLine));
+            totalIncome = new Money(totalIncome.Amount + pl.ClosingStock.Amount);
+        }
+
+        var expenses = pl.Expenses.Select(e => (e.LedgerName, e.Amount, e.LedgerId, e.GroupName)).ToList();
+        var totalExpenses = pl.TotalExpenses;
+        if (pl.OpeningStock != Money.Zero)
+        {
+            expenses.Insert(0, (OpeningStockLine, pl.OpeningStock, Guid.Empty, OpeningStockLine));
+            totalExpenses = new Money(totalExpenses.Amount + pl.OpeningStock.Amount);
+        }
+
+        return (income, totalIncome, expenses, totalExpenses);
+    }
+
+    /// <summary>
+    /// Census 11.2 (wave 11, track hd, IV-330..332): the VERTICAL Profit &amp; Loss A/c, chosen by F12 <i>Show Vertical
+    /// Profit &amp; Loss</i>. Vendor, help.tallysolutions.com/profit-and-loss-statement-tally/ (opened by content
+    /// 2026-11-19): in the vertical form the groups appear under <i>"Trading Account and Income Statements"</i>.
+    /// The page does not draw the rows, so the order below is OURS (IV-331):
+    /// <code>
+    /// Trading Account
+    ///   [trading income]                 Sales Accounts, Direct Incomes
+    ///   Add: Closing Stock               inventory-derived basis only; as posted it is already a Direct Income line
+    ///   Less: Opening Stock
+    ///   Less: [trading expenses]         Purchase Accounts, Direct Expenses
+    ///   Gross Profit | Gross Loss        = ProfitAndLoss.GrossProfit
+    /// Income Statements
+    ///   Gross Profit b/f | Less: Gross Loss b/f
+    ///   [indirect income]
+    ///   Less: [indirect expenses]
+    ///   Net Profit | Net Loss            = ProfitAndLoss.NetProfit
+    /// </code>
+    /// One Amount column, every amount a magnitude, a deduction marked by "Less:" in Particulars. Both totals are the
+    /// engine's own figures, never re-summed here; the split is <see cref="ProfitAndLossLine.IsTrading"/>, the same
+    /// set <c>ComputeGrossProfit</c> walks, so Net = Gross + indirect income - indirect expenses holds. Alt+F1 rolls
+    /// each block up to its primary groups exactly as the horizontal form does; F12 hide-zero, percentages and the
+    /// Alt+F12 sort/filter act within each block (IV-332).
+    /// </summary>
+    private void BuildVerticalProfitAndLoss(ProfitAndLoss pl)
+    {
+        static IEnumerable<(string, Money, Guid, string)> Of(IEnumerable<ProfitAndLossLine> lines) =>
+            lines.Select(l => (l.LedgerName, l.Amount, l.LedgerId, l.GroupName));
+
+        Rows.Add(new ReportRow { Particulars = "Trading Account", IsHeader = true });
+        AddVerticalBlock(Of(pl.Income.Where(l => l.IsTrading)), "Sales Accounts", string.Empty);
+        if (_options.ClosingStock == ClosingStockMode.InventoryDerived && pl.ClosingStock != Money.Zero)
+            Rows.Add(ReportRow.Line("Add: Closing Stock", Scaled(pl.ClosingStock)));
+        if (pl.OpeningStock != Money.Zero)
+            Rows.Add(ReportRow.Line("Less: Opening Stock", Scaled(pl.OpeningStock)));
+        AddVerticalBlock(Of(pl.Expenses.Where(l => l.IsTrading)), "Purchase Accounts", "Less: ");
+        var isGrossProfit = pl.GrossProfit.Amount >= 0m;
+        var gross = new Money(Math.Abs(pl.GrossProfit.Amount));
+        Rows.Add(ReportRow.Total(isGrossProfit ? "Gross Profit" : "Gross Loss", Scaled(gross)));
+
+        Rows.Add(new ReportRow { Particulars = "Income Statements", IsHeader = true });
+        Rows.Add(ReportRow.Line(isGrossProfit ? "Gross Profit b/f" : "Less: Gross Loss b/f", Scaled(gross)));
+        AddVerticalBlock(Of(pl.Income.Where(l => !l.IsTrading)), "Indirect Incomes", string.Empty);
+        AddVerticalBlock(Of(pl.Expenses.Where(l => !l.IsTrading)), "Indirect Expenses", "Less: ");
+        var isProfit = pl.NetProfit.Amount >= 0m;
+        Rows.Add(ReportRow.Total(isProfit ? "Net Profit" : "Net Loss",
+            Scaled(new Money(Math.Abs(pl.NetProfit.Amount)))));
+    }
+
+    /// <summary>One block of the vertical form: detailed ledgers or (Alt+F1) primary-group roll-ups, honouring
+    /// hide-zero, the sort/filter view and percentages within the block, each Particulars prefixed with
+    /// <paramref name="prefix"/>.</summary>
+    private void AddVerticalBlock(
+        IEnumerable<(string LedgerName, Money Amount, Guid LedgerId, string GroupName)> lines,
+        string fallbackGroup, string prefix)
+    {
+        var all = lines.ToList();
+        IReadOnlyList<(string Name, Money Amount, Guid LedgerId)> shown = _options.Detailed
+            ? all.Select(l => (l.LedgerName, l.Amount, l.LedgerId)).ToList()
+            : ReportGrouping.RollUp(all, l => string.IsNullOrEmpty(l.GroupName) ? fallbackGroup : l.GroupName,
+                    l => l.Amount)
+                .Select(g => (g.Key, g.Amount, Guid.Empty)).ToList();
+
+        if (_options.HideZeroBalances)
+            shown = ReportConfig.HideZeroBalances(shown, l => l.Amount);
+        shown = _sortFilter.Apply(shown, l => l.Name, l => new Money(Math.Abs(l.Amount.Amount)));
+
+        var pct = _options.ShowPercentages ? ReportConfig.Percentages(shown, l => l.Amount) : null;
+        for (var i = 0; i < shown.Count; i++)
+        {
+            var name = prefix + shown[i].Name;
+            var particulars = pct is null ? name : name + PercentSuffix(pct[i]);
+            Rows.Add(LedgerLine(particulars, Scaled(shown[i].Amount), string.Empty, shown[i].LedgerId));
+        }
     }
 
     /// <summary>Adds one P&amp;L side (Income/Expenses) honouring RQ-2 summary + RQ-6 hide-zero/percent.</summary>

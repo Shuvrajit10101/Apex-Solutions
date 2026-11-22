@@ -61,7 +61,11 @@ public sealed class FilePathPickerReachabilityTests
         NewWindow(string company, string? answer)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "ApexPicker_" + Guid.NewGuid().ToString("N"));
-        var vm = new MainWindowViewModel(new CompanyStorage(tempDir));
+        // T2-173: the Backup panel opens on a per-test folder, never the real (possibly OneDrive-synced) Documents.
+        var vm = new MainWindowViewModel(new CompanyStorage(tempDir))
+        {
+            BackupFolderOverride = Path.Combine(tempDir, "backups"),
+        };
         vm.NewCompanyName = company;
         vm.CreateCompany();
         vm.ShowGateway();

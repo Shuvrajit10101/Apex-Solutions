@@ -421,7 +421,7 @@ public sealed class InventoryVoucherEntryViewModelTests : IDisposable
 
         // Activating a page item opens the entry screen (proves OpenPageOf routing matches the labels):
         // drive the highlight to "Stock Journal" via the public arrow API, then activate it.
-        while (k.Vm.Menu[k.Vm.SelectedIndex].Label != "Stock Journal") k.Vm.MoveDown();
+        MenuWalk.ArrowTo(k.Vm, "Stock Journal");
         k.Vm.ActivateSelected();
         Assert.Equal(Screen.InventoryVoucherEntry, k.Vm.CurrentScreen);
         Assert.Equal(VoucherBaseType.StockJournal, k.Vm.InventoryVoucherEntry!.Type.BaseType);

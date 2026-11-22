@@ -312,7 +312,7 @@ public sealed class GstReportsViewModelTests : IDisposable
         var vm = NewGstCompany("Route Co");
         vm.ShowGstReportsMenu();
 
-        while (vm.Menu[vm.SelectedIndex].Label != "GSTR-3B") vm.MoveDown();
+        MenuWalk.ArrowTo(vm, "GSTR-3B");
         vm.ActivateSelected();
 
         Assert.Equal(Screen.Report, vm.CurrentScreen);
