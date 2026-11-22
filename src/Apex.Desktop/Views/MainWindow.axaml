@@ -6100,6 +6100,61 @@
                                   </StackPanel>
                                 </Border>
 
+                                <!-- census 6.4 / IV-254 (IV-315) — the sales/purchase ledger's GST block: the Ledger
+                                     rung of the rate and HSN/SAC walk. Same MasterGstBlockEditor as the Group master.
+                                     A blank HSN/SAC or rate is this screen's "As per Company/Group" (IV-316). -->
+                                <Border Background="#FBF7EE"
+                                        BorderBrush="{StaticResource GridLine}" BorderThickness="1"
+                                        Padding="12,10" IsVisible="{Binding ShowSalesPurchaseGst}">
+                                  <StackPanel Spacing="8">
+                                    <TextBlock Text="GST Details (sales / purchase ledger)" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource BrandNavy}"/>
+                                    <CheckBox Name="LedgerSalesPurchaseGstApplicable"
+                                              IsChecked="{Binding SalesPurchaseGst.Enabled, Mode=TwoWay}"
+                                              Content="GST Applicable" FontSize="12.5"/>
+                                    <Grid ColumnDefinitions="110,*,110,*" IsVisible="{Binding SalesPurchaseGst.Enabled}">
+                                      <TextBlock Grid.Column="0" Text="HSN/SAC" FontWeight="SemiBold" FontSize="12.5"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="LedgerSalesPurchaseGstHsn"
+                                               Text="{Binding SalesPurchaseGst.HsnSac, Mode=TwoWay}"
+                                               PlaceholderText="blank = as per company / group"/>
+                                      <TextBlock Grid.Column="2" Text="Taxability" FontWeight="SemiBold" FontSize="12.5"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" Name="LedgerSalesPurchaseGstTaxability"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding SalesPurchaseGst.TaxabilityChoices}"
+                                                SelectedItem="{Binding SalesPurchaseGst.SelectedTaxability, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MasterGstTaxabilityChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                    <Grid ColumnDefinitions="110,*,110,*" IsVisible="{Binding SalesPurchaseGst.Enabled}">
+                                      <TextBlock Grid.Column="0" Text="GST Rate %" FontWeight="SemiBold" FontSize="12.5"
+                                                 VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                      <TextBox Grid.Column="1" Name="LedgerSalesPurchaseGstRate"
+                                               Text="{Binding SalesPurchaseGst.RatePercentText, Mode=TwoWay}"
+                                               PlaceholderText="blank = as per company / group"/>
+                                      <TextBlock Grid.Column="2" Text="Type of Supply" FontWeight="SemiBold" FontSize="12.5"
+                                                 VerticalAlignment="Center" Margin="10,0,0,0"
+                                                 Foreground="{StaticResource BrandNavy}"/>
+                                      <ComboBox Grid.Column="3" Name="LedgerSalesPurchaseGstSupplyType"
+                                                HorizontalAlignment="Stretch"
+                                                ItemsSource="{Binding SalesPurchaseGst.SupplyTypeChoices}"
+                                                SelectedItem="{Binding SalesPurchaseGst.SelectedSupplyType, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                          <DataTemplate x:DataType="vm:MasterGstSupplyTypeChoice">
+                                            <TextBlock Text="{Binding Display}"/>
+                                          </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                      </ComboBox>
+                                    </Grid>
+                                  </StackPanel>
+                                </Border>
+
                                 <!-- Party GST details (shown for a party group while GST is enabled; catalog §12) -->
                                 <Border Background="#FBF7EE"
                                         BorderBrush="{StaticResource GridLine}" BorderThickness="1"
