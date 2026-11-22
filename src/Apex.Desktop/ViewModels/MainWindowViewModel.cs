@@ -12932,6 +12932,14 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         Screen.PriceListsMaster => PriceLists,
         Screen.ReorderLevelsMaster => ReorderLevels,
 
+        // ───────────────────────────────────────────────────────────────────────────────────────────────────────
+        // Census 6.28 (wave 12, track hf) — the NATURE OF PAYMENT (TDS section) master joins the same arm. It was
+        // create-only with immutable predefined rows (T1-21), so a wrong seeded rate had no remedy in-app. Its
+        // refusal is NatureOfPaymentRules.EnsureDeletable (NEW file): a predefined section is refused outright, and
+        // a custom one is refused by name while a posted TDS line carries it or a ledger names it as its default.
+        // Neither reference has a foreign key in the store, so that guard is the only thing preventing an orphan.
+        Screen.NatureOfPaymentMaster => NatureOfPaymentMaster,
+
         _ => PayrollMasterScreen,
     };
 
@@ -13097,6 +13105,21 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // 404s, so reorder alter stays withheld rather than invented.~~ 🔴 IT WAS MOVED, NOT DELETED — see
             // the reorder arm at the END of this switch. The ROUTE here (arrows + Ctrl+Enter on the existing-list) is OURS,
             // as it is for every other arm in this switch.
+            // ───────────────────────────────── census 6.28 (wave 12, track hf): the NATURE OF PAYMENT alter arm
+            //
+            // The vendor attests that a predefined nature's figures are operator-editable: the TDS FAQ tells the
+            // user to "Manually change the No PAN rate to 5%" on the predefined Purchase of Any Goods nature and to
+            // set the §194Q threshold "in the Nature of Payment master" [help.tallysolutions.com/tds-faq-tally/,
+            // read by content 2026-11-22]. The ROUTE (arrows + Ctrl+Enter on the existing-list) is OURS, as it is
+            // for every other arm in this switch; the vendor's own is the Go To menu's Alter Master.
+            case Screen.NatureOfPaymentMaster:
+            {
+                if (NatureOfPaymentMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
+                    is not { } m) return false;
+                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.NatureOfPaymentMaster, m.Caption,
+                    () => NatureOfPaymentMaster = m);
+                return true;
+            }
             case Screen.BudgetMaster:
             {
                 if (BudgetMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
@@ -13884,8 +13907,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.GenerateEWayBill:
                 GenerateEWayBill?.PrepareAndWriteJson();   // Ctrl+A = prepare + write the offline EWB-01
                 return;
+            // Census 6.28 (wave 12, track hf): the form serves Create AND Alter, so Ctrl+A goes through Accept(),
+            // which branches on IsAltering. A bare Create() here would refuse the altered nature's own unchanged
+            // section code as a duplicate — the shape that got census rows 3.2 and 3.5 demoted.
             case Screen.NatureOfPaymentMaster:
-                NatureOfPaymentMaster?.Create();
+                NatureOfPaymentMaster?.Accept();
                 return;
             case Screen.NatureOfGoodsMaster:
                 NatureOfGoodsMaster?.Create();
