@@ -81,7 +81,8 @@ public sealed class IsdRegistrationPersistenceTests
         // RE-BASELINED 67 -> 68, 2026-10-25 (census 5.11). Check performed first: the whole v68 diff under
         // src/Apex.Persistence.Sqlite/ is ONE column, entry_lines.narration - not an ISD column.
         // Re-baselined 68 -> 69 (census 5.7, wave 10): v69 adds only inventory_vouchers.optional.
-        Assert.Equal(69, Schema.CurrentVersion);
+        // Re-baselined 69 -> 70 (census 2.9, wave 12): v70 re-points only budgets.under_id at budgets(id).
+        Assert.Equal(70, Schema.CurrentVersion);
     }
 
     [Fact]

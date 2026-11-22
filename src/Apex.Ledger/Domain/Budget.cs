@@ -2,8 +2,8 @@ namespace Apex.Ledger.Domain;
 
 /// <summary>
 /// A budget master (catalog §7; plan.md §5): a named set of budgeted figures for a period.
-/// <c>Create → Budget</c> captures Name, <see cref="UnderId"/> (optional Primary group — budgets may
-/// nest under a parent/Primary; modelled here as an optional Primary group reference),
+/// <c>Create → Budget</c> captures Name, <see cref="UnderId"/> (the parent <b>budget</b>, or Primary — budgets
+/// nest under one another to form the hierarchy the List of Budgets shows; schema v70, census 2.9),
 /// <see cref="PeriodFrom"/>/<see cref="PeriodTo"/>, and a set of <see cref="BudgetLine"/>s set
 /// <b>On Groups</b> and <b>On Ledgers</b>. Actuals are compared against it by the variance projection.
 /// </summary>
@@ -21,7 +21,16 @@ public sealed class Budget
     /// <summary>Unique within a company; a rename does not change identity.</summary>
     public string Name { get; set; }
 
-    /// <summary>Optional parent (a Primary group), mirroring the catalog's "Under (Primary)". <c>null</c> ⇒ top-level.</summary>
+    /// <summary>
+    /// The parent <b>budget</b> this one is filed under, or <c>null</c> for <b>Primary</b>.
+    /// <para>🔴 v70 (census 2.9): this used to say "a Primary group" and the column REFERENCED groups(id). The
+    /// vendor's own description (help.tallysolutions.com/budgets-tally/, November 3, 2025 version, archived
+    /// 20260310093634) files a budget "under Primary from the List of Budgets" and a "Sales Department Budget …
+    /// under the main Department Budget" — a parent BUDGET. <c>budgets.under_id</c> now REFERENCES budgets(id);
+    /// the choice is validated by <see cref="Services.BudgetHierarchy.ParentRefusal"/> (no self, no loop) and a
+    /// budget with budgets under it is refused by <see cref="Services.MasterDeletionRules.EnsureBudgetDeletable"/>.
+    /// This property itself is a plain setter: the engine validates where the operator chooses.</para>
+    /// </summary>
     public Guid? UnderId { get; set; }
 
     /// <summary>The first date the budget covers (inclusive).</summary>

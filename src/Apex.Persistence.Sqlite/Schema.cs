@@ -286,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 69;
+    public const int CurrentVersion = 70;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -1574,7 +1574,7 @@ public static class Schema
             id            TEXT    NOT NULL PRIMARY KEY,
             company_id    TEXT    NOT NULL REFERENCES companies(id),
             name          TEXT    NOT NULL,
-            under_id      TEXT        NULL REFERENCES groups(id),   -- optional Primary group; NULL = top-level
+            under_id      TEXT        NULL REFERENCES budgets(id),   -- v70 (census 2.9): the parent BUDGET; NULL = Primary
             period_from   TEXT    NOT NULL,   -- ISO yyyy-MM-dd
             period_to     TEXT    NOT NULL    -- ISO yyyy-MM-dd, ≥ period_from
         );
@@ -5620,6 +5620,67 @@ public static class Schema
         -- pre-v67 company had neither switch — so the Godown Creation screen shows exactly what it showed.
         ALTER TABLE companies ADD COLUMN config_allow_storage_of_materials INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE companies ADD COLUMN config_use_address_for_locations  INTEGER NOT NULL DEFAULT 0;
+        """;
+
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+    // v70 — A BUDGET'S PARENT IS ANOTHER BUDGET (census row 2.9, "no nested budget"). One table, one foreign key.
+    // ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+    /// <summary>The scratch table <see cref="MigrateV69ToV70"/> parks the budget headers in while <c>budgets</c> is
+    /// re-declared. It never survives the transaction; a test asserts it is gone.</summary>
+    public const string V70BudgetsScratchTable = "budgets_v69_scratch";
+
+    /// <summary>
+    /// v69 → v70 (census row <b>2.9</b>, the open clause <i>"no nested budget"</i>): re-points
+    /// <c>budgets.under_id</c> from <c>REFERENCES groups(id)</c> to <c>REFERENCES budgets(id)</c>, so a budget can be
+    /// filed under another budget and the List of Budgets can show the hierarchy.
+    ///
+    /// <para>🔴 <b>Fidelity (R7, ruling 14).</b> <c>help.tallysolutions.com/budgets-tally/</c>, the November 3, 2025
+    /// version (web.archive.org snapshot 20260310093634, re-read BY CONTENT 2026-11-22): <i>"Suppose, you want to
+    /// create a budget for the overall department, you need to create the budget under Primary from the List of
+    /// Budgets. After the Department Budget is created, you can further go ahead and create specific Department
+    /// Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main Department
+    /// Budget. This shows the budget structure in a hierarchical form."</i> ⚠️ <b>The live page (re-written
+    /// November 19, 2026) now reads, under Create a Budget, <i>"Under: Select Primary or any other predefined
+    /// groups"</i></b> while still saying <i>"create multiple budgets with a hierarchical structure"</i>. The two
+    /// versions conflict; this rung follows the one that explains the hierarchy, and the conflict is recorded in
+    /// docs/invented-vs-cloned.md §2AD (IV-345).</para>
+    ///
+    /// <para>🔴 <b>WHY A REBUILD AND NOT AN ALTER.</b> SQLite cannot change a column's <c>REFERENCES</c> target in
+    /// place. The headers are copied to <see cref="V70BudgetsScratchTable"/>, <c>budgets</c> is dropped and
+    /// re-declared with the EXACT text <see cref="CreateV1"/> carries (so the migrated <c>sqlite_master.sql</c> is
+    /// byte-identical to a fresh book's — a <c>RENAME</c> would have rewritten the name into a quoted
+    /// <c>"budgets"</c>), the rows are copied back in their original <c>rowid</c> order (the reader orders by
+    /// <c>rowid</c>), and the one index is recreated. <c>budgets</c> is the FK PARENT of
+    /// <c>budget_lines.budget_id</c>, so the store runs this with <c>PRAGMA foreign_keys = OFF</c> around the
+    /// transaction and checks <c>PRAGMA foreign_key_check</c> before it commits; the primary key, the ids and so
+    /// every budget line survive untouched.</para>
+    ///
+    /// <para>🔴 <b>EVERY LEGACY <c>under_id</c> IS CLEARED, ON PURPOSE.</b> Under v69 the column could hold only a
+    /// GROUP id (the FK enforced it), and no screen had written one since W10 gb removed the group picker. A group
+    /// id is not a budget id, so carrying it across would be an FK violation, and re-reading it as "under this
+    /// group" would preserve a meaning the vendor shape never had. Every such budget becomes Primary, which is
+    /// what every budget this product's screen has written already was.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 70.</para>
+    /// </summary>
+    public const string MigrateV69ToV70 = """
+        CREATE TABLE budgets_v69_scratch AS
+            SELECT rowid AS old_rowid, id, company_id, name, period_from, period_to FROM budgets;
+        DROP TABLE budgets;
+        CREATE TABLE budgets (
+            id            TEXT    NOT NULL PRIMARY KEY,
+            company_id    TEXT    NOT NULL REFERENCES companies(id),
+            name          TEXT    NOT NULL,
+            under_id      TEXT        NULL REFERENCES budgets(id),   -- v70 (census 2.9): the parent BUDGET; NULL = Primary
+            period_from   TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+            period_to     TEXT    NOT NULL    -- ISO yyyy-MM-dd, ≥ period_from
+        );
+        INSERT INTO budgets (id, company_id, name, under_id, period_from, period_to)
+            SELECT id, company_id, name, NULL, period_from, period_to
+            FROM budgets_v69_scratch ORDER BY old_rowid;
+        DROP TABLE budgets_v69_scratch;
+        CREATE INDEX ix_budgets_company         ON budgets(company_id);
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

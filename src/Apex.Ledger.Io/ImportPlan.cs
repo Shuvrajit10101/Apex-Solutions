@@ -855,17 +855,29 @@ internal sealed class ImportPlan
 
         // 9b) Budgets — masters that reference resolved groups/ledgers; the "Primary Cost Category"-style seed does
         //     not apply here, so a budget is always created fresh (no predefined budgets exist).
-        foreach (var bd in _model.Payload.Budgets)
+        // 🔴 v70 (census 2.9): a budget's UnderId names a parent BUDGET (it named a group until v69, and this loop
+        // resolved it through the GROUP map — a budget id there would have thrown "Group reference … could not be
+        // resolved" and rolled the whole import back). Parents first, so a child's parent is already mapped; a
+        // reused (same-name) budget maps to the target's own budget, whose parent is left as the target has it.
+        var budgetId = new Dictionary<Guid, Guid>();
+        foreach (var bd in TopoOrder(_model.Payload.Budgets, b => b.Id, b => b.UnderId))
         {
             var target = BudgetTargets[bd.Id];
             if (target.IsDuplicate)
             {
+                if (t.FindBudgetByName(target.Name) is { } existingBudget) budgetId[bd.Id] = existingBudget.Id;
                 reused++;
                 continue;
             }
+            Guid? parentBudget = bd.UnderId is { } uid
+                ? budgetId.TryGetValue(uid, out var mapped) ? mapped
+                  : t.FindBudget(uid)?.Id
+                    ?? throw new InvalidOperationException($"Budget reference {uid} could not be resolved.")
+                : null;
             var domain = new Budget(Guid.NewGuid(), bd.Name,
                 CompanyImportService.ParseDate(bd.PeriodFrom), CompanyImportService.ParseDate(bd.PeriodTo),
-                bd.UnderId is { } uid ? ResolveGroupId(uid, groupId, t) : null);
+                parentBudget);
+            budgetId[bd.Id] = domain.Id;
             foreach (var bl in bd.Lines)
             {
                 var type = ParseEnum<BudgetType>(bl.BudgetType);
