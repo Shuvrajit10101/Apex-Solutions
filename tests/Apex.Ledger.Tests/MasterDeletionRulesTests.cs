@@ -1052,7 +1052,10 @@ public class MasterDeletionRulesTests
     /// under the group, a budget filed under it, and a budget line naming it.</summary>
     [Theory]
     [InlineData("pay_heads.under_group_id", "1 pay head")]
-    [InlineData("budgets.under_id", "1 budget")]
+    // ~~[InlineData("budgets.under_id", "1 budget")]~~ RETIRED W12 hc (schema v70, census 2.9): budgets.under_id
+    // now REFERENCES budgets(id), so a budget is never filed under a GROUP and the group guard no longer counts
+    // budgets. The opposite is pinned by BudgetHierarchyTests.The_group_guard_no_longer_counts_budgets_…, and the
+    // budget-under-budget refusal by BudgetHierarchyTests.A_budget_with_budgets_under_it_is_refused_….
     [InlineData("budget_lines.group_id", "1 budget line")]
     public void A_group_named_by_another_master_is_refused(string category, string expectedPart)
     {
@@ -1066,9 +1069,6 @@ public class MasterDeletionRulesTests
             case "pay_heads.under_group_id":
                 c.AddPayHead(new PayHead(Guid.NewGuid(), "Basic", PayHeadType.Earnings,
                     PayHeadCalculationType.OnAttendance) { UnderGroupId = spare.Id });
-                break;
-            case "budgets.under_id":
-                c.AddBudget(new Budget(Guid.NewGuid(), "FY", FyStart, FyStart.AddYears(1), spare.Id));
                 break;
             case "budget_lines.group_id":
                 c.AddBudget(new Budget(Guid.NewGuid(), "FY", FyStart, FyStart.AddYears(1), null,
