@@ -775,7 +775,7 @@ public static class EInvoiceJson
         // (BuildItems calls it before this method), so no deduction leg can reach here.
         foreach (var (ledger, value, _) in Gstr1.ServiceLegs(company, voucher))
         {
-            if (Gstr1.IsNonTaxableServiceLedger(ledger)) continue;
+            if (Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger)) continue;
             // T0-17: the ONE bucketing rule, not a direct read of the ledger's SAC block. A leg whose declared rate
             // and whose RESOLVED rate differ (an HSN/SAC-dated window) used to leave its posted group unmatched, and
             // that group then fell through to the synthetic HsnCd "" item below — an INV-01 line declaring a supply
@@ -804,7 +804,7 @@ public static class EInvoiceJson
         // latent sign-blindness into an overstated registered invoice; RefuseUnregistrableLedgerInvoice now runs
         // before it.
         foreach (var (ledger, value, _) in Gstr1.ServiceLegs(company, voucher))
-            if (Gstr1.IsNonTaxableServiceLedger(ledger))
+            if (Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger))
                 yield return (ledger, MoneyCodec.ToPaisa(new Money(value)));
     }
 

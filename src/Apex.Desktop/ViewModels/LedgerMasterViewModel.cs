@@ -439,6 +439,44 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
     /// </summary>
     public bool ShowPartyGst => GstEnabled && IsPartyGroup;
 
+    // ------------------------------------------- census 6.4 / IV-254 · the SALES/PURCHASE ledger's GST block (IV-315)
+
+    /// <summary>
+    /// 🔴 <b>CENSUS 6.4, IV-254 (no-block half) — THE LEDGER RUNG'S CAPTURE.</b> The ledger's GST block
+    /// (<see cref="DomainLedger.SalesPurchaseGst"/>) was persisted, imported, exported and read by every GST report,
+    /// payload and print, but this screen never wrote it. So every ledger an operator created in the app had NO
+    /// block, and a service ledger with no block is not a service leg at all (<c>Gstr1.ServiceLegs</c>,
+    /// <c>EInvoiceJson.ServiceLegsByRate</c> and the print projector key on the block): under a group declaring
+    /// 998311 / 18% the rate walk taxed the supply, yet GSTR-1 Table 12 had no row, GSTR-9 Table 17 filed 0,
+    /// INV-01 emitted <c>HsnCd ""</c> and the tax-invoice print was refused.
+    ///
+    /// <para><b>VENDOR (R7, opened by content 2026-11-22):</b> <c>help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/</c>
+    /// lists "Ledger (sales/purchase)" and "Ledger Group" among the places "where you can define the GST rate and
+    /// HSN/SAC details"; <c>help.tallysolutions.com/set-up-gst-rate-hsn-sac-details/</c> says "In the master
+    /// creation or alteration screen, set GST applicability to Applicable" and offers "As per Company/Group" and
+    /// "Specify Details Here" for both HSN/SAC Details and GST Rate Details;
+    /// <c>help.tallysolutions.com/set-up-service-ledgers-for-gst/</c> has the operator "Choose 'Services' as the
+    /// 'Type of Supply'". The editor is the SAME <see cref="MasterGstBlockEditor"/> the Group, Stock Group and
+    /// company screens host, so the four fields validate by one rule everywhere.</para>
+    ///
+    /// <para><b>OURS (IV-316):</b> a BLANK HSN/SAC or rate box is this screen's "As per Company/Group" — the walk
+    /// falls through a block that declares neither to the group and then the company. The vendor's explicit
+    /// picker and its Description field are not built; there is no column for them.</para>
+    /// </summary>
+    public MasterGstBlockEditor SalesPurchaseGst { get; } = new();
+
+    /// <summary>The sales/purchase GST block shows while GST is on and the Under group is an income or expense
+    /// group (Sales/Purchase Accounts, Direct/Indirect Incomes/Expenses, or a sub-group under one) — the ledgers the
+    /// rate walk reads as its Ledger rung. A party, bank or tax ledger never shows it (OURS: the scope, IV-316).</summary>
+    public bool ShowSalesPurchaseGst =>
+        GstEnabled && SelectedGroup is { } g && !IsPartyGroup && IsProfitAndLossGroupSafe(g);
+
+    private bool IsProfitAndLossGroupSafe(Group group)
+    {
+        try { return ClassificationRules.IsProfitAndLossGroup(group, _company); }
+        catch (InvalidOperationException) { return false; } // a cyclic chain: no block offered
+    }
+
     // ------------------------------------------------------------------ W-N1 · census 15.2 — State VAT
     // TWO INDEPENDENT BLOCKS THAT SHARE THIS MASTER, and conflating them is the trap. VatApplicable +
     // VatTaxRatePercentText describe THIS sales/purchase ledger's own tax treatment; the three Party* fields
@@ -1136,6 +1174,8 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             SetOpeningSideFromNature(value);
         OnPropertyChanged(nameof(IsPartyGroup));
         OnPropertyChanged(nameof(ShowPartyGst));
+        // Census 6.4 / IV-315: the sales/purchase GST block follows the group's nature.
+        OnPropertyChanged(nameof(ShowSalesPurchaseGst));
         // W-N1: the two VAT blocks are gated on the same IsPartyGroup axis and must be re-evaluated with it —
         // omitting them leaves the block hidden until the screen is reopened, the very defect the line above
         // exists to fix.
@@ -1404,6 +1444,18 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         PartyRegistrationType = PartyRegistrationTypes.FirstOrDefault(
             t => t.Value == (gst?.RegistrationType ?? GstRegistrationType.Unregistered)) ?? PartyRegistrationTypes[2];
         PartyState = PartyStates.FirstOrDefault(s => s.Code == ledger.MailingStateCode);
+
+        // Census 6.4 / IV-315 — the sales/purchase GST block. Loaded for EVERY ledger (the write is guarded by
+        // ShowSalesPurchaseGst), so re-opening a master shows what is stored rather than a blank the next accept
+        // would write back. Only the four fields the shared editor carries are loaded; the rest of the block
+        // (reverse charge, cess, §17(5)) is carried through the write untouched (MergeSalesPurchaseGst).
+        SalesPurchaseGst.LoadFrom(ledger.SalesPurchaseGst is { } spg
+            ? new MasterGstDetails
+            {
+                HsnSac = spg.HsnSac, Taxability = spg.Taxability,
+                RateBasisPoints = spg.RateBasisPoints, SupplyType = spg.SupplyType,
+            }
+            : null);
 
         // WI-4 party Mailing Details.
         var mailing = ledger.Mailing;
@@ -1780,6 +1832,29 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
             }
         }
 
+        // Census 6.4 / IV-315 — the sales/purchase GST block, validated here with everything else so a malformed
+        // SAC or rate refuses the whole save. Built as a NEW object: the stored block is never touched before the
+        // write below, so a refusal leaves the ledger exactly as it was.
+        StockItemGstDetails? salesPurchaseGst = null;
+        if (ShowSalesPurchaseGst)
+        {
+            if (!SalesPurchaseGst.TryBuild(out var core, out var gstError))
+            {
+                Message = gstError;
+                return false;
+            }
+            salesPurchaseGst = MergeSalesPurchaseGst(target.SalesPurchaseGst, core);
+            try
+            {
+                salesPurchaseGst?.EnsureValid();
+            }
+            catch (ArgumentException ex)
+            {
+                Message = ex.Message;
+                return false;
+            }
+        }
+
         // ---- everything validated; only now write. Nothing above this line mutates the target. ----
         //
         // 🔴 THE HIDDEN-SUB-FORM RULE — READ BEFORE ADDING A FIELD HERE.
@@ -1865,6 +1940,10 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         // Party GST — hidden-sub-form rule. GST off (or a non-party group) ⇒ the block was never on screen and is
         // left EXACTLY as it was, GSTIN / registration type / RCM qualifiers and all.
         if (ShowPartyGst) target.PartyGst = partyGst;
+
+        // Census 6.4 / IV-315 — the sales/purchase GST block, same rule: written only when it rendered. Unticking
+        // "GST Applicable" on screen writes null (the ledger stops being a rung); a hidden block keeps what it had.
+        if (ShowSalesPurchaseGst) target.SalesPurchaseGst = salesPurchaseGst;
 
         // Party Mailing Details — same rule (gated on IsPartyGroup only; it is not F11-gated).
         if (ShowMailingDetails) target.Mailing = mailing;
@@ -1954,8 +2033,9 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         target.Alias = string.IsNullOrWhiteSpace(Alias) ? null : Alias.Trim();
 
         // NOT written, on purpose — this screen does not own them, so an ALTER must leave them exactly as they
-        // were: IsPredefined, SalesPurchaseGst, GstClassification and TdsTcsClassification (engine-managed
-        // tags). OpeningBalance / OpeningIsDebit USED to be on this list — the screen could not capture them, so
+        // were: IsPredefined, GstClassification and TdsTcsClassification (engine-managed tags). SalesPurchaseGst
+        // left this list in wave 12 (census 6.4, IV-315): its four core fields are written above under
+        // ShowSalesPurchaseGst, and the rest of the block is carried by MergeSalesPurchaseGst. OpeningBalance / OpeningIsDebit USED to be on this list — the screen could not capture them, so
         // leaving them alone was all it could do. It owns them now (see the write above).
         //
         // 🔴 ALIAS WAS ON THIS LIST UNTIL census 2.3 SHIPPED, described as something "this screen does not own".
@@ -1965,10 +2045,43 @@ public sealed partial class LedgerMasterViewModel : ViewModelBase, IMasterListEx
         return true;
     }
 
+    /// <summary>
+    /// Census 6.4 / IV-315 — the screen owns the four fields the shared editor shows (HSN/SAC, taxability, rate,
+    /// type of supply). Everything else on a stored block — reverse charge, GTA forward charge, the RCM category,
+    /// Compensation-Cess, RSP valuation, §17(5) eligibility — was written by the importer or the engine, is not
+    /// on this screen, and is CARRIED onto the new block so an alteration of the SAC can never strip it. A block
+    /// switched off on screen (<paramref name="core"/> null) is null: the operator said the ledger has none.
+    /// </summary>
+    private static StockItemGstDetails? MergeSalesPurchaseGst(StockItemGstDetails? stored, MasterGstDetails? core)
+    {
+        if (core is null) return null;
+        return new StockItemGstDetails
+        {
+            HsnSac = core.HsnSac,
+            Taxability = core.Taxability,
+            RateBasisPoints = core.RateBasisPoints,
+            SupplyType = core.SupplyType,
+            ValuationBasis = stored?.ValuationBasis ?? GstValuationBasis.TransactionValue,
+            CessApplicable = stored?.CessApplicable ?? false,
+            CessValuationMode = stored?.CessValuationMode,
+            CessRateBasisPoints = stored?.CessRateBasisPoints,
+            CessPerUnit = stored?.CessPerUnit,
+            CessRspFactorMillis = stored?.CessRspFactorMillis,
+            RetailSalePrice = stored?.RetailSalePrice,
+            ReverseChargeApplicable = stored?.ReverseChargeApplicable ?? false,
+            GtaForwardCharge = stored?.GtaForwardCharge ?? false,
+            RcmCategoryId = stored?.RcmCategoryId,
+            ItcEligibility = stored?.ItcEligibility ?? ItcEligibility.Eligible,
+            BlockedCreditCategory = stored?.BlockedCreditCategory ?? BlockedCreditCategory.None,
+        };
+    }
+
     /// <summary>Clears the form after a successful CREATE so the next entry starts blank (an ALTER keeps the
     /// values on screen, because the user is looking at the master they just saved).</summary>
     private void ResetForNextEntry()
     {
+        // Census 6.4 / IV-315: a ledger's GST block must not carry into the next ledger.
+        SalesPurchaseGst.LoadFrom(null);
         Name = string.Empty;
         // census 2.3 — the alias clears with the name it is an alias FOR. Carrying it into the next ledger would
         // give two ledgers the same alias, and because Company.FindLedgerByName resolves on the alias, which of

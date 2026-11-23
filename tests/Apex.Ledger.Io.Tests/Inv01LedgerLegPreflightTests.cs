@@ -264,7 +264,7 @@ public sealed class Inv01LedgerLegPreflightTests
 
         // The premise: the ledger declares a GST block, so the SAC is a field that CAN be filled.
         var exempt = Gstr1.ServiceLegs(company, sale)
-            .Single(l => Gstr1.IsNonTaxableServiceLedger(l.Ledger)).Ledger;
+            .Single(l => Gstr1.IsNonTaxableServiceLedger(company, sale, l.Ledger)).Ledger;
         Assert.NotNull(exempt.SalesPurchaseGst);
         Assert.Null(Gstr1.ServiceSacOf(company, exempt));
 
