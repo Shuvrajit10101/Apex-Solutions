@@ -6,11 +6,12 @@ namespace Apex.Ledger.Reports;
 /// <summary>
 /// A Balance-Sheet line: a ledger (or synthetic head) at its statement magnitude. <see cref="GroupId"/>
 /// is the ledger's actual immediate group id — the reliable key for group-membership tests (two distinct
-/// groups may share a name, so classifying by name alone is ambiguous). It is <c>null</c> only for the two
-/// synthetic heads (derived Stock-in-Hand, folded period Net Profit) that have no single owning ledger.
+/// groups may share a name, so classifying by name alone is ambiguous). It is <c>null</c> only for the
+/// synthetic heads (derived Stock-in-Hand, folded period Net Profit, and the inventory-derived
+/// <see cref="BalanceSheet.OpeningDifferenceLine"/>) that have no single owning ledger.
 /// <para><see cref="LedgerId"/> is the owning ledger's stable id (RQ-7 universal drill-down): Enter on the
 /// line opens that ledger's vouchers (a <see cref="LedgerBook"/>) for the period. It is <c>Guid.Empty</c>
-/// for the two synthetic heads, which have no single owning ledger; <see cref="IsDrillable"/> is the guard
+/// for those synthetic heads, which have no single owning ledger; <see cref="IsDrillable"/> is the guard
 /// the UI checks so Enter is a safe no-op on those lines.</para>
 /// </summary>
 public sealed record BalanceSheetLine(string Name, string GroupName, Money Amount, Guid? GroupId = null, Guid LedgerId = default)

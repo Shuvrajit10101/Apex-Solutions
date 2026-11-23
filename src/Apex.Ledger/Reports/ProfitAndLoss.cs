@@ -46,6 +46,11 @@ public sealed record ProfitAndLossLine(
 /// trading account, and closing stock (posted as a Stock-in-Hand ledger movement with a
 /// matching income-side adjustment) is a credit. Robert has no stock ledgers, so the rule
 /// degenerates to income − expense. Bright's opening-stock charge yields the −1000 net.
+/// That describes <see cref="ClosingStockMode.AsPostedLedger"/>. Under
+/// <see cref="ClosingStockMode.InventoryDerived"/> both stock figures come from the stock summary instead
+/// (T2-177, IV-335/336): opening stock is <see cref="InventoryDerivedStock.OpeningValuation"/> (item-master
+/// openings, or the derived value as-at From-1 in a window), closing stock is the derived Σ item-closing value,
+/// and the P&amp;L contra of any Stock-in-Hand ledger posting is removed.
 /// </summary>
 public sealed record ProfitAndLoss(
     IReadOnlyList<ProfitAndLossLine> Income,
