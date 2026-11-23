@@ -4,7 +4,7 @@ using Apex.Ledger.Services;
 namespace Apex.Ledger.Reports;
 
 /// <summary>
-/// T2-177 (wave 12, track he, IV-355..357): the two stock figures the <b>inventory-derived</b> closing-stock basis
+/// T2-177 (wave 12, track he, IV-335..337): the two stock figures the <b>inventory-derived</b> closing-stock basis
 /// needs besides the derived closing value itself, shared by <see cref="ProfitAndLoss"/> and
 /// <see cref="BalanceSheet"/> so the two statements can never disagree about them.
 ///
@@ -14,12 +14,12 @@ namespace Apex.Ledger.Reports;
 /// off. So on the integrated (inventory-derived) basis the stock summary — item-master openings plus stock
 /// movements — governs the stock figures, and whatever is posted to a Stock-in-Hand LEDGER does not. The page does
 /// not say how the opening stock is charged or what becomes of the income side of a posted closing-stock journal;
-/// the two rules below are OURS (IV-355, IV-356) and are recorded as such in docs/invented-vs-cloned.md §2AF.</para>
+/// the two rules below are OURS (IV-335, IV-336) and are recorded as such in docs/invented-vs-cloned.md §2AF.</para>
 /// </summary>
 public static class InventoryDerivedStock
 {
     /// <summary>
-    /// IV-355: the opening stock charged to the trading account on the inventory-derived basis — the stock summary's
+    /// IV-335: the opening stock charged to the trading account on the inventory-derived basis — the stock summary's
     /// opening, not a Stock-in-Hand ledger's opening balance.
     /// <list type="bullet">
     /// <item>No window, or a window starting on/before books-begin: Σ of every item-master opening allocation's value
@@ -52,7 +52,7 @@ public static class InventoryDerivedStock
     }
 
     /// <summary>
-    /// IV-356: on the inventory-derived basis every posting to a Stock-in-Hand ledger is ignored (the derived value
+    /// IV-336: on the inventory-derived basis every posting to a Stock-in-Hand ledger is ignored (the derived value
     /// replaces it), so the P&amp;L side of that same posting must be ignored too — otherwise a book that ALSO posts
     /// its closing stock (Dr Stock-in-Hand / Cr a Direct Income adjustment ledger) counts closing stock twice and the
     /// Balance Sheet stops balancing (T2-177 finding 3, probe P4).

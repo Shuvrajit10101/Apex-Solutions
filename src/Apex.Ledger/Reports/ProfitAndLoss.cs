@@ -113,7 +113,7 @@ public sealed record ProfitAndLoss(
 
         // Phase-3 integration (RQ-25/RQ-27): when inventory-derived, closing stock is the Σ of each stock
         // item's closing value by its own valuation method — NOT a posted Stock-in-Hand movement.
-        // T2-177 (wave 12, track he, IV-355/356): on the same basis the OPENING stock is the stock summary's opening
+        // T2-177 (wave 12, track he, IV-335/336): on the same basis the OPENING stock is the stock summary's opening
         // (item-master allocations, or the derived value as-at From-1 in a window), never a Stock-in-Hand ledger's
         // opening; and the P&L contra of any posting to a Stock-in-Hand ledger (a posted closing-stock adjustment)
         // is removed, because the stock-ledger side of that posting is ignored here.
@@ -137,7 +137,7 @@ public sealed record ProfitAndLoss(
             if (ClassificationRules.IsStockInHandLedger(ledger, company))
             {
                 if (inventoryDerived)
-                    continue; // IV-355: opening and closing both come from the stock summary on this basis.
+                    continue; // IV-335: opening and closing both come from the stock summary on this basis.
 
                 if (openingAsOf is { } oa)
                 {
@@ -241,7 +241,7 @@ public sealed record ProfitAndLoss(
             var signed = windowFrom is { } from
                 ? LedgerBalances.SignedMovement(company, ledger, from, to)
                 : LedgerBalances.SignedClosing(company, ledger, to, scenario);
-            if (stockContra.TryGetValue(ledger.Id, out var contra)) signed -= contra; // IV-356 (derived basis only)
+            if (stockContra.TryGetValue(ledger.Id, out var contra)) signed -= contra; // IV-336 (derived basis only)
 
             // Census 2.2 — "Does it affect Gross Profits" (schema v60). The four seeded trading heads are still
             // matched by NAME exactly as they always were, so no figure on any existing book moves; the flag is

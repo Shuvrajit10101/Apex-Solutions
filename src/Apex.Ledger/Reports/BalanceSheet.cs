@@ -37,7 +37,7 @@ public sealed record BalanceSheet(
 {
     public bool Balanced => TotalLiabilities == TotalAssets;
 
-    /// <summary>Label (and roll-up group) of the synthetic opening-difference line (IV-357, inventory-derived basis).</summary>
+    /// <summary>Label (and roll-up group) of the synthetic opening-difference line (IV-337, inventory-derived basis).</summary>
     public const string OpeningDifferenceLine = "Difference in Opening Balances";
 
     /// <summary>
@@ -140,7 +140,7 @@ public sealed record BalanceSheet(
                 totalAsset += derived;
             }
 
-            // T2-177 (wave 12, track he, IV-357): the P&L now charges the stock summary's opening (item-master
+            // T2-177 (wave 12, track he, IV-337): the P&L now charges the stock summary's opening (item-master
             // allocations) rather than the Stock-in-Hand ledgers' openings. When the two differ — typically item
             // openings entered with no matching ledger/capital opening — the opening position was itself out of
             // balance by that difference, and the sheet carries it as one synthetic, non-drillable line on the

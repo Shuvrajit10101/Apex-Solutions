@@ -17,7 +17,7 @@ using DomainLedger = Apex.Ledger.Domain.Ledger;
 namespace Apex.Desktop.Tests;
 
 /// <summary>
-/// T2-177 (HIGH) and T2-178 part 1 — census 11.2, wave 12, track he, IV-355..IV-357 (docs/invented-vs-cloned.md §2AF).
+/// T2-177 (HIGH) and T2-178 part 1 — census 11.2, wave 12, track he, IV-335..IV-337 (docs/invented-vs-cloned.md §2AF).
 ///
 /// <para><b>Ground.</b> Vendor (TallyPrime), help.tallysolutions.com/balance-sheet-tally/ (updated 2026-11-05), opened
 /// by content 2026-11-22: <i>"TallyPrime considers your stock summary balance as your closing stock."</i> — a manual
@@ -279,7 +279,7 @@ public sealed class InventoryDerivedStockStatementTests : IDisposable
         Assert.True(bsc.Liabilities == bsc.Assets, bsc.Csv);
 
         // P3 shapes: the item opening had no ledger/capital counterpart, so the sheet carries it as the opening
-        // difference (IV-357). P2/P4: openings agree, no such line.
+        // difference (IV-337). P2/P4: openings agree, no such line.
         // A detailed Balance-Sheet CSV row reads "<name>  <group>"; the synthetic line uses its label for both.
         var diff = bs.Rows.Where(x => x.Label.StartsWith(BalanceSheet.OpeningDifferenceLine, StringComparison.Ordinal)).ToList();
         if (ledgerOpening) Assert.Empty(diff);
