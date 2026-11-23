@@ -11,8 +11,20 @@ using CommunityToolkit.Mvvm.ComponentModel;
 namespace Apex.Desktop.ViewModels;
 
 /// <summary>A Nature-of-Payment (TDS section) row for the master's existing-list grid.</summary>
-public sealed class NatureOfPaymentListRow
+/// <remarks>Census 6.28 (wave 12, track hf): it carries the master's id and a keyboard highlight, so the arrows
+/// can walk it, Ctrl+Enter can open it for alteration and Alt+D can delete it through the shared
+/// <see cref="IMasterListScreen"/> arm.</remarks>
+public sealed partial class NatureOfPaymentListRow : ObservableObject, IMasterListRow
 {
+    /// <inheritdoc/>
+    public Guid MasterId { get; init; }
+
+    /// <inheritdoc/>
+    public string MasterName => $"{SectionCode} - {Name}";
+
+    /// <inheritdoc/>
+    [ObservableProperty] private bool _isHighlighted;
+
     public string SectionCode { get; init; } = string.Empty;
     public string Name { get; init; } = string.Empty;
     public string RateWithPan { get; init; } = string.Empty;
@@ -32,15 +44,187 @@ public sealed class NatureOfPaymentListRow
 /// section code, and optional single-transaction / cumulative-FY thresholds). A created nature is added to the
 /// company's <see cref="TdsConfig.NaturesOfPayment"/> and the whole company is persisted.
 ///
-/// <para>Only reachable when TDS is enabled (the Create-menu item is gated on <see cref="Company.TdsEnabled"/>);
-/// the predefined masters are immutable (add-only domain), so this slice lists them and creates customs — it does
-/// not edit a seeded nature. MVVM boundary: domain + persistence only, no Avalonia types (headlessly testable).</para>
+/// <para>Only reachable when TDS is enabled (the Create-menu item is gated on <see cref="Company.TdsEnabled"/>).
+/// ~~the predefined masters are immutable (add-only domain), so this slice lists them and creates customs — it does
+/// not edit a seeded nature.~~ 🔴 <b>STRUCK, census 6.28 (wave 12, track hf).</b> That sentence was T1-21: a user
+/// facing a wrong seeded rate had no remedy in-app. The screen now also <b>ALTERS</b> any nature, predefined
+/// included (Ctrl+Enter on the highlighted row, then Ctrl+A — <see cref="ForAlter"/> / <see cref="Alter"/>), and
+/// <b>DELETES</b> a custom one (Alt+D, then Y — <see cref="DeleteMaster"/>). The referential rules live in
+/// <c>NatureOfPaymentRules</c>; the vendor grounds and what is ours are written out there.
+/// MVVM boundary: domain + persistence only, no Avalonia types (headlessly testable).</para>
 /// </summary>
-public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMasterListExportSource
+public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMasterListExportSource, IMasterListScreen
 {
     private readonly Company _company;
     private readonly CompanyStorage _storage;
     private readonly Action _onChanged;
+
+    // ------------------------------------------------- census 6.28 (wave 12, track hf): ALTER and DELETE
+
+    /// <summary>The id of the nature being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
+    private Guid _editingId = Guid.Empty;
+
+    /// <inheritdoc/>
+    public string MasterKindLabel => "nature of payment";
+
+    /// <inheritdoc/>
+    public bool IsAltering => _editingId != Guid.Empty;
+
+    /// <summary>True while altering a PREDEFINED section: its section code and Form-26Q code are then read-only
+    /// (ours — see <c>NatureOfPaymentRules.EnsureAlterable</c>), so the form does not invite an edit it refuses.</summary>
+    public bool IsCodeLocked { get; private set; }
+
+    /// <summary>The screen heading, naming the verb that is running (the form is the same in both modes).</summary>
+    public string Caption => IsAltering ? "Nature of Payment Alteration" : "Nature of Payment (TDS)";
+
+    /// <summary>The commit button's label, matching <see cref="Caption"/>.</summary>
+    public string CommitLabel => IsAltering ? "Save (Ctrl+A)" : "Create (Ctrl+A)";
+
+    /// <summary>
+    /// Opens this master in <b>Alter</b> mode over an existing nature — the same form, pre-filled. Returns
+    /// <c>null</c> if the id does not resolve (or TDS is off).
+    /// </summary>
+    public static NatureOfPaymentMasterViewModel? ForAlter(
+        Company company, CompanyStorage storage, Guid natureId, Action onChanged)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        if (company.FindNatureOfPayment(natureId) is not { } nature) return null;
+
+        var vm = new NatureOfPaymentMasterViewModel(company, storage, onChanged);
+        vm._editingId = natureId;
+        vm.IsCodeLocked = nature.IsPredefined;
+        vm.SectionCode = nature.SectionCode;
+        vm.Name = nature.Name;
+        vm.RateWithPanText = FormatRate(nature.RateWithPanBp);
+        vm.RateWithoutPanText = FormatRate(nature.RateWithoutPanBp);
+        vm.FvuSectionCode = nature.FvuSectionCode;
+        vm.SingleThresholdText = FormatThreshold(nature.SingleTransactionThreshold);
+        // A per-month section's stored cumulative figure is INERT (see DescribeThreshold, and the same refusal in
+        // Create): an existing book can still carry the superseded annualised ₹6,00,000 there. Pre-filling it would
+        // make every alteration of that row refuse itself until the operator blanked a figure the engine never
+        // applies, so it is loaded blank — and saving then drops the inert value, which changes no computation.
+        vm.CumulativeThresholdText = nature.ThresholdWindowIsPerMonth
+            ? string.Empty
+            : FormatThreshold(nature.CumulativeThreshold);
+        vm.OnPropertyChanged(nameof(IsAltering));
+        vm.OnPropertyChanged(nameof(IsCodeLocked));
+        vm.OnPropertyChanged(nameof(Caption));
+        vm.OnPropertyChanged(nameof(CommitLabel));
+        return vm;
+    }
+
+    /// <summary>Ctrl+A on this screen: <see cref="Alter"/> when altering, else <see cref="Create"/>. The keyboard
+    /// arm and the mouse button both call this, so the two can never disagree about the verb.</summary>
+    public bool Accept() => IsAltering ? Alter() : Create();
+
+    /// <summary>
+    /// Ctrl+A <b>alter</b>: re-validates every field exactly as <see cref="Create"/> does (the section-code
+    /// uniqueness check EXCLUDING this nature's own row), asks <c>NatureOfPaymentRules.EnsureAlterable</c>, then
+    /// replaces the master in place and persists. On a failed save the original instance is put back first, so
+    /// the shared aggregate never carries figures the store refused.
+    /// </summary>
+    public bool Alter()
+    {
+        Message = null;
+
+        if (_company.Tds is not { Enabled: true } tds)
+        {
+            Message = "Enable TDS (F11 → Enable TDS) before altering a Nature of Payment.";
+            return false;
+        }
+        if (_company.FindNatureOfPayment(_editingId) is not { } existing)
+        {
+            Message = "The Nature of Payment being altered no longer exists.";
+            return false;
+        }
+        if (!TryReadForm(_editingId, out var section, out var name, out var fvu, out var withPanBp,
+                out var withoutPanBp, out var single, out var cumulative))
+            return false;
+
+        NatureOfPayment replacement;
+        try
+        {
+            replacement = existing.WithTerms(section, name, withPanBp, withoutPanBp, fvu, single, cumulative);
+            Apex.Ledger.Services.NatureOfPaymentRules.EnsureAlterable(_company, existing, replacement);
+            tds.ReplaceNatureOfPayment(replacement);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            Message = ex.Message;
+            return false;
+        }
+
+        try
+        {
+            _storage.Save(_company);
+        }
+        catch (Exception ex)
+        {
+            tds.ReplaceNatureOfPayment(existing);
+            if (!SaveFailure.IsReportable(ex)) throw;
+            Message = ex.Message;
+            return false;
+        }
+
+        RefreshList();
+        Message = $"Nature of Payment '{replacement.SectionCode}' altered "
+                + $"({replacement.RateWithPanBp / 100m:0.##}% with PAN, "
+                + $"{replacement.RateWithoutPanBp / 100m:0.##}% without).";
+        // Review fix (census 6.28): there is no dated rate history (IV-343), so a voucher posted under the OLD
+        // figures keeps them, and VoucherEntryViewModel.ApplyReCarve refuses any later alteration of it whose
+        // re-computation would restate that reported deduction. Say so at the moment of the act, not only when
+        // the operator next opens one of those vouchers.
+        var termsMoved = existing.RateWithPanBp != replacement.RateWithPanBp
+                         || existing.RateWithoutPanBp != replacement.RateWithoutPanBp
+                         || existing.SingleTransactionThreshold != replacement.SingleTransactionThreshold
+                         || existing.AggregateThreshold != replacement.AggregateThreshold;
+        var posted = termsMoved
+            ? Apex.Ledger.Services.NatureOfPaymentRules.VouchersCarrying(_company, replacement.Id).Count
+            : 0;
+        if (posted > 0)
+            Message += $" {(posted == 1 ? "1 voucher" : $"{posted} vouchers")} already posted under this section "
+                     + "keep the figures they were withheld at. Every alteration re-computes a voucher's TDS, so "
+                     + "altering one of them is now refused wherever the new rate or threshold would change its "
+                     + "deduction.";
+        _onChanged();
+        return true;
+    }
+
+    /// <inheritdoc/>
+    public IMasterListRow? HighlightedMasterRow => HighlightedRow;
+
+    /// <inheritdoc/>
+    public void ReloadExisting() => RefreshList();
+
+    /// <inheritdoc/>
+    /// <remarks>Engine-only — the shell saves and reloads after this returns. The guard
+    /// (<c>NatureOfPaymentRules.EnsureDeletable</c>) runs here, at the moment of the irreversible act, and its
+    /// message is what the shell shows when it refuses.</remarks>
+    public void DeleteMaster(Guid id)
+    {
+        if (_company.Tds is not { } tds || _company.FindNatureOfPayment(id) is not { } nature)
+            throw new InvalidOperationException($"Nature of Payment {id} not found.");
+        Apex.Ledger.Services.NatureOfPaymentRules.EnsureDeletable(_company, nature);
+        tds.RemoveNatureOfPayment(id);
+    }
+
+    private PayrollMasterHighlight<NatureOfPaymentListRow>? _highlight;
+
+    private PayrollMasterHighlight<NatureOfPaymentListRow> Highlight =>
+        _highlight ??= new PayrollMasterHighlight<NatureOfPaymentListRow>(
+            Natures, () => OnPropertyChanged(nameof(HighlightedRow)));
+
+    /// <summary>The arrow-highlighted existing nature, or null.</summary>
+    public NatureOfPaymentListRow? HighlightedRow => Highlight.Row;
+
+    /// <inheritdoc/>
+    public void MoveHighlight(int direction) => Highlight.Move(direction);
+
+    private static string FormatRate(int basisPoints) =>
+        (basisPoints / 100m).ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string FormatThreshold(Money? money) =>
+        money is { } m ? m.Amount.ToString("0.##", CultureInfo.InvariantCulture) : string.Empty;
 
     /// <inheritdoc/>
     public MasterListSnapshot ToMasterListSnapshot() => new(
@@ -92,52 +276,9 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
             return false;
         }
 
-        var section = (SectionCode ?? string.Empty).Trim();
-        var name = (Name ?? string.Empty).Trim();
-        var fvu = (FvuSectionCode ?? string.Empty).Trim();
-
-        if (string.IsNullOrWhiteSpace(section)) { Message = "A section code is required (e.g. 194J(b))."; return false; }
-        if (string.IsNullOrWhiteSpace(name)) { Message = "A name is required (e.g. Fees for professional services)."; return false; }
-        if (string.IsNullOrWhiteSpace(fvu)) { Message = "A Form-26Q / FVU section code is required (e.g. 94J-B)."; return false; }
-        if (_company.NaturesOfPayment.Any(n => string.Equals(n.SectionCode, section, StringComparison.OrdinalIgnoreCase)))
-        {
-            Message = $"A Nature of Payment '{section}' already exists.";
+        if (!TryReadForm(Guid.Empty, out var section, out var name, out var fvu, out var withPanBp,
+                out var withoutPanBp, out var single, out var cumulative))
             return false;
-        }
-        if (!TryParseRateBp(RateWithPanText, out var withPanBp))
-        {
-            Message = "Rate (with PAN) must be a percentage ≥ 0 (e.g. 10 for 10%).";
-            return false;
-        }
-        if (!TryParseRateBp(RateWithoutPanText, out var withoutPanBp))
-        {
-            Message = "Rate (without PAN, §206AA) must be a percentage ≥ 0 (e.g. 20).";
-            return false;
-        }
-        if (!TryParseThreshold(SingleThresholdText, out var single))
-        {
-            Message = "Single-transaction threshold must be a rupee amount ≥ 0, or blank.";
-            return false;
-        }
-        if (!TryParseThreshold(CumulativeThresholdText, out var cumulative))
-        {
-            Message = "Cumulative-FY threshold must be a rupee amount ≥ 0, or blank.";
-            return false;
-        }
-        // 🔴 A PER-MONTH SECTION HAS NO FINANCIAL-YEAR AGGREGATE TO STORE, so a figure typed into this field would
-        // be persisted and never applied — and, since the list column now states the window instead, it would not
-        // even show up to contradict itself. Silently ignoring what the operator typed is the one outcome not
-        // available here, so it is refused by name. (This is also what the seeded §194-I rows do: they carry no
-        // stored threshold at all, and an existing book's superseded ₹6,00,000 in this field is inert.)
-        if (cumulative is not null
-            && new NatureOfPayment(Guid.Empty, section, name, withPanBp, withoutPanBp, fvu).ThresholdWindowIsPerMonth)
-        {
-            Message = $"§{section} tests its threshold PER MONTH — \"rent credited or paid for a month or part of "
-                    + "a month … does not exceed fifty thousand rupees\" — and carries no financial-year aggregate "
-                    + "limb at all. A Cumulative-FY threshold on this section would be stored and never applied, "
-                    + "so leave it blank.";
-            return false;
-        }
 
         try
         {
@@ -168,6 +309,68 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
     }
 
     /// <summary>
+    /// Reads and validates the form — the ONE validation <see cref="Create"/> and <see cref="Alter"/> share, so an
+    /// altered master can never hold a value a created one could not. <paramref name="excludeId"/> is the nature
+    /// being altered (its own section code is not a duplicate of itself), or <see cref="Guid.Empty"/> on Create.
+    /// Sets <see cref="Message"/> and returns false on the first invalid field.
+    /// </summary>
+    private bool TryReadForm(
+        Guid excludeId, out string section, out string name, out string fvu, out int withPanBp,
+        out int withoutPanBp, out Money? single, out Money? cumulative)
+    {
+        section = (SectionCode ?? string.Empty).Trim();
+        name = (Name ?? string.Empty).Trim();
+        fvu = (FvuSectionCode ?? string.Empty).Trim();
+        withPanBp = 0; withoutPanBp = 0; single = null; cumulative = null;
+        var sectionCode = section;
+
+        if (string.IsNullOrWhiteSpace(section)) { Message = "A section code is required (e.g. 194J(b))."; return false; }
+        if (string.IsNullOrWhiteSpace(name)) { Message = "A name is required (e.g. Fees for professional services)."; return false; }
+        if (string.IsNullOrWhiteSpace(fvu)) { Message = "A Form-26Q / FVU section code is required (e.g. 94J-B)."; return false; }
+        if (_company.NaturesOfPayment.Any(n => n.Id != excludeId
+                                               && string.Equals(n.SectionCode, sectionCode, StringComparison.OrdinalIgnoreCase)))
+        {
+            Message = $"A Nature of Payment '{section}' already exists.";
+            return false;
+        }
+        if (!TryParseRateBp(RateWithPanText, out withPanBp))
+        {
+            Message = "Rate (with PAN) must be a percentage ≥ 0 (e.g. 10 for 10%).";
+            return false;
+        }
+        if (!TryParseRateBp(RateWithoutPanText, out withoutPanBp))
+        {
+            Message = "Rate (without PAN, §206AA) must be a percentage ≥ 0 (e.g. 20).";
+            return false;
+        }
+        if (!TryParseThreshold(SingleThresholdText, out single))
+        {
+            Message = "Single-transaction threshold must be a rupee amount ≥ 0, or blank.";
+            return false;
+        }
+        if (!TryParseThreshold(CumulativeThresholdText, out cumulative))
+        {
+            Message = "Cumulative-FY threshold must be a rupee amount ≥ 0, or blank.";
+            return false;
+        }
+        // 🔴 A PER-MONTH SECTION HAS NO FINANCIAL-YEAR AGGREGATE TO STORE, so a figure typed into this field would
+        // be persisted and never applied — and, since the list column now states the window instead, it would not
+        // even show up to contradict itself. Silently ignoring what the operator typed is the one outcome not
+        // available here, so it is refused by name. (This is also what the seeded §194-I rows do: they carry no
+        // stored threshold at all, and an existing book's superseded ₹6,00,000 in this field is inert.)
+        if (cumulative is not null
+            && new NatureOfPayment(Guid.Empty, section, name, withPanBp, withoutPanBp, fvu).ThresholdWindowIsPerMonth)
+        {
+            Message = $"§{section} tests its threshold PER MONTH — \"rent credited or paid for a month or part of "
+                    + "a month … does not exceed fifty thousand rupees\" — and carries no financial-year aggregate "
+                    + "limb at all. A Cumulative-FY threshold on this section would be stored and never applied, "
+                    + "so leave it blank.";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// 🔴 <b>Ctrl+U — "Add missing predefined sections". THE ONLY ROUTE BY WHICH AN EXISTING BOOK CAN EVER SEE A
     /// NEWLY SEEDED TDS SECTION, and it exists because the obvious alternative is wrong.</b>
     ///
@@ -187,9 +390,12 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
     ///
     /// <para><b>Semantics.</b> Idempotent and additive-only, matched on <see cref="NatureOfPayment.SectionCode"/>
     /// case-insensitively: a section already present — predefined, or hand-created by the operator under the same
-    /// code — is left <b>exactly</b> as it is and is never overwritten, so a user's edited figures survive. The
-    /// domain is add-only (there is no remove), so a missing code can only ever mean "seeded after this book was
-    /// created", never "deliberately deleted". Persists only when something was actually added.</para>
+    /// code — is left <b>exactly</b> as it is and is never overwritten, so a user's edited (since census 6.28,
+    /// ALTERED) figures survive. ~~The domain is add-only (there is no remove), so~~ 🔴 Since census 6.28 a nature
+    /// CAN be removed, but only a <b>custom</b> one — a predefined section is refused by
+    /// <c>NatureOfPaymentRules.EnsureDeletable</c> — so a missing PREDEFINED code can still only ever mean "seeded
+    /// after this book was created", never "deliberately deleted". Persists only when something was actually
+    /// added.</para>
     /// </summary>
     public int AddMissingPredefined()
     {
@@ -255,12 +461,18 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
 
     private void RefreshList()
     {
+        // Census 6.28: the highlight is put back on the SAME master by id after the rebuild — by index, an alter
+        // that renames a section code (and so re-sorts the list) would move it onto a neighbour, which the next
+        // Alt+D would then delete. The first call runs from the constructor, before the field initialisers of the
+        // highlight helper matter, and finds nothing to restore.
+        var previous = _highlight?.IdBeforeRebuild();
         Natures.Clear();
         foreach (var n in _company.NaturesOfPayment
                      .OrderBy(n => n.SectionCode, StringComparer.OrdinalIgnoreCase))
         {
             Natures.Add(new NatureOfPaymentListRow
             {
+                MasterId = n.Id,
                 SectionCode = n.SectionCode,
                 Name = n.Name,
                 RateWithPan = $"{n.RateWithPanBp / 100m:0.##}%",
@@ -274,6 +486,7 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
                 Kind = n.IsPredefined ? "Predefined" : "Custom",
             });
         }
+        _highlight?.RestoreTo(previous);
     }
 
     /// <summary>

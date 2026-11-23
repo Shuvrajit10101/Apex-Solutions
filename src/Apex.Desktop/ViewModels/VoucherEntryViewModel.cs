@@ -5130,7 +5130,8 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             return $"This voucher withheld {pin.PostedTdsAmount} of {pin.SectionCode} TDS. Nothing on this grid has "
                  + $"moved the party's gross of {pin.RestoredGross}, and yet the same section now computes "
                  + $"{carve.TdsAmount} — a voucher cancelled, deleted or re-dated since posting has changed the "
-                 + "year's aggregate for this deductee, or a master edit has moved the assessable base. "
+                 + "year's aggregate for this deductee, the section's threshold has been altered on its Nature of "
+                 + "Payment master, or a master edit has moved the assessable base. "
                  + "Re-computing would restate a deduction that has already been reported, so it is refused. Amend "
                  + "the gross if the supply itself changed.";
 

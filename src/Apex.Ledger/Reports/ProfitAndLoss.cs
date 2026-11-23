@@ -46,6 +46,11 @@ public sealed record ProfitAndLossLine(
 /// trading account, and closing stock (posted as a Stock-in-Hand ledger movement with a
 /// matching income-side adjustment) is a credit. Robert has no stock ledgers, so the rule
 /// degenerates to income − expense. Bright's opening-stock charge yields the −1000 net.
+/// That describes <see cref="ClosingStockMode.AsPostedLedger"/>. Under
+/// <see cref="ClosingStockMode.InventoryDerived"/> both stock figures come from the stock summary instead
+/// (T2-177, IV-335/336): opening stock is <see cref="InventoryDerivedStock.OpeningValuation"/> (item-master
+/// openings, or the derived value as-at From-1 in a window), closing stock is the derived Σ item-closing value,
+/// and the P&amp;L contra of any Stock-in-Hand ledger posting is removed.
 /// </summary>
 public sealed record ProfitAndLoss(
     IReadOnlyList<ProfitAndLossLine> Income,
@@ -113,8 +118,17 @@ public sealed record ProfitAndLoss(
 
         // Phase-3 integration (RQ-25/RQ-27): when inventory-derived, closing stock is the Σ of each stock
         // item's closing value by its own valuation method — NOT a posted Stock-in-Hand movement.
+        // T2-177 (wave 12, track he, IV-335/336): on the same basis the OPENING stock is the stock summary's opening
+        // (item-master allocations, or the derived value as-at From-1 in a window), never a Stock-in-Hand ledger's
+        // opening; and the P&L contra of any posting to a Stock-in-Hand ledger (a posted closing-stock adjustment)
+        // is removed, because the stock-ledger side of that posting is ignored here.
+        IReadOnlyDictionary<Guid, decimal> stockContra = EmptyContra;
         if (inventoryDerived)
+        {
             closingStock = new StockValuationService(company).TotalClosingStockValue(to).Amount;
+            openingStock = InventoryDerivedStock.OpeningValuation(company, windowFrom);
+            stockContra = InventoryDerivedStock.StockPostingContra(company, to, scenario, windowFrom);
+        }
 
         foreach (var ledger in company.Ledgers)
         {
@@ -127,6 +141,9 @@ public sealed record ProfitAndLoss(
             // movements before the window), not merely the ledger's book-opening figure.
             if (ClassificationRules.IsStockInHandLedger(ledger, company))
             {
+                if (inventoryDerived)
+                    continue; // IV-335: opening and closing both come from the stock summary on this basis.
+
                 if (openingAsOf is { } oa)
                 {
                     // Value the stock-in-hand ledger's closing as-at From-1 (carried into the window).
@@ -162,7 +179,7 @@ public sealed record ProfitAndLoss(
 
             var primary = ClassificationRules.PrimaryAncestorOf(group, company);
             var nature = primary.Nature;
-            var signed = SignedFor(ledger);
+            var signed = SignedFor(ledger) - (stockContra.TryGetValue(ledger.Id, out var contra) ? contra : 0m);
 
             if (nature == GroupNature.Income)
             {
@@ -194,7 +211,7 @@ public sealed record ProfitAndLoss(
 
         // Gross profit (periodic inventory): sales + direct income − opening − purchases − direct expenses,
         // with closing stock either already in direct income (AsPostedLedger) or added here (InventoryDerived).
-        var gross = ComputeGrossProfit(company, to, openingStock, scenario, windowFrom)
+        var gross = ComputeGrossProfit(company, to, openingStock, scenario, windowFrom, stockContra)
             + (inventoryDerived ? closingStock : 0m);
 
         return new ProfitAndLoss(
@@ -208,8 +225,11 @@ public sealed record ProfitAndLoss(
             new Money(net));
     }
 
+    private static readonly IReadOnlyDictionary<Guid, decimal> EmptyContra = new Dictionary<Guid, decimal>();
+
     private static decimal ComputeGrossProfit(
-        Company company, DateOnly to, decimal openingStock, Scenario? scenario = null, DateOnly? windowFrom = null)
+        Company company, DateOnly to, decimal openingStock, Scenario? scenario, DateOnly? windowFrom,
+        IReadOnlyDictionary<Guid, decimal> stockContra)
     {
         decimal salesAndDirectIncome = 0m; // Sales + Direct Incomes (the latter includes the closing-stock adjustment)
         decimal purchasesAndDirectExpense = 0m;
@@ -226,6 +246,7 @@ public sealed record ProfitAndLoss(
             var signed = windowFrom is { } from
                 ? LedgerBalances.SignedMovement(company, ledger, from, to)
                 : LedgerBalances.SignedClosing(company, ledger, to, scenario);
+            if (stockContra.TryGetValue(ledger.Id, out var contra)) signed -= contra; // IV-336 (derived basis only)
 
             // Census 2.2 — "Does it affect Gross Profits" (schema v60). The four seeded trading heads are still
             // matched by NAME exactly as they always were, so no figure on any existing book moves; the flag is

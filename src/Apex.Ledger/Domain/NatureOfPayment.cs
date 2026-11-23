@@ -82,6 +82,24 @@ public sealed class NatureOfPayment
     public decimal RateWithPanPercent => RateWithPanBp / 100m;
 
     /// <summary>
+    /// Census 6.28 (wave 12, track hf) — the <b>ALTERED copy</b> of this master: the same <see cref="Id"/>,
+    /// <see cref="EffectiveFrom"/> and <see cref="IsPredefined"/>, carrying the operator's new terms. The class
+    /// stays immutable; an alteration REPLACES the instance through <see cref="TdsConfig.ReplaceNatureOfPayment"/>,
+    /// so no caller holding the old instance can ever see a half-edited master.
+    ///
+    /// <para><b>Why the identity is kept.</b> <see cref="Ledger.TdsNatureOfPaymentId"/> and every posted
+    /// <see cref="TdsLineTax.NatureId"/> point at <see cref="Id"/>. An alteration that minted a new id would orphan
+    /// every one of them — the cumulative-threshold projection keys on the id, so the deductee's prior aggregate
+    /// would silently restart at zero. The constructor's own validation runs on the new terms, so an altered master
+    /// can never hold a value a created one could not.</para>
+    /// </summary>
+    public NatureOfPayment WithTerms(
+        string sectionCode, string name, int rateWithPanBp, int rateWithoutPanBp, string fvuSectionCode,
+        Money? singleTransactionThreshold, Money? cumulativeThreshold) =>
+        new(Id, sectionCode, name, rateWithPanBp, rateWithoutPanBp, fvuSectionCode,
+            singleTransactionThreshold, cumulativeThreshold, EffectiveFrom, IsPredefined);
+
+    /// <summary>
     /// 🔴 <b>THE FORM-26Q SECTION CODE THIS NATURE ACTUALLY FILES UNDER — the one every emitter must use.</b> It is
     /// <see cref="FvuSectionCode"/> for every nature in the seed but the two §194-I rows, where a <b>superseded
     /// spelling persisted in existing books</b> is normalised to the notified one.

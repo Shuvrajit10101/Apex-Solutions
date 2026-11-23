@@ -58,6 +58,48 @@ public sealed class TdsConfig
         _naturesOfPayment.Add(nature ?? throw new ArgumentNullException(nameof(nature)));
 
     /// <summary>
+    /// Census 6.28 (wave 12, track hf) — <b>ALTER</b>: replaces the master whose <see cref="NatureOfPayment.Id"/>
+    /// matches <paramref name="replacement"/>, <b>in place</b> (same list position, so the persisted
+    /// <c>rowid</c> order and every list built from it are unchanged).
+    ///
+    /// <para>Refuses (with <see cref="InvalidOperationException"/>) an unknown id, a replacement whose
+    /// <see cref="NatureOfPayment.IsPredefined"/> differs from the original (an alteration cannot turn a seeded
+    /// statutory section into a custom one or back), and a section code another master already carries. The
+    /// referential rules — what may change once vouchers are posted — live in
+    /// <c>Services.NatureOfPaymentRules</c>, not here, because they need the whole <see cref="Company"/>.</para>
+    ///
+    /// <para><b>No schema.</b> The store writes this list by delete-and-reinsert on every save
+    /// (<c>SqliteCompanyStore</c>: <c>DELETE FROM nature_of_payment</c>, then one <c>INSERT</c> per master), so a
+    /// replaced instance is persisted exactly as a created one is.</para>
+    /// </summary>
+    public void ReplaceNatureOfPayment(NatureOfPayment replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        var index = _naturesOfPayment.FindIndex(n => n.Id == replacement.Id);
+        if (index < 0)
+            throw new InvalidOperationException($"Nature of Payment {replacement.Id} not found.");
+        var existing = _naturesOfPayment[index];
+        if (existing.IsPredefined != replacement.IsPredefined)
+            throw new InvalidOperationException(
+                $"Nature of Payment '{existing.SectionCode}': an alteration cannot change whether a section is "
+                + "predefined or custom.");
+        if (_naturesOfPayment.Any(n => n.Id != replacement.Id
+                                       && string.Equals(n.SectionCode, replacement.SectionCode,
+                                           StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"A Nature of Payment '{replacement.SectionCode}' already exists.");
+        _naturesOfPayment[index] = replacement;
+    }
+
+    /// <summary>
+    /// Census 6.28 (wave 12, track hf) — <b>DELETE</b>: removes the master with this id. Returns <c>false</c>
+    /// when no such master exists. <b>This is the raw list operation and carries no guard</b>: every caller must
+    /// first ask <c>Services.NatureOfPaymentRules.EnsureDeletable</c>, which refuses a predefined section and any
+    /// master a ledger or a posted TDS line still points at (the store has no foreign key on either reference, so
+    /// nothing below this line would stop an orphan).
+    /// </summary>
+    public bool RemoveNatureOfPayment(Guid id) => _naturesOfPayment.RemoveAll(n => n.Id == id) > 0;
+
+    /// <summary>
     /// Validates the enabled config (fail-fast, ER-6): a valid TAN (required when enabled) and, when set, a valid
     /// responsible-person PAN. A disabled config validates trivially.
     /// </summary>

@@ -3067,7 +3067,7 @@ public partial class MainWindow : Window
         => Vm?.SaveReturnForm16();
 
     private void OnCreateNatureOfPaymentClick(object? sender, RoutedEventArgs e)
-        => Vm?.NatureOfPaymentMaster?.Create();
+        => Vm?.NatureOfPaymentMaster?.Accept(); // census 6.28: Create or Alter, the same verb Ctrl+A runs
 
     /// <summary>The Nature-of-Payment master's SECONDARY action — runs exactly what Ctrl+U runs, so the pointer
     /// and the keyboard cannot diverge (the same rule W2-03 applies to the Voucher Type master's Accept).</summary>

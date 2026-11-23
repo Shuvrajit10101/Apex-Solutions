@@ -935,7 +935,7 @@ public sealed record Gstr1(
                 // ledger document is a GSTR-1 question of its own (reported, out of this slice's scope); narrowing it
                 // here without the Table-12 fixtures to pin it would be an unmeasured change to a filed return.
                 foreach (var (ledger, value, _) in ServiceLegs(company, voucher))
-                    if (IsNonTaxableServiceLedger(ledger))
+                    if (IsNonTaxableServiceLedger(company, voucher, ledger))
                     {
                         exempt += sign * value;
                         AddServiceHsnRow(company, ledger, value, 0m, 0m, 0m, hsnAcc, sign);
@@ -1365,7 +1365,7 @@ public sealed record Gstr1(
         var taxableLegs = new List<(Domain.Ledger Ledger, decimal Value)>();
         foreach (var (ledger, value, _) in ServiceLegs(company, voucher))
         {
-            if (IsNonTaxableServiceLedger(ledger))
+            if (IsNonTaxableServiceLedger(company, voucher, ledger))
             {
                 exempt += sign * value;
                 AddServiceHsnRow(company, ledger, value, 0m, 0m, 0m, hsnAcc, sign);
@@ -1435,8 +1435,25 @@ public sealed record Gstr1(
     /// The single discriminator for "this leg contributed nothing to the tax base, so it may never be bucketed into a
     /// posted rate group" — see <see cref="AccumulateServiceHsn"/>. Kept as one predicate so the exempt-branch and the
     /// taxed-branch treatments can never drift apart.</summary>
-    public static bool IsNonTaxableServiceLedger(Domain.Ledger ledger) =>
-        ledger.SalesPurchaseGst is { IsTaxable: false };
+    /// <remarks>🔴 <b>Wave 12, track ha, IV-316 — "AS PER COMPANY/GROUP" TAXABILITY.</b> This read the ledger's OWN
+    /// block and nothing else. Once the Ledger master could write a block (census 6.4, IV-315), an operator could key
+    /// GST Applicable + Services with the rate left blank (this screen's "As per Company/Group") under a group that
+    /// declares Exempt: the rate walk resolved the supply Exempt and the voucher posted no tax, yet this predicate said
+    /// "taxable", so GSTR-1 filed it nowhere (no exempt bucket, no Table 12 row), 3.1(c) and GSTR-9 Table 5 filed 0 and
+    /// GSTR-9C 5R read the whole value (measured on a probe book: 5R 123,457 paisa). A block that declares Taxable with
+    /// NO rate of its own now takes its taxability from the SAME walk the posting path used
+    /// (<see cref="GstService.ResolveRate"/> at the voucher's date). An unresolved walk stays taxable (ER-5: silence is
+    /// not an exemption). A block that declares Exempt / Nil / Non-GST, or Taxable with a rate, is read as before.
+    /// VENDOR (R7): <c>help.tallysolutions.com/set-up-gst-rate-hsn-sac-details/</c> offers "As per Company/Group" for
+    /// GST Rate Details, which carries the taxability with the rate.</remarks>
+    public static bool IsNonTaxableServiceLedger(Company company, Voucher voucher, Domain.Ledger ledger)
+    {
+        if (ledger.SalesPurchaseGst is not { } block) return false;
+        if (!block.IsTaxable) return true;
+        if (block.RateBasisPoints is not null) return false;
+        var resolved = new GstService(company).ResolveRate(null, ledger, voucher.Date);
+        return !resolved.IsTaxable && !GstService.IsUnresolved(resolved);
+    }
 
     /// <summary>The SAC a service-income ledger leg files, or <c>null</c> when no rung of the hierarchy declares one.
     /// The single resolver GSTR-1's Table-12 rows, the e-invoice <c>HsnCd</c> and the printed invoice's HSN/SAC column

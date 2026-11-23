@@ -732,11 +732,45 @@ public sealed class GstService
     /// <c>item?.Gst ?? ledger?.SalesPurchaseGst</c>, so no migrated book's cess changes master. Both halves are
     /// asserted across every combination in <c>GstWinningBlockTests</c> rather than argued.</para>
     /// </summary>
+    /// <remarks>🔴 <b>Wave 12, track ha, IV-316 (6) — A BLOCK THAT DECLARES NOTHING IS NOT A DECLARATION.</b> Once the
+    /// Ledger master could write a block (census 6.4, IV-315), ticking GST Applicable and leaving every field at its
+    /// default wrote a block that is Taxable with no HSN/SAC, no rate, no cess and no reverse charge — this screen's
+    /// "As per Company/Group". Under <see cref="GstDetailSource.LedgerFirst"/> that block was the first rung, so it
+    /// won this walk: <see cref="ResolveCess"/> keyed the dated cess master on its HSN (none) and an item invoice of
+    /// a cess-bearing item through that ledger posted NO Compensation Cess, while the same invoice through an
+    /// unticked ledger did (measured by the wave-12 review, probe P3). Reverse charge an item declares was masked the
+    /// same way. Such a LEDGER block (<see cref="LedgerBlockDeclaresNothing"/>) is now passed over, exactly as the
+    /// rate walk already falls through it, and the walk continues to the next rung that declares one. A ledger block
+    /// that states ANY of HSN/SAC, a rate, a non-Taxable taxability, cess or reverse charge still wins, as before.
+    /// <para><b>The ledger rung only, on purpose.</b> The blank-is-"As per Company/Group" reading is this Ledger
+    /// master's (IV-316); a stock item's rate-less block has been writable for many waves and is pinned as a
+    /// declaration by <c>GstWinningBlockTests</c>, so changing it would move existing books. The item analogue is a
+    /// recorded residual, not a silent widening.</para></remarks>
     public StockItemGstDetails? ResolveDetailBlock(StockItem? item, Domain.Ledger? salesPurchaseLedger)
     {
-        foreach (var rung in Hierarchy(item, salesPurchaseLedger)) return rung.Detailed;
+        foreach (var rung in Hierarchy(item, salesPurchaseLedger))
+        {
+            if (rung.Detailed is { } detailed
+                && ReferenceEquals(detailed, salesPurchaseLedger?.SalesPurchaseGst)
+                && LedgerBlockDeclaresNothing(detailed))
+                continue;
+            return rung.Detailed;
+        }
         return null;
     }
+
+    /// <summary>A sales/purchase ledger block that is Taxable and states no HSN/SAC, no rate, no cess and no
+    /// reverse-charge fact: "As per Company/Group" on every question <see cref="ResolveDetailBlock"/>'s two consumers
+    /// ask. Type of supply, valuation basis and §17(5) eligibility are not consulted by either consumer through this
+    /// walk, so they do not make a block a declaration here.</summary>
+    private static bool LedgerBlockDeclaresNothing(StockItemGstDetails block) =>
+        block.Taxability == GstTaxability.Taxable
+        && string.IsNullOrWhiteSpace(block.HsnSac)
+        && block.RateBasisPoints is null
+        && !block.CessApplicable
+        && !block.ReverseChargeApplicable
+        && !block.GtaForwardCharge
+        && block.RcmCategoryId is null;
 
     /// <summary>
     /// Resolves the Compensation-Cess charge for a line as of a voucher date (Phase 9 slice 1; RQ-2/RQ-9), or
