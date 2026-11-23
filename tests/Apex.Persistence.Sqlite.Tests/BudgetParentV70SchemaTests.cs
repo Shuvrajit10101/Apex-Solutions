@@ -15,15 +15,19 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// Primary from the List of Budgets … under the main Department Budget. This shows the budget structure in a
 /// hierarchical form."</i> The live page's conflicting "predefined groups" wording is IV-325.</para>
 ///
-/// <para><b>What this file proves:</b> (1) a REAL v69 book, carrying a legacy GROUP id in <c>under_id</c>, climbs
+/// <para><b>What this file proves:</b> (1) a v69 book, carrying a legacy GROUP id in <c>under_id</c>, climbs
 /// with every budget and line intact, the group id cleared, the PK, the index and zero FK violations; (2) the
 /// migrated <c>sqlite_master.sql</c> for the table AND its index is byte-identical to a fresh book's; (3) the
 /// downgrade restores the v69 target and keeps the PK of an FK parent; (4) a hierarchy whose parent sits LATER in
 /// <c>Company.Budgets</c> than its child is written and read back off a fresh handle in the saved order; (5) the
 /// stored FK now refuses a GROUP id.</para>
 ///
+/// <para><b>Wording (IV wave 12d):</b> the v69 book in (1) is a v70 book taken down by <c>SchemaDowngrade.V70ToV69</c>,
+/// not one written by the v69 binary; the wave 12c review matched the downgrade's DDL text to the v69 binary's
+/// <c>sqlite_master</c> and climbed a book that binary wrote, outside this suite. The test name says which it is.</para>
+///
 /// <para><b>Mutations (run 2026-11-22; each reverted with <c>git checkout</c> and confirmed empty):</b>
-/// (a) deleting the <c>if (version == 69)</c> rung → <see cref="A_real_v69_book_climbs_to_v70_with_every_budget_and_line_and_the_legacy_group_id_cleared"/>
+/// (a) deleting the <c>if (version == 69)</c> rung → <see cref="A_v69_book_downgraded_from_v70_climbs_back_with_every_budget_and_line_and_the_legacy_group_id_cleared"/>
 /// RED ("schema version 69 is not supported"); (b) copying <c>under_id</c> instead of <c>NULL</c> in
 /// <c>MigrateV69ToV70</c> → the same test RED (the in-transaction orphan check throws); (c) one extra space in the
 /// migration's <c>CREATE TABLE budgets</c> → <see cref="Migration_v69_to_v70_is_byte_identical_to_CreateV1_for_the_table_and_its_index"/>
@@ -64,7 +68,7 @@ public sealed class BudgetParentV70SchemaTests
 
     [Fact]
     [Trait("Category", "RoundTrip")]
-    public void A_real_v69_book_climbs_to_v70_with_every_budget_and_line_and_the_legacy_group_id_cleared()
+    public void A_v69_book_downgraded_from_v70_climbs_back_with_every_budget_and_line_and_the_legacy_group_id_cleared()
     {
         var path = TempDbFile.NewPath("apex-v70-real");
         try
