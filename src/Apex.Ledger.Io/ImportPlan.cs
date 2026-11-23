@@ -49,6 +49,13 @@ internal sealed class ImportPlan
 
     public bool CanResolveGroup(Guid id, Company t) =>
         GroupTargets.ContainsKey(id) || t.FindGroup(id) is not null;
+    /// <summary>
+    /// v70 (census 2.9, IV-328): <c>true</c> when a budget's <c>UnderId</c> is a pre-v70 GROUP id — not a budget in
+    /// the document or the target, but a group either resolves. Such a parent imports as <b>Primary</b>, the same
+    /// treatment <c>Schema.MigrateV69ToV70</c> gives a stored legacy group id, rather than refusing the whole import.
+    /// </summary>
+    public bool IsLegacyGroupBudgetParent(Guid id, Company t) =>
+        !BudgetTargets.ContainsKey(id) && t.FindBudget(id) is null && CanResolveGroup(id, t);
     public bool CanResolveLedger(Guid id, Company t) =>
         LedgerTargets.ContainsKey(id) || t.FindLedger(id) is not null;
     public bool CanResolveVoucherType(Guid id, Company t) =>
@@ -869,7 +876,8 @@ internal sealed class ImportPlan
                 reused++;
                 continue;
             }
-            Guid? parentBudget = bd.UnderId is { } uid
+            // A pre-v70 document's GROUP parent becomes Primary (IV-328), exactly as the v69 -> v70 migration clears it.
+            Guid? parentBudget = bd.UnderId is { } uid && !IsLegacyGroupBudgetParent(uid, t)
                 ? budgetId.TryGetValue(uid, out var mapped) ? mapped
                   : t.FindBudget(uid)?.Id
                     ?? throw new InvalidOperationException($"Budget reference {uid} could not be resolved.")

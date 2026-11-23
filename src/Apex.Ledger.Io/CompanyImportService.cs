@@ -588,7 +588,8 @@ public sealed class CompanyImportService
         // Budget → parent BUDGET (v70, census 2.9; it was an under-GROUP until v69) + each line's group/ledger.
         foreach (var bd in model.Payload.Budgets)
         {
-            if (bd.UnderId is { } uid && !plan.BudgetTargets.ContainsKey(uid) && _target.FindBudget(uid) is null)
+            if (bd.UnderId is { } uid && !plan.BudgetTargets.ContainsKey(uid) && _target.FindBudget(uid) is null
+                && !plan.IsLegacyGroupBudgetParent(uid, _target))   // a pre-v70 group parent imports as Primary (IV-328)
                 errors.Add($"Budget '{bd.Name}' is filed under a budget that is neither imported nor present.");
             foreach (var bl in bd.Lines)
             {
