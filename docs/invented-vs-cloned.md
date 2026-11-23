@@ -3838,6 +3838,58 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | `ItemCostAnalysis.Accumulate`'s accounting item-invoice walk now skips `v.Optional`, as its pure-inventory walk already did. Before, one report's two walks disagreed, and an Optional cost-tracked sales or purchase invoice moved Cost and Revenue. The Material In / Out *Order No.* list (`MaterialMovementEntryViewModel`) now also drops an Optional Job Work order, as it already dropped a cancelled one. **OURS:** hiding a provisional order from the picker. Regularising the order brings it back. |
 | **Tests** | `OptionalVoucherResidualTests.An_optional_cost_tracked_item_invoice_adds_no_cost_or_revenue_until_it_is_regularised` (Cost 1,037.00 / Revenue 568.40 while Optional, then 1,425.85 / 1,568.30 regularised, off a reloaded book), `…The_material_order_picker_does_not_offer_an_optional_job_work_order_until_it_is_regularised`. Mutations: removing `|| v.Optional` from the item-invoice walk reddens the first; removing `&& !v.Optional` from the picker filter reddens the second. |
 
+## 2AF. ADDED 2026-11-22 — WAVE 12 TRACK `he`: THE INVENTORY-DERIVED P&L CHARGES ITEM-MASTER OPENING STOCK AND NO LONGER DOUBLE-COUNTS A POSTED CLOSING STOCK (T2-177, T2-178 part 1; census row 11.2, IV-355..IV-357)
+
+> **This track's block is IV-355..IV-364** (the builder brief's assignment; IV-358..IV-364 are unused). The wave plan
+> pencilled IV-335..339 for `he`; the brief that was handed to the builder overrode it, and the entry NUMBERS are the
+> stable handle. The section letter `2AF` is the plan's.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT on 2026-11-22:
+> - `help.tallysolutions.com/balance-sheet-tally/` (last updated November 5, 2026) — **"TallyPrime considers your stock
+>   summary balance as your closing stock."** A manually set closing stock is the route once *Integrate Accounts and
+>   Inventory* is set to No.
+> - `help.tallysolutions.com/stock-valuation-faq/` (last updated June 5, 2026) — to enter opening and closing stock
+>   manually, **"set the option Integrate Accounts with Inventory to No"** and **"Create a Stock-in-Hand ledger and
+>   enter the opening stock amount."**; **"Closing stock valuation considers the opening balance of stock item as on
+>   date"**; and **"You cannot record a journal voucher for ledgers created under the group Stock-in-Hand."**
+> - `help.tallysolutions.com/profit-and-loss-statement-tally/` (last updated November 5, 2026) — **does not mention stock
+>   at all** (checked the same day). It is not a ground for anything in this section.
+>
+> **What the pages settle and what they do not.** On the integrated basis (our *Inventory-derived* closing-stock basis)
+> the stock figures come from the stock summary, which includes the item-master openings; a Stock-in-Hand ledger's
+> opening is the NON-integrated route. That much is cloned. How the opening charge is laid out, what a window does to
+> it, and what becomes of the income side of a closing-stock journal (which the vendor refuses to record at all) are
+> OURS.
+
+### IV-355 · **On the inventory-derived basis the Opening Stock charged to the P&L is the stock summary's opening (item-master allocations), not a Stock-in-Hand ledger's opening; window-aware** (wave 12, track he; T2-177 finding 2)
+
+| | |
+|---|---|
+| **Severity** | **HIGH before this track (a wrong Net Profit on an ordinary integrated book), fixed. Class A for "stock summary governs on the integrated basis"; Class C (ours) for the window rule. Area: RPT.** |
+| **What TallyPrime does** | Integrated: closing stock is the stock summary balance, and closing valuation includes the item-master opening. A stock-ledger opening is entered only with integration off. |
+| **The defect** | `ProfitAndLoss.BuildCore` took opening stock only from Stock-in-Hand LEDGER openings, but the derived closing stock includes the item-master opening quantity. An opening entered on the item master (`InventoryService.AddOpeningBalance`) was therefore booked as profit. Reviewer probe P3: item opening 10 @ 10.37, purchase 100 @ 10.37, sale 40 @ 14.21 showed **Net Profit 257.30** where the truth is **153.60** (over by exactly 103.70). A book carrying the opening on BOTH the item and the ledger was right only by coincidence. |
+| **What we ship** | `InventoryDerivedStock.OpeningValuation` (new, `src/Apex.Ledger/Reports/`). No window, or an Alt+F2 window starting on/before books-begin: Σ of every item-master opening allocation's value (qty × rate, to the paisa). A window starting later: the derived stock value as-at the day before the window, by each item's own valuation method (the same function that values closing stock). On this basis Stock-in-Hand ledgers contribute nothing to the P&L, opening or closing. The books (as-posted) basis is unchanged. |
+| **Tests** | `InventoryDerivedStockStatementTests.Inventory_derived_statement_nets_153_60_and_the_sheet_balances_on_every_shape` (P3, P3+journal, P4, P2: Net 153.60 on horizontal detailed, Alt+F1 and vertical; Opening Stock 103.70; read off the CSV and the screen rows of a reloaded book). `…Inventory_derived_opening_stock_is_window_aware_under_Alt_F2` (opening 1,140.70 carried into a window that starts after the purchase). `…Books_basis_is_untouched_by_the_inventory_derived_rules`. Mutations are listed in the track report (w12-build-he.json). |
+
+### IV-356 · **On the inventory-derived basis the P&L side of a posting to a Stock-in-Hand ledger is ignored, as the stock side already is** (wave 12, track he; T2-177 finding 3)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM before this track (closing stock counted twice; Balance Sheet out of balance), fixed. Class C (ours): the vendor refuses the voucher that causes it. Area: RPT.** |
+| **What TallyPrime does** | *"You cannot record a journal voucher for ledgers created under the group Stock-in-Hand."* The situation cannot arise there. |
+| **The defect** | We do allow that journal. A book that posts closing stock (Dr Stock-in-Hand / Cr a Direct Income adjustment) and is viewed on the inventory-derived basis kept the adjustment as income while the engine also credited the derived closing stock. Reviewer probe P4: *Closing Stock Adj 725.90* AND *Closing Stock 725.90*, Net Profit 879.50 (truth 153.60), Balance Sheet 2,020.20 against 1,294.30. |
+| **What we ship** | `InventoryDerivedStock.StockPostingContra`: in each counted voucher whose Stock-in-Hand legs net to S ≠ 0, the P&L legs on the opposite side are removed from those ledgers' P&L figures (and from Gross Profit) up to |S| in total, pro rata when they exceed it (paisa rounding, remainder on the last leg). A two-leg closing-stock journal is removed exactly, so the adjustment ledger disappears from the statement. The voucher filter is the one the ledger balance uses (in-window movement under Alt+F2, else cumulative under the optional scenario). **Not changed:** the journal is still accepted on entry (refusing it would be the vendor's behaviour, but it would strand every books-basis company that records closing stock this way, and the books basis is our documented route for that, IV-333). |
+| **Tests** | As IV-355 (the P3+journal and P4 rows assert the adjustment ledger is absent, 725.90 appears exactly once, and the sheet balances). |
+
+### IV-357 · **On the inventory-derived basis the Balance Sheet carries a "Difference in Opening Balances" line when item-master openings and Stock-in-Hand ledger openings disagree** (wave 12, track he)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | No vendor page opened this session draws this line or says where an unmatched item opening goes. |
+| **What we ship** | Once IV-355 charges the item-master opening, an item opening entered with no ledger/capital counterpart (probe P3) is an opening position that was itself out of balance by that amount. `BalanceSheet.BuildCore` (inventory-derived basis only) adds one synthetic, non-drillable line `Difference in Opening Balances` = item-master opening value − Σ Stock-in-Hand ledger signed openings: on the Liabilities side when positive, on the Assets side when negative, nothing when equal (the usual integrated book, P2/P4). Other unbalanced ledger openings are NOT folded in (unchanged behaviour). |
+| **Tests** | As IV-355: P3 shapes carry the line at 103.70 and Total Liabilities == Total Assets in detailed and Alt+F1 views; P2/P4 carry no such line. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
