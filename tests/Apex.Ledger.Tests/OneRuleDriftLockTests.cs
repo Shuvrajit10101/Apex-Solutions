@@ -492,6 +492,16 @@ public sealed class OneRuleDriftLockTests
     ///     DATE, so a dated <c>RateHistory</c> row keeps a reprint at the historic rate; a master rate changed with
     ///     no dated row DOES re-rate a reprinted challan, which is recorded as ours in
     ///     <c>docs/invented-vs-cloned.md</c> IV-276. It moves no rupee in the books.</item>
+    ///   <item>🔴 <b>Wave 12, track ha (IV-316) added the THIRTEENTH: <c>Gstr1.IsNonTaxableServiceLedger</c>.</b> Report
+    ///     and payload side, so the decision is recorded here. It is the service-leg twin of
+    ///     <c>IsNonTaxableStockLine</c>: <b>it resolves TAXABILITY, not a rate, and it never produces a rupee.</b> It is
+    ///     consulted ONLY for a ledger whose block declares Taxable with NO rate of its own (the Ledger master's "As per
+    ///     Company/Group"). There is no posted record of taxability to read instead: an exempt leg posts no
+    ///     <c>GstLineTax</c>, and a leg that posted none could be exempt by the group, unresolved, or mis-posted. Without
+    ///     the walk such a sale under an Exempt group was filed in NO return and GSTR-9C 5R read its whole value. It
+    ///     passes the VOUCHER DATE. The master-drift exposure (a group's taxability changed later moves an old sale
+    ///     between buckets) is the same one <c>IsNonTaxableStockLine</c> already carries, and is recorded as ours in
+    ///     IV-316.</item>
     /// </list>
     ///
     /// <para>🔴 <b>Historical note, kept because the count is what surfaced it:</b> the T0-4 design's survey named
@@ -502,7 +512,7 @@ public sealed class OneRuleDriftLockTests
     /// two-argument overload is deleted outright.</para>
     /// </summary>
     [Fact]
-    public void ResolveRateHasExactlyTheTwelveKnownCallSites() =>
+    public void ResolveRateHasExactlyTheThirteenKnownCallSites() =>
         AssertExactInventory(
             "D10 ResolveRate call sites", D10ResolveRateCallSite,
             new Dictionary<string, int>(StringComparer.Ordinal)
@@ -511,6 +521,8 @@ public sealed class OneRuleDriftLockTests
                 ["src/Apex.Desktop/Services/JobWorkChallanPrintProjector.cs"] = 1,
                 ["src/Apex.Desktop/ViewModels/PosBillingViewModel.cs"] = 2,
                 ["src/Apex.Desktop/ViewModels/VoucherEntryViewModel.cs"] = 4,
+                // Wave 12 ha, IV-316: the rate-less Taxable service ledger's taxability (see the list above).
+                ["src/Apex.Ledger/Reports/Gstr1.cs"] = 1,
                 // 3, not 2: BucketingRateOf + IsNonTaxableStockLine (T1-59, see the list above) + the
                 // IsWhollyExemptItemSupply call this lock's own summary already documents.
                 ["src/Apex.Ledger/Reports/GstReportSupport.cs"] = 3,
