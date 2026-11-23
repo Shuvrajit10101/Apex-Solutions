@@ -170,6 +170,22 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         Message = $"Nature of Payment '{replacement.SectionCode}' altered "
                 + $"({replacement.RateWithPanBp / 100m:0.##}% with PAN, "
                 + $"{replacement.RateWithoutPanBp / 100m:0.##}% without).";
+        // Review fix (census 6.28): there is no dated rate history (IV-343), so a voucher posted under the OLD
+        // figures keeps them, and VoucherEntryViewModel.ApplyReCarve refuses any later alteration of it whose
+        // re-computation would restate that reported deduction. Say so at the moment of the act, not only when
+        // the operator next opens one of those vouchers.
+        var termsMoved = existing.RateWithPanBp != replacement.RateWithPanBp
+                         || existing.RateWithoutPanBp != replacement.RateWithoutPanBp
+                         || existing.SingleTransactionThreshold != replacement.SingleTransactionThreshold
+                         || existing.AggregateThreshold != replacement.AggregateThreshold;
+        var posted = termsMoved
+            ? Apex.Ledger.Services.NatureOfPaymentRules.VouchersCarrying(_company, replacement.Id).Count
+            : 0;
+        if (posted > 0)
+            Message += $" {(posted == 1 ? "1 voucher" : $"{posted} vouchers")} already posted under this section "
+                     + "keep the figures they were withheld at. Every alteration re-computes a voucher's TDS, so "
+                     + "altering one of them is now refused wherever the new rate or threshold would change its "
+                     + "deduction.";
         _onChanged();
         return true;
     }
