@@ -1251,7 +1251,7 @@ public static class MasterDeletionRules
     /// says <i>"As a budget is only an estimation you can delete a budget without any dependency"</i> — about
     /// TRANSACTIONS on the budgeted ledgers, groups and cost centres, which this guard does not count. Nothing on
     /// that page, live or archived, speaks to deleting a budget that has budgets under it; <b>the refusal is OURS</b>
-    /// (docs/invented-vs-cloned.md IV-347), in this file's established group shape: count, name, remedy. The
+    /// (docs/invented-vs-cloned.md IV-327), in this file's established group shape: count, name, remedy. The
     /// budget's own lines are not counted — they leave with it.</para>
     /// </summary>
     /// <exception cref="InvalidOperationException">Another budget is filed under this one.</exception>

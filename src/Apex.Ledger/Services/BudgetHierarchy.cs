@@ -14,9 +14,9 @@ namespace Apex.Ledger.Services;
 /// Primary from the List of Budgets … create specific Department Budgets such as Sales Department Budget, Marketing
 /// Department Budget and so on under the main Department Budget. This shows the budget structure in a hierarchical
 /// form."</i> The live page (re-written November 19, 2026) instead offers <i>"Primary or any other predefined
-/// groups"</i> under <i>Under</i>; the conflict is recorded in docs/invented-vs-cloned.md IV-345. <b>The cycle
+/// groups"</i> under <i>Under</i>; the conflict is recorded in docs/invented-vs-cloned.md IV-325. <b>The cycle
 /// refusal, the order of the list (name-sorted siblings, depth-first) and every message here are OURS</b> — no
-/// source speaks to them (IV-346).</para>
+/// source speaks to them (IV-326).</para>
 /// </summary>
 public static class BudgetHierarchy
 {

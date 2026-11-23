@@ -5644,7 +5644,7 @@ public static class Schema
     /// November 19, 2026) now reads, under Create a Budget, <i>"Under: Select Primary or any other predefined
     /// groups"</i></b> while still saying <i>"create multiple budgets with a hierarchical structure"</i>. The two
     /// versions conflict; this rung follows the one that explains the hierarchy, and the conflict is recorded in
-    /// docs/invented-vs-cloned.md §2AD (IV-345).</para>
+    /// docs/invented-vs-cloned.md §2AD (IV-325).</para>
     ///
     /// <para>🔴 <b>WHY A REBUILD AND NOT AN ALTER.</b> SQLite cannot change a column's <c>REFERENCES</c> target in
     /// place. The headers are copied to <see cref="V70BudgetsScratchTable"/>, <c>budgets</c> is dropped and

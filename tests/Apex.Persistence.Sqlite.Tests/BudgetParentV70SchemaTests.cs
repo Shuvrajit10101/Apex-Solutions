@@ -13,7 +13,7 @@ namespace Apex.Persistence.Sqlite.Tests;
 /// <para><b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/budgets-tally/, November 3, 2025 version
 /// (web.archive.org snapshot 20260310093634, read by content 2026-11-22): <i>"you need to create the budget under
 /// Primary from the List of Budgets … under the main Department Budget. This shows the budget structure in a
-/// hierarchical form."</i> The live page's conflicting "predefined groups" wording is IV-345.</para>
+/// hierarchical form."</i> The live page's conflicting "predefined groups" wording is IV-325.</para>
 ///
 /// <para><b>What this file proves:</b> (1) a REAL v69 book, carrying a legacy GROUP id in <c>under_id</c>, climbs
 /// with every budget and line intact, the group id cleared, the PK, the index and zero FK violations; (2) the

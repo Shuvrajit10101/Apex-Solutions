@@ -153,7 +153,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     // (BudgetUnderPicker, between Name and From) offers Primary + the List of Budgets in tree order — the shape the
     // November 3, 2025 page describes ("create the budget under Primary from the List of Budgets … under the main
     // Department Budget"). ⚠️ The live page (November 19, 2026) says "Primary or any other predefined groups"
-    // instead; that conflict is IV-345. A GROUP is still never offered: a group parent had no effect except making
+    // instead; that conflict is IV-325. A GROUP is still never offered: a group parent had no effect except making
     // the group undeletable, which is why W10 gb removed it. The picker leaves out this budget and everything under
     // it when altering (BudgetHierarchy.ParentRefusal re-asks on save), and Alt+D refuses a budget with budgets
     // under it (MasterDeletionRules.EnsureBudgetDeletable). BudgetParentHierarchyTests replaces

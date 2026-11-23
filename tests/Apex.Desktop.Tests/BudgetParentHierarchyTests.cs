@@ -28,7 +28,7 @@ namespace Apex.Desktop.Tests;
 /// Primary from the List of Budgets. After the Department Budget is created, you can further go ahead and create
 /// specific Department Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main
 /// Department Budget. This shows the budget structure in a hierarchical form."</i> ⚠️ The live page (November 19,
-/// 2026) says <i>"Select Primary or any other predefined groups"</i> instead — the conflict is IV-345. A GROUP is
+/// 2026) says <i>"Select Primary or any other predefined groups"</i> instead — the conflict is IV-325. A GROUP is
 /// never offered here (a group parent had no effect except making the group undeletable; W10 gb).</para>
 ///
 /// <para>Every artefact is read off a FRESH <see cref="CompanyStorage"/> or the raw <c>.db</c>, or is a realised
