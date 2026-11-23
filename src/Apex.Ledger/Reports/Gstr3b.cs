@@ -770,7 +770,7 @@ public sealed record Gstr3b(
 
         if (v.InventoryLines.Count == 0)
             foreach (var (ledger, legValue, _) in Gstr1.ServiceLegs(company, v))
-                if (Gstr1.IsNonTaxableServiceLedger(ledger))
+                if (Gstr1.IsNonTaxableServiceLedger(company, v, ledger))
                     value += legValue;
         return value;
     }

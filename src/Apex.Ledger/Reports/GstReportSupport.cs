@@ -1681,7 +1681,7 @@ public static class GstReportSupport
         foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))   // T1-79 sweep: see ServiceProjectionFoots
         {
             any = true;
-            if (!Gstr1.IsNonTaxableServiceLedger(ledger)) return false;
+            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger)) return false;
         }
         return any;
     }
@@ -1877,7 +1877,7 @@ public static class GstReportSupport
         // T1-79 sweep: side-INDEPENDENT by nature — the discriminator is what the ledger DECLARES, as the paragraph
         // above says in terms, so no posted side can move this verdict.
         foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))
-            if (!Gstr1.IsNonTaxableServiceLedger(ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
+            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
                 return false;
         return true;
     }
