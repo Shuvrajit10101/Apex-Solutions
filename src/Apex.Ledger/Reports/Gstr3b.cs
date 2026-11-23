@@ -744,14 +744,34 @@ public sealed record Gstr3b(
     /// <summary>The exempt/nil/non-GST stock value one outward document carries: its non-taxable stock lines when it
     /// posted any tax (T2-93's mixed invoice, the shared per-line engine predicate — ER-5: an unresolved rate is not an
     /// exemption), else its whole stock value. Unsigned; the caller applies the document's sign.</summary>
+    /// <remarks>
+    /// <para>🔴 <b>Census 6.12 residual (wave 12, track ha, IV-317) — THE EXEMPT SERVICE LEG.</b> This read STOCK lines
+    /// only, so an exempt service (ledger) leg was in GSTR-1's exempt bucket (<c>Gstr1.AccumulateHsn</c> /
+    /// <c>AccumulateServiceHsn</c>) but not in 3.1(c), and so not in GSTR-9 Table 5 (Σ 3B): GSTR-9C 5R read the
+    /// whole exempt service turnover as a books-vs-returns difference. A document with NO stock lines now adds
+    /// its exempt service legs by the SAME two shared definitions GSTR-1 uses (<see cref="Gstr1.ServiceLegs"/>,
+    /// <see cref="Gstr1.IsNonTaxableServiceLedger"/>), whether or not it also posted tax — exactly the two
+    /// branches GSTR-1 counts them in — so the two returns cannot drift.</para>
+    /// </remarks>
     private static decimal ExemptValueOf(Company company, Voucher v)
     {
-        if (!v.Lines.Any(l => l.HasGst)) return v.InventoryLinesValue.Amount;
-        var valueLedger = GstReportSupport.BucketingValueLedger(company, v);
         var value = 0m;
-        foreach (var il in v.InventoryLines)
-            if (GstReportSupport.IsNonTaxableStockLine(company, v, valueLedger, il))
-                value += il.Value.Amount;
+        if (!v.Lines.Any(l => l.HasGst))
+        {
+            value = v.InventoryLinesValue.Amount;
+        }
+        else
+        {
+            var valueLedger = GstReportSupport.BucketingValueLedger(company, v);
+            foreach (var il in v.InventoryLines)
+                if (GstReportSupport.IsNonTaxableStockLine(company, v, valueLedger, il))
+                    value += il.Value.Amount;
+        }
+
+        if (v.InventoryLines.Count == 0)
+            foreach (var (ledger, legValue, _) in Gstr1.ServiceLegs(company, v))
+                if (Gstr1.IsNonTaxableServiceLedger(company, v, ledger))
+                    value += legValue;
         return value;
     }
 }

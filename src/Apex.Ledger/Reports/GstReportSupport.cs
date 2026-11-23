@@ -855,11 +855,12 @@ public static class GstReportSupport
         if (voucher.HasInventoryLines)
         {
             var total = 0m; var taxable = 0m;
+            var valueLedger = BucketingValueLedger(company, voucher);   // a per-voucher fact, hoisted
             foreach (var il in voucher.InventoryLines)
             {
                 var v = il.Value.Amount;
                 total += v;
-                if (LineIsTaxable(company, il, voucher)) taxable += v;
+                if (LineIsTaxable(company, il, voucher, valueLedger)) taxable += v;
             }
             return (new Money(total), new Money(taxable));
         }
@@ -881,21 +882,20 @@ public static class GstReportSupport
             // (no GST block) is NOT assumed taxable — that would over-include an exempt as-voucher sale into the
             // taxable-only base (Trader / §10(2A)). Total-turnover sub-types read `Total`, so an exempt sale still
             // counts for them (base-rule-aware, not a blanket flip).
-            if (ledger.SalesPurchaseGst?.IsTaxable ?? false) tx += v;
+            // IV-316 (5): asked of the SHARED predicate, not the block's own Taxability: a rate-less Taxable block
+            // ("As per Company/Group") under an Exempt group is exempt (wave-12 review probe P2: CGST 6.18 before).
+            if (ledger.SalesPurchaseGst is not null && !Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger))
+                tx += v;
         }
         return (new Money(t), new Money(tx));
     }
 
-    /// <summary>Classifies one item-invoice line as a taxable supply: by the stock item's GST taxability, falling back
-    /// to any sales-ledger GST block on the voucher, else treated as taxable (conservative for the taxable-base
-    /// sub-types).</summary>
-    private static bool LineIsTaxable(Company company, VoucherInventoryLine il, Voucher voucher)
-    {
-        if (company.FindStockItem(il.StockItemId)?.Gst is { } g) return g.IsTaxable;
-        foreach (var line in voucher.Lines)
-            if (company.FindLedger(line.LedgerId)?.SalesPurchaseGst is { } spg) return spg.IsTaxable;
-        return true;
-    }
+    /// <summary>Classifies one item-invoice line as a taxable supply by the SAME walk the posting path rates it with
+    /// (<see cref="IsNonTaxableStockLine"/>); an unresolved walk stays taxable (ER-5, conservative). IV-316 (5): this
+    /// used to read the item's block, else the first ledger block, by its own <c>IsTaxable</c>, so a rate-less Taxable
+    /// ledger block under an Exempt group counted as taxable turnover and the source order was ignored.</summary>
+    private static bool LineIsTaxable(Company company, VoucherInventoryLine il, Voucher voucher, Domain.Ledger? valueLedger)
+        => !IsNonTaxableStockLine(company, voucher, valueLedger, il);
 
     /// <summary>
     /// The integrated-rate basis points a tax line represents, for rate-wise grouping. A CGST/SGST line carries
@@ -1681,7 +1681,7 @@ public static class GstReportSupport
         foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))   // T1-79 sweep: see ServiceProjectionFoots
         {
             any = true;
-            if (!Gstr1.IsNonTaxableServiceLedger(ledger)) return false;
+            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger)) return false;
         }
         return any;
     }
@@ -1877,7 +1877,7 @@ public static class GstReportSupport
         // T1-79 sweep: side-INDEPENDENT by nature — the discriminator is what the ledger DECLARES, as the paragraph
         // above says in terms, so no posted side can move this verdict.
         foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))
-            if (!Gstr1.IsNonTaxableServiceLedger(ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
+            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
                 return false;
         return true;
     }
