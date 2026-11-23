@@ -108,8 +108,8 @@ public sealed class BudgetParentHierarchyTests
 
     private static void ArrowToAndEnter(MainWindow window, MainWindowViewModel vm, string label)
     {
-        var rows = vm.Columns[vm.ActiveColumnIndex].Items.Count + 2;
-        for (var i = 0; i < rows; i++)
+        var rows = vm.Columns[vm.ActiveColumnIndex].Items.Count;   // T2-169: at most Menu.Count presses
+        for (var i = 0; i <= rows; i++)
         {
             if (ActiveLabel(vm) == label) { Key(window, PhysicalKey.Enter); return; }
             Key(window, PhysicalKey.ArrowDown);
