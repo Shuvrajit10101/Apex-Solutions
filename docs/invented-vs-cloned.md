@@ -3952,6 +3952,73 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | Once IV-335 charges the item-master opening, an item opening entered with no ledger/capital counterpart (probe P3) is an opening position that was itself out of balance by that amount. `BalanceSheet.BuildCore` (inventory-derived basis only) adds one synthetic, non-drillable line `Difference in Opening Balances` = item-master opening value − Σ Stock-in-Hand ledger signed openings: on the Liabilities side when positive, on the Assets side when negative, nothing when equal (the usual integrated book, P2/P4). Other unbalanced ledger openings are NOT folded in (unchanged behaviour). **This is a divergence from the vendor, whose line carries every unmatched ledger opening; ours carries only the stock one, and only on the inventory-derived basis.** |
 | **Tests** | As IV-335: P3 shapes carry the line at 103.70 and Total Liabilities == Total Assets in detailed and Alt+F1 views; P2/P4 carry no such line. The Assets-side branch (ledger opening above the item openings) is pinned by the reviewer's `InventoryDerivedOpeningDifferenceAssetSideTests.A_stock_ledger_opening_above_the_item_openings_balances_through_an_asset_side_difference` (item opening 51.85 and none against a 103.70 ledger opening: Net 153.60, Total 1,294.30, difference on the Assets side); mutation **MA** (disable that branch) reddens both rows and no builder test. |
 
+## 2AG. ADDED 2026-11-23 — WAVE 12 TRACK `hf`: ALTER AND DELETE ON THE NATURE OF PAYMENT (TDS SECTION) MASTER (census row 6.28, T1-21, IV-340..IV-344)
+
+> **This track's block is IV-340..IV-344.** The section letter `2AG` is the wave plan's pre-assignment; the entry
+> NUMBERS are the stable handle. **This section SUPERSEDES the census cell's "CREATE ONLY, and the seeded masters are
+> immutable by design" (T1-21)**: the screen's own doc comment that said so is struck, not deleted.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT (re-read first-hand 2026-11-23):
+> - `help.tallysolutions.com/tds-faq-tally/` — of the predefined *Purchase of Any Goods* nature: **"Manually change
+>   the No PAN rate to 5%."**; of §194Q: **"You can set the threshold/exemption limit for purchases with TDS u/s 194Q
+>   in the Nature of Payment master."**; under Q *"Can I update Section and Payment code in existing Nature of Payment
+>   master?"*: **"Updating Section or Payment code in existing TDS Nature of Payment will affect the Payment Entries
+>   and return filing process for the previous period/year."**, and the page recommends creating a new Nature of
+>   Payment with a new Applicable-from date instead; of Nature of Remittance: **"manually enter the applicable Nature
+>   of Remittance in the Nature of Payment master."**
+> - `help.tallysolutions.com/create-tds-masters/` — creation is **"Press Alt+G (Go To) > Create Master > TDS Nature of
+>   Payments"**; **"The Section and Payment code are displayed automatically."**; rates for individuals/HUF with and
+>   without PAN and the threshold/exemption limit are entered; Ctrl+I offers *TDS Details (History)*.
+> - `help.tallysolutions.com/tally-prime/india-tds/tds-masters-tally/` — says nothing about creating, altering or
+>   deleting a Nature of Payment beyond pointing to the create page above.
+>
+> **No vendor page opened says anything about DELETING a Nature of Payment.** Every deletion rule below is ours.
+
+### IV-340 · **A Nature of Payment can be altered — name, both rates and both thresholds — predefined sections included** (wave 12, track hf)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM before this wave (T1-21: a wrong seeded rate had no in-app remedy). Class A (cloned) that a predefined nature's rates and threshold are editable in the master; Class C (ours) for the route. Area: TDS.** |
+| **What TallyPrime does** | The FAQ tells the user to change a predefined nature's No-PAN rate by hand and to set the §194Q threshold in the Nature of Payment master. The vendor's route is the Go To menu's Alter Master. |
+| **What we ship** | On the Nature of Payment screen (Gateway → Create → Nature of Payment) the arrows walk the existing list, **Ctrl+Enter** opens the highlighted nature as *Nature of Payment Alteration* (the same form, pre-filled), and **Ctrl+A** saves (`NatureOfPaymentMasterViewModel.Alter`; the mouse button runs the same `Accept`). The master keeps its id (`NatureOfPayment.WithTerms`), so every ledger default and every posted TDS line still resolves, and the cumulative-threshold projection, which keys on the id, does not restart. `TdsConfig.ReplaceNatureOfPayment` replaces it in place. **No schema change**: the store already writes this list by delete-and-reinsert on every save. A voucher posted after the alteration computes with the new rate; a voucher posted before keeps the rate and amount stored on its TDS line. `SeedTdsTcsRates` is unchanged. |
+| **Tests** | `NatureOfPaymentAlterDeleteTests.Altered_predefined_rate_is_read_back_from_a_fresh_store_and_drives_the_next_TDS_deduction` (§194J(b) 10% → 7.5%, reloaded through a fresh store, then a journal of ₹1,23,456.78 posted from a second shell over a fresh store deducts ₹9,259, read back off a third), `…Altered_threshold_persists_and_the_engine_applies_it`, `NatureOfPaymentAlterDeleteRulesTests.Replace_keeps_id_and_position_and_publishes_the_new_terms`. |
+
+### IV-341 · **Section code and Form-26Q code: locked on a predefined section, and refused on a custom one once TDS has been posted under it** (wave 12, track hf)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class A (cloned) for the warning that a code change affects posted entries and return filing, and for the remedy offered (create a new nature); Class C (ours) for turning that warning into a refusal, and for the predefined lock. Area: TDS.** |
+| **What TallyPrime does** | The FAQ warns that changing Section or Payment code on an existing nature affects payment entries and return filing for the previous period, and recommends creating a new one. On creation the two codes are filled from the chosen name. Neither page says the codes are read-only. |
+| **What we ship** | `NatureOfPaymentRules.EnsureAlterable`: on a **predefined** section both codes are read-only on the alteration form (`IsCodeLocked`) and a forced change is refused by name. On a **custom** nature that posted TDS lines carry, a code change is refused, naming the vouchers (up to three, then a count), and the message tells the user to create a new Nature of Payment. A custom nature with no posted TDS may change both codes. |
+| **Tests** | `NatureOfPaymentAlterDeleteTests.Predefined_section_and_payment_codes_are_locked_and_a_forced_change_is_refused_by_name` (realised TextBoxes read-only), `…Custom_nature_with_posted_TDS_refuses_a_code_change_naming_the_voucher_but_accepts_a_rate_change`, `NatureOfPaymentAlterDeleteRulesTests.EnsureAlterable_locks_predefined_codes_but_not_rates`. |
+
+### IV-342 · **Alt+D then Y deletes a custom Nature of Payment; a predefined section, or one a ledger or a posted TDS line uses, is refused by name** (wave 12, track hf)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours) throughout: no vendor page speaks to deleting a Nature of Payment. Area: TDS.** |
+| **What TallyPrime does** | Not documented on any page opened. |
+| **What we ship** | The screen joins the shared master-list arm, so Alt+D raises the Y/N confirmation for the highlighted row and Y runs `NatureOfPaymentRules.EnsureDeletable` (a new file, not `MasterDeletionRules`). It refuses: a **predefined** section (remedy: alter its rates); a nature **posted TDS lines** carry, cancelled vouchers included, naming the vouchers; a nature a **ledger** names as its default, naming the ledgers. Neither reference has a foreign key in the store, so without the guard the book would save with an orphaned id that Form 26Q and the TDS exception reports could not resolve. Alt+D is inert while the form is altering. |
+| **Tests** | `NatureOfPaymentAlterDeleteTests.Delete_of_a_predefined_section_is_refused_by_name`, `…Delete_refuses_a_nature_a_ledger_names_and_deletes_an_unused_custom_nature`, `…Delete_refuses_a_nature_a_posted_TDS_line_carries_naming_the_voucher`, `…Alt_D_is_inert_on_the_alteration_screen`, `NatureOfPaymentAlterDeleteRulesTests.EnsureDeletable_refuses_predefined_and_ledger_named_natures`; the "cancelled vouchers included" clause, cancelled by Alt+X then Y from the Day Book: `NatureOfPaymentAlterVerifierTests.A_cancelled_voucher_still_blocks_deleting_the_nature_it_withheld_under`. |
+
+### IV-343 · **NOT BUILT: dated rate history, and Nature of Remittance on the master — both need a schema version this track did not own** (wave 12, track hf)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class D (not built). Area: TDS.** |
+| **What TallyPrime does** | Ctrl+I *TDS Details (History)* shows rates and exemption limits for different dates; the FAQ's remedy for a changed code is a new nature with a new Applicable-from date. The FAQ also tells the user to enter the applicable Nature of Remittance in the Nature of Payment master. |
+| **What we ship** | One set of figures per nature: altering a rate changes it for every voucher entered afterwards, whatever that voucher's date; vouchers already posted keep their stored rate and amount. ~~and for a voucher re-derived on alteration~~ 🔴 **CORRECTED BY REVIEW 2026-11-23: a posted voucher is NOT re-derived at the new figures. Every voucher alteration re-computes its TDS, and `VoucherEntryViewModel.ApplyReCarve` refuses one that would restate a reported deduction, so after a rate or threshold alteration every voucher posted under the old figures refuses alteration, a narration-only edit included, until the section is set back.** ~~every voucher posted under the old figures~~ 🔴 **NARROWED BY THE INDEPENDENT VERIFIER 2026-11-23: not every such voucher — only one whose rate or deduction the new figures would move. A voucher the alteration does not move (for instance one still above a raised threshold, so it re-computes to the same deduction) stays alterable (`NatureOfPaymentAlterVerifierTests.Threshold_alteration_leaves_a_voucher_whose_deduction_it_does_not_move_alterable`). The master's warning already says "wherever the new rate or threshold would change its deduction".** That is the visible cost of having no dated history. The master's save now says so when such vouchers exist, and the voucher's threshold refusal names the threshold alteration as a cause (`NatureOfPaymentAlterPostedVoucherTests`). There is no Nature of Remittance field: `nature_of_payment` has no column for it. Both need a schema version, and v70 belongs to track hc this wave. The brief listed Nature of Remittance under Alter; it is reported as not done, not invented. |
+| **Tests** | None for the two unbuilt items. The consequence above: `NatureOfPaymentAlterPostedVoucherTests.Altering_the_rate_warns_that_posted_vouchers_keep_the_old_rate_and_their_alteration_is_refused`, `…Altering_the_threshold_names_that_cause_in_the_posted_vouchers_refusal`, `…A_name_only_alteration_carries_no_posted_voucher_warning`; driven through the real keys (Ctrl+Enter / Ctrl+A on the master, Day Book Ctrl+Enter / Ctrl+A on the voucher), `NatureOfPaymentAlterVerifierTests.Rate_alteration_by_keys_warns_and_the_posted_voucher_refuses_a_narration_edit_naming_both_rates`, `…Threshold_alteration_by_keys_warns_and_the_refusal_names_the_threshold_alteration`, `…Threshold_alteration_leaves_a_voucher_whose_deduction_it_does_not_move_alterable`. |
+
+### IV-344 · **Altering a per-month section loads its Cumulative-FY threshold blank, and saving drops the stored inert figure** (wave 12, track hf)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: TDS.** |
+| **What TallyPrime does** | Not documented. |
+| **What we ship** | §194-I tests its threshold per month and the engine never reads a stored cumulative figure on it; an older book can still carry the superseded ₹6,00,000 there. Create already refuses a cumulative figure on such a section, so pre-filling the stored figure would make every alteration of that row refuse itself. `NatureOfPaymentMasterViewModel.ForAlter` loads the field blank and the save stores none. No computation changes. |
+| **Tests** | `NatureOfPaymentPerMonthAlterTests.Altering_a_per_month_section_carrying_an_inert_cumulative_figure_saves_and_drops_that_figure` (reddens when `ForAlter` pre-fills the stored figure unconditionally). |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where

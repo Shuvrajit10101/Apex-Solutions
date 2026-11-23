@@ -16408,7 +16408,8 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:NatureOfPaymentMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Nature of Payment (TDS)"
+                            <!-- census 6.28: the heading names the verb running (Create / Alteration). -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -16429,13 +16430,18 @@
                                   <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Section Code" FontWeight="SemiBold"
                                              VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- census 6.28: read-only while altering a PREDEFINED section (ours; see
+                                       NatureOfPaymentRules.EnsureAlterable), so the form never invites an edit
+                                       the save would refuse. -->
                                   <TextBox Grid.Column="1" Text="{Binding SectionCode, Mode=TwoWay}"
+                                           IsReadOnly="{Binding IsCodeLocked}"
                                            PlaceholderText="e.g. 194J(b)"/>
                                   <TextBlock Grid.Column="2" Text="Form-26Q / FVU Code" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="10,0,10,0"
                                              TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="3" Text="{Binding FvuSectionCode, Mode=TwoWay}"
+                                           IsReadOnly="{Binding IsCodeLocked}"
                                            PlaceholderText="e.g. 94J-B"/>
                                 </Grid>
                                 <Grid>
@@ -16516,7 +16522,7 @@
                                             Background="White" Foreground="{StaticResource BrandNavy}"
                                             BorderBrush="{StaticResource BrandNavy}" BorderThickness="1"
                                             Click="OnAddMissingPredefinedNatureOfPaymentClick"/>
-                                    <Button Content="Create (Ctrl+A)" Padding="14,6"
+                                    <Button Content="{Binding CommitLabel}" Padding="14,6"
                                             Background="{StaticResource BrandNavy}" Foreground="White"
                                             Click="OnCreateNatureOfPaymentClick"/>
                                   </StackPanel>
@@ -16542,6 +16548,10 @@
                                   <DataTemplate x:DataType="vm:NatureOfPaymentListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="90,*,80,80,140,70,90" Height="24">
+                                        <!-- census 6.28 keyboard highlight: Alt+D deletes and Ctrl+Enter alters
+                                             the row the arrows are on, so the operator must SEE which one. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="7" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding SectionCode}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12"
                                                    TextTrimming="CharacterEllipsis"/>
