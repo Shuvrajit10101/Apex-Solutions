@@ -322,7 +322,16 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
 
     /// <inheritdoc/>
-    public void ReloadExisting() => RefreshList();
+    /// <remarks>v70 (census 2.9): the <b>Under</b> picker is rebuilt as well, keeping the current choice when it
+    /// still exists. The shell calls this after Alt+D, Y on this screen; refreshing only the list left the deleted
+    /// budget offered under Under, and choosing it was then refused with "no longer exists".</remarks>
+    public void ReloadExisting()
+    {
+        RefreshList();
+        var keep = SelectedParent?.BudgetId;
+        BuildParents(IsAltering ? _editingId : null);
+        SelectedParent = Parents.FirstOrDefault(p => p.BudgetId == keep) ?? Parents.FirstOrDefault();
+    }
 
     /// <inheritdoc/>
     /// <remarks>
