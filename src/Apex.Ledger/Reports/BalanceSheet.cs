@@ -6,11 +6,12 @@ namespace Apex.Ledger.Reports;
 /// <summary>
 /// A Balance-Sheet line: a ledger (or synthetic head) at its statement magnitude. <see cref="GroupId"/>
 /// is the ledger's actual immediate group id — the reliable key for group-membership tests (two distinct
-/// groups may share a name, so classifying by name alone is ambiguous). It is <c>null</c> only for the two
-/// synthetic heads (derived Stock-in-Hand, folded period Net Profit) that have no single owning ledger.
+/// groups may share a name, so classifying by name alone is ambiguous). It is <c>null</c> only for the
+/// synthetic heads (derived Stock-in-Hand, folded period Net Profit, and the inventory-derived
+/// <see cref="BalanceSheet.OpeningDifferenceLine"/>) that have no single owning ledger.
 /// <para><see cref="LedgerId"/> is the owning ledger's stable id (RQ-7 universal drill-down): Enter on the
 /// line opens that ledger's vouchers (a <see cref="LedgerBook"/>) for the period. It is <c>Guid.Empty</c>
-/// for the two synthetic heads, which have no single owning ledger; <see cref="IsDrillable"/> is the guard
+/// for those synthetic heads, which have no single owning ledger; <see cref="IsDrillable"/> is the guard
 /// the UI checks so Enter is a safe no-op on those lines.</para>
 /// </summary>
 public sealed record BalanceSheetLine(string Name, string GroupName, Money Amount, Guid? GroupId = null, Guid LedgerId = default)
@@ -36,6 +37,9 @@ public sealed record BalanceSheet(
     Money NetProfitInCapital)
 {
     public bool Balanced => TotalLiabilities == TotalAssets;
+
+    /// <summary>Label (and roll-up group) of the synthetic opening-difference line (IV-337, inventory-derived basis).</summary>
+    public const string OpeningDifferenceLine = "Difference in Opening Balances";
 
     /// <summary>
     /// Builds the Balance Sheet as of a date. When <paramref name="mode"/> is
@@ -135,6 +139,24 @@ public sealed record BalanceSheet(
             {
                 assets.Add(new BalanceSheetLine("Stock-in-Hand", "Stock-in-Hand", new Money(derived)));
                 totalAsset += derived;
+            }
+
+            // T2-177 (wave 12, track he, IV-337): the P&L now charges the stock summary's opening (item-master
+            // allocations) rather than the Stock-in-Hand ledgers' openings. When the two differ — typically item
+            // openings entered with no matching ledger/capital opening — the opening position was itself out of
+            // balance by that difference, and the sheet carries it as one synthetic, non-drillable line on the
+            // side that restores the balance. Equal openings (the usual integrated book) add no line.
+            var openingDifference = InventoryDerivedStock.OpeningValuation(company, windowFrom: null)
+                - InventoryDerivedStock.StockLedgerSignedOpenings(company);
+            if (openingDifference > 0m)
+            {
+                liabilities.Add(new BalanceSheetLine(OpeningDifferenceLine, OpeningDifferenceLine, new Money(openingDifference)));
+                totalLiab += openingDifference;
+            }
+            else if (openingDifference < 0m)
+            {
+                assets.Add(new BalanceSheetLine(OpeningDifferenceLine, OpeningDifferenceLine, new Money(-openingDifference)));
+                totalAsset += -openingDifference;
             }
         }
 
