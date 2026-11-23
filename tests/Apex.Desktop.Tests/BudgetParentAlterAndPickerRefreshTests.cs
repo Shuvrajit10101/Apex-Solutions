@@ -37,6 +37,12 @@ namespace Apex.Desktop.Tests;
 /// <see cref="A_failed_alteration_save_puts_the_old_parent_back_on_the_aggregate"/> RED;
 /// R-M3 <c>ReloadExisting</c> back to <c>RefreshList()</c> only →
 /// <see cref="After_AltD_Y_the_Under_picker_no_longer_offers_the_deleted_budget"/> RED.</para>
+/// <para><b>Independent verification (wave 12d, 2026-11-23):</b> R-M1..R-M3 re-run, each RED as stated (R-M3 also
+/// reddens the keep test below). R-M5, <c>ReloadExisting</c> falling back to Primary instead of keeping the
+/// operator's choice, was green on every budget test until
+/// <see cref="After_AltD_Y_on_another_budget_the_Under_picker_keeps_the_operators_choice_and_Ctrl_A_files_under_it"/>
+/// was added; it is now RED. The <c>IsAltering</c> half of <c>ReloadExisting</c> is not reachable by keys: Alt+D is
+/// refused on an open alteration (<c>MainWindowViewModel.IsDeleteTargetPage</c>), so it is defensive only.</para>
 /// </summary>
 public sealed class BudgetParentAlterAndPickerRefreshTests
 {
@@ -309,6 +315,72 @@ public sealed class BudgetParentAlterAndPickerRefreshTests
             Key(window, PhysicalKey.A, RawInputModifiers.Control);
             Assert.Contains("created", screen.Message);
             Assert.Null(RawUnderId(dir, co, "Gamma Budget"));
+        }
+        finally { Close(window, dir); }
+    }
+
+    // ============================================================ picker after delete: IV additions (wave 12d)
+
+    /// <summary>Types <paramref name="prefix"/> on the realised Under picker, takes the match with Enter if the typing
+    /// opened the dropdown, and leaves focus on the CLOSED picker, the state in which the window's arrows walk the
+    /// List of Budgets and Alt+D deletes its highlighted row.</summary>
+    private static void ChooseUnderByKeysThenRestOnClosedPicker(MainWindow window, string prefix)
+    {
+        var picker = UnderPicker(window);
+        picker.Focus();
+        Pump(window);
+        TypeText(window, prefix);
+        if (picker.IsDropDownOpen) Key(window, PhysicalKey.Enter);
+        picker.Focus();
+        Pump(window);
+        Assert.False(picker.IsDropDownOpen);
+    }
+
+    /// <summary>
+    /// IV wave 12d. The operator has already chosen "Alpha Budget" under Under (typed on the realised picker) when
+    /// Alt+D, Y deletes a DIFFERENT budget, "Beta Budget". The rebuilt picker must keep "Alpha Budget" chosen, on
+    /// the view model and on the realised control, and Ctrl+A then files the new budget under it in the raw
+    /// <c>.db</c>. Reddens if <c>ReloadExisting</c> drops the kept choice and falls back to Primary.
+    /// </summary>
+    [AvaloniaFact]
+    public void After_AltD_Y_on_another_budget_the_Under_picker_keeps_the_operators_choice_and_Ctrl_A_files_under_it()
+    {
+        const string co = "W12 Budget Picker Keep Co";
+        var (window, vm, dir) = NewWindow(co);
+        try
+        {
+            var m = OpenBudgetMaster(window, vm);
+            CreateAtPrimaryByKeys(window, m, "Alpha Budget", "1.11");
+            CreateAtPrimaryByKeys(window, m, "Beta Budget", "2.22");
+
+            var screen = OpenBudgetMaster(window, vm);
+            var nameBox = BudgetNameBox(window);
+            nameBox.Focus();
+            Pump(window);
+            nameBox.Text = string.Empty;
+            TypeText(window, "Gamma Budget");
+            ChooseUnderByKeysThenRestOnClosedPicker(window, "Alp");
+            Assert.Equal("Alpha Budget", screen.SelectedParent?.Name);
+            ArrowToRow(window, vm, "Beta Budget");
+            Assert.Equal("Alpha Budget", screen.SelectedParent?.Name);   // the arrows walked the list, not the picker
+            Assert.Equal("Beta Budget", vm.MasterListScreen?.HighlightedMasterRow?.MasterName);
+
+            Key(window, PhysicalKey.D, RawInputModifiers.Alt);
+            Key(window, PhysicalKey.Y);
+            Assert.Contains("deleted", vm.Notice);
+            Assert.Same(screen, vm.BudgetMaster);
+            Assert.Equal(new[] { "Primary", "Alpha Budget" }, screen.Parents.Select(p => p.Name));
+
+            Assert.Equal("Alpha Budget", screen.SelectedParent?.Name);
+            Assert.Equal("Alpha Budget", (UnderPicker(window).SelectedItem as BudgetParentOption)?.Name);
+
+            screen.SelectedTarget = screen.Targets.First(t => t.Display.StartsWith("Cash", StringComparison.Ordinal));
+            screen.LineAmountText = "3.33";
+            Assert.True(screen.AddLine(), screen.Message);
+            Key(window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Contains("created", screen.Message);
+            var alphaId = vm.Company!.FindBudgetByName("Alpha Budget")!.Id;
+            Assert.Equal(alphaId.ToString("D"), RawUnderId(dir, co, "Gamma Budget"));
         }
         finally { Close(window, dir); }
     }
