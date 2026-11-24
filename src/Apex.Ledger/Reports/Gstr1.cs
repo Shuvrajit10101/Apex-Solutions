@@ -1270,7 +1270,13 @@ public sealed record Gstr1(
             if (led.GstClassification is not null) continue; // a GST (Duties &amp; Taxes) tax ledger
             // Census 6.4, IV-319(a) / IV-368: a ledger with NO block of its own is a service leg too when the
             // hierarchy walk (its group, then the company) declares a SAC for it — see IsNoBlockServiceLedger.
-            if (led.SalesPurchaseGst is null && !IsNoBlockServiceLedger(company, led)) continue;
+            // Review (wave 13 ib, R-F2): ONLY on the document's natural value side. A no-block leg on the opposing side
+            // (a Discount Allowed debit on a sale under a company SAC) is a DEDUCTION that main never read; admitting it
+            // added its magnitude to Table 12 (measured 11,000.01 against 3.1(a) 9,000.01; main 10,000.01). A null
+            // natural side (no orientation) admits no no-block leg, the conservative direction.
+            if (led.SalesPurchaseGst is null
+                && (!IsNoBlockServiceLedger(company, led) || line.Side != NaturalServiceLegSide(company, voucher)))
+                continue;
             yield return (led, line.Amount.Amount, line.Side);
         }
     }

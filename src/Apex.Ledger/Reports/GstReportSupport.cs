@@ -1877,9 +1877,23 @@ public static class GstReportSupport
         // T1-79 sweep: side-INDEPENDENT by nature — the discriminator is what the ledger DECLARES, as the paragraph
         // above says in terms, so no posted side can move this verdict.
         foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))
-            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
+            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger) && DeclaresNonZeroRate(company, voucher, ledger))
                 return false;
         return true;
+    }
+
+    /// <summary>Review (wave 13 ib, R-F1): the rate a service leg DECLARES for <see cref="TaxedLegsCarryTheirTax"/>. A
+    /// ledger's own block answers as before. A NO-block leg (IV-368, admitted only on a walk-declared SAC) declares
+    /// nothing itself, so its declaration IS the walk's — the same resolve <see cref="Gstr1.IsNonTaxableServiceLedger"/>
+    /// already makes for it. Without this the F9 guarantee lapsed for the Ledger master's default state: a service
+    /// invoice posted while GST was off, then a group classified 998311 / 18%, printed as a "Tax Invoice" at NIL GST
+    /// (measured: <see cref="IsServiceAccountingInvoice"/> True; False on main). This can only DEMOTE a document to the
+    /// plain voucher; an unresolved walk declares no rate and is left alone, as a rate-less block is.</summary>
+    private static bool DeclaresNonZeroRate(Company company, Voucher voucher, Domain.Ledger ledger)
+    {
+        if (ledger.SalesPurchaseGst is { } block) return block.RateBasisPoints is > 0;
+        var resolved = new GstService(company).ResolveRate(null, ledger, voucher.Date);
+        return resolved.IsTaxable && !GstService.IsUnresolved(resolved) && resolved.RateBasisPoints > 0;
     }
 
     /// <summary>
