@@ -85,7 +85,7 @@ public sealed class LineNarrationV68SchemaTests
             var linesBefore = ReadScalar(path, "SELECT COUNT(*) FROM entry_lines;");
             Assert.True(billRowsBefore >= 2);
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(67L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.DoesNotContain("narration", ColumnNames(path, "entry_lines"));
 
@@ -123,7 +123,7 @@ public sealed class LineNarrationV68SchemaTests
             using (var store = new SqliteCompanyStore(migratedPath))
                 store.Save(CompanyFactory.CreateSeeded("Migrated Narration Co", FyStart));
 
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
             Assert.DoesNotContain("narration", ColumnNames(migratedPath, "entry_lines"));
 
             using (new SqliteCompanyStore(migratedPath)) { }
@@ -132,7 +132,7 @@ public sealed class LineNarrationV68SchemaTests
             Assert.DoesNotContain("UPDATE ", Schema.MigrateV67ToV68);
             // Re-baselined 68 -> 69 (census 5.7, wave 10): v69 adds only inventory_vouchers.optional.
             // Re-baselined 69 -> 70 (census 2.9, wave 12): v70 re-points only budgets.under_id at budgets(id).
-            Assert.Equal(70, Schema.CurrentVersion);
+            Assert.Equal(71, Schema.CurrentVersion);   // re-baselined 70 -> 71 (census 6.28, wave 13: nature_of_payment.nature_of_remittance)
         }
         finally
         {
@@ -156,7 +156,7 @@ public sealed class LineNarrationV68SchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(company);
             var indexesBefore = IndexNames(path, "entry_lines").OrderBy(n => n).ToList();
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "entry_lines"));
             Assert.Equal(indexesBefore, IndexNames(path, "entry_lines").OrderBy(n => n).ToList());

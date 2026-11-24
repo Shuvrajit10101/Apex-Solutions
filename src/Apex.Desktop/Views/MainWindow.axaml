@@ -16467,12 +16467,23 @@
                                   <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelL"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto" SharedSizeGroup="NopLabelR"/>
+                                    <ColumnDefinition Width="*"/>
                                   </Grid.ColumnDefinitions>
                                   <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Name" FontWeight="SemiBold"
                                              VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Fees for professional services"/>
+                                  <!-- census 6.28 clause (i), wave 13 (schema v71): the numeric Nature of Remittance,
+                                       entered on the master as the vendor's FAQ directs. Shares the Name row so the
+                                       form's row count (MasterPageRowStructureTests) is unchanged. -->
+                                  <TextBlock Grid.Column="2" Text="Nature of Remittance" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Margin="10,0,10,0" FontSize="12"
+                                             TextTrimming="CharacterEllipsis"
+                                             Foreground="{StaticResource BrandNavy}"/>
+                                  <TextBox Grid.Column="3" Text="{Binding NatureOfRemittanceText, Mode=TwoWay}"
+                                           PlaceholderText="numeric code, or blank"/>
                                 </Grid>
                                 <Grid>
                                   <Grid.ColumnDefinitions>
@@ -16605,7 +16616,8 @@
                       <ContentControl.ContentTemplate>
                         <DataTemplate x:DataType="vm:NatureOfGoodsMasterViewModel">
                           <Grid RowDefinitions="Auto,Auto,Auto,*" Margin="6">
-                            <TextBlock Grid.Row="0" Text="Nature of Goods (§206C TCS)"
+                            <!-- census 6.36: the heading names the verb running (Create / Alteration). -->
+                            <TextBlock Grid.Row="0" Text="{Binding Caption}"
                                        FontSize="16" FontWeight="Bold" Foreground="{StaticResource BrandNavy}"
                                        HorizontalAlignment="Center" Margin="0,8,0,10"/>
 
@@ -16626,7 +16638,10 @@
                                   <TextBlock Margin="0,0,10,0" Grid.Column="0" Text="Collection Code" FontWeight="SemiBold"
                                              VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                              Foreground="{StaticResource BrandNavy}"/>
+                                  <!-- census 6.36: read-only while altering a PREDEFINED nature (ours; see
+                                       NatureOfGoodsRules.EnsureAlterable). -->
                                   <TextBox Grid.Column="1" Text="{Binding CollectionCode, Mode=TwoWay}"
+                                           IsReadOnly="{Binding IsCodeLocked}"
                                            PlaceholderText="e.g. 6CE"/>
                                   <TextBlock Grid.Column="2" Text="Threshold ₹" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Margin="10,0,10,0"
@@ -16670,7 +16685,7 @@
                                              IsVisible="{Binding Message, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                                              Foreground="{StaticResource AlertRed}" FontSize="12"
                                              VerticalAlignment="Center" TextWrapping="Wrap"/>
-                                  <Button Grid.Column="1" Content="Create (Ctrl+A)" Padding="14,6"
+                                  <Button Grid.Column="1" Content="{Binding CommitLabel}" Padding="14,6"
                                           Background="{StaticResource BrandNavy}" Foreground="White"
                                           Click="OnCreateNatureOfGoodsClick"/>
                                 </Grid>
@@ -16694,6 +16709,10 @@
                                   <DataTemplate x:DataType="vm:NatureOfGoodsListRow">
                                     <Border BorderBrush="{StaticResource GridLine}" BorderThickness="0,0,0,1">
                                       <Grid ColumnDefinitions="80,*,80,80,120,140" Height="24">
+                                        <!-- census 6.36 keyboard highlight: Alt+D deletes and Ctrl+Enter alters the
+                                             row the arrows are on, so the operator must SEE which one. -->
+                                        <Border Grid.Column="0" Grid.ColumnSpan="6" Background="#FFF3CD"
+                                                IsVisible="{Binding IsHighlighted}"/>
                                         <TextBlock Grid.Column="0" Text="{Binding CollectionCode}"
                                                    Margin="8,0" VerticalAlignment="Center" FontSize="12"
                                                    TextTrimming="CharacterEllipsis"/>

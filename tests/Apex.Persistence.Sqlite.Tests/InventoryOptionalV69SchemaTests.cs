@@ -86,7 +86,7 @@ public sealed class InventoryOptionalV69SchemaTests
             Assert.True(allocations >= 2);
             var closingBefore = new InventoryLedger(s.Company).OnHand(s.ItemId, s.GodownId, new DateOnly(2024, 5, 31));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(68L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.DoesNotContain("optional", ColumnNames(path, "inventory_vouchers"));
 
@@ -123,7 +123,7 @@ public sealed class InventoryOptionalV69SchemaTests
             using (var store = new SqliteCompanyStore(migratedPath))
                 store.Save(CompanyFactory.CreateSeeded("Migrated Stock Optional Co", FyStart));
 
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
             Assert.DoesNotContain("optional", ColumnNames(migratedPath, "inventory_vouchers"));
 
             using (new SqliteCompanyStore(migratedPath)) { }
@@ -131,7 +131,7 @@ public sealed class InventoryOptionalV69SchemaTests
             Assert.Equal(Schema.V69InventoryVoucherColumns, new[] { "optional" });
             Assert.DoesNotContain("UPDATE ", Schema.MigrateV68ToV69);
             // Re-baselined 69 -> 70 (census 2.9, wave 12): v70 re-points only budgets.under_id at budgets(id).
-            Assert.Equal(70, Schema.CurrentVersion);
+            Assert.Equal(71, Schema.CurrentVersion);   // re-baselined 70 -> 71 (census 6.28, wave 13: nature_of_payment.nature_of_remittance)
         }
         finally
         {
@@ -156,7 +156,7 @@ public sealed class InventoryOptionalV69SchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(s.Company);
             var indexesBefore = IndexNames(path, "inventory_vouchers").OrderBy(n => n).ToList();
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "inventory_vouchers"));
             Assert.Equal(indexesBefore, IndexNames(path, "inventory_vouchers").OrderBy(n => n).ToList());

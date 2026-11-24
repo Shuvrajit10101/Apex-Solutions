@@ -56,6 +56,39 @@ public sealed class TcsConfig
         _naturesOfGoods.Add(nature ?? throw new ArgumentNullException(nameof(nature)));
 
     /// <summary>
+    /// Census 6.36 clause 1 (wave 13, track ic) — <b>ALTER</b>: replaces the master whose
+    /// <see cref="NatureOfGoods.Id"/> matches <paramref name="replacement"/>, <b>in place</b> (same list position, so
+    /// the persisted <c>rowid</c> order is unchanged). Mirrors <see cref="TdsConfig.ReplaceNatureOfPayment"/>: refuses
+    /// an unknown id, a change of <see cref="NatureOfGoods.IsPredefined"/>, and a collection code another master
+    /// already carries. The referential rules live in <c>Services.NatureOfGoodsRules</c>.
+    /// <para><b>No schema.</b> The store writes this list by delete-and-reinsert on every save.</para>
+    /// </summary>
+    public void ReplaceNatureOfGoods(NatureOfGoods replacement)
+    {
+        ArgumentNullException.ThrowIfNull(replacement);
+        var index = _naturesOfGoods.FindIndex(n => n.Id == replacement.Id);
+        if (index < 0)
+            throw new InvalidOperationException($"Nature of Goods {replacement.Id} not found.");
+        var existing = _naturesOfGoods[index];
+        if (existing.IsPredefined != replacement.IsPredefined)
+            throw new InvalidOperationException(
+                $"Nature of Goods '{existing.CollectionCode}': an alteration cannot change whether a nature is "
+                + "predefined or custom.");
+        if (_naturesOfGoods.Any(n => n.Id != replacement.Id
+                                     && string.Equals(n.CollectionCode, replacement.CollectionCode,
+                                         StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"A Nature of Goods '{replacement.CollectionCode}' already exists.");
+        _naturesOfGoods[index] = replacement;
+    }
+
+    /// <summary>
+    /// Census 6.36 clause 1 (wave 13, track ic) — <b>DELETE</b>: removes the master with this id; <c>false</c> when
+    /// none exists. <b>The raw list operation, carrying no guard</b>: every caller must first ask
+    /// <c>Services.NatureOfGoodsRules.EnsureDeletable</c> (the store has no foreign key on any reference to it).
+    /// </summary>
+    public bool RemoveNatureOfGoods(Guid id) => _naturesOfGoods.RemoveAll(n => n.Id == id) > 0;
+
+    /// <summary>
     /// Validates the enabled config (fail-fast, ER-6): a valid TAN (required when enabled) and, when set, a valid
     /// responsible-person PAN. A disabled config validates trivially.
     /// </summary>

@@ -4056,7 +4056,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | | |
 |---|---|
 | **Severity** | **MEDIUM before this wave (T1-21: a wrong seeded rate had no in-app remedy). Class A (cloned) that a predefined nature's rates and threshold are editable in the master; Class C (ours) for the route. Area: TDS.** |
-| **What TallyPrime does** | The FAQ tells the user to change a predefined nature's No-PAN rate by hand and to set the §194Q threshold in the Nature of Payment master. The vendor's route is the Go To menu's Alter Master. |
+| **What TallyPrime does** | The FAQ tells the user to change a predefined nature's No-PAN rate by hand and to set the §194Q threshold in the Nature of Payment master. The vendor's route is the Go To menu's Alter Master (🔴 built 2026-11-24, wave 13 track ic — IV-379). |
 | **What we ship** | On the Nature of Payment screen (Gateway → Create → Nature of Payment) the arrows walk the existing list, **Ctrl+Enter** opens the highlighted nature as *Nature of Payment Alteration* (the same form, pre-filled), and **Ctrl+A** saves (`NatureOfPaymentMasterViewModel.Alter`; the mouse button runs the same `Accept`). The master keeps its id (`NatureOfPayment.WithTerms`), so every ledger default and every posted TDS line still resolves, and the cumulative-threshold projection, which keys on the id, does not restart. `TdsConfig.ReplaceNatureOfPayment` replaces it in place. **No schema change**: the store already writes this list by delete-and-reinsert on every save. A voucher posted after the alteration computes with the new rate; a voucher posted before keeps the rate and amount stored on its TDS line. `SeedTdsTcsRates` is unchanged. |
 | **Tests** | `NatureOfPaymentAlterDeleteTests.Altered_predefined_rate_is_read_back_from_a_fresh_store_and_drives_the_next_TDS_deduction` (§194J(b) 10% → 7.5%, reloaded through a fresh store, then a journal of ₹1,23,456.78 posted from a second shell over a fresh store deducts ₹9,259, read back off a third), `…Altered_threshold_persists_and_the_engine_applies_it`, `NatureOfPaymentAlterDeleteRulesTests.Replace_keeps_id_and_position_and_publishes_the_new_terms`. |
 
@@ -4084,7 +4084,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 |---|---|
 | **Severity** | **MEDIUM. Class D (not built). Area: TDS.** |
 | **What TallyPrime does** | Ctrl+I *TDS Details (History)* shows rates and exemption limits for different dates; the FAQ's remedy for a changed code is a new nature with a new Applicable-from date. The FAQ also tells the user to enter the applicable Nature of Remittance in the Nature of Payment master. |
-| **What we ship** | One set of figures per nature: altering a rate changes it for every voucher entered afterwards, whatever that voucher's date; vouchers already posted keep their stored rate and amount. ~~and for a voucher re-derived on alteration~~ 🔴 **CORRECTED BY REVIEW 2026-11-23: a posted voucher is NOT re-derived at the new figures. Every voucher alteration re-computes its TDS, and `VoucherEntryViewModel.ApplyReCarve` refuses one that would restate a reported deduction, so after a rate or threshold alteration every voucher posted under the old figures refuses alteration, a narration-only edit included, until the section is set back.** ~~every voucher posted under the old figures~~ 🔴 **NARROWED BY THE INDEPENDENT VERIFIER 2026-11-23: not every such voucher — only one whose rate or deduction the new figures would move. A voucher the alteration does not move (for instance one still above a raised threshold, so it re-computes to the same deduction) stays alterable (`NatureOfPaymentAlterVerifierTests.Threshold_alteration_leaves_a_voucher_whose_deduction_it_does_not_move_alterable`). The master's warning already says "wherever the new rate or threshold would change its deduction".** That is the visible cost of having no dated history. The master's save now says so when such vouchers exist, and the voucher's threshold refusal names the threshold alteration as a cause (`NatureOfPaymentAlterPostedVoucherTests`). There is no Nature of Remittance field: `nature_of_payment` has no column for it. Both need a schema version, and v70 belongs to track hc this wave. The brief listed Nature of Remittance under Alter; it is reported as not done, not invented. |
+| **What we ship** | One set of figures per nature: altering a rate changes it for every voucher entered afterwards, whatever that voucher's date; vouchers already posted keep their stored rate and amount. ~~and for a voucher re-derived on alteration~~ 🔴 **CORRECTED BY REVIEW 2026-11-23: a posted voucher is NOT re-derived at the new figures. Every voucher alteration re-computes its TDS, and `VoucherEntryViewModel.ApplyReCarve` refuses one that would restate a reported deduction, so after a rate or threshold alteration every voucher posted under the old figures refuses alteration, a narration-only edit included, until the section is set back.** ~~every voucher posted under the old figures~~ 🔴 **NARROWED BY THE INDEPENDENT VERIFIER 2026-11-23: not every such voucher — only one whose rate or deduction the new figures would move. A voucher the alteration does not move (for instance one still above a raised threshold, so it re-computes to the same deduction) stays alterable (`NatureOfPaymentAlterVerifierTests.Threshold_alteration_leaves_a_voucher_whose_deduction_it_does_not_move_alterable`). The master's warning already says "wherever the new rate or threshold would change its deduction".** That is the visible cost of having no dated history. The master's save now says so when such vouchers exist, and the voucher's threshold refusal names the threshold alteration as a cause (`NatureOfPaymentAlterPostedVoucherTests`). ~~There is no Nature of Remittance field: `nature_of_payment` has no column for it.~~ 🔴 **SUPERSEDED 2026-11-24 (wave 13, track ic): the field is built on schema v71 — see IV-378.** Both need a schema version, and v70 belongs to track hc this wave. The brief listed Nature of Remittance under Alter; it is reported as not done, not invented. |
 | **Tests** | None for the two unbuilt items. The consequence above: `NatureOfPaymentAlterPostedVoucherTests.Altering_the_rate_warns_that_posted_vouchers_keep_the_old_rate_and_their_alteration_is_refused`, `…Altering_the_threshold_names_that_cause_in_the_posted_vouchers_refusal`, `…A_name_only_alteration_carries_no_posted_voucher_warning`; driven through the real keys (Ctrl+Enter / Ctrl+A on the master, Day Book Ctrl+Enter / Ctrl+A on the voucher), `NatureOfPaymentAlterVerifierTests.Rate_alteration_by_keys_warns_and_the_posted_voucher_refuses_a_narration_edit_naming_both_rates`, `…Threshold_alteration_by_keys_warns_and_the_refusal_names_the_threshold_alteration`, `…Threshold_alteration_leaves_a_voucher_whose_deduction_it_does_not_move_alterable`. |
 
 ### IV-344 · **Altering a per-month section loads its Cumulative-FY threshold blank, and saving drops the stored inert figure** (wave 12, track hf)
@@ -4095,6 +4095,103 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What TallyPrime does** | Not documented. |
 | **What we ship** | §194-I tests its threshold per month and the engine never reads a stored cumulative figure on it; an older book can still carry the superseded ₹6,00,000 there. Create already refuses a cumulative figure on such a section, so pre-filling the stored figure would make every alteration of that row refuse itself. `NatureOfPaymentMasterViewModel.ForAlter` loads the field blank and the save stores none. No computation changes. |
 | **Tests** | `NatureOfPaymentPerMonthAlterTests.Altering_a_per_month_section_carrying_an_inert_cumulative_figure_saves_and_drops_that_figure` (reddens when `ForAlter` pre-fills the stored figure unconditionally). |
+
+## 2AJ. ADDED 2026-11-24 — WAVE 13 TRACK `ic`: NATURE OF REMITTANCE (SCHEMA v71), GO TO > ALTER MASTER, ALTER AND DELETE ON THE NATURE OF GOODS MASTER, AND THE T2-181 RESIDUALS (census rows 6.28, 6.36, T2-181, IV-378..IV-387)
+
+> **This track's block is IV-378..IV-387** (the orchestrator's assignment, which overrides the wave plan's IV-360..364;
+> the section letter `2AJ` is the plan's). IV-386 and IV-387 are **unused** and are left unallocated rather than
+> padded.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT on 2026-11-24:
+> - `help.tallysolutions.com/tds-faq-tally/` — under *"Is TallyPrime's TDS Nature of Payment updated with the new
+>   Nature of Remittance notified by the department?"*: the product does not yet carry it, and the user is told to
+>   **"manually enter the applicable Nature of Remittance in the Nature of Payment master."**, the entered value being
+>   exported in the non-resident e-return (the page names the department's TDS Form 144).
+> - `help.tallysolutions.com/tally-prime/india-tds/form-27q-tally/` — FVU 8.2, *Field 36: Nature of Remittance*:
+>   **"Enter the applicable numeric Nature of Remittance code in Field 36 as per Annexure 8."**; and, for Field 33,
+>   **"Press Alt+G (Go To) > Create Master/Alter Master > TDS Nature of Payments."**
+> - `help.tallysolutions.com/tcs-faq-tally/` — under the question on TCS rates revised to 2%: **"Press Alt+G (Go To) >
+>   Alter Master > TCS Nature of Goods and press Enter."**, **"Select the required TCS Nature of Goods and press
+>   Enter."**, and the rate is entered on the existing master; under *"Can I update Section and Payment code in existing
+>   TCS Nature of Goods master?"*: **"Updating Section or Payment code in existing TCS Nature of Goods will affect the
+>   payment entries"** and **"We recommend you to create a new Nature of Goods"**.
+> - `help.tallysolutions.com/create-tds-masters/` — gives only the CREATE route (*Create Master > TDS Nature of
+>   Payments*); it does not mention Alter Master or Nature of Remittance. `help.tallysolutions.com/tcs-nature-of-goods/`
+>   is a reference list of natures with section and payment codes; it gives no route and no field list.
+>
+> **No vendor page opened says anything about DELETING a Nature of Goods.** Every deletion rule in IV-382 is ours.
+
+### IV-378 · **Nature of Remittance is entered on the Nature of Payment master and stored (schema v71) — but no return files it** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM before this wave (census 6.28 clause i, IV-343: no field). Class A (cloned) for a remittance code entered on the master; Class C (ours) for digits-only validation and for capturing a value nothing exports. Area: TDS.** |
+| **What TallyPrime does** | The FAQ tells the user to enter the applicable Nature of Remittance in the Nature of Payment master and says the value is exported in the non-resident e-return; the Form 27Q page calls it a numeric code (Field 36, Annexure 8). |
+| **What we ship** | A **Nature of Remittance** box on the Nature of Payment form (sharing the Name row, so the form's height is unchanged), captured on **Create** and on **Alter** (Ctrl+A), pre-filled on Ctrl+Enter, stored in the new nullable column `nature_of_payment.nature_of_remittance` (`Schema.MigrateV70ToV71`, `SchemaDowngrade.V71ToV70`), and carried by the canonical JSON/XML export and import (omitted when blank, so existing exports are byte-identical). Blank means none; anything else must be digits only (`NatureOfPayment.NormalizeNatureOfRemittance`), refused by name otherwise. 🔴 **This product has no Form 27Q (nor the 2025-Act successor the vendor page names), so the value is captured, stored and round-tripped, and NOTHING FILES IT.** No list of valid codes is shipped: Annexure 8 is not reproduced on any vendor page opened. |
+| **Tests** | `NatureOfPaymentRemittanceAndAlterMasterTests.Nature_of_remittance_is_captured_on_create_and_alter_and_read_back_from_a_fresh_store`; `NatureOfRemittanceV71SchemaTests` (a real v70 book climbs with every nature row, ledger default and TDS line intact and nothing back-filled; migrated contract equals CreateV1; the downgrade keeps the PK and index; written and read back off a fresh store handle); `CanonicalNatureOfRemittanceRoundTripTests` (JSON and XML byte-stable, landing on the target's own nature; absent when blank). |
+
+### IV-379 · **Go To (Alt+G) > Alter Master reaches the Nature of Payment and the Nature of Goods** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class A (cloned) for the route; Class C (ours) for the picker labels and for "TDS Nature of Payment" singular (the vendor writes "Payments"). Area: TDS / TCS.** |
+| **What TallyPrime does** | Alt+G > Alter Master > TDS Nature of Payments / TCS Nature of Goods, then select the nature and press Enter. |
+| **What we ship** | The Gateway's Masters section gains an **Alter Master** group (only when TDS or TCS is on). It holds **TDS Nature of Payment** and **TCS Nature of Goods** (each only when its tax is on); each opens a data-driven picker of the company's own natures, labelled *code - name* (so a typed letter filters), and Enter opens that nature's alteration screen through the same opener Ctrl+Enter on the master's own list uses. Go To indexes the menu, so Alt+G, typing "TCS Nature of Goods" and Enter lands on the picker. Supersedes the route clause of IV-340 ("alteration is reachable only from the master's own list"). |
+| **Tests** | `NatureOfPaymentRemittanceAndAlterMasterTests.Go_To_Alter_Master_reaches_and_alters_a_nature_of_payment`, `…Go_To_Alter_Master_reaches_and_alters_a_nature_of_goods` (Alt+G, the realised search box, arrows, Enter, Ctrl+A, read back off a fresh store), `…Alter_Master_is_gated_on_the_statutory_features`. |
+
+### IV-380 · **Alter Master lists only the two statutory masters** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours, a narrowing). Area: navigation.** |
+| **What TallyPrime does** | Alter Master is the route to every master (ledger, group, godown, currency and so on). |
+| **What we ship** | Only the Nature of Payment and the Nature of Goods are listed. Every other master is still altered from its own list (Ctrl+Enter), as IV-29 and the existing alter arms record. Widening this group is not this wave's work. The group is hidden in a company with neither TDS nor TCS, so that company's Gateway is unchanged. |
+| **Tests** | `NatureOfPaymentRemittanceAndAlterMasterTests.Alter_Master_is_gated_on_the_statutory_features`. |
+
+### IV-381 · **A Nature of Goods can be altered — name, both rates and the threshold — predefined natures included; the collection code is locked on a predefined nature and refused on a posted one** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM before this wave (census 6.36: create-only, so a wrong seeded TCS rate had no remedy in-app). Class A (cloned) for altering a predefined nature's rate on the existing master and for the warning against changing codes; Class C (ours) for turning that warning into a refusal, for the predefined code lock, and for the threshold being editable on the same form. Area: TCS.** |
+| **What TallyPrime does** | The TCS FAQ changes a predefined nature's rate by altering the existing master, and warns that changing the Section or Payment code of an existing nature affects payment entries, recommending a new nature instead. |
+| **What we ship** | The Nature of Goods screen mirrors the Nature of Payment one (PR #214): the arrows walk the list, **Ctrl+Enter** opens *Nature of Goods Alteration* pre-filled, **Ctrl+A** saves through `Accept` (the button runs the same). `NatureOfGoods.WithTerms` keeps the id, the base-includes-GST flag, the effective date and the §206C(1H) legacy gate; `TcsConfig.ReplaceNatureOfGoods` replaces in place. `NatureOfGoodsRules.EnsureAlterable` (a NEW file) locks the code of a predefined nature (the realised box is read-only) and refuses a code change on a custom nature a posted TCS line carries, naming the vouchers. A failed save puts the original back. The save reports how many live vouchers the new figures would have assessed differently (the IV-383 measure); posted lines keep their stored rate and amount. `SeedTdsTcsRates` is unchanged; §206C(1G) is out of scope and still absent. |
+| **Tests** | `NatureOfGoodsAlterDeleteTests.Altered_predefined_rate_and_threshold_persist_and_drive_the_next_TCS_collection`, `…Predefined_collection_code_is_locked_and_a_forced_change_is_refused_by_name`, `…Custom_nature_with_posted_TCS_refuses_a_code_change_but_accepts_a_rate_change`, `…A_refused_save_rolls_the_alteration_back_out_of_the_shared_book`; `NatureOfGoodsAlterDeleteRulesTests.Replace_keeps_id_position_and_the_legacy_gate_and_publishes_the_new_terms`, `…EnsureAlterable_locks_codes_on_predefined_and_posted_natures_only`. |
+
+### IV-382 · **Alt+D then Y deletes a custom Nature of Goods; a predefined nature, or one a posted TCS line, a ledger or a stock item uses, is refused by name** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours) throughout: no vendor page speaks to deleting a Nature of Goods. Area: TCS.** |
+| **What TallyPrime does** | Not documented on any page opened. |
+| **What we ship** | The screen joins the shared master-list arm (both hand-maintained lists in the shell: `MasterListScreen` and the Alt+D switch), so Alt+D raises the Y/N confirmation and Y runs `NatureOfGoodsRules.EnsureDeletable`. It refuses: a **predefined** nature; one **posted TCS lines** carry, cancelled vouchers included, naming the vouchers; one a **ledger** names; one a **stock item** names (`TcsService.ResolveNature` reads the item's nature first, so an orphaned item id would silently stop collecting). None of these references has a foreign key in the store. Alt+D is inert while altering. The highlight is restored by id after every list rebuild, so a Create that re-sorts the list cannot move the next Alt+D onto a neighbour. |
+| **Tests** | `NatureOfGoodsAlterDeleteTests.Delete_of_a_predefined_nature_is_refused_by_name`, `…Delete_refuses_natures_a_ledger_or_stock_item_names_and_deletes_an_unused_one`, `…Delete_refuses_a_nature_a_posted_and_cancelled_TCS_line_carries`, `…After_a_create_re_sorts_the_list_Alt_D_deletes_the_master_still_highlighted`, `…Alt_D_is_inert_on_the_alteration_screen`; `NatureOfGoodsAlterDeleteRulesTests.EnsureDeletable_refuses_predefined_posted_ledger_and_stock_item_by_name`. |
+
+### IV-383 · **T2-181: the alteration warning counts only the live vouchers the new figures move** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **LOW (wording and test coverage; no wrong figure). Class C (ours): no vendor page speaks to this warning. Area: TDS / TCS.** |
+| **What TallyPrime does** | Not documented. |
+| **What we ship** | ~~The Nature of Payment save counted `VouchersCarrying` whenever any figure moved~~ — that included cancelled vouchers (which cannot be altered) and vouchers the new figures leave untouched. `NatureOfPaymentRules.VouchersMovedBy` now computes each live posted TDS line's withholding twice with the one engine (`TdsService.ComputeWithholding`, old terms and new, over the line's own assessable value, deductee and date, the voucher excluded from its own prior aggregate) and counts the voucher when the rate or the amount differs — exactly the vouchers whose next alteration `ApplyReCarve` would refuse because of this change, so the message now says "is now refused" without the old "wherever" qualifier. A deductee that no longer resolves is counted (the warning over-states rather than hides). `NatureOfGoodsRules.VouchersMovedBy` is the TCS mirror. 🔴 **One existing test pinned the overstatement and was updated:** `NatureOfPaymentAlterVerifierTests.Threshold_alteration_leaves_a_voucher_whose_deduction_it_does_not_move_alterable` asserted the "1 voucher already posted" sentence on an alteration that moves nothing; it now asserts the sentence is absent (the voucher-alterable half of that test is untouched). The rollback on a failed save and the highlight-restore by id, unpinned at wave 12, are now pinned. |
+| **Tests** | `NatureOfPaymentRemittanceAndAlterMasterTests.The_alteration_warning_counts_only_live_vouchers_the_new_figures_move`, `…A_refused_save_rolls_the_nature_of_payment_alteration_back_out_of_the_shared_book`, `…After_a_create_re_sorts_the_list_Alt_D_deletes_the_nature_of_payment_still_highlighted`; `NatureOfGoodsAlterDeleteRulesTests.VouchersMovedBy_counts_only_live_vouchers_whose_withholding_the_new_terms_change`, `…Nature_of_goods_VouchersMovedBy_excludes_cancelled_and_unmoved`. **Review fix (wave 13 ic review):** as first built, the count recomputed WITHOUT the posted rate / assessable / TDS that the re-carve hands the engine, so it missed a grandfathered §194C voucher a rate alteration makes unalterable and counted a §194-I voucher whose pinned outcome keeps it alterable; it now hands in the same three carriers — `NatureOfPaymentMovedByGrandfatheringTests.A_grandfathered_194C_voucher_the_rate_alteration_makes_unalterable_is_counted`, `…A_194I_voucher_whose_posted_outcome_is_pinned_is_not_counted` (both red without the carriers). **Verifier fix (wave 13 ic):** the count still compared only old-terms against new-terms, so a RESTORING alteration (back to the rate a voucher was posted at, which makes it alterable again) counted it and the save said altering it "is now refused"; a voucher is now counted only when, in addition, the new-terms outcome differs from its POSTED rate or TDS — the comparison the refusal makes — `NatureOfPaymentMovedByGrandfatheringTests.Restoring_the_rate_a_voucher_was_posted_at_does_not_count_it`, `NatureOfPaymentAlterVerifierTests.Restoring_the_rate_a_voucher_was_posted_at_does_not_claim_its_alteration_is_now_refused` (by keys; the Day Book narration-only Ctrl+A is then accepted on a reloaded book). |
+
+### IV-384 · **STILL NOT BUILT: dated rate history (Ctrl+I) on either master** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class D (not built). Area: TDS / TCS.** |
+| **What TallyPrime does** | `create-tds-masters` offers Ctrl+I *TDS Details (History)* with Applicable-from dates; the TCS FAQ tells the user not to remove or alter the existing line of a revised nature because it affects recorded transactions. |
+| **What we ship** | One set of figures per nature, as IV-343 records; out of this wave's scope by the plan (6.28 clause ii). The Nature of Goods now inherits the same consequence: an alteration changes the figures for every sale posted afterwards. |
+| **Tests** | None for the unbuilt item. |
+
+### IV-385 · **The v71 rung skips its ALTER on a file with no `nature_of_payment` table** (wave 13, track ic)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours; storage). Area: persistence.** |
+| **What TallyPrime does** | Not applicable. |
+| **What we ship** | Every real book holds `nature_of_payment` (v25 created it; CreateV1 carries it). Nineteen MINIMAL legacy fixtures in the persistence suite hand-build only the tables their own rung reads and then climb the whole ladder; this is the first rung since v25 to alter that table, so it probes `sqlite_master` and skips the ALTER when the table is absent. Nothing a reader sees changes: there is no row to carry a remittance. |
+| **Tests** | The nineteen `Legacy_vNN_database_auto_migrates_…` tests (red without the probe, measured on this branch); `NatureOfRemittanceV71SchemaTests.A_real_v70_book_climbs_…` for the real path. |
 
 ## 3. Grouped by area
 

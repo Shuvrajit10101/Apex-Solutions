@@ -286,7 +286,7 @@ public static class Schema
     /// straight to this version via <see cref="CreateV1"/>, while an older database is migrated up to it one version at a
     /// time. Keep this in lock-step with <see cref="CreateV1"/>: any table/column/index added to a migration must also
     /// appear in <see cref="CreateV1"/> (the migration-equivalence test enforces this).</summary>
-    public const int CurrentVersion = 70;
+    public const int CurrentVersion = 71;
 
     /// <summary>The scale forex amounts and rates are stored at (× 1,000,000 = "micros"), as INTEGER.</summary>
     public const long ForexScale = 1_000_000L;
@@ -560,7 +560,10 @@ public static class Schema
             cumulative_threshold_micro INTEGER     NULL,   -- cumulative-FY threshold, rupees × 1,000,000
             fvu_code                   TEXT    NOT NULL,   -- Form 26Q / FVU section code (e.g. 94J-B)
             effective_from             TEXT        NULL,   -- ISO yyyy-MM-dd, or NULL
-            is_predefined              INTEGER NOT NULL DEFAULT 0
+            is_predefined              INTEGER NOT NULL DEFAULT 0,
+            -- v71 (census 6.28 clause i): the numeric Nature of Remittance the operator enters on the master, or
+            -- NULL. Declaration byte-identical to MigrateV70ToV71.
+            nature_of_remittance       TEXT        NULL
         );
         CREATE INDEX ix_nature_of_payment_company ON nature_of_payment(company_id);
 
@@ -5681,6 +5684,41 @@ public static class Schema
             FROM budgets_v69_scratch ORDER BY old_rowid;
         DROP TABLE budgets_v69_scratch;
         CREATE INDEX ix_budgets_company         ON budgets(company_id);
+        """;
+
+    // ────────────────────────────────────────
+    // v71 — THE NATURE OF REMITTANCE ON THE NATURE OF PAYMENT MASTER (census row 6.28, clause i). Object names are
+    // published here ONCE so the migration, CreateV1, the downgrade and the tests all speak about the SAME set.
+    // ────────────────────────────────────────
+
+    /// <summary>The one <c>nature_of_payment</c> column v71 adds — the exact set <see cref="MigrateV70ToV71"/> adds
+    /// and <c>SchemaDowngrade.V71ToV70</c> removes.</summary>
+    public static readonly IReadOnlyList<string> V71NatureOfPaymentColumns = new[] { "nature_of_remittance" };
+
+    /// <summary>
+    /// v70 → v71 (census row <b>6.28</b>, clause (i) <i>"no Nature of Remittance"</i>): ONE nullable column,
+    /// <c>nature_of_payment.nature_of_remittance</c>, holding the numeric remittance code the operator enters on the
+    /// Nature of Payment master.
+    ///
+    /// <para>🔴 <b>Fidelity (R7, ruling 14).</b> help.tallysolutions.com/tds-faq-tally/, opened BY CONTENT
+    /// 2026-11-24: <i>"manually enter the applicable Nature of Remittance in the Nature of Payment master."</i>; and
+    /// help.tallysolutions.com/tally-prime/india-tds/form-27q-tally/ (FVU 8.2, Field 36): <i>"Enter the applicable
+    /// numeric Nature of Remittance code in Field 36 as per Annexure 8."</i> The value is captured, stored and
+    /// round-tripped; this product has no non-resident TDS return, so nothing files it (IV-378).</para>
+    ///
+    /// <para>🔴 <b>NOTHING IS BACK-FILLED.</b> NULL = "none entered", which is what every pre-v71 nature was
+    /// (there was no field), so every TDS computation and every return reads exactly as it did at v70 (ER-13).
+    /// There is no <c>UPDATE</c> in this migration. <c>nature_of_payment</c> is referenced by bare ids only (no
+    /// foreign key names it), so the downgrade can rebuild it with <c>RebuildPreservingShape</c> and nothing
+    /// dangles.</para>
+    ///
+    /// <para>Run inside a transaction that bumps <c>schema_version</c> to 71.</para>
+    /// </summary>
+    public const string MigrateV70ToV71 = """
+        -- v71 (census 6.28 clause i): the Nature of Remittance on the Nature of Payment master. NULL = none
+        -- entered = every pre-v71 nature, so there is deliberately no UPDATE. Declaration byte-identical to its
+        -- counterpart in CreateV1.
+        ALTER TABLE nature_of_payment ADD COLUMN nature_of_remittance       TEXT        NULL;
         """;
 
     // ───────────────────────────────────────────────────────────────────────────────────────────────────────────

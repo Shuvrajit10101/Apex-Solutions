@@ -48,10 +48,30 @@ public sealed class NatureOfPayment
     /// <summary>True for a Phase-7-seeded predefined nature.</summary>
     public bool IsPredefined { get; }
 
+    /// <summary>
+    /// Census 6.28 clause (i) (wave 13, track ic, schema v71) — the <b>Nature of Remittance</b> code the operator
+    /// enters on this master, or <c>null</c> when none was entered. Digits only, as entered.
+    ///
+    /// <para><b>Vendor ground (R7, ruling 14), opened by content 2026-11-24.</b>
+    /// <c>help.tallysolutions.com/tds-faq-tally/</c>, under the question whether the TDS Nature of Payment is
+    /// updated with the newly notified Nature of Remittance: the product does not yet carry it, and the user is
+    /// told to <i>"manually enter the applicable Nature of Remittance in the Nature of Payment master."</i>
+    /// <c>help.tallysolutions.com/tally-prime/india-tds/form-27q-tally/</c> (FVU 8.2, Field 36): <i>"Enter the
+    /// applicable numeric Nature of Remittance code in Field 36 as per Annexure 8."</i> — which is the ground for
+    /// accepting digits only.</para>
+    ///
+    /// <para>🔴 <b>CAPTURED AND STORED, NOT FILED.</b> The vendor page says the entered value is exported in the
+    /// non-resident e-return. <b>This product has no Form 27Q (nor its successor) at all</b>, so nothing reads this
+    /// field into a return; it is held on the master for the operator and round-trips through the store and the
+    /// canonical XML/JSON. No list of valid codes is shipped (Annexure 8 is not reproduced on any vendor page we
+    /// opened), so the only validation is the numeric one. See docs/invented-vs-cloned.md IV-378.</para>
+    /// </summary>
+    public string? NatureOfRemittance { get; }
+
     public NatureOfPayment(
         Guid id, string sectionCode, string name, int rateWithPanBp, int rateWithoutPanBp,
         string fvuSectionCode, Money? singleTransactionThreshold = null, Money? cumulativeThreshold = null,
-        DateOnly? effectiveFrom = null, bool isPredefined = false)
+        DateOnly? effectiveFrom = null, bool isPredefined = false, string? natureOfRemittance = null)
     {
         if (string.IsNullOrWhiteSpace(sectionCode))
             throw new ArgumentException("Nature-of-Payment section code is required.", nameof(sectionCode));
@@ -76,6 +96,23 @@ public sealed class NatureOfPayment
         CumulativeThreshold = cumulativeThreshold;
         EffectiveFrom = effectiveFrom;
         IsPredefined = isPredefined;
+        NatureOfRemittance = NormalizeNatureOfRemittance(natureOfRemittance);
+    }
+
+    /// <summary>
+    /// The one rule for a <see cref="NatureOfRemittance"/> value: blank ⇒ <c>null</c>; otherwise trimmed and
+    /// refused unless every character is an ASCII digit (the vendor calls it a "numeric … code").
+    /// </summary>
+    /// <exception cref="ArgumentException">The value is not blank and not all digits.</exception>
+    public static string? NormalizeNatureOfRemittance(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        if (!trimmed.All(c => c is >= '0' and <= '9'))
+            throw new ArgumentException(
+                "Nature of Remittance must be the numeric remittance code (digits only), or blank.",
+                nameof(value));
+        return trimmed;
     }
 
     /// <summary>The with-PAN rate as a percentage (e.g. 10.00 for 1000 bp).</summary>
@@ -96,8 +133,17 @@ public sealed class NatureOfPayment
     public NatureOfPayment WithTerms(
         string sectionCode, string name, int rateWithPanBp, int rateWithoutPanBp, string fvuSectionCode,
         Money? singleTransactionThreshold, Money? cumulativeThreshold) =>
+        WithTerms(sectionCode, name, rateWithPanBp, rateWithoutPanBp, fvuSectionCode,
+            singleTransactionThreshold, cumulativeThreshold, NatureOfRemittance);
+
+    /// <summary>Census 6.28 clause (i) (wave 13, track ic) — <see cref="WithTerms(string, string, int, int, string,
+    /// Money?, Money?)"/> that also sets the <see cref="NatureOfRemittance"/> (the 7-argument form carries the
+    /// existing value over unchanged, so no older caller can silently erase it).</summary>
+    public NatureOfPayment WithTerms(
+        string sectionCode, string name, int rateWithPanBp, int rateWithoutPanBp, string fvuSectionCode,
+        Money? singleTransactionThreshold, Money? cumulativeThreshold, string? natureOfRemittance) =>
         new(Id, sectionCode, name, rateWithPanBp, rateWithoutPanBp, fvuSectionCode,
-            singleTransactionThreshold, cumulativeThreshold, EffectiveFrom, IsPredefined);
+            singleTransactionThreshold, cumulativeThreshold, EffectiveFrom, IsPredefined, natureOfRemittance);
 
     /// <summary>
     /// 🔴 <b>THE FORM-26Q SECTION CODE THIS NATURE ACTUALLY FILES UNDER — the one every emitter must use.</b> It is

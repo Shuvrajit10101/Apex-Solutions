@@ -79,7 +79,7 @@ public sealed class BudgetParentV70SchemaTests
             Assert.Equal(4, linesBefore.Count);
             var orderBefore = Rows(path, "SELECT name FROM budgets ORDER BY rowid;");
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(69L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Equal("groups", UnderIdTarget(path));
             // A v69 value: Ops is filed under a GROUP, the shape v69 could store (the FK then pointed at groups).
@@ -89,7 +89,7 @@ public sealed class BudgetParentV70SchemaTests
             Company reloaded;
             using (var store = new SqliteCompanyStore(path)) reloaded = store.Load(s.Company.Id)!;
 
-            Assert.Equal(70L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Equal("budgets", UnderIdTarget(path));
             Assert.Equal(0L, ReadScalar(path, "SELECT COUNT(*) FROM budgets WHERE under_id IS NOT NULL;"));
             Assert.Equal(linesBefore, Rows(path, "SELECT budget_id || '|' || line_order || '|' || amount_paisa FROM budget_lines ORDER BY budget_id, line_order;"));
@@ -126,7 +126,7 @@ public sealed class BudgetParentV70SchemaTests
             using (var store = new SqliteCompanyStore(freshPath)) store.Save(Seed("Fresh Budget Parent Co").Company);
             using (var store = new SqliteCompanyStore(migratedPath)) store.Save(Seed("Migrated Budget Parent Co").Company);
 
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V70ToV69(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal("groups", UnderIdTarget(migratedPath));
             using (new SqliteCompanyStore(migratedPath)) { }
 
@@ -135,7 +135,7 @@ public sealed class BudgetParentV70SchemaTests
             Assert.Equal(ReadText(freshPath, tableSql), ReadText(migratedPath, tableSql));
             Assert.Equal(ReadText(freshPath, indexSql), ReadText(migratedPath, indexSql));
             Assert.Contains("REFERENCES budgets(id)", ReadText(freshPath, tableSql));
-            Assert.Equal(70, Schema.CurrentVersion);
+            Assert.Equal(71, Schema.CurrentVersion);   // re-baselined 70 -> 71 (census 6.28, wave 13: nature_of_payment.nature_of_remittance)
         }
         finally
         {
@@ -155,7 +155,7 @@ public sealed class BudgetParentV70SchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(s.Company);
             Assert.Equal(1L, ReadScalar(path, "SELECT COUNT(*) FROM budgets WHERE under_id IS NOT NULL;"));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal("groups", UnderIdTarget(path));
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "budgets"));

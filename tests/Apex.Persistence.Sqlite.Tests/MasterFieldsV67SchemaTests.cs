@@ -63,7 +63,7 @@ public sealed class MasterFieldsV67SchemaTests
                 store.Save(CompanyFactory.CreateSeeded("Legacy Master Co", FyStart));
 
             // ONE rung only — this test is about the v66 → v67 step in isolation.
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(66L, ReadScalar(migratedPath, "SELECT version FROM schema_version LIMIT 1;"));
 
             // The downgraded book genuinely lacks all twenty-two — otherwise the "migration" below proves nothing.
@@ -113,7 +113,7 @@ public sealed class MasterFieldsV67SchemaTests
 
             var indexesBefore = V67Tables.ToDictionary(t => t, t => IndexNames(path, t).OrderBy(n => n).ToList());
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
 
             foreach (var table in V67Tables)
                 Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, table));
@@ -157,7 +157,7 @@ public sealed class MasterFieldsV67SchemaTests
             Assert.True(typesBefore > 0 && catsBefore > 0 && godownsBefore > 0,
                 "the seeded book is missing one of the three masters, so this test proves nothing");
 
-            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V71ToV70(conn); SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SchemaDowngrade.V68ToV67(conn); SchemaDowngrade.V67ToV66(conn); SqliteConnection.ClearPool(conn); }
             using (new SqliteCompanyStore(path)) { }   // climbs v66 → v67
 
             Assert.Equal(typesBefore, ReadScalar(path, "SELECT COUNT(*) FROM voucher_types;"));
@@ -536,7 +536,7 @@ public sealed class MasterFieldsV67SchemaTests
         // Re-baselined 67 -> 68 (census 5.11): v68 adds only entry_lines.narration, none of the v67 columns.
         // Re-baselined 68 -> 69 (census 5.7, wave 10): v69 adds only inventory_vouchers.optional.
         // Re-baselined 69 -> 70 (census 2.9, wave 12): v70 re-points only budgets.under_id at budgets(id).
-        Assert.Equal(70, Schema.CurrentVersion);
+        Assert.Equal(71, Schema.CurrentVersion);   // re-baselined 70 -> 71 (census 6.28, wave 13: nature_of_payment.nature_of_remittance)
     }
 
     // ================================================================= helpers

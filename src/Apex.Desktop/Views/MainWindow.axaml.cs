@@ -3075,7 +3075,7 @@ public partial class MainWindow : Window
         => Vm?.NatureOfPaymentMaster?.AddMissingPredefined();
 
     private void OnCreateNatureOfGoodsClick(object? sender, RoutedEventArgs e)
-        => Vm?.NatureOfGoodsMaster?.Create();
+        => Vm?.NatureOfGoodsMaster?.Accept(); // census 6.36: Create or Alter, the same verb Ctrl+A runs
 
     // GST masters (census 6.23 / 6.25; schema v61) — the two Create actions plus the primary-registration rename.
     private void OnCreateGstRegistrationClick(object? sender, RoutedEventArgs e)

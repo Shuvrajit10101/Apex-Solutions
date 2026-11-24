@@ -911,6 +911,7 @@ public static class CanonicalMapper
         SingleThresholdPaisa = n.SingleTransactionThreshold is { } s ? MoneyCodec.ToPaisa(s) : null,
         CumulativeThresholdPaisa = n.CumulativeThreshold is { } c ? MoneyCodec.ToPaisa(c) : null,
         FvuSectionCode = n.FvuSectionCode, EffectiveFrom = Iso(n.EffectiveFrom), IsPredefined = n.IsPredefined,
+        NatureOfRemittance = n.NatureOfRemittance,   // census 6.28 clause (i), v71
     };
 
     private static NatureOfGoodsDto MapNatureOfGoods(NatureOfGoods n) => new()

@@ -1827,6 +1827,42 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 70;
         }
 
+        // v70 → v71 (census 6.28 clause i): ONE nullable column, nature_of_payment.nature_of_remittance — the
+        // numeric Nature of Remittance the operator enters on the Nature of Payment master. Purely additive and it
+        // back-fills NOTHING: NULL = none entered = every pre-v71 nature (ER-13). See Schema.MigrateV70ToV71.
+        if (version == 70)
+        {
+            using var tx = _connection.BeginTransaction();
+            // ⚠️ Guarded on the table's presence. Every real book holds nature_of_payment (v25 created it, and
+            // CreateV1 has carried it ever since); the guard exists for the nineteen MINIMAL legacy fixtures in the
+            // test suite (TdsTcsSchemaTests, PayrollSchemaTests, …) that hand-build only the handful of tables
+            // their own rung reads and then climb the whole ladder. This is the first rung since v25 to ALTER this
+            // table, so it is the first to meet them. Skipping the ALTER on a file with no such table changes
+            // nothing a reader can see: there is no row to carry a remittance.
+            using (var probe = _connection.CreateCommand())
+            {
+                probe.Transaction = tx;
+                probe.CommandText =
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'nature_of_payment';";
+                if (Convert.ToInt64(probe.ExecuteScalar()) > 0)
+                {
+                    using var mig = _connection.CreateCommand();
+                    mig.Transaction = tx;
+                    mig.CommandText = Schema.MigrateV70ToV71;
+                    mig.ExecuteNonQuery();
+                }
+            }
+            using (var bump = _connection.CreateCommand())
+            {
+                bump.Transaction = tx;
+                bump.CommandText = "UPDATE schema_version SET version = $v;";
+                bump.Parameters.AddWithValue("$v", 71);
+                bump.ExecuteNonQuery();
+            }
+            tx.Commit();
+            version = 71;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -4028,7 +4064,8 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
             SELECT id, section_code, name, rate_with_pan_bp, rate_without_pan_bp,
-                   single_threshold_micro, cumulative_threshold_micro, fvu_code, effective_from, is_predefined
+                   single_threshold_micro, cumulative_threshold_micro, fvu_code, effective_from, is_predefined,
+                   nature_of_remittance
             FROM nature_of_payment WHERE company_id = $cid ORDER BY rowid;
             """;
         cmd.Parameters.AddWithValue("$cid", companyId.ToString("D"));
@@ -4041,7 +4078,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 singleTransactionThreshold: MicroToMoney(r.IsDBNull(5) ? null : r.GetInt64(5)),
                 cumulativeThreshold: MicroToMoney(r.IsDBNull(6) ? null : r.GetInt64(6)),
                 effectiveFrom: r.IsDBNull(8) ? (DateOnly?)null : ParseDate(r.GetString(8)),
-                isPredefined: r.GetInt64(9) != 0));
+                isPredefined: r.GetInt64(9) != 0,
+                // v71 (census 6.28 clause i).
+                natureOfRemittance: r.IsDBNull(10) ? null : r.GetString(10)));
         return list;
     }
 
@@ -6576,8 +6615,9 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 s.CommandText = """
                     INSERT INTO nature_of_payment
                         (id, company_id, section_code, name, rate_with_pan_bp, rate_without_pan_bp,
-                         single_threshold_micro, cumulative_threshold_micro, fvu_code, effective_from, is_predefined)
-                    VALUES ($id, $cid, $sec, $name, $wp, $np, $single, $cum, $fvu, $eff, $pre);
+                         single_threshold_micro, cumulative_threshold_micro, fvu_code, effective_from, is_predefined,
+                         nature_of_remittance)
+                    VALUES ($id, $cid, $sec, $name, $wp, $np, $single, $cum, $fvu, $eff, $pre, $nor);
                     """;
                 s.Parameters.AddWithValue("$id", n.Id.ToString("D"));
                 s.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
@@ -6590,6 +6630,7 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 s.Parameters.AddWithValue("$fvu", n.FvuSectionCode);
                 s.Parameters.AddWithValue("$eff", n.EffectiveFrom is { } ef ? FormatDate(ef) : (object)DBNull.Value);
                 s.Parameters.AddWithValue("$pre", n.IsPredefined ? 1 : 0);
+                s.Parameters.AddWithValue("$nor", (object?)n.NatureOfRemittance ?? DBNull.Value); // v71
                 s.ExecuteNonQuery();
             }
 

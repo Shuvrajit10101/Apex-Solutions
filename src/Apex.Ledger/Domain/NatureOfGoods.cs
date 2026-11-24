@@ -86,6 +86,20 @@ public sealed class NatureOfGoods
         LegacyCutoff = legacyCutoff;
     }
 
+    /// <summary>
+    /// Census 6.36 clause 1 (wave 13, track ic) — the <b>ALTERED copy</b> of this master: the same <see cref="Id"/>,
+    /// <see cref="BaseIncludesGst"/>, <see cref="EffectiveFrom"/>, <see cref="IsPredefined"/>, <see cref="IsLegacy"/>
+    /// and <see cref="LegacyCutoff"/>, carrying the operator's new terms. Mirrors <see cref="NatureOfPayment.WithTerms(string, string, int, int, string, Money?, Money?)"/>:
+    /// the class stays immutable and an alteration REPLACES the instance through
+    /// <see cref="TcsConfig.ReplaceNatureOfGoods"/>. The id is kept because <see cref="Ledger.TcsNatureOfGoodsId"/>,
+    /// <see cref="StockItem.TcsNatureOfGoodsId"/> and every posted <see cref="TcsLineTax.NatureId"/> point at it, and
+    /// the §206C(1H) cumulative projection keys on it. The constructor's validation runs on the new terms.
+    /// </summary>
+    public NatureOfGoods WithTerms(
+        string collectionCode, string name, int rateWithPanBp, int rateWithoutPanBp, string fvuCode, Money? threshold) =>
+        new(Id, collectionCode, name, rateWithPanBp, rateWithoutPanBp, fvuCode, threshold, BaseIncludesGst,
+            EffectiveFrom, IsPredefined, IsLegacy, LegacyCutoff);
+
     /// <summary>The with-PAN rate as a percentage (e.g. 1.00 for 100 bp).</summary>
     public decimal RateWithPanPercent => RateWithPanBp / 100m;
 

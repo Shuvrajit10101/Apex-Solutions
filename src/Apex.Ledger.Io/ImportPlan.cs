@@ -1433,7 +1433,8 @@ internal sealed class ImportPlan
                 n.FvuSectionCode,
                 singleTransactionThreshold: n.SingleThresholdPaisa is { } s ? MoneyCodec.FromPaisa(s) : null,
                 cumulativeThreshold: n.CumulativeThresholdPaisa is { } c ? MoneyCodec.FromPaisa(c) : null,
-                effectiveFrom: CompanyImportService.ParseDateOpt(n.EffectiveFrom), isPredefined: n.IsPredefined);
+                effectiveFrom: CompanyImportService.ParseDateOpt(n.EffectiveFrom), isPredefined: n.IsPredefined,
+                natureOfRemittance: n.NatureOfRemittance);   // census 6.28 clause (i), v71
             config.AddNatureOfPayment(nature);
             map[n.Id] = nature.Id;
         }
