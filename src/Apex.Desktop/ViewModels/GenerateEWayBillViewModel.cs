@@ -145,6 +145,10 @@ public sealed partial class GenerateEWayBillViewModel : ViewModelBase
         {
             var coverage = _service.CoverageOf(v);
             var record = _company.EWayBillRecords.FirstOrDefault(r => r.SourceVoucherId == v.Id);
+            // T2-174 (wave 13, IV-389): an Optional voucher is not offered for an e-Way Bill until Ctrl+L makes it
+            // Regular (help.tallysolutions.com/create-optional-voucher/: "without affecting your books of accounts").
+            // OURS: one carrying a GENERATED bill stays listed, so the bill can still be cancelled from here.
+            if (v.Optional && record is not { Status: EWayStatus.Generated }) continue;
             if (coverage == EWayCoverage.NotApplicable && record is null) continue;
 
             var required = coverage is EWayCoverage.Required or EWayCoverage.MandatoryIrrespectiveOfValue;

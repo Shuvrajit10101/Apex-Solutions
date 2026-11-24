@@ -2750,8 +2750,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // purchase here let the screen post a sales-return-shaped note (Output tax, stock IN) against a supplier: a
         // GSTR-1 cdnr row naming the supplier and a 3.1(a) reduction. A Debit Note keeps both natures: a Sales
         // original is our §34(3) note (T2-163), a Purchase original a purchase return.
+        //
+        // T2-174 (wave 13, IV-388): `!v.Optional` for the same reason as `!v.Cancelled`. An Optional invoice is
+        // recorded "without affecting your books of accounts" (help.tallysolutions.com/create-optional-voucher/), so
+        // it is not yet a supply a note can adjust. Ctrl+L (Regular) puts it back on the list.
         foreach (var v in _company.Vouchers
-                     .Where(v => !v.Cancelled && IsOfferableSection34Original(v))
+                     .Where(v => !v.Cancelled && !v.Optional && IsOfferableSection34Original(v))
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault();
@@ -3014,6 +3018,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = legacy, Display = CdnCandidateDisplay(legacy) });
         }
 
+        // T2-174 review (wave 13, IV-388): the picker no longer offers an OPTIONAL original to a new note, but a note
+        // posted while its original was Regular keeps that link when the original is later marked Optional (Ctrl+L in
+        // alteration). Put that one original back for the same reason as the T2-164 case above: falling through to
+        // the consolidated branch would rewrite the posted link to a consolidated reference on re-accept, and
+        // regularising the original afterwards would not restore it.
+        if (link.OriginalInvoiceVoucherId is { } optionalId
+            && CdnOriginalInvoices.All(o => o.Invoice?.Id != optionalId)
+            && _company.FindVoucher(optionalId) is { Cancelled: false, Optional: true } optionalOriginal
+            && IsOfferableSection34Original(optionalOriginal))
+        {
+            CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption
+            {
+                Invoice = optionalOriginal, Display = CdnCandidateDisplay(optionalOriginal),
+            });
+        }
+
         if (link.OriginalInvoiceVoucherId is { } originalId
             && CdnOriginalInvoices.FirstOrDefault(o => o.Invoice?.Id == originalId) is { } picked)
         {
@@ -3230,8 +3250,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // above: this list offers the invoice an outstanding advance is ADJUSTED AGAINST, and it filtered on base
         // type alone. Adjusting an advance against a cancelled sale would retire real advance tax against a
         // supply with no value, and the advance would be marked settled by an invoice that is not on the books.
+        // T2-174 (wave 13, IV-388): an Optional sale is not on the books either, so it is not offered until Ctrl+L.
         foreach (var v in _company.Vouchers
-                     .Where(v => !v.Cancelled
+                     .Where(v => !v.Cancelled && !v.Optional
                          && _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             AdvanceInvoices.Add(new AdvanceInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
@@ -3755,6 +3776,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             _carriedLegacyValueLedgerId = null;
             _stockLedgersBuiltForPurchaseFamily = null;   // force the rebuild so the carried ledger leaves the picker
             RefreshValueLedgerFamily();
+        }
+
+        // 🔴 T2-174 verifier (wave 13, IV-388) — THE OPTIONAL ORIGINAL PUT BACK FOR AN ALTERATION IS TAKEN OFF A
+        // DUPLICATE. `RehydrateSection34From` returns a note's own Optional original to the picker so an ALTERATION
+        // keeps the posted link. A duplicate is a NEW note, and `BuildSection34Pickers` does not offer a new note an
+        // Optional sale; left in, Ctrl+A minted a fresh link naming a supply that is not on the books. The panel
+        // falls to the consolidated reference carrying the original's number and date — where a duplicate of a note
+        // whose original is no longer offered (a cancelled one) already lands. The selection moves BEFORE the option
+        // is removed, so a bound ComboBox never sees its selected item vanish.
+        if (CdnOriginalInvoices.FirstOrDefault(o => o.Invoice is { Optional: true }) is { Invoice: { } optional } optionalOption)
+        {
+            if (ReferenceEquals(SelectedCdnOriginalInvoice, optionalOption))
+            {
+                SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault(o => o.IsConsolidated)
+                                          ?? SelectedCdnOriginalInvoice;
+                CdnOriginalInvoiceNumber = _company.FormatVoucherNumber(optional);
+                CdnOriginalInvoiceDateText = ApexDate.Format(optional.Date);
+            }
+            CdnOriginalInvoices.Remove(optionalOption);
+            UpdateSection34Panel();
         }
     }
 

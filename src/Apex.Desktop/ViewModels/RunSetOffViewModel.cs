@@ -305,7 +305,8 @@ public sealed partial class RunSetOffViewModel : ViewModelBase
         var drawn = 0m;
         foreach (var v in _company.Vouchers)
         {
-            if (v.Cancelled || v.Date < from || v.Date > to) continue;
+            // T2-174 (wave 13, IV-390): an Optional discharge paid nothing until Ctrl+L makes it Regular.
+            if (v.Cancelled || v.Optional || v.Date < from || v.Date > to) continue;
 
             // Is this voucher a 3B cash discharge of THIS head's output tax at all?
             var isThreeBDischarge = v.Lines.Any(l => l.Side == DrCr.Debit
