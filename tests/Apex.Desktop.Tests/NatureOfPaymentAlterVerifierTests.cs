@@ -285,8 +285,12 @@ public sealed class NatureOfPaymentAlterVerifierTests
             var alter = OpenAlteration(b, "194J(b)");
             alter.CumulativeThresholdText = "100000";
             Key(b.Window, PhysicalKey.A, RawInputModifiers.Control);
-            Assert.Contains("1 voucher already posted under this section", alter.Message);
-            Assert.Contains("wherever the new rate or threshold would change its deduction", alter.Message);
+            // ~~Assert.Contains("1 voucher already posted under this section", …) / "wherever the new rate or
+            // threshold would change its deduction"~~ — 🔴 T2-181 (wave 13, track ic): those two lines pinned the
+            // OVERSTATED count the census filed as a defect. This alteration moves no voucher, so the save now
+            // carries no posted-voucher sentence at all (NatureOfPaymentRules.VouchersMovedBy; IV-383).
+            Assert.Contains("altered", alter.Message);
+            Assert.DoesNotContain("already posted", alter.Message);
 
             AlterNarrationFromDayBook(b, posted.Id);
             Assert.NotEqual(Screen.VoucherEntry, b.Vm.CurrentScreen); // accepted: the alteration column popped
