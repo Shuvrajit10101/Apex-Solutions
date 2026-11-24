@@ -53,8 +53,11 @@ public sealed class OptionalOriginalNoteAlterationTests : IDisposable
         return (fresh.Load(fresh.ListCompanies().Single(e => e.Name == CompanyName)), fresh);
     }
 
-    [Fact]
-    public void Altering_a_note_whose_original_sale_was_later_made_optional_keeps_the_posted_link()
+    /// <summary>
+    /// A Regular sale and a §34 credit note linked to it, posted through the voucher-entry screen, then the sale is
+    /// marked Optional (the engine verb Ctrl+L calls) and the book saved. Returns the two voucher ids.
+    /// </summary>
+    private (Guid SaleId, Guid NoteId) SeedNoteWhoseOriginalIsLaterMadeOptional()
     {
         var vm = new MainWindowViewModel(_storage);
         vm.NewCompanyName = CompanyName;
@@ -106,6 +109,15 @@ public sealed class OptionalOriginalNoteAlterationTests : IDisposable
         // The original is later marked Optional (Ctrl+L in alteration — the engine verb it calls), saved.
         new LedgerService(c).SetOptional(sale.Id, true);
         _storage.Save(c);
+        return (sale.Id, note.Id);
+    }
+
+    [Fact]
+    public void Altering_a_note_whose_original_sale_was_later_made_optional_keeps_the_posted_link()
+    {
+        var (saleId, noteId) = SeedNoteWhoseOriginalIsLaterMadeOptional();
+        var sale = new { Id = saleId };
+        var note = new { Id = noteId };
 
         // A NEW note is still not offered the Optional sale (IV-388 holds).
         var (fresh, freshStore) = Reload();
@@ -129,5 +141,45 @@ public sealed class OptionalOriginalNoteAlterationTests : IDisposable
         afterStore.Save(afterAlter);
         var (afterRegular, _) = Reload();
         Assert.Equal(sale.Id, afterRegular.CreditDebitNoteLinks.Single(l => l.CdnVoucherId == note.Id).OriginalInvoiceVoucherId);
+    }
+
+    /// <summary>
+    /// T2-174 verifier (wave 13, IV-388). The rehydration above puts the note's own Optional original back on the
+    /// picker so an ALTERATION keeps its link. A DUPLICATE (Alt+2) runs the same rehydration and is a NEW note, so
+    /// without <c>DetachAsDuplicate</c> taking that original off again, Ctrl+A posted a second note with a fresh link
+    /// naming the Optional sale by id: the exact leak IV-388 closed for a new note. Driven through
+    /// <see cref="MainWindowViewModel.RequestDuplicateHighlightedVoucher"/> (the Alt+2 handler) on the Day Book of a
+    /// book reloaded through a fresh <see cref="CompanyStorage"/>, and read back off a second reload.
+    /// </summary>
+    [Fact]
+    public void Duplicating_a_note_whose_original_sale_was_later_made_optional_does_not_link_the_optional_sale()
+    {
+        var (saleId, noteId) = SeedNoteWhoseOriginalIsLaterMadeOptional();
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        var vm = new MainWindowViewModel(new CompanyStorage(_tempDir));
+        vm.ShowCompanySelect();
+        vm.Menu.Single(m => m.Label == CompanyName).Activate();
+        Assert.True(vm.Company!.FindVoucher(saleId)!.Optional);
+
+        vm.OpenReport(ReportKind.DayBook);
+        vm.Reports!.SelectedRow = vm.Reports.Rows.First(r => r.DrillVoucherId == noteId);
+        Assert.Equal(VoucherAlterationRequest.Opened, vm.RequestDuplicateHighlightedVoucher());
+        var dup = vm.VoucherEntry!;
+        Assert.False(dup.IsAltering);
+
+        // The copy is not offered the Optional sale, and falls to the consolidated reference carrying the
+        // original's number and date, which is where a duplicate of a note whose original is no longer offered lands.
+        Assert.DoesNotContain(dup.CdnOriginalInvoices, o => o.Invoice?.Id == saleId);
+        Assert.True(dup.SelectedCdnOriginalInvoice?.IsConsolidated);
+        Assert.Equal(vm.Company!.FormatVoucherNumber(vm.Company.FindVoucher(saleId)!), dup.CdnOriginalInvoiceNumber);
+        Assert.True(dup.Accept(), dup.Message);
+
+        var (after, _) = Reload();
+        var copyLink = after.CreditDebitNoteLinks.Single(l => l.CdnVoucherId != noteId);
+        Assert.Null(copyLink.OriginalInvoiceVoucherId);
+        Assert.Equal(after.FindVoucher(saleId)!.Date, copyLink.OriginalInvoiceDate);
+        // The source note keeps its own link to the sale.
+        Assert.Equal(saleId, after.CreditDebitNoteLinks.Single(l => l.CdnVoucherId == noteId).OriginalInvoiceVoucherId);
     }
 }

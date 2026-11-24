@@ -3777,6 +3777,26 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             _stockLedgersBuiltForPurchaseFamily = null;   // force the rebuild so the carried ledger leaves the picker
             RefreshValueLedgerFamily();
         }
+
+        // 🔴 T2-174 verifier (wave 13, IV-388) — THE OPTIONAL ORIGINAL PUT BACK FOR AN ALTERATION IS TAKEN OFF A
+        // DUPLICATE. `RehydrateSection34From` returns a note's own Optional original to the picker so an ALTERATION
+        // keeps the posted link. A duplicate is a NEW note, and `BuildSection34Pickers` does not offer a new note an
+        // Optional sale; left in, Ctrl+A minted a fresh link naming a supply that is not on the books. The panel
+        // falls to the consolidated reference carrying the original's number and date — where a duplicate of a note
+        // whose original is no longer offered (a cancelled one) already lands. The selection moves BEFORE the option
+        // is removed, so a bound ComboBox never sees its selected item vanish.
+        if (CdnOriginalInvoices.FirstOrDefault(o => o.Invoice is { Optional: true }) is { Invoice: { } optional } optionalOption)
+        {
+            if (ReferenceEquals(SelectedCdnOriginalInvoice, optionalOption))
+            {
+                SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault(o => o.IsConsolidated)
+                                          ?? SelectedCdnOriginalInvoice;
+                CdnOriginalInvoiceNumber = _company.FormatVoucherNumber(optional);
+                CdnOriginalInvoiceDateText = ApexDate.Format(optional.Date);
+            }
+            CdnOriginalInvoices.Remove(optionalOption);
+            UpdateSection34Panel();
+        }
     }
 
     /// <summary>
