@@ -91,6 +91,13 @@ public static class InventoryDerivedStock
     /// is removed (IV-359) — a Discount Received leg on that purchase stays income. Without the charge the purchase is
     /// charged nowhere and the Balance Sheet is out by S.</item>
     /// </list>
+    /// <para>🔴 <b>Wave 13 review of track ia:</b> the charge is limited to an ITEM INVOICE (a voucher carrying
+    /// inventory lines) — the T2-180 shape, where the stock ledger stands in for a purchase ledger. An accounting-only
+    /// posting to a Stock-in-Hand ledger is a VALUE adjustment, never a purchase (vendor, stock-valuation-faq: a
+    /// Stock-in-Hand ledger "is used only for entering the opening and closing values"), so it keeps the pre-track
+    /// IV-336 treatment even when its counter-leg is a Balance-Sheet ledger. Charging it double-counted the value: a
+    /// closing-stock journal Dr Stock-in-Hand / Cr the seeded <i>Profit &amp; Loss A/c</i> ledger turned a 231.99 Net
+    /// Profit into a 255.00 Net Loss while the sheet still balanced, so nothing caught it.</para>
     /// </summary>
     public static StockPostingTreatment StockPostings(
         Company company, DateOnly to, Scenario? scenario, DateOnly? windowFrom)
@@ -131,9 +138,10 @@ public static class InventoryDerivedStock
 
             // T2-180: a voucher with any Balance-Sheet leg is not a closing-stock posting — charge the stock
             // movement as purchases, per Stock-in-Hand ledger, and leave every P&L leg of it standing.
+            // Wave 13 review: only an ITEM INVOICE is a purchase; an accounting-only posting is a value adjustment.
             var closingStockPosting = v.Lines.All(l =>
                 stockLedgers.Contains(l.LedgerId) || profitAndLossLedgers.Contains(l.LedgerId));
-            if (!closingStockPosting)
+            if (!closingStockPosting && v.HasInventoryLines)
             {
                 foreach (var line in v.Lines)
                     if (stockLedgers.Contains(line.LedgerId))

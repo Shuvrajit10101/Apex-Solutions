@@ -282,6 +282,100 @@ public sealed class InventoryDerivedStockLegPurchaseTests : IDisposable
         Assert.Equal(568.40m + 622.20m, bsc.Assets);
     }
 
+    /// <summary>
+    /// Reviewer addition (wave 13 review of track ia). An ACCOUNTING-ONLY posting to a Stock-in-Hand ledger against a
+    /// Balance-Sheet ledger is a value adjustment, not a purchase, so it must NOT be charged. Two shapes, each with an
+    /// ordinary purchase 100 @ 10.37 to a Purchase Accounts ledger and a sale 40 @ 14.21:
+    /// <list type="bullet">
+    /// <item><b>ProfitAndLossLedger</b> — the closing-stock journal Dr Stock-in-Hand 622.20 / Cr the seeded
+    /// <i>Profit &amp; Loss A/c</i> ledger. Derived closing 60 @ 10.37 = 622.20; truth 568.40 + 622.20 - 1,037.00 =
+    /// <b>153.60</b>. Charging it as a purchase read a 468.60 Net LOSS.</item>
+    /// <item><b>Capital</b> — an item-master opening 10 @ 10.37 = 103.70 whose accounting side is booked as a journal
+    /// Dr Stock-in-Hand 103.70 / Cr Capital. Derived opening 103.70, closing 70 @ 10.37 = 725.90; truth 568.40 + 725.90
+    /// - 103.70 - 1,037.00 = <b>153.60</b>. Charging it charged the opening twice (Net 49.90).</item>
+    /// </list>
+    /// Only the Net Profit and the absence of a charge line are asserted, on the horizontal (detailed and Alt+F1) and
+    /// vertical forms of the reloaded book. The Balance Sheet of these shapes is NOT asserted: the Balance-Sheet
+    /// counter-leg has no derived-basis counterpart, which is a pre-existing gap and must not be pinned either way.
+    /// </summary>
+    [Theory]
+    [InlineData("ProfitAndLossLedger")]
+    [InlineData("Capital")]
+    public void An_accounting_only_stock_posting_against_a_Balance_Sheet_ledger_is_not_charged_as_a_purchase(string shape)
+    {
+        var vm = new MainWindowViewModel(_storage);
+        vm.NewCompanyName = "Ia ValueAdj " + shape + " " + Guid.NewGuid().ToString("N")[..6];
+        vm.CreateCompany();
+        var c = vm.Company!;
+        var s = c.BooksBeginFrom;
+        var inv = new InventoryService(c);
+        var unit = inv.CreateSimpleUnit("Nos", "Numbers");
+        var grp = c.FindStockGroupByName("Primary") ?? inv.CreateStockGroup("Primary");
+        var item = inv.CreateStockItem("Widget Adj", grp.Id, unit.Id);
+        var main = c.MainLocation!;
+        var stock = L(c, "Stock Adj", "Stock-in-Hand", true);
+        var sup = L(c, "Supplier Adj", "Sundry Creditors", false);
+        var cus = L(c, "Customer Adj", "Sundry Debtors", true);
+        var pur = L(c, "Purchases Adj", "Purchase Accounts", true);
+        var sal = L(c, "Sales Adj", "Sales Accounts", false);
+        var svc = new LedgerService(c);
+
+        DomainLedger counter;
+        decimal amount;
+        if (shape == "Capital")
+        {
+            inv.AddOpeningBalance(item.Id, main.Id, 10m, Money.FromRupees(10.37m));
+            counter = L(c, "Capital Adj", "Capital Account", false);
+            amount = 103.70m;
+        }
+        else
+        {
+            counter = c.Ledgers.Single(l => l.Name == "Profit & Loss A/c");
+            amount = 622.20m;
+        }
+
+        svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Purchase")!.Id, s.AddDays(3),
+            new[]
+            {
+                new EntryLine(pur.Id, Money.FromRupees(1_037.00m), DrCr.Debit),
+                new EntryLine(sup.Id, Money.FromRupees(1_037.00m), DrCr.Credit),
+            },
+            number: 1, partyId: sup.Id,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(item.Id, main.Id, 100m, Money.FromRupees(10.37m), StockDirection.Inward),
+            }));
+        svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Sales")!.Id, s.AddDays(9),
+            new[]
+            {
+                new EntryLine(sal.Id, Money.FromRupees(568.40m), DrCr.Credit),
+                new EntryLine(cus.Id, Money.FromRupees(568.40m), DrCr.Debit),
+            },
+            number: 2, partyId: cus.Id,
+            inventoryLines: new[]
+            {
+                new VoucherInventoryLine(item.Id, main.Id, 40m, Money.FromRupees(14.21m), StockDirection.Outward),
+            }));
+        svc.Post(new Voucher(Guid.NewGuid(), c.FindVoucherTypeByName("Journal")!.Id, s.AddDays(20),
+            new[]
+            {
+                new EntryLine(stock.Id, Money.FromRupees(amount), DrCr.Debit),
+                new EntryLine(counter.Id, Money.FromRupees(amount), DrCr.Credit),
+            }));
+        _storage.Save(c);
+        var asOf = s.AddDays(60);
+
+        var hd = HorizontalOf(c, asOf, detailed: true);
+        Assert.Equal(153.60m, hd.Net);
+        Assert.DoesNotContain(hd.Rows, x => x.Label == "Stock Adj");
+        var hc = HorizontalOf(c, asOf, detailed: false);
+        Assert.Equal(153.60m, hc.Net);
+        Assert.Contains(hc.Rows, x => x.Label == "Purchase Accounts" && x.Amount == 1_037.00m);
+        var v = VerticalOf(c, asOf);
+        Assert.Equal(153.60m, v.Net);
+        Assert.Equal(153.60m, v.Gross);
+    }
+
     [Fact]
     public void A_purchase_before_an_Alt_F2_window_is_opening_stock_not_a_second_charge()
     {
