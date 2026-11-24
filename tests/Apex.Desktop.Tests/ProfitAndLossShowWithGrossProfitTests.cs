@@ -262,6 +262,42 @@ public sealed class ProfitAndLossShowWithGrossProfitTests : IDisposable
         Assert.DoesNotContain(r.Rows, x => x.Particulars.Contains("c/o") || x.Particulars.Contains("b/f"));
     }
 
+    /// <summary>
+    /// Reviewer addition (wave 13 review of track ia): the split form with a NON-ZERO opening stock. Every other test in
+    /// this class has opening stock 0, so dropping the Opening Stock line from the Trading Account survived them all
+    /// (mutation R3) — and on any book that carries opening stock the Trading Account would then not foot. An Alt+F2
+    /// window from day 5 puts the day-3 purchase (100 @ 10.37) before the window, so the derived opening is 1,037.00:
+    /// Trading 568.40 + 622.20 = 1,190.60 | Opening Stock 1,037.00 + Gross Profit c/o 153.60; P&amp;L 153.60 + 12.34 -
+    /// 3.21 = Net 162.73. Read off the emitted CSV of a reloaded book, detailed and Alt+F1.
+    /// </summary>
+    [Fact]
+    public void Show_with_Gross_Profit_carries_a_non_zero_Opening_Stock_inside_the_Trading_Account()
+    {
+        var f = Build("GP Opening", 14.21m);
+        var r = new ReportsViewModel(Reload(f.Company), ReportKind.ProfitAndLoss);
+        r.SetAsOf(f.AsOf);
+        r.SetPeriod(f.Company.BooksBeginFrom.AddDays(5), f.AsOf);
+        r.ApplyConfiguration(hideZero: false, showPercentages: false, closingStock: ClosingStockMode.InventoryDerived);
+        r.SetShowWithGrossProfit(true);
+        Assert.True(r.ShowWithGrossProfit);
+
+        foreach (var detailed in new[] { true, false })
+        {
+            if (!detailed) r.ToggleDetailed();
+            var csv = Csv(r);
+            var (trading, gross, _, _, net) = AssertFoots(csv);
+            Assert.Equal(1_190.60m, trading);
+            Assert.Equal(153.60m, gross);
+            Assert.Equal(162.73m, net);
+            var rows = Parse(csv);
+            var ta = rows.FindIndex(x => x.Label == "Trading Account");
+            var pa = rows.FindIndex(x => x.Label == "Profit & Loss A/c");
+            var opening = rows.FindIndex(x => x.Label == "Opening Stock");
+            Assert.True(opening > ta && opening < pa, csv);
+            Assert.Equal(1_037.00m, rows[opening].Amount);
+        }
+    }
+
     [Fact]
     public void Show_with_Gross_Profit_is_horizontal_only_and_P_and_L_only()
     {
