@@ -1650,6 +1650,15 @@ public sealed record NatureOfPaymentDto
     public required string FvuSectionCode { get; init; }
     public string? EffectiveFrom { get; init; }            // ISO or null
     public bool IsPredefined { get; init; }
+
+    /// <summary>
+    /// Census 6.28 clause (i) (wave 13, track ic; store schema v71) — the numeric Nature of Remittance entered on the
+    /// master, or <c>null</c>. <b>Appended at the END and marked WhenWritingNull</b>, so a nature without one emits
+    /// NO key and every existing export is byte-identical (ER-13); the XML attribute is likewise optional.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(
+        Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? NatureOfRemittance { get; init; }
 }
 
 /// <summary>A Nature-of-Goods (§206C) master. Threshold is integer paisa (null ⇒ collected on full value).</summary>

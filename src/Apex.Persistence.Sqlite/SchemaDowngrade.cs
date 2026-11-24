@@ -755,9 +755,31 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV70ToV71"/> (census row <b>6.28</b>, clause i): removes
+    /// <see cref="Schema.V71NatureOfPaymentColumns"/> (<c>nature_of_payment.nature_of_remittance</c>) and stamps
+    /// <c>schema_version</c> back to <b>70</b>. ⚠️ <b>This is the TOP rung</b> — every chain that walks a current
+    /// book down starts here, then <see cref="V70ToV69"/>.
+    ///
+    /// <para><see cref="RebuildPreservingShape"/> keeps the PRIMARY KEY, the NOT NULLs, the DEFAULTs, the
+    /// <c>company_id</c> foreign key and <c>ix_nature_of_payment_company</c>. No foreign key names
+    /// <c>nature_of_payment</c> (ledgers and TDS lines carry bare ids), so nothing dangles.</para>
+    ///
+    /// <para><b>WHAT IS LOST:</b> every entered Nature of Remittance. No figure moves — nothing computes from it,
+    /// and this product files no return that carries it.</para>
+    /// </summary>
+    public static void V71ToV70(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        RebuildPreservingShape(connection, "nature_of_payment", Schema.V71NatureOfPaymentColumns, "nature_of_payment_v70");
+
+        Exec(connection, "UPDATE schema_version SET version = 70;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV69ToV70"/> (census row <b>2.9</b>): re-declares <c>budgets</c> with
     /// <c>under_id REFERENCES groups(id)</c>, exactly as v69 declared it, and stamps <c>schema_version</c> back to
-    /// <b>69</b>. ⚠️ <b>This is the TOP rung</b> — every chain that walks a current book down starts here.
+    /// <b>69</b>. ⚠️ <b>Since v71 this is no longer the top rung</b> — run <see cref="V71ToV70"/> first.
     ///
     /// <para>🔴 <b>NOT <see cref="RebuildPreservingShape"/></b>: that helper reconstructs each column's
     /// <c>REFERENCES</c> from <c>PRAGMA foreign_key_list</c>, so it would faithfully re-declare the v70 target

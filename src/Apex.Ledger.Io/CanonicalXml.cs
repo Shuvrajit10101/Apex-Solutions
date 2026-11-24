@@ -759,7 +759,8 @@ public static class CanonicalXml
         Attr("id", n.Id), Attr("sectionCode", n.SectionCode), Attr("name", n.Name),
         Attr("rateWithPanBp", n.RateWithPanBp), Attr("rateWithoutPanBp", n.RateWithoutPanBp),
         OptLong("singleThresholdPaisa", n.SingleThresholdPaisa), OptLong("cumulativeThresholdPaisa", n.CumulativeThresholdPaisa),
-        Attr("fvuSectionCode", n.FvuSectionCode), Opt("effectiveFrom", n.EffectiveFrom), Attr("isPredefined", n.IsPredefined));
+        Attr("fvuSectionCode", n.FvuSectionCode), Opt("effectiveFrom", n.EffectiveFrom), Attr("isPredefined", n.IsPredefined),
+        Opt("natureOfRemittance", n.NatureOfRemittance));   // census 6.28 clause (i), v71 — absent when none
 
     private static XElement BuildTcsConfig(TcsConfigDto t)
     {
@@ -1834,6 +1835,7 @@ public static class CanonicalXml
         RateWithPanBp = Int(e, "rateWithPanBp"), RateWithoutPanBp = Int(e, "rateWithoutPanBp"),
         SingleThresholdPaisa = OptLong(e, "singleThresholdPaisa"), CumulativeThresholdPaisa = OptLong(e, "cumulativeThresholdPaisa"),
         FvuSectionCode = Str(e, "fvuSectionCode")!, EffectiveFrom = Str(e, "effectiveFrom"), IsPredefined = Bool(e, "isPredefined"),
+        NatureOfRemittance = Str(e, "natureOfRemittance"),   // census 6.28 clause (i), v71
     };
 
     private static TcsConfigDto ReadTcsConfig(XElement e) => new()
