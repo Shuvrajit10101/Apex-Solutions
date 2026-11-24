@@ -1666,10 +1666,10 @@ public static class GstReportSupport
     /// limb reaches services on the face of the section, and §2(47) defines an exempt supply as one which "attracts
     /// nil rate of tax or which may be wholly exempt from tax under section 11 … and includes non-taxable supply".
     /// Source: <c>https://cbic-gst.gov.in/pdf/CGST-Act-Updated-30092020.pdf</c>.</para>
-    /// <para><b>FIX-W1d — what happens to a leg carrying NO GST block at all.</b> The comment here used to claim such a
-    /// leg "is treated as taxable (silence is not an exemption)", the item limb's rule. That is not what this code
-    /// does, and the next reader could have deleted a guard on the strength of it: this loop never SEES such a leg,
-    /// because <see cref="Gstr1.ServiceLegs"/> skips every line whose ledger has <c>SalesPurchaseGst is null</c>. On
+    /// <para><b>FIX-W1d — a leg carrying NO GST block at all.</b> This loop never SEES such a leg (it is not "treated
+    /// as taxable"), because <see cref="Gstr1.ServiceLegs"/> skips every line whose ledger has <c>SalesPurchaseGst is
+    /// null</c> — 🟡 wave 13, IV-368: UNLESS the walk declares a SAC for it (<see cref="Gstr1.IsNoBlockServiceLedger"/>),
+    /// and then its taxability is the walk's (<see cref="Gstr1.IsNonTaxableServiceLedger"/>). On
     /// this method's own terms a plain income leg is therefore invisible, and an invoice mixing one exempt SAC leg
     /// with one plain income leg would return TRUE. The protection is structural but lives ELSEWHERE and one conjunct
     /// earlier: <see cref="ServiceInvoiceFoots"/> rejects any voucher whose projected total (built from the SAC legs
@@ -1877,9 +1877,23 @@ public static class GstReportSupport
         // T1-79 sweep: side-INDEPENDENT by nature — the discriminator is what the ledger DECLARES, as the paragraph
         // above says in terms, so no posted side can move this verdict.
         foreach (var (ledger, _, _) in Gstr1.ServiceLegs(company, voucher))
-            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger) && ledger.SalesPurchaseGst is { RateBasisPoints: > 0 })
+            if (!Gstr1.IsNonTaxableServiceLedger(company, voucher, ledger) && DeclaresNonZeroRate(company, voucher, ledger))
                 return false;
         return true;
+    }
+
+    /// <summary>Review (wave 13 ib, R-F1): the rate a service leg DECLARES for <see cref="TaxedLegsCarryTheirTax"/>. A
+    /// ledger's own block answers as before. A NO-block leg (IV-368, admitted only on a walk-declared SAC) declares
+    /// nothing itself, so its declaration IS the walk's — the same resolve <see cref="Gstr1.IsNonTaxableServiceLedger"/>
+    /// already makes for it. Without this the F9 guarantee lapsed for the Ledger master's default state: a service
+    /// invoice posted while GST was off, then a group classified 998311 / 18%, printed as a "Tax Invoice" at NIL GST
+    /// (measured: <see cref="IsServiceAccountingInvoice"/> True; False on main). This can only DEMOTE a document to the
+    /// plain voucher; an unresolved walk declares no rate and is left alone, as a rate-less block is. Read through
+    /// <see cref="BucketingRateOf"/> (non-taxable and unresolved both read 0), so no new D10 ResolveRate call site.</summary>
+    private static bool DeclaresNonZeroRate(Company company, Voucher voucher, Domain.Ledger ledger)
+    {
+        if (ledger.SalesPurchaseGst is { } block) return block.RateBasisPoints is > 0;
+        return BucketingRateOf(company, voucher, item: null, ledger) > 0;
     }
 
     /// <summary>

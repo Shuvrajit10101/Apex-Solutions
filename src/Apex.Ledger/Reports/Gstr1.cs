@@ -1266,10 +1266,76 @@ public sealed record Gstr1(
         {
             if (voucher.PartyId is Guid pid && line.LedgerId == pid) continue; // the party leg is not a service leg
             var led = company.FindLedger(line.LedgerId);
-            if (led?.SalesPurchaseGst is null) continue;    // not a service-income / SAC-bearing ledger
+            if (led is null) continue;
             if (led.GstClassification is not null) continue; // a GST (Duties &amp; Taxes) tax ledger
+            // Census 6.4, IV-319(a) / IV-368: a ledger with NO block of its own is a service leg too when the
+            // hierarchy walk (its group, then the company) declares a SAC for it — see IsNoBlockServiceLedger.
+            // Review (wave 13 ib, R-F2): ONLY on the document's natural value side. A no-block leg on the opposing side
+            // (a Discount Allowed debit on a sale under a company SAC) is a DEDUCTION that main never read; admitting it
+            // added its magnitude to Table 12 (measured 11,000.01 against 3.1(a) 9,000.01; main 10,000.01). A null
+            // natural side (no orientation) admits no no-block leg, the conservative direction.
+            if (led.SalesPurchaseGst is null
+                && (!IsNoBlockServiceLedger(company, led) || line.Side != NaturalServiceLegSide(company, voucher)))
+                continue;
             yield return (led, line.Amount.Amount, line.Side);
         }
+    }
+
+    /// <summary>
+    /// 🔴 <b>Census 6.4, IV-319(a) — closed by IV-368 (wave 13, track ib, §2AI).</b> Whether a ledger that carries
+    /// <b>no</b> <c>SalesPurchaseGst</c> block of its own is nonetheless a service leg of a ledger-only invoice. The
+    /// Ledger master's GST Applicable box opens unticked, so an operator who creates a service ledger and leaves it
+    /// there gets a ledger with no block. The rate walk (<see cref="GstService.ResolveRate"/>, Ledger → Group →
+    /// Company) still taxes it when its group declares a rate, and the Accounting Invoice screen posts that tax; but
+    /// every reader of <see cref="ServiceLegs"/> skipped the leg, so the supply was taxed and then filed nowhere
+    /// (no Table 12 row, GSTR-9 Table 17 empty against Table 4, INV-01 <c>HsnCd ""</c> / <c>IsServc "N"</c>, print
+    /// refused).
+    /// <para>VENDOR (R7, help.tallysolutions.com "HSN/SAC &amp; GST Rate Hierarchy in TallyPrime", opened by content
+    /// 2026-11-24): "There are different places in TallyPrime where you can define the GST rate and HSN/SAC details"
+    /// (ledgers, groups, stock items, stock groups, the company) and "TallyPrime first checks the ledger for the
+    /// details", then the next level. The page does not discuss a ledger with no GST details, and the service-ledger
+    /// page states no default for GST applicability, so the box is NOT ticked by default here.</para>
+    /// <para><b>OURS (IV-368), and deliberately narrow.</b> True only for an income/expense (P&amp;L) ledger that is
+    /// not Round Off, not under Stock-in-Hand and not under Duties &amp; Taxes, AND whose hierarchy walk
+    /// (<see cref="GstReportSupport.HsnSacOf"/>, no stock item) declares a code in chapter 99 — the SAC chapter.
+    /// A no-block ledger whose walk lands on a GOODS HSN (or on nothing) stays out, as before: nothing states its
+    /// nature, and a plain As-Voucher sale through such a ledger is unchanged (ER-13).</para>
+    /// </summary>
+    public static bool IsNoBlockServiceLedger(Company company, Domain.Ledger ledger)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(ledger);
+        if (ledger.SalesPurchaseGst is not null) return false;
+        if (ledger.GstClassification is not null) return false;
+        if (string.Equals(ledger.Name, GstService.RoundOffLedgerName, StringComparison.OrdinalIgnoreCase)) return false;
+        var group = company.FindGroup(ledger.GroupId);
+        if (group is null) return false;
+        try
+        {
+            if (!ClassificationRules.IsProfitAndLossGroup(group, company)) return false;
+            if (ClassificationRules.IsStockInHandLedger(ledger, company)) return false;
+            if (ClassificationRules.IsDutiesAndTaxesLedger(ledger, company)) return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false; // a cyclic chart: nothing can be said about the ledger's nature (IV-250's rule)
+        }
+        var sac = GstReportSupport.HsnSacOf(company, item: null, ledger);
+        return sac is not null && sac.StartsWith("99", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Whether a service leg (<see cref="ServiceLegs"/>) is a supply of SERVICES for the INV-01 <c>IsServc</c> flag:
+    /// a ledger's own block decides when it has one; a no-block leg is a service by construction, because
+    /// <see cref="IsNoBlockServiceLedger"/> admits it only on a SAC (IV-368). NIC (einv-apisandbox v1.03
+    /// generate-irn, item validation 3): "If Is Service is selected, then the HSN codes must belong to services."
+    /// </summary>
+    public static bool IsServiceSupplyLeg(Domain.Ledger ledger)
+    {
+        ArgumentNullException.ThrowIfNull(ledger);
+        return ledger.SalesPurchaseGst is { } block
+            ? block.SupplyType == GstSupplyType.Services
+            : true;
     }
 
     /// <summary>
@@ -1448,9 +1514,14 @@ public sealed record Gstr1(
     /// GST Rate Details, which carries the taxability with the rate.</remarks>
     public static bool IsNonTaxableServiceLedger(Company company, Voucher voucher, Domain.Ledger ledger)
     {
-        if (ledger.SalesPurchaseGst is not { } block) return false;
-        if (!block.IsTaxable) return true;
-        if (block.RateBasisPoints is not null) return false;
+        if (ledger.SalesPurchaseGst is { } block)
+        {
+            if (!block.IsTaxable) return true;
+            if (block.RateBasisPoints is not null) return false;
+        }
+        // IV-369: a no-block service leg (IsNoBlockServiceLedger) takes its taxability from the same walk, exactly as
+        // a rate-less block does — so a no-block ledger under a group declaring Exempt files as exempt, not as taxed.
+        else if (!IsNoBlockServiceLedger(company, ledger)) return false;
         var resolved = new GstService(company).ResolveRate(null, ledger, voucher.Date);
         return !resolved.IsTaxable && !GstService.IsUnresolved(resolved);
     }
