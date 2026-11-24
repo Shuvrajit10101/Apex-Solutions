@@ -1669,7 +1669,9 @@ public static class GstReportSupport
     /// <para><b>FIX-W1d — what happens to a leg carrying NO GST block at all.</b> The comment here used to claim such a
     /// leg "is treated as taxable (silence is not an exemption)", the item limb's rule. That is not what this code
     /// does, and the next reader could have deleted a guard on the strength of it: this loop never SEES such a leg,
-    /// because <see cref="Gstr1.ServiceLegs"/> skips every line whose ledger has <c>SalesPurchaseGst is null</c>. On
+    /// because <see cref="Gstr1.ServiceLegs"/> skips every line whose ledger has <c>SalesPurchaseGst is null</c>
+    /// (🟡 wave 13, IV-368: UNLESS the hierarchy walk declares a SAC for it, <see cref="Gstr1.IsNoBlockServiceLedger"/>;
+    /// such a leg's taxability is then the walk's, via <see cref="Gstr1.IsNonTaxableServiceLedger"/>). On
     /// this method's own terms a plain income leg is therefore invisible, and an invoice mixing one exempt SAC leg
     /// with one plain income leg would return TRUE. The protection is structural but lives ELSEWHERE and one conjunct
     /// earlier: <see cref="ServiceInvoiceFoots"/> rejects any voucher whose projected total (built from the SAC legs

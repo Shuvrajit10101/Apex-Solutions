@@ -427,7 +427,8 @@ public static class EInvoiceJson
                         list.Add(Item(
                             slNo,
                             // The leg's OWN declared nature — the same GST block whose HsnSac becomes HsnCd below.
-                            isService: legs[i].Ledger.SalesPurchaseGst?.SupplyType == GstSupplyType.Services,
+                            // IV-368: a no-block leg is admitted only on a SAC, so it is a service by construction.
+                            isService: Gstr1.IsServiceSupplyLeg(legs[i].Ledger),
                             // The SAME resolver GSTR-1's Table-12 row uses; a ledger with no declared code still
                             // emits "" (unchanged) rather than a fabricated one.
                             hsnCd: Gstr1.ServiceSacOf(company, legs[i].Ledger) ?? "",
@@ -479,7 +480,7 @@ public static class EInvoiceJson
                     slNo,
                     // The leg's OWN declared nature and OWN SAC — the same two reads the taxable branch above makes,
                     // so a code and a flag cannot disagree between a taxed and an exempt line of one invoice.
-                    isService: ledger.SalesPurchaseGst?.SupplyType == GstSupplyType.Services,
+                    isService: Gstr1.IsServiceSupplyLeg(ledger),
                     hsnCd: Gstr1.ServiceSacOf(company, ledger) ?? "",
                     qty: null, unit: null,
                     unitPricePaisa: paisa, taxablePaisa: paisa, rateBasisPoints: 0,
