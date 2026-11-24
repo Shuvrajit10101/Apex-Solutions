@@ -60,7 +60,9 @@ public static class NatureOfPaymentRules
     /// posted assessable value, deductee and date, with the voucher itself excluded from its prior aggregate and with
     /// the line's posted rate, assessable and TDS handed in as the grandfathering carriers, exactly as the re-carve
     /// hands them in. A
-    /// voucher is counted when the rate or the amount differs between the two. That is exactly the set whose next
+    /// voucher is counted when the rate or the amount differs between the two AND the new-terms outcome differs from
+    /// the line's POSTED rate or TDS (the comparison the refusal itself makes — so a restoring alteration, which puts
+    /// the master back on the figures a voucher was posted at, does not count it). That is exactly the set whose next
     /// alteration <c>VoucherEntryViewModel.ApplyReCarve</c> would refuse because of THIS change; the old count
     /// (<see cref="VouchersCarrying"/>) also took in cancelled vouchers (which cannot be altered) and vouchers the
     /// new figures leave untouched.
@@ -92,7 +94,13 @@ public static class NatureOfPaymentRules
                 var after = engine.ComputeWithholding(t.AssessableValue, replacement, deductee, v.Date, asPostedBefore: v.Id,
                     postedRateBasisPoints: t.RateBasisPoints, postedAssessableValue: t.AssessableValue,
                     postedTdsAmount: t.TdsAmount);
-                if (before.RateBasisPoints != after.RateBasisPoints || before.TdsAmount != after.TdsAmount)
+                // 🔴 Verifier fix (wave 13 ic): the refusal compares the re-carve with the POSTED figures, so the
+                // count must too. Old-vs-new alone also counted a voucher a RESTORING alteration (back to the rate it
+                // was posted at) makes alterable again, and the save then told the operator that altering it "is now
+                // refused" (NatureOfPaymentMovedByGrandfatheringTests.Restoring_the_rate_..._does_not_count_it).
+                var refusedAfter = after.RateBasisPoints != t.RateBasisPoints || after.TdsAmount != t.TdsAmount;
+                if (refusedAfter
+                    && (before.RateBasisPoints != after.RateBasisPoints || before.TdsAmount != after.TdsAmount))
                 {
                     moved.Add(v);
                     break;

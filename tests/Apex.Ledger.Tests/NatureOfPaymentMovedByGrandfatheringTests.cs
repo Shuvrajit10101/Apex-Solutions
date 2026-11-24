@@ -104,4 +104,39 @@ public class NatureOfPaymentMovedByGrandfatheringTests
 
         Assert.Empty(NatureOfPaymentRules.VouchersMovedBy(c, rentNature, limb));
     }
+
+    /// <summary>
+    /// 🔴 <b>THE RESTORE DIRECTION</b> (wave 13 ic, independent verifier). A §194J(b) voucher posted at 10% is made
+    /// unalterable by a 10% → 2% alteration (counted, correctly). Restoring 2% → 10% puts the master back on the
+    /// voucher's posted figures: the re-carve reproduces them and the voucher is alterable again. Old-terms and
+    /// new-terms still differ, so a count that compares only those two reports the voucher as "now refused" — the
+    /// opposite of the truth. The count must compare the new-terms outcome with the POSTED figures, as the refusal does.
+    /// <para>Mutation: drop the posted-figures test from <c>VouchersMovedBy</c> (old-vs-new alone) → the restore's
+    /// count is 1 (red).</para>
+    /// </summary>
+    [Fact]
+    public void Restoring_the_rate_a_voucher_was_posted_at_does_not_count_it()
+    {
+        var c = CompanyFactory.CreateSeeded("Restored 194J Co", Fy);
+        new TdsTcsService(c).EnableTds(new TdsConfig { Tan = "MUMA12345B" });
+        var fees = c.FindNatureOfPaymentByCode("194J(b)")!;
+        var expense = AddLedger(c, "Fees", "Indirect Expenses", true);
+        var consultant = AddLedger(c, "Consultant", "Sundry Creditors", false);
+        consultant.TdsApplicable = true; consultant.TdsNatureOfPaymentId = fees.Id;
+        consultant.DeducteeType = DeducteeType.Firm; consultant.PartyPan = "AAPFU0939F";
+        var (v, t) = Post(c, fees, consultant, expense, 88_888.88m, new DateOnly(2025, 10, 1));
+        Assert.Equal(1000, t.RateBasisPoints);
+        Assert.Equal(8_889m, t.TdsAmount.Amount);
+
+        var lowered = fees.WithTerms(fees.SectionCode, fees.Name, 200, fees.RateWithoutPanBp, fees.FvuSectionCode,
+            fees.SingleTransactionThreshold, fees.CumulativeThreshold);
+        Assert.True(ReCarveRefuses(c, lowered, consultant, v, t));
+        Assert.Equal(new[] { v.Id }, NatureOfPaymentRules.VouchersMovedBy(c, fees, lowered).Select(x => x.Id));
+        c.Tds!.ReplaceNatureOfPayment(lowered);
+
+        var restored = lowered.WithTerms(lowered.SectionCode, lowered.Name, 1000, lowered.RateWithoutPanBp,
+            lowered.FvuSectionCode, lowered.SingleTransactionThreshold, lowered.CumulativeThreshold);
+        Assert.False(ReCarveRefuses(c, restored, consultant, v, t)); // alterable again
+        Assert.Empty(NatureOfPaymentRules.VouchersMovedBy(c, lowered, restored));
+    }
 }

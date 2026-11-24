@@ -305,6 +305,53 @@ public sealed class NatureOfPaymentAlterVerifierTests
     }
 
     /// <summary>
+    /// T2-181, THE RESTORE DIRECTION (wave 13 ic, independent verifier). §194J(b) 10% → 7.5% BY KEYS over a posted
+    /// ₹1,23,456.78 journal (₹12,346 at 10%) warns, correctly; restoring 7.5% → 10% BY KEYS puts the master back on the
+    /// voucher's own posted figures, so the re-carve reproduces them and the voucher is alterable again. The restore's
+    /// save must therefore NOT tell the operator that altering it "is now refused": the count is measured against the
+    /// POSTED figures the refusal compares, not only old-terms against new-terms. The Day Book Ctrl+Enter →
+    /// narration-only Ctrl+A is then ACCEPTED, and the reloaded book carries the new narration and 10% / ₹12,346.
+    /// <para>Mutation (verifier): drop the posted-figures test from <c>NatureOfPaymentRules.VouchersMovedBy</c>
+    /// (count on old-vs-new alone) → the restore's message carries "already posted" and this test reddens.</para>
+    /// </summary>
+    [AvaloniaFact]
+    public void Restoring_the_rate_a_voucher_was_posted_at_does_not_claim_its_alteration_is_now_refused()
+    {
+        var b = NewTdsBook("NOP Verify Restore Co");
+        try
+        {
+            var posted = PostFeesJournal(b.Vm, 123_456.78m);
+            Assert.Equal(12_346m, PostedTds(Reload(b), posted.Id).TdsAmount.Amount);
+
+            var lower = OpenAlteration(b, "194J(b)");
+            lower.RateWithPanText = "7.5";
+            Key(b.Window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Contains("1 voucher already posted under this section", lower.Message);
+            Assert.Equal(750, Reload(b).FindNatureOfPaymentByCode("194J(b)")!.RateWithPanBp);
+
+            var restore = OpenAlteration(b, "194J(b)");
+            Assert.Equal("7.5", restore.RateWithPanText);
+            restore.RateWithPanText = "10";
+            Key(b.Window, PhysicalKey.A, RawInputModifiers.Control);
+            Assert.Contains("altered", restore.Message);
+            Assert.DoesNotContain("already posted", restore.Message);
+            Assert.False(Rendered(b.Window, "already posted under this section"),
+                "the restore's save renders a posted-voucher refusal warning");
+            Assert.Equal(1000, Reload(b).FindNatureOfPaymentByCode("194J(b)")!.RateWithPanBp);
+
+            AlterNarrationFromDayBook(b, posted.Id);
+            Assert.NotEqual(Screen.VoucherEntry, b.Vm.CurrentScreen); // accepted: the alteration column popped
+
+            var reloaded = Reload(b);
+            Assert.Equal("narration only", reloaded.FindVoucher(posted.Id)!.Narration);
+            var tds = PostedTds(reloaded, posted.Id);
+            Assert.Equal(1000, tds.RateBasisPoints);
+            Assert.Equal(12_346m, tds.TdsAmount.Amount);
+        }
+        finally { Close(b); }
+    }
+
+    /// <summary>
     /// Review F3: a CANCELLED voucher still carries its TDS line, so it still blocks deleting the custom nature it
     /// was withheld under (IV-342). Posted through the voucher screen, cancelled from the Day Book by Alt+X then Y,
     /// then Alt+D then Y on the nature: refused by name, and the reloaded book holds both the nature and the
