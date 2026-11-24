@@ -4096,6 +4096,57 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | §194-I tests its threshold per month and the engine never reads a stored cumulative figure on it; an older book can still carry the superseded ₹6,00,000 there. Create already refuses a cumulative figure on such a section, so pre-filling the stored figure would make every alteration of that row refuse itself. `NatureOfPaymentMasterViewModel.ForAlter` loads the field blank and the save stores none. No computation changes. |
 | **Tests** | `NatureOfPaymentPerMonthAlterTests.Altering_a_per_month_section_carrying_an_inert_cumulative_figure_saves_and_drops_that_figure` (reddens when `ForAlter` pre-fills the stored figure unconditionally). |
 
+## 2AI. ADDED 2026-11-24 — WAVE 13 TRACK `ib`: A SERVICE LEDGER SAVED WITHOUT TICKING GST APPLICABLE FILES ITS GROUP'S SAC, AND A LINKED NOTE ON IT NETS TABLE 12 (census rows 6.4 IV-319(a), 6.12 `T2-167`, IV-368..IV-371)
+
+> **This track's block is IV-368..IV-377** (the wave orchestrator's assignment, which overrides the plan file's
+> IV-350..354). It takes **IV-368..IV-371** and leaves IV-372..IV-377 unused. No schema change.
+>
+> **Sources opened BY CONTENT on 2026-11-24 (R7, ruling 14):**
+> - `help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` ("HSN/SAC & GST Rate Hierarchy in
+>   TallyPrime", updated 23 Feb 2026): "There are different places in TallyPrime where you can define the GST rate
+>   and HSN/SAC details" (sales/purchase ledgers, ledger groups, stock items, stock groups, the company); the
+>   Ledger hierarchy is the default; "TallyPrime first checks the ledger for the details." The page does NOT
+>   discuss a ledger that carries no GST details, nor a default for GST applicability.
+> - `help.tallysolutions.com/set-up-service-ledgers-for-gst/` ("How to Set Up Service Ledgers for GST in
+>   TallyPrime", updated 1 Sep 2026): set GST applicability to Applicable, specify the SAC and rate, set Type of
+>   Supply to Services. It states no default and does not say what happens when applicability is left unset.
+> - `einv-apisandbox.nic.in/version1.03/generate-irn.html` (NIC), item validation 3: "If Is Service is selected,
+>   then the HSN codes must belong to services."
+>
+> So ticking GST Applicable by default is NOT grounded (the brief forbids it), and how a no-block ledger files is
+> **OURS**, built on the vendor's hierarchy walk.
+
+### IV-368 · A no-block income/expense ledger whose walk declares a chapter-99 SAC is a service leg (census 6.4, closes IV-319(a))
+
+| | |
+|---|---|
+| **Severity** | **HIGH. Class C (ours). Area: GST (census 6.4).** A taxed supply filed nowhere on two returns and a government-portal document. |
+| **What TallyPrime does** | Walks Ledger → Group → … → Company for rate and HSN/SAC (quotes above). Silent on a ledger with no GST details. |
+| **What we ship** | **OURS.** `Gstr1.IsNoBlockServiceLedger(company, ledger)` admits a ledger with NO `SalesPurchaseGst` block to `Gstr1.ServiceLegs` when it is an income/expense (P&L) ledger, is not `Round Off` (`GstService.RoundOffLedgerName`), is not under Stock-in-Hand or Duties & Taxes, has no `GstClassification`, AND `GstReportSupport.HsnSacOf(company, null, ledger)` (the group, then company, walk) returns a code beginning `99` — the SAC chapter. Every reader of `ServiceLegs` moves with it, by construction: GSTR-1 Table 12 and so GSTR-9 Table 17 (`AccumulateServiceHsn`), the INV-01 writer (`ServiceLegsByRate`, `NonTaxableServiceLegs`, the T1-79/T1-81 refusals), the printed service invoice (`ProjectServiceInvoice`), and the predicate `GstReportSupport.IsServiceAccountingInvoice` (whose footing conjunct used to fail, because the projection held the tax but not the leg). `Gstr3b.cs` and `LedgerMasterViewModel.cs` are not edited; `Gstr3b.ExemptValueOf` reads `ServiceLegs` and so gains the exempt no-block leg (IV-369). INV-01 `IsServc` now reads `Gstr1.IsServiceSupplyLeg`: a block's own Type of Supply when there is one, else Y (a no-block leg is admitted only on a SAC, which NIC's validation 3 requires for Y). **Measured before** (origin/main 6f8c936, a ledger keyed on the master with the box unticked under Sales Accounts declaring 998311 / 18%, ₹12,345.67): Table 12 no 998311 row; Table 17 empty; INV-01 `HsnCd ""` / `IsServc "N"`; print refused. **After:** Table 12 998311 1,234,567 / 111,111 / 111,111 paisa; Table 17 == Table 4 == 3.1(a); INV-01 `HsnCd 998311` / `IsServc Y`; PDF `(998311) Tj` and `(12,345.67) Tj`. **Deliberately left out:** a no-block ledger whose walk lands on a GOODS HSN (nothing states the supply's nature; a goods accounting invoice stays as on main), a Balance-Sheet ledger, Round Off, and a ledger with no code anywhere (the plain As-Voucher sale, ER-13, still `HsnCd ""` per `PINNED_an_income_ledger_with_no_declared_HSN_or_SAC_still_emits_an_empty_HsnCd`). The `99` test is ours; no vendor page states it. |
+| **Tests** | `NoBlockServiceLedgerFilingTests.An_unticked_service_ledger_under_a_sac_group_files_on_every_reloaded_document` (Desktop; ledger saved on the realised Ledger master with the real Ctrl+A and the GST box untouched; Accounting Invoice reached by Ctrl+H and accepted with Ctrl+A; read off a fresh `CompanyStorage`). `NoBlockServiceLedgerPredicateTests` (Ledger) pins the boundary. Mutations, each reverted at once: **B1** (`IsNoBlockServiceLedger` returns false, main's behaviour) reddens both Desktop tests (Table 12 `Assert.Single` no match; exempt 123,457 vs 0) and the Persistence T2-167 test; **B2** (`IsServiceSupplyLeg` no-block arm false) reddens the clause test at `IsServc` (Expected "Y", Actual "N"); **B4** (Round Off check removed) reddens `Round_off_is_never_a_service_leg_even_under_a_company_sac`; **B5** (`99` test removed) reddens `A_no_block_ledger_whose_walk_lands_on_a_goods_hsn_is_not_a_service_leg`; **B6** (P&L test removed) reddens `A_balance_sheet_ledger_is_not_a_service_leg_under_a_company_sac`. |
+
+### IV-369 · A no-block service leg takes its taxability from the walk, so a group declaring Exempt files it as exempt
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours). Area: GST (census 6.4 / 6.12).** |
+| **What we ship** | **OURS**, the same reading IV-316 (5) gives a rate-less block. `Gstr1.IsNonTaxableServiceLedger` asks `GstService.ResolveRate(null, ledger, voucher.Date)` for a no-block service leg as it already did for a rate-less Taxable block; an unresolved walk stays taxable (ER-5). Measured before on main: the same unticked ledger under Sales Accounts declaring Exempt / 999293, ₹1,234.57: GSTR-1 exempt bucket **0**, 3.1(c) 0, no 999293 row. After: GSTR-1 exempt == 3.1(c) == GSTR-9 Table 5 == 123,457 paisa, a zero-tax 999293 Table 12 row, 9C 5R 0. Same exposure as IV-316 (5): the taxability is resolved from today's masters at the voucher's date. |
+| **Tests** | `NoBlockServiceLedgerFilingTests.An_unticked_service_ledger_under_an_exempt_sac_group_files_as_exempt_in_every_return`. **B3** (the no-block arm returns false) reddens it (Expected 123457, Actual 0); B1 reddens it too. |
+
+### IV-370 · `T2-167` — the linked note on a no-block service ledger nets Table 12 (census 6.12)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours). Area: GST (census 6.12).** |
+| **What we ship** | **The goods half of `T2-167` was already fixed on main by IV-297 (wave 10)**: `BuildTable9B` nets each linked outward note into the HSN summary, and `LinkedNoteHsnAndExemptReloadTests` passes on 6f8c936 (re-run in this track's gate). The service half rides the same call (`AccumulateHsn` → `AccumulateServiceHsn` → `ServiceLegs`) and was dead for a no-block ledger, so a service sale and a credit note linked to it filed nothing in Table 12. With IV-368 both are read, signed: sale ₹12,345.67 and linked credit note ₹4,000.01 at 18% file a 998311 row of 834,566 / 75,111 / 75,111 paisa; Table 17 == Table 4 == 3.1(a); 9C Table 11 and 5R 0; still one `cdnr` document. No code beyond IV-368. |
+| **Tests** | `NoBlockServiceLinkedNoteReloadTests.A_linked_credit_note_on_a_no_block_service_ledger_nets_table_12_so_table_17_equals_3_1_a` (Persistence; built on the domain, reloaded through a fresh `SqliteCompanyStore`; JSON bytes). **B1** reddens it (Table 12 empty); **B7** (the `AccumulateHsn` call in `BuildTable9B` disabled) reddens it (Expected 834566, Actual 1234567). |
+
+### IV-371 · What this track did NOT do
+
+| | |
+|---|---|
+| **What we ship** | **Not changed:** the Ledger master still opens GST Applicable unticked (no vendor default). A no-block ledger under a GOODS HSN in an Accounting Invoice is not a service leg (no Table 12 row, as on main). `GstReportSupport.ResolveValueLedger` / `BucketingValueLedger` still prefer a ledger with a block. `TaxedLegsCarryTheirTax` cannot see a no-block leg's rate (it reads the declared block), so a no-block taxable leg billed at NIL GST is not demoted by that conjunct. **Not keyed:** the group's 998311 block is written on the domain in the Desktop test (as `LedgerMasterGstBlockServiceLegTests` does), and the T2-167 credit note is built on the domain (a Credit Note has no Accounting Invoice mode), not by keys. Row 6.12's O1-O4 and `T2-166` / `T2-176` are untouched. |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
