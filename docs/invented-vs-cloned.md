@@ -4096,6 +4096,50 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | §194-I tests its threshold per month and the engine never reads a stored cumulative figure on it; an older book can still carry the superseded ₹6,00,000 there. Create already refuses a cumulative figure on such a section, so pre-filling the stored figure would make every alteration of that row refuse itself. `NatureOfPaymentMasterViewModel.ForAlter` loads the field blank and the save stores none. No computation changes. |
 | **Tests** | `NatureOfPaymentPerMonthAlterTests.Altering_a_per_month_section_carrying_an_inert_cumulative_figure_saves_and_drops_that_figure` (reddens when `ForAlter` pre-fills the stored figure unconditionally). |
 
+## 2AH. ADDED 2026-11-24 — WAVE 13 TRACK `ia`: A STOCK-IN-HAND VALUE LEG IS CHARGED AS PURCHASES ON THE INVENTORY-DERIVED BASIS, AND F12 *SHOW WITH GROSS PROFIT* ON THE HORIZONTAL P&L (T2-180; census row 11.2 clause (4), IV-333; IV-358..IV-360)
+
+> **This track's block is IV-358..IV-367** (the orchestrator's assignment for this run, which overrides the wave
+> plan's IV-345..349; IV-361..IV-367 are unused). The section letter `2AH` is the wave plan's.
+>
+> **Vendor ground** (TallyPrime), each opened BY CONTENT on 2026-11-24:
+> - `help.tallysolutions.com/profit-and-loss-statement-tally/` (last updated November 5, 2026) — **"If you want to
+>   split the Profit & Loss A/c to see the trading profit, then set Show with Gross Profit to Yes."** and **"This
+>   option is available only in the horizontal form of the Profit & Loss A/c."** The page names no c/o or b/f line,
+>   no Opening/Closing Stock row and no Purchase row (checked the same day), so the layout of the split is OURS.
+> - `help.tallysolutions.com/stock-valuation-faq/` (last updated June 5, 2026) — **"Any ledger created under the group
+>   Stock-in-Hand is used only for entering the opening and closing values"** and **"You cannot record a journal
+>   voucher for ledgers created under the group Stock-in-Hand."** The vendor never posts a purchase to such a ledger,
+>   so how one is charged on the integrated basis is OURS.
+
+### IV-358 · **On the inventory-derived basis, a Stock-in-Hand ledger's movement in a voucher that also carries a Balance-Sheet leg is charged to the trading account as purchases** (wave 13, track ia; T2-180)
+
+| | |
+|---|---|
+| **Severity** | **HIGH before this track (a wrong Net Profit and an unbalanced Balance Sheet), fixed. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | A Stock-in-Hand ledger carries only opening and closing values; the shape cannot arise. |
+| **The defect** | We accept a Purchase item invoice whose value leg is a Stock-in-Hand ledger (`VoucherValidator.IsStockLegLedger`; not changed — refusing it needs a legacy-book decision). On the inventory-derived basis `ProfitAndLoss` skipped every Stock-in-Hand ledger and `BalanceSheet` suppressed it, so the purchase was charged nowhere: purchase 100 @ 10.37 to Stock-in-Hand, sale 40 @ 14.21, Net **1,190.60** where the truth is **153.60**, Balance Sheet 2,227.60 against 1,190.60 (out by exactly 1,037.00). |
+| **What we ship** | `InventoryDerivedStock.StockPostings` (new) classifies every counted voucher whose Stock-in-Hand legs net to S ≠ 0. When ANY other leg is a Balance-Sheet ledger (supplier, cash, bank), S is charged per Stock-in-Hand ledger as a trading expense: a line under the stock ledger's own name (Enter drills into its vouchers), rolled up under *Purchase Accounts* in Alt+F1, inside Gross Profit. A credit (a return to the supplier through the stock ledger) charges a negative amount. The voucher filter is the one IV-336 uses (in-window movement under Alt+F2, else cumulative under the optional scenario), so a purchase dated before an Alt+F2 window is the window's opening stock, not a second charge. The Balance Sheet needs no change: the stock ledger stays suppressed and the folded Net Profit now carries the charge. Books (as-posted) basis unchanged. |
+| **Tests** | `InventoryDerivedStockLegPurchaseTests.A_stock_in_hand_value_leg_is_charged_as_purchases_and_the_sheet_balances` (Plain 153.60; Discount 190.60; Journal 153.60 — horizontal detailed and Alt+F1, vertical Gross 153.60, Balance Sheet detailed and Alt+F1 with equal sides, all off the CSV and the screen rows of a book reloaded through a fresh `CompanyStorage`). `…A_purchase_before_an_Alt_F2_window_is_opening_stock_not_a_second_charge`. Mutations (each logged before it was made and reverted; `Apex-Review-Artifacts/w13/ia-mutations.log`): **M1** never adding the charge line reddens all three rows; **M3** leaving the charge out of Gross Profit reddens all three rows (vertical trading block); **M4** the pre-track behaviour (contra in every voucher, no charge) reddens all three rows. |
+
+### IV-359 · **The IV-336 contra is limited to a genuine closing-stock posting — one whose every other leg is a P&L ledger** (wave 13, track ia; T2-180)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM before this track (a Discount Received leg on such a purchase was stripped from income), fixed. Class C (ours). Area: RPT.** |
+| **What TallyPrime does** | Not documented (the vendor refuses the voucher that IV-336 handles). |
+| **The defect** | `InventoryDerivedStock.StockPostingContra` removed opposite-side P&L legs up to the size of S in ANY voucher touching a stock ledger. On the purchase above with the credit split Supplier 1,000.00 + Discount Received 37.00 it removed the 37.00 discount: Net 1,190.60 where the truth is 190.60. |
+| **What we ship** | The contra applies only when every non-stock leg of the voucher is a P&L ledger (the Dr Stock-in-Hand / Cr Direct Income closing-stock journal IV-336 exists for, whose behaviour is unchanged: still 153.60). Any voucher with a Balance-Sheet leg is charged instead (IV-358) and keeps every P&L leg. **This amends IV-336's "What we ship" cell, which still describes the contra as applying to any voucher.** |
+| **Tests** | As IV-358 (the Discount row: Discount Received 37.00 present, Net 190.60; the Journal row: the closing-stock adjustment ledger absent, 622.20 once). Mutation **M2** (charge AND keep applying the contra on a Balance-Sheet voucher) reddens the Discount row alone. The four IV-336 shapes in `InventoryDerivedStockStatementTests` stay green. |
+
+### IV-360 · **F12 *Show with Gross Profit* splits the horizontal P&L into a Trading Account and a Profit & Loss A/c joined by "Gross Profit c/o" / "Gross Profit b/f"** (wave 13, track ia; census 11.2 clause (4), closes IV-333 (b))
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class B: the option, its purpose and its horizontal-only scope are the vendor's; the rows are ours. Area: RPT.** |
+| **What TallyPrime does** | As quoted above: Yes splits the P&L to show the trading profit; horizontal form only. |
+| **What we ship** | A checkbox *Show with Gross Profit* in the report's F12 panel, shown on the Profit & Loss A/c with no comparative column, and hidden at once while the panel's *Show Vertical Profit & Loss* is ticked (vertical wins if both were set). Yes gives: **Trading Account** — Income (trading income lines, *Closing Stock* on the inventory-derived basis, and *Gross Loss c/o* when a loss) / Expenses (*Opening Stock*, trading expense lines, and *Gross Profit c/o* when a profit), the two totals equal; **Profit & Loss A/c** — Income (*Gross Profit b/f*, indirect income) / Expenses (*Gross Loss b/f*, indirect expenses), Total Income − Total Expenses = the Net Profit row. The c/o and b/f amounts are the engine's Gross Profit; the trading split is the set Gross Profit is computed over. Alt+F1, hide-zero, percentages and the Alt+F12 view act within each block and never on the c/o / b/f lines. Saved views carry the flag in the JSON blob (no migration). **Ours, not the vendor's:** the c/o / b/f labels, the stacked (not side-by-side) layout, which is the same stacked layout the default form already uses (IV-333 (c), still not built: a two-sided horizontal form). |
+| **Tests** | `ProfitAndLossShowWithGrossProfitTests.Show_with_Gross_Profit_splits_the_horizontal_form_and_both_blocks_foot_on_screen_csv_and_pdf` (profit book: trading 1,190.60 both sides, c/o 153.60, Net 162.73; loss book: trading 1,037.00, Gross Loss c/o 213.60, Net Loss 204.47; detailed and Alt+F1; foots read off the emitted CSV; c/o, b/f and the amount drawn in the PDF). `…Show_with_Gross_Profit_is_horizontal_only_and_P_and_L_only`. `…Save_View_round_trips_Show_with_Gross_Profit_through_a_fresh_store`. `…F12_Show_with_Gross_Profit_by_keyboard_splits_the_form_and_Vertical_hides_the_box` (real `MainWindow`: F12, Space on the realised box, Ctrl+A; then ticking Vertical hides the box). Mutations: **G1/G1b** dropping the c/o line (profit / loss branch), **G2/G2b** dropping the b/f line, **G3** never dispatching to the split form, **G4** not saving the flag, **G5** the panel not applying it, **G6** the panel box not hiding under Vertical, **G7** the report offering it on the vertical form, **G8** putting indirect income in the Trading Account — each reddens at least one of the four tests (log as IV-358). |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
