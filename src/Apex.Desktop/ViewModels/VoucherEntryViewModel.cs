@@ -3018,6 +3018,22 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = legacy, Display = CdnCandidateDisplay(legacy) });
         }
 
+        // T2-174 review (wave 13, IV-388): the picker no longer offers an OPTIONAL original to a new note, but a note
+        // posted while its original was Regular keeps that link when the original is later marked Optional (Ctrl+L in
+        // alteration). Put that one original back for the same reason as the T2-164 case above: falling through to
+        // the consolidated branch would rewrite the posted link to a consolidated reference on re-accept, and
+        // regularising the original afterwards would not restore it.
+        if (link.OriginalInvoiceVoucherId is { } optionalId
+            && CdnOriginalInvoices.All(o => o.Invoice?.Id != optionalId)
+            && _company.FindVoucher(optionalId) is { Cancelled: false, Optional: true } optionalOriginal
+            && IsOfferableSection34Original(optionalOriginal))
+        {
+            CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption
+            {
+                Invoice = optionalOriginal, Display = CdnCandidateDisplay(optionalOriginal),
+            });
+        }
+
         if (link.OriginalInvoiceVoucherId is { } originalId
             && CdnOriginalInvoices.FirstOrDefault(o => o.Invoice?.Id == originalId) is { } picked)
         {
