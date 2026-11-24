@@ -4099,7 +4099,7 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 ## 2AI. ADDED 2026-11-24 — WAVE 13 TRACK `ib`: A SERVICE LEDGER SAVED WITHOUT TICKING GST APPLICABLE FILES ITS GROUP'S SAC, AND A LINKED NOTE ON IT NETS TABLE 12 (census rows 6.4 IV-319(a), 6.12 `T2-167`, IV-368..IV-371)
 
 > **This track's block is IV-368..IV-377** (the wave orchestrator's assignment, which overrides the plan file's
-> IV-350..354). It takes **IV-368..IV-371** and leaves IV-372..IV-377 unused. No schema change.
+> IV-350..354). It takes **IV-368..IV-371** (the reviewer added IV-372) and leaves IV-373..IV-377 unused. No schema change.
 >
 > **Sources opened BY CONTENT on 2026-11-24 (R7, ruling 14):**
 > - `help.tallysolutions.com/india-gst-manage-hsn-code-sac-and-tax-rates-tally/` ("HSN/SAC & GST Rate Hierarchy in
@@ -4145,7 +4145,15 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 
 | | |
 |---|---|
-| **What we ship** | **Not changed:** the Ledger master still opens GST Applicable unticked (no vendor default). A no-block ledger under a GOODS HSN in an Accounting Invoice is not a service leg (no Table 12 row, as on main). `GstReportSupport.ResolveValueLedger` / `BucketingValueLedger` still prefer a ledger with a block. `TaxedLegsCarryTheirTax` cannot see a no-block leg's rate (it reads the declared block), so a no-block taxable leg billed at NIL GST is not demoted by that conjunct. **Not keyed:** the group's 998311 block is written on the domain in the Desktop test (as `LedgerMasterGstBlockServiceLegTests` does), and the T2-167 credit note is built on the domain (a Credit Note has no Accounting Invoice mode), not by keys. Row 6.12's O1-O4 and `T2-166` / `T2-176` are untouched. |
+| **What we ship** | **Not changed:** the Ledger master still opens GST Applicable unticked (no vendor default). A no-block ledger under a GOODS HSN in an Accounting Invoice is not a service leg (no Table 12 row, as on main). `GstReportSupport.ResolveValueLedger` / `BucketingValueLedger` still prefer a ledger with a block. ~~`TaxedLegsCarryTheirTax` cannot see a no-block leg's rate (it reads the declared block), so a no-block taxable leg billed at NIL GST is not demoted by that conjunct.~~ 🟡 **Superseded by the reviewer's fix, IV-372 (R-F1).** **Not keyed:** the group's 998311 block is written on the domain in the Desktop test (as `LedgerMasterGstBlockServiceLegTests` does), and the T2-167 credit note is built on the domain (a Credit Note has no Accounting Invoice mode), not by keys. Row 6.12's O1-O4 and `T2-166` / `T2-176` are untouched. |
+
+### IV-372 · REVIEWER's fixes to IV-368: the F9 nil-GST demotion and a deduction leg (wave 13 ib review, commit `611cf29`)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours). Area: GST (census 6.4).** Both were regressions of the builder's head against main, measured on a reloaded book. |
+| **What we ship** | **OURS.** **R-F1:** an accounting invoice posted with NO tax leg (GST off when keyed) on a no-block ledger, under a group later classified 998311 / 18%, became `IsServiceAccountingInvoice` True on the builder's head, so it would print as a "Tax Invoice" at NIL GST (main: False; the F9 guarantee pinned by `InvoicePrintFootingTests` held only for a blocked ledger). `GstReportSupport.TaxedLegsCarryTheirTax` now asks `DeclaresNonZeroRate`: a block's own rate as before, else the walk's resolved rate (the same resolve `IsNonTaxableServiceLedger` already makes for a no-block leg). It can only demote; an unresolved walk and a zero rate are left alone. **R-F2:** under a company-level SAC, a no-block Discount Allowed DEBIT on a sale was admitted and its magnitude added to Table 12 / GSTR-9 Table 17 (11,000.01 against 3.1(a) 9,000.01; main 10,000.01). `Gstr1.ServiceLegs` now admits a no-block leg only on `NaturalServiceLegSide`; a null side admits none. The gross-vs-net question for a deduction on a BLOCKED leg is pre-existing (T1-79) and unchanged. |
+| **Tests** | `NoBlockServiceLegReviewTests` (Persistence, reloaded through a fresh `SqliteCompanyStore`). **MF1** (the no-block arm of `DeclaresNonZeroRate` returns false) reddens `An_untaxed_invoice_on_a_no_block_ledger_under_a_taxed_sac_group_is_not_a_tax_invoice` (Expected False, Actual True). **MF2** (natural-side conjunct dropped) reddens `A_no_block_discount_debit_on_a_sale_under_a_company_sac_is_not_added_to_table_12` (Expected [Consulting], Actual [Discount Allowed, Consulting]). The zero-rated control stays a tax invoice. |
 
 ## 3. Grouped by area
 
