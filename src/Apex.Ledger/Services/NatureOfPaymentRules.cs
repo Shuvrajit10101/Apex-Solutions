@@ -57,7 +57,9 @@ public static class NatureOfPaymentRules
     /// <paramref name="existing"/> to <paramref name="replacement"/> would MOVE: for every posted TDS line carrying
     /// this nature on a voucher that is <b>not cancelled</b>, the withholding is computed twice by the one engine
     /// (<see cref="TdsService.ComputeWithholding"/>) — under the old terms and under the new — over the line's own
-    /// posted assessable value, deductee and date, with the voucher itself excluded from its prior aggregate. A
+    /// posted assessable value, deductee and date, with the voucher itself excluded from its prior aggregate and with
+    /// the line's posted rate, assessable and TDS handed in as the grandfathering carriers, exactly as the re-carve
+    /// hands them in. A
     /// voucher is counted when the rate or the amount differs between the two. That is exactly the set whose next
     /// alteration <c>VoucherEntryViewModel.ApplyReCarve</c> would refuse because of THIS change; the old count
     /// (<see cref="VouchersCarrying"/>) also took in cancelled vouchers (which cannot be altered) and vouchers the
@@ -79,8 +81,17 @@ public static class NatureOfPaymentRules
             foreach (var t in v.Lines.Select(l => l.Tds).OfType<TdsLineTax>().Where(t => t.NatureId == existing.Id))
             {
                 if (company.FindLedger(t.DeducteeLedgerId) is not { } deductee) { moved.Add(v); break; }
-                var before = engine.ComputeWithholding(t.AssessableValue, existing, deductee, v.Date, asPostedBefore: v.Id);
-                var after = engine.ComputeWithholding(t.AssessableValue, replacement, deductee, v.Date, asPostedBefore: v.Id);
+                // 🔴 Review fix (wave 13 ic): the SAME three posted carriers ApplyReCarve hands the engine — the
+                // voucher's own posted rate (§194C grandfathering), assessable and TDS (§194-I outcome
+                // grandfathering). Without them this count disagreed with the refusal in BOTH directions: it missed a
+                // grandfathered §194C voucher a rate alteration makes unalterable, and counted a §194-I voucher whose
+                // pinned outcome keeps it alterable (NatureOfPaymentMovedByGrandfatheringTests).
+                var before = engine.ComputeWithholding(t.AssessableValue, existing, deductee, v.Date, asPostedBefore: v.Id,
+                    postedRateBasisPoints: t.RateBasisPoints, postedAssessableValue: t.AssessableValue,
+                    postedTdsAmount: t.TdsAmount);
+                var after = engine.ComputeWithholding(t.AssessableValue, replacement, deductee, v.Date, asPostedBefore: v.Id,
+                    postedRateBasisPoints: t.RateBasisPoints, postedAssessableValue: t.AssessableValue,
+                    postedTdsAmount: t.TdsAmount);
                 if (before.RateBasisPoints != after.RateBasisPoints || before.TdsAmount != after.TdsAmount)
                 {
                     moved.Add(v);
