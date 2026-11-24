@@ -4096,6 +4096,117 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | §194-I tests its threshold per month and the engine never reads a stored cumulative figure on it; an older book can still carry the superseded ₹6,00,000 there. Create already refuses a cumulative figure on such a section, so pre-filling the stored figure would make every alteration of that row refuse itself. `NatureOfPaymentMasterViewModel.ForAlter` loads the field blank and the save stores none. No computation changes. |
 | **Tests** | `NatureOfPaymentPerMonthAlterTests.Altering_a_per_month_section_carrying_an_inert_cumulative_figure_saves_and_drops_that_figure` (reddens when `ForAlter` pre-fills the stored figure unconditionally). |
 
+## 2AK. ADDED 2026-11-24 — WAVE 13 TRACK `id`: OPTIONAL VOUCHERS LEAVE THE PICKERS AND STATUTORY REPORTS THAT SKIPPED ONLY CANCELLED ONES (T2-174; census row 5.7, IV-388..IV-397)
+
+> **This track's block is IV-388..IV-397.** The section letter `2AK` is the wave plan's pre-assignment; the entry
+> NUMBERS are the stable handle. (The wave plan's track text also names "IV-365..369"; the orchestrator's block
+> assignment overrides it, and those numbers are not used here.)
+>
+> **Vendor ground** (TallyPrime), opened BY CONTENT 2026-11-24:
+> - `help.tallysolutions.com/create-optional-voucher/` — Optional Vouchers record tentative or future transactions
+>   **"without affecting your books of accounts"**; when the transaction is due you can **"make the entry regular to
+>   include its accounting impact in the books of accounts"** by opening the voucher and pressing **Ctrl+L
+>   (Regular)**. They are viewed in the Day Book and the Optional Vouchers Register, and can be included in a
+>   Scenario.
+> - **The page does NOT say** whether an Optional voucher is offered as a credit-note original, an advance
+>   adjustment, an ITC-reversal anchor, or appears in an e-invoice / e-Way Bill list, a GST set-off, or a TDS/TCS
+>   report or return. Every exclusion below is therefore ours, **by extension** of "without affecting your books of
+>   accounts" — the same extension IV-334 made for the Material In / Out order picker.
+> - **Citation correction:** the wave plan quoted the page as saying "remove the accounting impact". **That phrase is
+>   not on the page** (re-fetched and checked 2026-11-24). The page's own words are the two quoted above. See IV-396.
+>
+> **No schema change.** Every fix is a one-clause filter. The engine verb Ctrl+L calls (`LedgerService.SetOptional`)
+> is unchanged.
+
+### IV-388 · **The §34 credit/debit-note original picker and the advance-adjustment invoice picker do not offer an Optional sale** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours, by extension of the vendor's "without affecting your books of accounts"). Area: GST.** |
+| **What TallyPrime does** | The Optional-voucher page says nothing about either picker. |
+| **What we ship** | `VoucherEntryViewModel.BuildSection34Pickers` and the invoice half of `BuildAdvancePickers` now filter `!v.Cancelled && !v.Optional`. Before, a credit note could name an Optional sale as its original, which wrote a `GstCreditDebitNoteLink` (and a GSTR-1 cdnr row) against a supply that is not on the books; an advance could be adjusted against one. Regularising the sale (Ctrl+L) puts it back on both lists. |
+| **Tests** | `OptionalFilterSweepPickerTests.The_section_34_original_invoice_picker_does_not_offer_an_optional_sale_until_regularised`, `…The_advance_adjustment_invoice_picker_does_not_offer_an_optional_sale_until_regularised` (each over a book reloaded through a fresh `CompanyStorage`, then regularised on that reloaded book, saved and reloaded again). Mutations: removing `&& !v.Optional` from either filter reddens its own test by name, and only that test. |
+
+### IV-389 · **Generate e-Invoice and Generate e-Way Bill do not list an Optional voucher — unless it already holds a generated IRN / EWB** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours, by extension). Area: GST.** |
+| **What TallyPrime does** | Not documented on the Optional-voucher page. |
+| **What we ship** | `GenerateEInvoiceViewModel.Rebuild` and `GenerateEWayBillViewModel.Rebuild` skip an Optional voucher, so no IRN or e-Way Bill is prepared for a supply that is not on the books. **OURS, deliberately:** an Optional voucher whose record is already `Generated` stays listed. These screens are the only route in the app to cancel an IRN / EWB; dropping the row would strand a live portal document, which is the exact trap the Alt+X blocker (`MainWindowViewModel.LiveStatutoryDocumentBlocker`) records for a cancelled voucher. A `Pending` or `Failed` record on an Optional voucher is not listed (nothing was sent to the portal). |
+| **Tests** | `OptionalFilterSweepPickerTests.Generate_e_invoice_does_not_list_an_optional_sale_until_regularised`, `…Generate_e_invoice_keeps_an_optional_sale_that_holds_a_generated_irn`, `…Generate_e_way_bill_does_not_list_an_optional_sale_until_regularised`, `…Generate_e_way_bill_keeps_an_optional_sale_that_holds_a_generated_bill`. Mutations: deleting the skip line reddens the "does not list" test; dropping the Generated carve-out (`if (v.Optional) continue;`) reddens the "keeps" test — each by name, for each screen. |
+
+### IV-390 · **Run Set-Off does not net an Optional cash discharge; Post ITC Reversal does not anchor to an Optional purchase; Record ISD Credit does not list an Optional receipt** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM (set-off: a wrong "still due" figure) / LOW (the two lists). Class C (ours, by extension). Area: GST.** |
+| **What TallyPrime does** | Not documented on the Optional-voucher page. |
+| **What we ship** | `RunSetOffViewModel.DischargedCashFor` skips an Optional 3B cash discharge, so the head it paid shows as still due until it is regularised (before, an Optional discharge read as paid and the screen asked for nothing). `PostItcReversalViewModel.BuildSourceVouchers` and `PrimaryHasAnchorablePurchase` (the same predicate, used by the second-registration refusal) skip an Optional purchase. `RecordIsdCreditViewModel.Rebuild` drops an Optional ISD receipt from the recorded list and its total. |
+| **Tests** | `OptionalFilterSweepPickerTests.Run_set_off_does_not_net_an_optional_cash_discharge_until_regularised` (CGST Required 111.11 while the CGST discharge is Optional, 0.00 after), `…Itc_reversal_does_not_offer_an_optional_purchase_as_an_anchor_until_regularised`, `…Itc_reversal_refusal_does_not_point_at_an_optional_purchase_until_regularised`, `…Record_isd_credit_does_not_list_an_optional_receipt_until_regularised`. Mutations: removing the Optional clause at each of the four sites reddens its own test by name. |
+
+### IV-391 · **Form 24Q: an Optional payroll voucher is not an Annexure I deductee row, and is not in Annexure II's gross salary or tax deducted** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM (a filed-return figure). Class C (ours, by extension). Area: PAY / TDS.** |
+| **What TallyPrime does** | Not documented on the Optional-voucher page. |
+| **What we ship** | `Form24Q.CollectDeductions`, `SumPostedTaxableGross` and `SumPostedSalaryTds` skip an Optional voucher. Filter only; no payroll feature changed. `CollectDeductions` was not in the wave plan's site list (the plan named the two Annexure II walks); it is the same report's third walk with the same defect, so it was fixed with them. |
+| **Tests** | `OptionalFilterSweepStatutoryReportTests.An_optional_payroll_month_is_absent_from_form_24q_until_regularised` (April Optional: Q1 has 2 deductee rows and ₹16,250 deducted, Annexure II gross ₹13,75,000 and tax deducted ₹89,375; regularised: 3 rows, ₹24,375, ₹15,00,000, ₹97,500). Mutations: removing the Optional clause at each of the three walks reddens this test by name. |
+
+### IV-392 · **Ledgers without PAN: an Optional no-PAN deduction adds no tax at the no-PAN rate** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours, by extension). Area: TDS / TCS.** |
+| **What TallyPrime does** | Not documented on the Optional-voucher page. |
+| **What we ship** | `LedgersWithoutPan.Build`'s posted-line walk skips an Optional voucher (both its TDS and its TCS halves, which share the loop). The ledger-master supplement is untouched: a party with no PAN is still listed. |
+| **Tests** | `OptionalFilterSweepStatutoryReportTests.An_optional_no_pan_deduction_adds_no_no_pan_tax_until_regularised` (₹20,000 while Optional, ₹30,864 after). Mutation: removing the Optional clause reddens it by name. |
+
+### IV-393 · **TDS / TCS coverage: an Optional deduction or collection is not deducted, collected or outstanding** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM. Class C (ours, by extension). Area: TDS / TCS.** |
+| **What TallyPrime does** | Not documented on the Optional-voucher page. |
+| **What we ship** | `TdsCoverage.CollectUnits` and `TcsCoverage.CollectUnits` skip an Optional voucher. They feed TDS/TCS Outstanding, the §201(1A) / §206C(7) interest reports and the Nature-wise Summary's deducted/collected columns. The `order` counter still advances on a skipped voucher, so the remaining units keep the indices `Form26Q` / `Form27EQ` give them. **DIVERGENCE LEFT OPEN:** `Form26Q` and `Form27EQ` themselves still include an Optional voucher (see IV-395), so on a book holding an Optional TDS/TCS voucher these reports and the quarterly returns now disagree. |
+| **Tests** | `OptionalFilterSweepStatutoryReportTests.Optional_tds_vouchers_are_not_deducted_not_outstanding_and_not_below_threshold_until_regularised` (194J(b) deducted ₹10,000 while Optional, ₹22,346 after), `…Optional_tcs_sales_are_not_collected_not_outstanding_and_not_below_threshold_until_regularised` (6CE collected ₹1,180, then ₹1,821). Mutations: removing the Optional clause from either coverage walk reddens its own test by name. |
+
+### IV-394 · **TDS Not Deducted / TCS Not Collected and the Nature-wise Summaries' below-threshold columns skip an Optional voucher** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours, by extension). Area: TDS / TCS.** |
+| **What TallyPrime does** | Not documented on the Optional-voucher page. |
+| **What we ship** | Both below-threshold walks in `TdsExceptionReports` (Not Deducted; Nature-wise Summary) and in `TcsExceptionReports` (Not Collected; Nature-wise Summary) skip an Optional voucher. **Not changed:** the "aggregate in window" these rows show comes from `TdsService` / `TcsService` projections, which still count an Optional voucher (IV-395). |
+| **Tests** | As IV-393: one Optional below-threshold §194C payment (₹23,456.78) and one Optional 6CL sale (₹1,23,456.78). Not Deducted 1 row → 2 rows (Σ ₹12,345.67 → ₹35,802.45); 194C below-threshold count 1 → 2. Not Collected Σ ₹2,36,000 → ₹3,81,679; 6CL count 1 → 2. Mutations: removing the Optional clause at each of the four walks reddens its test by name. |
+
+### IV-395 · **NOT FIXED: further Cancelled-only filters found by the re-grep on main** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM (Form 26Q / 27EQ and the TDS/TCS threshold engine), otherwise LOW. Area: TDS / TCS / GST / PAY.** |
+| **What we ship** | The wave plan scoped this track to the listed sites and "touch nothing else". The re-grep of `origin/main` 6f8c936 found these further filters that skip a cancelled voucher but not an Optional one. Each was left as it is and is reported here, not decided: **returns** `Form26Q.cs:276`, `Form27EQ.cs:286` (an Optional deduction/collection is still in the quarterly return, which now disagrees with IV-393's reports); **challan liveness** `TdsCoverage.ChallanIsLive`, `TcsCoverage.ChallanIsLive`, `Form26Q.cs:364`, `Form27EQ.cs:368`, `ChallanReconciliation.cs:48, :88`, `TcsChallanReconciliation.cs:49, :89` (an Optional Stat-Payment still counts as a deposited challan); **threshold engine** `TdsService.cs:473`, `TcsService.cs:167` (an Optional voucher still counts toward the cumulative threshold of later postings); **GST engine** `GstDepositService.cs:311` (an Optional cash draw still reduces the electronic cash balance), `GstIsdCreditService.cs:193` (the duplicate-document check: an Optional receipt still blocks re-entry of its document number, which may be right); **advance receipts** `VoucherEntryViewModel.BuildAdvancePickers` outstanding-advance list (`FindVoucher(a.ReceiptVoucherId) is { Cancelled: false }`); **payroll** `PayrollComputationService.cs:483, :580, :608`, `PayrollVoucherService.cs:203`, `PayrollReportSupport.cs:56`, `PayHeadBreakup.cs:174`, `PayrollStatutorySummary.cs:145`, `Payslip.cs:161`, `ReportsViewModel.cs:1379` (default payroll month); **registers / other** `PosRegister.cs:53`, `MemorandumRegister.cs:39`, `ReversingJournalRegister.cs:41`, `MasterDeletionRules.cs:497`. Some of these may be right to keep (a register may list an Optional voucher, as the Day Book does); none was decided here. |
+| **Tests** | None. |
+
+### IV-396 · **Citation correction: the vendor page does not say "remove the accounting impact"** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **Process. Class: mis-citation caught.** |
+| **What TallyPrime does** | `help.tallysolutions.com/create-optional-voucher/` (re-fetched 2026-11-24) says Optional vouchers record transactions "without affecting your books of accounts", and that making one regular includes "its accounting impact in the books of accounts". |
+| **What we ship** | The wave plan told this track to ground on the phrase "remove the accounting impact" on that page. The phrase is not there. Every comment and test this track wrote quotes the page's actual words instead. |
+| **Tests** | n/a. |
+
+### IV-397 · **Kept on purpose: the Scenario path still counts an Optional voucher** (wave 13, track id)
+
+| | |
+|---|---|
+| **Severity** | **None (faithful). Class A. Area: RPT.** |
+| **What TallyPrime does** | The Optional-voucher page says Optional vouchers can be included in a Scenario "to analyse their impact on reports". |
+| **What we ship** | `LedgerBalance.CountsAsOf(v, asOf, scenario, company)` (`LedgerBalance.cs:70`) skips only a cancelled voucher and then lets the scenario decide on an Optional one. That is the vendor's Scenario behaviour and is deliberately not changed. `MultiVoucherPrintViewModel.cs:160` carries the Cancelled flag for printing and is not a filter. |
+| **Tests** | Unchanged (the existing scenario tests). |
+
 ## 3. Grouped by area
 
 > 🔴 **▶ 2026-10-13 (second entry, same day) — NOR ARE THE THREE v66 ENTRIES (`IV-82` … `IV-84`, §2F).** Where
