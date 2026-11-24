@@ -1,8 +1,8 @@
-# Apex Solutions — Tally Prime Clone
+# Apex Solutions — Offline Accounting for Indian Businesses
 
-A faithful, offline, keyboard-first desktop clone of **Tally Prime**: double-entry accounting +
+An offline, keyboard-first desktop accounting app for Indian businesses: double-entry accounting +
 inventory + Indian statutory (GST / TDS / TCS / Payroll). The authoritative feature reference is
-[`docs/tally-feature-catalog.md`](docs/tally-feature-catalog.md); the plan of record is
+[the feature catalog](docs/tally-feature-catalog.md); the plan of record is
 [`plan.md`](plan.md); the governance rules are [`CLAUDE.md`](CLAUDE.md).
 
 > **Status:** Phase 0 (Setup, scaffold, governance). Foundations only — no functional accounting yet.
@@ -16,7 +16,7 @@ inventory + Indian statutory (GST / TDS / TCS / Payroll). The authoritative feat
 |---|---|---|
 | Language / runtime | **C# / .NET 10** (cross-platform: Windows, Linux, macOS) | one strongly-typed language end-to-end; exact `decimal` money |
 | Accounting core | **`Apex.Ledger`** — framework-agnostic class library (no UI / no DB deps) | the heart of the system; exhaustively unit-tested in isolation |
-| Desktop shell | **Avalonia** (XAML, MVVM) — `Apex.Desktop` | single-window, keyboard-first UI; pixel-level Tally fidelity, cross-platform |
+| Desktop shell | **Avalonia** (XAML, MVVM) — `Apex.Desktop` | single-window, keyboard-first UI, cross-platform |
 | Persistence | **SQLite** (embedded, single-file, offline) | zero-config local store; bundles with the app |
 | Tests | **xUnit** — `Apex.Ledger.Tests` | TDD (Red → Green → Refactor) |
 | CI/CD | **GitHub Actions** | build + format + tests on every push/PR; green-before-merge |
@@ -39,13 +39,13 @@ Design principles: **offline-first**, **keyboard-first**, exact **paisa-level** 
 ├─ docs/
 │  ├─ adr/0001-tech-stack.md          # architecture decision record (stack)
 │  ├─ srs/SRS-0-skeleton.md           # SRS skeleton (filled per phase)
-│  └─ tally-feature-catalog*.md       # what Tally Prime does (+ verification report)
+│  └─ tally-feature-catalog*.md       # feature reference (+ verification report)
 ├─ Apex.slnx                # solution (new .NET XML solution format)
 ├─ plan.md                  # the master plan — execute this
 ├─ CLAUDE.md                # governance rules
 ├─ agents.md                # agent roster
 ├─ memory.md                # running log
-└─ tally/                   # third-party study PDFs — GIT-IGNORED, never committed
+└─ tally/                   # third-party reference material — GIT-IGNORED, never committed
 ```
 
 ---
@@ -111,5 +111,5 @@ Phase 1**, at which point the `Skip` is removed and the totals are asserted to t
 - [`docs/srs/SRS-0-skeleton.md`](docs/srs/SRS-0-skeleton.md) — SRS skeleton, filled per phase.
 - [`agents.md`](agents.md) — the agent roster.
 
-> **Note on `tally/`:** the folder holds third-party Tally Prime study PDFs (copyrighted). It is
+> **Note on `tally/`:** the folder holds third-party reference PDFs (copyrighted). It is
 > **git-ignored** and must never be committed (CLAUDE.md R4).
