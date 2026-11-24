@@ -1888,12 +1888,12 @@ public static class GstReportSupport
     /// already makes for it. Without this the F9 guarantee lapsed for the Ledger master's default state: a service
     /// invoice posted while GST was off, then a group classified 998311 / 18%, printed as a "Tax Invoice" at NIL GST
     /// (measured: <see cref="IsServiceAccountingInvoice"/> True; False on main). This can only DEMOTE a document to the
-    /// plain voucher; an unresolved walk declares no rate and is left alone, as a rate-less block is.</summary>
+    /// plain voucher; an unresolved walk declares no rate and is left alone, as a rate-less block is. Read through
+    /// <see cref="BucketingRateOf"/> (non-taxable and unresolved both read 0), so no new D10 ResolveRate call site.</summary>
     private static bool DeclaresNonZeroRate(Company company, Voucher voucher, Domain.Ledger ledger)
     {
         if (ledger.SalesPurchaseGst is { } block) return block.RateBasisPoints is > 0;
-        var resolved = new GstService(company).ResolveRate(null, ledger, voucher.Date);
-        return resolved.IsTaxable && !GstService.IsUnresolved(resolved) && resolved.RateBasisPoints > 0;
+        return BucketingRateOf(company, voucher, item: null, ledger) > 0;
     }
 
     /// <summary>
