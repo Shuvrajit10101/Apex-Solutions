@@ -106,6 +106,7 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         vm.CumulativeThresholdText = nature.ThresholdWindowIsPerMonth
             ? string.Empty
             : FormatThreshold(nature.CumulativeThreshold);
+        vm.NatureOfRemittanceText = nature.NatureOfRemittance ?? string.Empty;   // census 6.28 clause (i)
         vm.OnPropertyChanged(nameof(IsAltering));
         vm.OnPropertyChanged(nameof(IsCodeLocked));
         vm.OnPropertyChanged(nameof(Caption));
@@ -138,13 +139,13 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
             return false;
         }
         if (!TryReadForm(_editingId, out var section, out var name, out var fvu, out var withPanBp,
-                out var withoutPanBp, out var single, out var cumulative))
+                out var withoutPanBp, out var single, out var cumulative, out var remittance))
             return false;
 
         NatureOfPayment replacement;
         try
         {
-            replacement = existing.WithTerms(section, name, withPanBp, withoutPanBp, fvu, single, cumulative);
+            replacement = existing.WithTerms(section, name, withPanBp, withoutPanBp, fvu, single, cumulative, remittance);
             Apex.Ledger.Services.NatureOfPaymentRules.EnsureAlterable(_company, existing, replacement);
             tds.ReplaceNatureOfPayment(replacement);
         }
@@ -174,18 +175,17 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         // figures keeps them, and VoucherEntryViewModel.ApplyReCarve refuses any later alteration of it whose
         // re-computation would restate that reported deduction. Say so at the moment of the act, not only when
         // the operator next opens one of those vouchers.
-        var termsMoved = existing.RateWithPanBp != replacement.RateWithPanBp
-                         || existing.RateWithoutPanBp != replacement.RateWithoutPanBp
-                         || existing.SingleTransactionThreshold != replacement.SingleTransactionThreshold
-                         || existing.AggregateThreshold != replacement.AggregateThreshold;
-        var posted = termsMoved
-            ? Apex.Ledger.Services.NatureOfPaymentRules.VouchersCarrying(_company, replacement.Id).Count
-            : 0;
+        // T2-181 (wave 13, track ic): ~~VouchersCarrying(...).Count whenever any term moved~~ — that counted
+        // cancelled vouchers (which cannot be altered at all) and vouchers the new figures leave untouched. The
+        // count is now exactly the live vouchers whose withholding the new terms MOVE (NatureOfPaymentRules
+        // .VouchersMovedBy), so the sentence below can say "is now refused" without qualification.
+        var posted = Apex.Ledger.Services.NatureOfPaymentRules.VouchersMovedBy(_company, existing, replacement).Count;
         if (posted > 0)
             Message += $" {(posted == 1 ? "1 voucher" : $"{posted} vouchers")} already posted under this section "
-                     + "keep the figures they were withheld at. Every alteration re-computes a voucher's TDS, so "
-                     + "altering one of them is now refused wherever the new rate or threshold would change its "
-                     + "deduction.";
+                     + $"{(posted == 1 ? "keeps" : "keep")} the figures {(posted == 1 ? "it was" : "they were")} "
+                     + "withheld at, and the new rate or threshold would change "
+                     + $"{(posted == 1 ? "its" : "their")} deduction. Every alteration re-computes a voucher's TDS, "
+                     + $"so altering {(posted == 1 ? "that voucher" : "any of them")} is now refused.";
         _onChanged();
         return true;
     }
@@ -251,6 +251,11 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
     [ObservableProperty] private string _fvuSectionCode = string.Empty;
     [ObservableProperty] private string _singleThresholdText = string.Empty;
     [ObservableProperty] private string _cumulativeThresholdText = string.Empty;
+
+    /// <summary>Census 6.28 clause (i) (wave 13, track ic; schema v71) — the numeric Nature of Remittance code, or
+    /// blank. Vendor: <i>"manually enter the applicable Nature of Remittance in the Nature of Payment master."</i>
+    /// (help.tallysolutions.com/tds-faq-tally/). Stored on the master; no return in this product files it.</summary>
+    [ObservableProperty] private string _natureOfRemittanceText = string.Empty;
     [ObservableProperty] private string? _message;
 
     public NatureOfPaymentMasterViewModel(Company company, CompanyStorage storage, Action onChanged)
@@ -277,7 +282,7 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         }
 
         if (!TryReadForm(Guid.Empty, out var section, out var name, out var fvu, out var withPanBp,
-                out var withoutPanBp, out var single, out var cumulative))
+                out var withoutPanBp, out var single, out var cumulative, out var remittance))
             return false;
 
         try
@@ -285,7 +290,8 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
             var nature = new NatureOfPayment(
                 Guid.NewGuid(), section, name, withPanBp, withoutPanBp, fvu,
                 singleTransactionThreshold: single, cumulativeThreshold: cumulative,
-                effectiveFrom: _company.FinancialYearStart, isPredefined: false);
+                effectiveFrom: _company.FinancialYearStart, isPredefined: false,
+                natureOfRemittance: remittance);
             _company.Tds.AddNatureOfPayment(nature);
             _storage.Save(_company);
         }
@@ -304,6 +310,7 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         FvuSectionCode = string.Empty;
         SingleThresholdText = string.Empty;
         CumulativeThresholdText = string.Empty;
+        NatureOfRemittanceText = string.Empty;
         _onChanged();
         return true;
     }
@@ -316,8 +323,9 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
     /// </summary>
     private bool TryReadForm(
         Guid excludeId, out string section, out string name, out string fvu, out int withPanBp,
-        out int withoutPanBp, out Money? single, out Money? cumulative)
+        out int withoutPanBp, out Money? single, out Money? cumulative, out string? remittance)
     {
+        remittance = null;
         section = (SectionCode ?? string.Empty).Trim();
         name = (Name ?? string.Empty).Trim();
         fvu = (FvuSectionCode ?? string.Empty).Trim();
@@ -351,6 +359,17 @@ public sealed partial class NatureOfPaymentMasterViewModel : ViewModelBase, IMas
         if (!TryParseThreshold(CumulativeThresholdText, out cumulative))
         {
             Message = "Cumulative-FY threshold must be a rupee amount ≥ 0, or blank.";
+            return false;
+        }
+        // Census 6.28 clause (i): the numeric Nature of Remittance — the domain's one rule, refused here by name
+        // rather than surfacing as an exception from the constructor.
+        try
+        {
+            remittance = NatureOfPayment.NormalizeNatureOfRemittance(NatureOfRemittanceText);
+        }
+        catch (ArgumentException)
+        {
+            Message = "Nature of Remittance must be the numeric remittance code (digits only), or blank.";
             return false;
         }
         // 🔴 A PER-MONTH SECTION HAS NO FINANCIAL-YEAR AGGREGATE TO STORE, so a figure typed into this field would

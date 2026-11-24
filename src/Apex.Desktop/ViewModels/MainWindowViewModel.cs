@@ -463,6 +463,15 @@ public enum GatewayMenu
     // "Alt+Y (Data) > Split > Verify Data" and "Alt+Y (Data) > Split > Split Data"
     // (help.tallysolutions.com/split-company-data-tally/).
     Split,
+
+    // Census 6.28 clause (iii) / 6.36 (wave 13, track ic): Masters -> Alter Master, and the two DATA-DRIVEN pickers
+    // under it that list the company's own Natures of Payment / Natures of Goods for alteration. The vendor route is
+    // "Alt+G (Go To) > Create Master/Alter Master > TDS Nature of Payments"
+    // (help.tallysolutions.com/tally-prime/india-tds/form-27q-tally/) and "Alt+G (Go To) > Alter Master > TCS Nature
+    // of Goods" (help.tallysolutions.com/tcs-faq-tally/).
+    AlterMaster,
+    AlterNatureOfPaymentPicker,
+    AlterNatureOfGoodsPicker,
 }
 
 /// <summary>
@@ -1628,6 +1637,16 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // docs/w0-2-company-screen-grounding.md §9 item 17.
         col.Add(MenuItemViewModel.Header("Masters"));
         col.Add(new MenuItemViewModel("Create", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        // Census 6.28 clause (iii) / 6.36 (wave 13, track ic) — "Alter Master", the vendor's own name for the
+        // master-alteration route ("Alt+G (Go To) > Create Master/Alter Master > TDS Nature of Payments",
+        // help.tallysolutions.com/tally-prime/india-tds/form-27q-tally/; "Alt+G (Go To) > Alter Master > TCS Nature
+        // of Goods", help.tallysolutions.com/tcs-faq-tally/, both read by content 2026-11-24). Go To indexes the
+        // menu, so this row is what makes Alt+G > Alter Master real. 🔴 IT LISTS ONLY THE TWO STATUTORY MASTERS and
+        // is surfaced only when TDS or TCS is on: every other master is still altered from its own list
+        // (Ctrl+Enter), and widening this submenu to them is not this wave's work (IV-380). Gated so a company with
+        // neither tax sees exactly the root it always did (ER-13).
+        if (TdsFeatureOn || TcsFeatureOn)
+            col.Add(new MenuItemViewModel("Alter Master", () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
         col.Add(new MenuItemViewModel("Alter Company", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
         col.Add(new MenuItemViewModel("Chart of Accounts", () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
 
@@ -8695,6 +8714,90 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             "Nature of Goods (§206C TCS)", () => NatureOfGoodsMaster = master);
     }
 
+    // ===================================== census 6.28 (iii) / 6.36 (wave 13, track ic): Masters → Alter Master
+
+    /// <summary>The Alter Master row that lists the company's Natures of Payment (the vendor spells it "TDS Nature
+    /// of Payments"; ours is singular, matching the Create row).</summary>
+    internal const string AlterNatureOfPaymentLabel = "TDS Nature of Payment";
+
+    /// <summary>The Alter Master row that lists the company's Natures of Goods ("TCS Nature of Goods", as the
+    /// vendor spells it).</summary>
+    internal const string AlterNatureOfGoodsLabel = "TCS Nature of Goods";
+
+    /// <summary>A Nature of Payment's row label in the Alter Master picker — the section code first, so type-ahead
+    /// on the data-driven column filters by the code the operator knows. Section codes are unique per company.</summary>
+    internal static string NatureOfPaymentPickerLabel(Apex.Ledger.Domain.NatureOfPayment n) => $"{n.SectionCode} - {n.Name}";
+
+    /// <summary>A Nature of Goods' row label in the Alter Master picker (collection codes are unique per company).</summary>
+    internal static string NatureOfGoodsPickerLabel(Apex.Ledger.Domain.NatureOfGoods n) => $"{n.CollectionCode} - {n.Name}";
+
+    /// <summary>Masters → Alter Master: one row per statutory master the operator has switched on.</summary>
+    private GatewayColumn BuildAlterMasterColumn()
+    {
+        var col = new GatewayColumn("Alter Master");
+        col.Add(MenuItemViewModel.Header("Statutory Masters"));
+        if (TdsFeatureOn)
+            col.Add(new MenuItemViewModel(AlterNatureOfPaymentLabel, () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        if (TcsFeatureOn)
+            col.Add(new MenuItemViewModel(AlterNatureOfGoodsLabel, () => { }, "▸", isSubItem: true, kind: MenuItemKind.Group));
+        return col;
+    }
+
+    /// <summary>The DATA-DRIVEN picker of the company's Natures of Payment (a bare letter filters, as on every picker
+    /// over company data), ordered by section code as the master's own list is.</summary>
+    private GatewayColumn BuildNatureOfPaymentAlterPickerColumn()
+    {
+        var col = new GatewayColumn(AlterNatureOfPaymentLabel) { Kind = GatewayColumnKind.DataDriven };
+        col.Add(MenuItemViewModel.Header(AlterNatureOfPaymentLabel));
+        var natures = Company?.NaturesOfPayment
+                          .OrderBy(n => n.SectionCode, System.StringComparer.OrdinalIgnoreCase).ToArray()
+                      ?? System.Array.Empty<Apex.Ledger.Domain.NatureOfPayment>();
+        if (natures.Length == 0)
+            col.Add(MenuItemViewModel.Header("(no natures of payment)"));
+        foreach (var n in natures)
+            col.Add(new MenuItemViewModel(NatureOfPaymentPickerLabel(n), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>The DATA-DRIVEN picker of the company's Natures of Goods, ordered by collection code.</summary>
+    private GatewayColumn BuildNatureOfGoodsAlterPickerColumn()
+    {
+        var col = new GatewayColumn(AlterNatureOfGoodsLabel) { Kind = GatewayColumnKind.DataDriven };
+        col.Add(MenuItemViewModel.Header(AlterNatureOfGoodsLabel));
+        var natures = Company?.NaturesOfGoods
+                          .OrderBy(n => n.CollectionCode, System.StringComparer.OrdinalIgnoreCase).ToArray()
+                      ?? System.Array.Empty<Apex.Ledger.Domain.NatureOfGoods>();
+        if (natures.Length == 0)
+            col.Add(MenuItemViewModel.Header("(no natures of goods)"));
+        foreach (var n in natures)
+            col.Add(new MenuItemViewModel(NatureOfGoodsPickerLabel(n), () => { }, "", isSubItem: true, kind: MenuItemKind.Page));
+        return col;
+    }
+
+    /// <summary>Opens <paramref name="natureId"/> on the Nature of Payment master in ALTER mode. The ONE opener the
+    /// master's own list (Ctrl+Enter) and the Alter Master picker both call, so the two routes cannot diverge.</summary>
+    private bool OpenNatureOfPaymentAlteration(Guid natureId)
+    {
+        if (Company is not { TdsEnabled: true }) return false;
+        if (NatureOfPaymentMasterViewModel.ForAlter(Company, _storage, natureId, onChanged: () => { })
+            is not { } m) return false;
+        OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.NatureOfPaymentMaster, m.Caption,
+            () => NatureOfPaymentMaster = m);
+        return true;
+    }
+
+    /// <summary>Opens <paramref name="natureId"/> on the Nature of Goods master in ALTER mode — the one opener for
+    /// both routes, as <see cref="OpenNatureOfPaymentAlteration"/>.</summary>
+    private bool OpenNatureOfGoodsAlteration(Guid natureId)
+    {
+        if (Company is not { TcsEnabled: true }) return false;
+        if (NatureOfGoodsMasterViewModel.ForAlter(Company, _storage, natureId, onChanged: () => { })
+            is not { } m) return false;
+        OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.NatureOfGoodsMaster, m.Caption,
+            () => NatureOfGoodsMaster = m);
+        return true;
+    }
+
     // ======================================================= screen: GST masters (census 6.23 / 6.25; schema v61)
 
     /// <summary>
@@ -10647,6 +10750,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // joining MasterListScreen alone gave this screen the arrows and Ctrl+Enter but left Alt+D a dead key,
             // and NatureOfPaymentAlterDeleteTests' delete tests were red until this line was added.
             Screen.NatureOfPaymentMaster => RequestDeleteMasterListRow(),
+            // Census 6.36 clause 1 (wave 13, track ic) — the Nature of Goods master, the same way and for the same
+            // reason: MasterListScreen alone would leave Alt+D a dead key here.
+            Screen.NatureOfGoodsMaster => RequestDeleteMasterListRow(),
 
             _ => false,
         };
@@ -12946,6 +13052,11 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         // Neither reference has a foreign key in the store, so that guard is the only thing preventing an orphan.
         Screen.NatureOfPaymentMaster => NatureOfPaymentMaster,
 
+        // Census 6.36 clause 1 (wave 13, track ic) — the NATURE OF GOODS (§206C TCS) master joins the same arm. Its
+        // refusal is NatureOfGoodsRules.EnsureDeletable (NEW file): a predefined nature is refused outright, and a
+        // custom one by name while a posted TCS line carries it or a ledger or stock item names it.
+        Screen.NatureOfGoodsMaster => NatureOfGoodsMaster,
+
         _ => PayrollMasterScreen,
     };
 
@@ -13119,13 +13230,13 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // read by content 2026-11-22]. The ROUTE (arrows + Ctrl+Enter on the existing-list) is OURS, as it is
             // for every other arm in this switch; the vendor's own is the Go To menu's Alter Master.
             case Screen.NatureOfPaymentMaster:
-            {
-                if (NatureOfPaymentMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
-                    is not { } m) return false;
-                OpenPageColumn(new GatewayColumn(m.Caption, m), Screen.NatureOfPaymentMaster, m.Caption,
-                    () => NatureOfPaymentMaster = m);
-                return true;
-            }
+                return OpenNatureOfPaymentAlteration(id);
+            // Census 6.36 clause 1 (wave 13, track ic) — the NATURE OF GOODS alter arm. The vendor's TCS FAQ alters a
+            // predefined nature's rate on the existing master ("Press Alt+G (Go To) > Alter Master > TCS Nature of
+            // Goods and press Enter." — help.tallysolutions.com/tcs-faq-tally/, read by content 2026-11-24); that
+            // Go To route is now real too (the "Alter Master" group). This list route is OURS, as for every arm here.
+            case Screen.NatureOfGoodsMaster:
+                return OpenNatureOfGoodsAlteration(id);
             case Screen.BudgetMaster:
             {
                 if (BudgetMasterViewModel.ForAlter(Company, _storage, id, onChanged: () => { })
@@ -13919,8 +14030,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             case Screen.NatureOfPaymentMaster:
                 NatureOfPaymentMaster?.Accept();
                 return;
+            // Census 6.36 clause 1 (wave 13, track ic): Create OR Alter, through Accept() — see the NOP arm above.
             case Screen.NatureOfGoodsMaster:
-                NatureOfGoodsMaster?.Create();
+                NatureOfGoodsMaster?.Accept();
                 return;
             // v61 (census 6.23/6.25): Ctrl+A accepts the master form, the same verb every other master here uses.
             case Screen.GstRegistrationsMaster:
@@ -14194,6 +14306,15 @@ public sealed partial class MainWindowViewModel : ViewModelBase
             // Data → Split (census 16.5): Verify Data + Split Data.
             "Split Company Data" => (BuildSplitColumn(), GatewayMenu.Split,
                 "Gateway of Apex Solutions — Split Company Data"),
+            // Census 6.28 (iii) / 6.36 (wave 13, track ic): Masters → Alter Master and its two master pickers.
+            "Alter Master" when parentMenu == GatewayMenu.Root => (BuildAlterMasterColumn(), GatewayMenu.AlterMaster,
+                "Gateway of Apex Solutions — Alter Master"),
+            AlterNatureOfPaymentLabel when parentMenu == GatewayMenu.AlterMaster => (
+                BuildNatureOfPaymentAlterPickerColumn(), GatewayMenu.AlterNatureOfPaymentPicker,
+                "Gateway of Apex Solutions — Alter Master — " + AlterNatureOfPaymentLabel),
+            AlterNatureOfGoodsLabel when parentMenu == GatewayMenu.AlterMaster => (
+                BuildNatureOfGoodsAlterPickerColumn(), GatewayMenu.AlterNatureOfGoodsPicker,
+                "Gateway of Apex Solutions — Alter Master — " + AlterNatureOfGoodsLabel),
             _ => null,
         };
     }
@@ -14392,6 +14513,23 @@ public sealed partial class MainWindowViewModel : ViewModelBase
         if (CurrentGatewayMenu is GatewayMenu.GroupVouchersPicker)
         {
             OpenGroupReportByName(ReportKind.GroupVouchers, item.Label);
+            return;
+        }
+
+        // Census 6.28 (iii) / 6.36 (wave 13, track ic): inside an Alter Master picker every Page row is one of the
+        // company's own natures — open THAT nature for alteration ("Select the required TCS Nature of Goods and press
+        // Enter." — help.tallysolutions.com/tcs-faq-tally/).
+        if (CurrentGatewayMenu is GatewayMenu.AlterNatureOfPaymentPicker)
+        {
+            if (Company?.NaturesOfPayment.FirstOrDefault(n => NatureOfPaymentPickerLabel(n) == item.Label) is { } nop)
+                OpenNatureOfPaymentAlteration(nop.Id);
+            return;
+        }
+
+        if (CurrentGatewayMenu is GatewayMenu.AlterNatureOfGoodsPicker)
+        {
+            if (Company?.NaturesOfGoods.FirstOrDefault(n => NatureOfGoodsPickerLabel(n) == item.Label) is { } nog)
+                OpenNatureOfGoodsAlteration(nog.Id);
             return;
         }
 
@@ -15059,6 +15197,9 @@ public sealed partial class MainWindowViewModel : ViewModelBase
                     "Budgets" => GatewayMenu.Budgets,
                     "Backup / Restore" => GatewayMenu.Data,
                     "Split Company Data" => GatewayMenu.Split,
+                    "Alter Master" => GatewayMenu.AlterMaster,
+                    AlterNatureOfPaymentLabel => GatewayMenu.AlterNatureOfPaymentPicker,
+                    AlterNatureOfGoodsLabel => GatewayMenu.AlterNatureOfGoodsPicker,
                     _ => GatewayMenu.Root,
                 };
         return GatewayMenu.Root;

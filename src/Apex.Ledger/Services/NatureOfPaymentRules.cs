@@ -52,6 +52,45 @@ public static class NatureOfPaymentRules
             .ToList();
     }
 
+    /// <summary>
+    /// T2-181 (wave 13, track ic) — the <b>live</b> vouchers whose withholding the alteration from
+    /// <paramref name="existing"/> to <paramref name="replacement"/> would MOVE: for every posted TDS line carrying
+    /// this nature on a voucher that is <b>not cancelled</b>, the withholding is computed twice by the one engine
+    /// (<see cref="TdsService.ComputeWithholding"/>) — under the old terms and under the new — over the line's own
+    /// posted assessable value, deductee and date, with the voucher itself excluded from its prior aggregate. A
+    /// voucher is counted when the rate or the amount differs between the two. That is exactly the set whose next
+    /// alteration <c>VoucherEntryViewModel.ApplyReCarve</c> would refuse because of THIS change; the old count
+    /// (<see cref="VouchersCarrying"/>) also took in cancelled vouchers (which cannot be altered) and vouchers the
+    /// new figures leave untouched.
+    ///
+    /// <para>A deductee ledger that no longer resolves is counted (conservative: the warning over-states rather
+    /// than hides). Both computations see the same book, so drift that has nothing to do with this alteration (a
+    /// sibling cancelled since posting) cancels out and is not attributed to it.</para>
+    /// </summary>
+    public static IReadOnlyList<Voucher> VouchersMovedBy(Company company, NatureOfPayment existing, NatureOfPayment replacement)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(replacement);
+        var engine = new TdsService(company);
+        var moved = new List<Voucher>();
+        foreach (var v in company.Vouchers.Where(v => !v.Cancelled))
+        {
+            foreach (var t in v.Lines.Select(l => l.Tds).OfType<TdsLineTax>().Where(t => t.NatureId == existing.Id))
+            {
+                if (company.FindLedger(t.DeducteeLedgerId) is not { } deductee) { moved.Add(v); break; }
+                var before = engine.ComputeWithholding(t.AssessableValue, existing, deductee, v.Date, asPostedBefore: v.Id);
+                var after = engine.ComputeWithholding(t.AssessableValue, replacement, deductee, v.Date, asPostedBefore: v.Id);
+                if (before.RateBasisPoints != after.RateBasisPoints || before.TdsAmount != after.TdsAmount)
+                {
+                    moved.Add(v);
+                    break;
+                }
+            }
+        }
+        return moved;
+    }
+
     /// <summary>The ledgers whose default Nature of Payment (<see cref="Domain.Ledger.TdsNatureOfPaymentId"/>) is
     /// <paramref name="natureId"/>.</summary>
     public static IReadOnlyList<Domain.Ledger> LedgersNaming(Company company, Guid natureId)
