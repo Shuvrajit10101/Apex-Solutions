@@ -104,7 +104,7 @@ public sealed record TcsNotCollectedReport(DateOnly AsOf, IReadOnlyList<TcsNotCo
 
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;   // T2-174 (IV-394)
             foreach (var line in v.Lines)
             {
                 if (line.Tcs is not { } t) continue;
@@ -270,7 +270,7 @@ public sealed record TcsNatureSummaryReport(DateOnly AsOf, IReadOnlyList<TcsNatu
         var below = new Dictionary<string, (decimal Assessable, int Count, Guid NatureId)>(StringComparer.Ordinal);
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;   // T2-174 (IV-394)
             foreach (var line in v.Lines)
             {
                 if (line.Tcs is not { } t || t.TcsAmount.Amount != 0m) continue;

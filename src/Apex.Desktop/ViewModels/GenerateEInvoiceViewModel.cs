@@ -138,6 +138,13 @@ public sealed partial class GenerateEInvoiceViewModel : ViewModelBase
             var docNo = EInvoiceService.DocumentNumberOf(_company, v);
             var record = _company.EInvoiceRecords.FirstOrDefault(r => r.SourceVoucherId == v.Id);
 
+            // T2-174 (wave 13, IV-389): an Optional voucher is recorded "without affecting your books of accounts"
+            // (help.tallysolutions.com/create-optional-voucher/), so it is not offered for an IRN until Ctrl+L makes
+            // it Regular. OURS: one carrying a GENERATED IRN stays listed, because this screen is the only route to
+            // cancel that IRN; dropping it would strand a live portal document (the same trap the Alt+X blocker in
+            // MainWindowViewModel records for a cancelled voucher).
+            if (v.Optional && record is not { Status: EInvoiceStatus.Generated }) continue;
+
             // Only outward vouchers are worth listing; everything else is NotApplicable noise.
             if (coverage == EInvoiceCoverage.NotApplicable && record is null) continue;
 

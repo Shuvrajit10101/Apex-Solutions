@@ -115,7 +115,7 @@ public sealed record TdsNotDeductedReport(DateOnly AsOf, IReadOnlyList<TdsNotDed
 
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;   // T2-174 (IV-394)
             foreach (var line in v.Lines)
             {
                 if (line.Tds is not { } t) continue;
@@ -318,7 +318,7 @@ public sealed record TdsNatureSummaryReport(DateOnly AsOf, IReadOnlyList<TdsNatu
         var below = new Dictionary<string, (decimal Assessable, int Count, Guid NatureId)>(StringComparer.Ordinal);
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date > asOf) continue;   // T2-174 (IV-394)
             foreach (var line in v.Lines)
             {
                 if (line.Tds is not { } t || t.TdsAmount.Amount != 0m) continue;

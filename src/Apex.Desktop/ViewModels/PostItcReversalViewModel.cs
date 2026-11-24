@@ -278,7 +278,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
             // combo box), so offering another registration's purchase here would post, correctly, into a return
             // this screen is not showing — the row would vanish from the history the operator is looking at.
             foreach (var v in _company.Vouchers
-                         .Where(v => !v.Cancelled && IsPurchase(v))
+                         .Where(v => !v.Cancelled && !v.Optional && IsPurchase(v))   // T2-174 (IV-390)
                          .Where(v => GstReportSupport.RegistrationOf(v) == ScopedRegistrationId)
                          .Where(v => Kind == ItcReversalPostKind.Rule43 || v.PartyId is not null)
                          .OrderBy(v => v.Date).ThenBy(v => v.Number))
@@ -369,6 +369,7 @@ public sealed partial class PostItcReversalViewModel : ViewModelBase
     /// purchases are sitting somewhere they are not.</summary>
     private bool PrimaryHasAnchorablePurchase() =>
         _company.Vouchers.Any(v => !v.Cancelled
+                                   && !v.Optional   // T2-174 (IV-390): the same predicate as the picker
                                    && IsPurchase(v)
                                    && GstReportSupport.RegistrationOf(v) == GstRegistration.PrimaryId
                                    && (Kind == ItcReversalPostKind.Rule43 || v.PartyId is not null)

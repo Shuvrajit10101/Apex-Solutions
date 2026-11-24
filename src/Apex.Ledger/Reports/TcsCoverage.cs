@@ -92,7 +92,9 @@ internal static class TcsCoverage
         var order = 0;
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) { order++; continue; }
+            // T2-174 (wave 13, IV-393): an Optional voucher collected nothing until Ctrl+L makes it Regular. `order`
+            // still advances, so the remaining units keep the indices Form27EQ gives them.
+            if (v.Cancelled || v.Optional || v.Date > asOf) { order++; continue; }
             foreach (var line in v.Lines)
             {
                 if (line.Tcs is not { } t) continue;

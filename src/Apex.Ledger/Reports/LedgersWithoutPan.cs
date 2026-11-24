@@ -53,7 +53,7 @@ public sealed record LedgersWithoutPanReport(DateOnly AsOf, IReadOnlyList<Ledger
         // Primary signal: posted no-PAN lines in the FY window.
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date < fyStart || v.Date > asOf) continue;
+            if (v.Cancelled || v.Optional || v.Date < fyStart || v.Date > asOf) continue;   // T2-174 (IV-392)
             foreach (var line in v.Lines)
             {
                 if (line.Tds is { PanApplied: false } t)

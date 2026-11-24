@@ -100,7 +100,9 @@ internal static class TdsCoverage
         var order = 0;
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date > asOf) { order++; continue; }
+            // T2-174 (wave 13, IV-393): an Optional voucher deducted nothing until Ctrl+L makes it Regular. `order`
+            // still advances, so the remaining units keep the indices Form26Q gives them.
+            if (v.Cancelled || v.Optional || v.Date > asOf) { order++; continue; }
             foreach (var line in v.Lines)
             {
                 if (line.Tds is not { } t) continue;

@@ -2750,8 +2750,12 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // purchase here let the screen post a sales-return-shaped note (Output tax, stock IN) against a supplier: a
         // GSTR-1 cdnr row naming the supplier and a 3.1(a) reduction. A Debit Note keeps both natures: a Sales
         // original is our §34(3) note (T2-163), a Purchase original a purchase return.
+        //
+        // T2-174 (wave 13, IV-388): `!v.Optional` for the same reason as `!v.Cancelled`. An Optional invoice is
+        // recorded "without affecting your books of accounts" (help.tallysolutions.com/create-optional-voucher/), so
+        // it is not yet a supply a note can adjust. Ctrl+L (Regular) puts it back on the list.
         foreach (var v in _company.Vouchers
-                     .Where(v => !v.Cancelled && IsOfferableSection34Original(v))
+                     .Where(v => !v.Cancelled && !v.Optional && IsOfferableSection34Original(v))
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             CdnOriginalInvoices.Add(new CdnOriginalInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });
         SelectedCdnOriginalInvoice = CdnOriginalInvoices.FirstOrDefault();
@@ -3230,8 +3234,9 @@ public sealed partial class VoucherEntryViewModel : ViewModelBase, ISetsWorkingD
         // above: this list offers the invoice an outstanding advance is ADJUSTED AGAINST, and it filtered on base
         // type alone. Adjusting an advance against a cancelled sale would retire real advance tax against a
         // supply with no value, and the advance would be marked settled by an invoice that is not on the books.
+        // T2-174 (wave 13, IV-388): an Optional sale is not on the books either, so it is not offered until Ctrl+L.
         foreach (var v in _company.Vouchers
-                     .Where(v => !v.Cancelled
+                     .Where(v => !v.Cancelled && !v.Optional
                          && _company.FindVoucherType(v.TypeId)?.BaseType == VoucherBaseType.Sales)
                      .OrderByDescending(v => v.Date).ThenByDescending(v => v.Number))
             AdvanceInvoices.Add(new AdvanceInvoiceOption { Invoice = v, Display = CdnCandidateDisplay(v) });

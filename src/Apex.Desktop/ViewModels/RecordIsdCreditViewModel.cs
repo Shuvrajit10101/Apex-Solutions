@@ -248,7 +248,7 @@ public sealed partial class RecordIsdCreditViewModel : ViewModelBase, IMasterLis
         decimal totalCredit = 0m;
 
         foreach (var v in _company.Vouchers
-                     .Where(v => !v.Cancelled)
+                     .Where(v => !v.Cancelled && !v.Optional)   // T2-174 (IV-390): Optional = not on the books
                      .Where(v => v.Narration is { } n
                                  && n.StartsWith(GstIsdCreditService.NarrationPrefix, StringComparison.Ordinal))
                      .Where(v => GstReportSupport.RegistrationOf(v) == scope)

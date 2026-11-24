@@ -283,7 +283,9 @@ public sealed record Form24Q(
         var rows = new List<(DateOnly Date, string Name, Form24QDeducteeRow Row)>();
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled) continue;
+            // T2-174 (wave 13, IV-391): an Optional payroll voucher deducted nothing until Ctrl+L makes it Regular
+            // (help.tallysolutions.com/create-optional-voucher/: "without affecting your books of accounts").
+            if (v.Cancelled || v.Optional) continue;
             if (v.Date < from || v.Date > to) continue;
             foreach (var line in v.Lines)
             {
@@ -308,7 +310,7 @@ public sealed record Form24Q(
         decimal sum = 0m;
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date < fyStart || v.Date > fyEnd) continue;
+            if (v.Cancelled || v.Optional || v.Date < fyStart || v.Date > fyEnd) continue;   // T2-174 (IV-391)
             foreach (var line in v.Lines)
             {
                 if (line.Payroll is not { } pd) continue;
@@ -329,7 +331,7 @@ public sealed record Form24Q(
         decimal sum = 0m;
         foreach (var v in company.Vouchers)
         {
-            if (v.Cancelled || v.Date < fyStart || v.Date > fyEnd) continue;
+            if (v.Cancelled || v.Optional || v.Date < fyStart || v.Date > fyEnd) continue;   // T2-174 (IV-391)
             foreach (var line in v.Lines)
             {
                 if (line.Payroll is not { } pd) continue;
