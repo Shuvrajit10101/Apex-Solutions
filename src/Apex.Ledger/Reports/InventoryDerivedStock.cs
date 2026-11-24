@@ -60,14 +60,50 @@ public static class InventoryDerivedStock
     /// <para>Returns, per P&amp;L ledger id, the SIGNED amount (Dr +) to remove from that ledger's figure. In each
     /// counted voucher whose Stock-in-Hand legs net to S ≠ 0, the P&amp;L legs on the OPPOSITE side are the contra;
     /// they are removed up to |S| in total, pro rata when they exceed it (rounded to the paisa, remainder on the last
-    /// leg). A two-leg closing-stock journal is therefore removed exactly. The voucher filter is the one
+    /// leg). A two-leg closing-stock journal is therefore removed exactly. 🔴 T2-180 (wave 13): ONLY in a voucher
+    /// whose every other leg is a P&amp;L ledger; a voucher with a Balance-Sheet leg is charged instead
+    /// (<see cref="StockPostings"/>). The voucher filter is the one
     /// <see cref="LedgerBalances"/> uses for the same figure: in-window movement when a window is set, else the
     /// cumulative as-of figure under the optional scenario.</para>
     /// </summary>
     public static IReadOnlyDictionary<Guid, decimal> StockPostingContra(
         Company company, DateOnly to, Scenario? scenario, DateOnly? windowFrom)
+        => StockPostings(company, to, scenario, windowFrom).Contra;
+
+    /// <summary>
+    /// The two derived-basis treatments of a posting to a Stock-in-Hand ledger (T2-180, wave 13, track ia,
+    /// IV-358/IV-359). <see cref="Contra"/> is IV-336's P&amp;L contra (per P&amp;L ledger, signed Dr +);
+    /// <see cref="Charge"/> is the stock-ledger movement charged to the trading account as a purchase (per Stock-in-Hand
+    /// ledger, signed Dr +: a debit is a purchase, a credit a purchase return).
+    /// </summary>
+    public sealed record StockPostingTreatment(
+        IReadOnlyDictionary<Guid, decimal> Contra, IReadOnlyDictionary<Guid, decimal> Charge);
+
+    /// <summary>
+    /// T2-180 (wave 13, track ia): classifies every counted voucher whose Stock-in-Hand legs net to S ≠ 0.
+    /// <list type="bullet">
+    /// <item><b>A closing-stock posting</b> — every other leg is a P&amp;L ledger (the Dr Stock-in-Hand / Cr Direct
+    /// Income adjustment journal): IV-336 applies, the opposite-side P&amp;L legs are removed up to |S|, and nothing is
+    /// charged.</item>
+    /// <item><b>Anything else</b> — at least one leg is a Balance-Sheet ledger (a supplier, cash, a bank: the Purchase
+    /// item invoice whose value leg is a Stock-in-Hand ledger): the stock side of that posting is still ignored on this
+    /// basis, so S itself is CHARGED to the trading account as purchases (IV-358), and NO P&amp;L leg of the voucher
+    /// is removed (IV-359) — a Discount Received leg on that purchase stays income. Without the charge the purchase is
+    /// charged nowhere and the Balance Sheet is out by S.</item>
+    /// </list>
+    /// <para>🔴 <b>Wave 13 review of track ia:</b> the charge is limited to an ITEM INVOICE (a voucher carrying
+    /// inventory lines) — the T2-180 shape, where the stock ledger stands in for a purchase ledger. An accounting-only
+    /// posting to a Stock-in-Hand ledger is a VALUE adjustment, never a purchase (vendor, stock-valuation-faq: a
+    /// Stock-in-Hand ledger "is used only for entering the opening and closing values"), so it keeps the pre-track
+    /// IV-336 treatment even when its counter-leg is a Balance-Sheet ledger. Charging it double-counted the value: a
+    /// closing-stock journal Dr Stock-in-Hand / Cr the seeded <i>Profit &amp; Loss A/c</i> ledger turned a 231.99 Net
+    /// Profit into a 255.00 Net Loss while the sheet still balanced, so nothing caught it.</para>
+    /// </summary>
+    public static StockPostingTreatment StockPostings(
+        Company company, DateOnly to, Scenario? scenario, DateOnly? windowFrom)
     {
         var result = new Dictionary<Guid, decimal>();
+        var charge = new Dictionary<Guid, decimal>();
         var stockLedgers = new HashSet<Guid>();
         var profitAndLossLedgers = new HashSet<Guid>();
         foreach (var ledger in company.Ledgers)
@@ -81,7 +117,7 @@ public static class InventoryDerivedStock
             if (group is not null && ClassificationRules.IsProfitAndLossGroup(group, company))
                 profitAndLossLedgers.Add(ledger.Id);
         }
-        if (stockLedgers.Count == 0) return result;
+        if (stockLedgers.Count == 0) return new StockPostingTreatment(result, charge);
 
         foreach (var v in company.Vouchers)
         {
@@ -99,6 +135,19 @@ public static class InventoryDerivedStock
                 if (stockLedgers.Contains(line.LedgerId))
                     stock += line.Signed;
             if (stock == 0m) continue;
+
+            // T2-180: a voucher with any Balance-Sheet leg is not a closing-stock posting — charge the stock
+            // movement as purchases, per Stock-in-Hand ledger, and leave every P&L leg of it standing.
+            // Wave 13 review: only an ITEM INVOICE is a purchase; an accounting-only posting is a value adjustment.
+            var closingStockPosting = v.Lines.All(l =>
+                stockLedgers.Contains(l.LedgerId) || profitAndLossLedgers.Contains(l.LedgerId));
+            if (!closingStockPosting && v.HasInventoryLines)
+            {
+                foreach (var line in v.Lines)
+                    if (stockLedgers.Contains(line.LedgerId))
+                        charge[line.LedgerId] = charge.TryGetValue(line.LedgerId, out var p) ? p + line.Signed : line.Signed;
+                continue;
+            }
 
             var contra = v.Lines
                 .Where(l => profitAndLossLedgers.Contains(l.LedgerId) && Math.Sign(l.Signed) == -Math.Sign(stock))
@@ -118,6 +167,6 @@ public static class InventoryDerivedStock
                 result[contra[i].LedgerId] = result.TryGetValue(contra[i].LedgerId, out var prior) ? prior + signed : signed;
             }
         }
-        return result;
+        return new StockPostingTreatment(result, charge);
     }
 }

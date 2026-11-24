@@ -20219,6 +20219,13 @@
                                           IsChecked="{Binding ShowVerticalProfitAndLoss, Mode=TwoWay}"
                                           IsVisible="{Binding SupportsVerticalProfitAndLoss}"
                                           Foreground="{StaticResource BrandNavy}"/>
+                                <!-- census 11.2 (IV-333 / IV-360): "If you want to split the Profit & Loss A/c to see
+                                     the trading profit, then set Show with Gross Profit to Yes." ... "This option is
+                                     available only in the horizontal form" (same page). Hidden while Vertical is ticked. -->
+                                <CheckBox Content="Show with Gross Profit"
+                                          IsChecked="{Binding ShowWithGrossProfit, Mode=TwoWay}"
+                                          IsVisible="{Binding SupportsShowWithGrossProfit}"
+                                          Foreground="{StaticResource BrandNavy}"/>
                                 <Grid ColumnDefinitions="130,*" IsVisible="{Binding SupportsClosingStockBasis}">
                                   <TextBlock Grid.Column="0" Text="Closing stock" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>

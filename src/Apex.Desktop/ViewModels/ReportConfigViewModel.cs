@@ -90,6 +90,14 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
     /// </summary>
     public bool SupportsVerticalProfitAndLoss => _report.SupportsVerticalProfitAndLoss;
 
+    /// <summary>
+    /// True when F12's <b>Show with Gross Profit</b> acts: the P&amp;L with no comparative column AND the panel's own
+    /// <i>Show Vertical Profit &amp; Loss</i> box clear. Census 11.2, IV-360. Vendor,
+    /// help.tallysolutions.com/profit-and-loss-statement-tally/: <i>"This option is available only in the horizontal
+    /// form of the Profit &amp; Loss A/c."</i> Keyed on the panel's box, so ticking Vertical hides it at once.
+    /// </summary>
+    public bool SupportsShowWithGrossProfit => _report.SupportsVerticalProfitAndLoss && !ShowVerticalProfitAndLoss;
+
     // ---- RQ-6: F12 display config ----
 
     /// <summary>Hide rows whose balance is exactly zero.</summary>
@@ -103,6 +111,11 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
 
     /// <summary>Show the Profit &amp; Loss A/c in its vertical form (default No: the horizontal form).</summary>
     [ObservableProperty] private bool _showVerticalProfitAndLoss;
+
+    /// <summary>Split the horizontal P&amp;L at the Gross Profit line (default No).</summary>
+    [ObservableProperty] private bool _showWithGrossProfit;
+
+    partial void OnShowVerticalProfitAndLossChanged(bool value) => OnPropertyChanged(nameof(SupportsShowWithGrossProfit));
 
     /// <summary>The closing-stock valuation basis passed through to the P&amp;L / Balance-Sheet build.</summary>
     [ObservableProperty] private ClosingStockOption? _selectedClosingStock;
@@ -146,6 +159,7 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
         ShowPercentages = _report.ShowPercentages;
         ShowNarration = _report.ShowNarration;
         ShowVerticalProfitAndLoss = _report.ShowVerticalProfitAndLoss;
+        ShowWithGrossProfit = _report.ShowWithGrossProfit;
 
         foreach (var opt in ClosingStockOptions)
             if (opt.Mode == _report.ClosingStock)
@@ -212,6 +226,8 @@ public sealed partial class ReportConfigViewModel : ViewModelBase
 
         // Census 11.2 (IV-330): the vertical form, applied before the single re-projection below for the same reason.
         if (SupportsVerticalProfitAndLoss) _report.SetShowVerticalProfitAndLoss(ShowVerticalProfitAndLoss);
+        // Census 11.2 (IV-360): after the form is settled, so it applies only to the horizontal form.
+        if (SupportsShowWithGrossProfit) _report.SetShowWithGrossProfit(ShowWithGrossProfit);
 
         // RQ-6: hide-zero / percentages / closing-stock basis (a single re-projection).
         var closingStock = SelectedClosingStock?.Mode ?? _report.ClosingStock;

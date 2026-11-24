@@ -123,12 +123,19 @@ public sealed record ProfitAndLoss(
         // opening; and the P&L contra of any posting to a Stock-in-Hand ledger (a posted closing-stock adjustment)
         // is removed, because the stock-ledger side of that posting is ignored here.
         IReadOnlyDictionary<Guid, decimal> stockContra = EmptyContra;
+        IReadOnlyDictionary<Guid, decimal> stockCharge = EmptyContra;
         if (inventoryDerived)
         {
             closingStock = new StockValuationService(company).TotalClosingStockValue(to).Amount;
             openingStock = InventoryDerivedStock.OpeningValuation(company, windowFrom);
-            stockContra = InventoryDerivedStock.StockPostingContra(company, to, scenario, windowFrom);
+            // T2-180 (wave 13, track ia, IV-358/359): a Stock-in-Hand posting against a Balance-Sheet ledger (a
+            // purchase whose value leg is the stock ledger) is CHARGED as purchases; only a genuine closing-stock
+            // posting (every other leg P&L) has its P&L contra removed.
+            var postings = InventoryDerivedStock.StockPostings(company, to, scenario, windowFrom);
+            stockContra = postings.Contra;
+            stockCharge = postings.Charge;
         }
+        var stockChargeTotal = stockCharge.Values.Sum();
 
         foreach (var ledger in company.Ledgers)
         {
@@ -142,7 +149,20 @@ public sealed record ProfitAndLoss(
             if (ClassificationRules.IsStockInHandLedger(ledger, company))
             {
                 if (inventoryDerived)
-                    continue; // IV-335: opening and closing both come from the stock summary on this basis.
+                {
+                    // IV-335: opening and closing both come from the stock summary on this basis.
+                    // IV-358 (T2-180): the ledger's non-closing-stock movement is a purchase in the trading account,
+                    // shown under the ledger's own name (Enter drills into its vouchers) and rolled up (Alt+F1) under
+                    // Purchase Accounts.
+                    if (stockCharge.TryGetValue(ledger.Id, out var charged) && charged != 0m)
+                    {
+                        var purchases = PurchaseAccountsHead(company);
+                        expenses.Add(new ProfitAndLossLine(ledger.Name, new Money(charged), ledger.Id,
+                            purchases?.Name ?? "Purchase Accounts", purchases?.Id ?? Guid.Empty, IsTrading: true));
+                        totalExpense += charged;
+                    }
+                    continue;
+                }
 
                 if (openingAsOf is { } oa)
                 {
@@ -212,6 +232,7 @@ public sealed record ProfitAndLoss(
         // Gross profit (periodic inventory): sales + direct income − opening − purchases − direct expenses,
         // with closing stock either already in direct income (AsPostedLedger) or added here (InventoryDerived).
         var gross = ComputeGrossProfit(company, to, openingStock, scenario, windowFrom, stockContra)
+            - stockChargeTotal // IV-358: charged as purchases, so it sits above the Gross Profit line
             + (inventoryDerived ? closingStock : 0m);
 
         return new ProfitAndLoss(
@@ -226,6 +247,14 @@ public sealed record ProfitAndLoss(
     }
 
     private static readonly IReadOnlyDictionary<Guid, decimal> EmptyContra = new Dictionary<Guid, decimal>();
+
+    /// <summary>The seeded primary <i>Purchase Accounts</i> head (the roll-up key of an IV-358 stock charge), if the
+    /// book has one.</summary>
+    private static Group? PurchaseAccountsHead(Company company)
+    {
+        var g = company.FindGroupByName("Purchase Accounts");
+        return g is null ? null : ClassificationRules.PrimaryAncestorOf(g, company);
+    }
 
     private static decimal ComputeGrossProfit(
         Company company, DateOnly to, decimal openingStock, Scenario? scenario, DateOnly? windowFrom,
