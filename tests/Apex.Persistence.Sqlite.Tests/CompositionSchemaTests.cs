@@ -213,6 +213,9 @@ public sealed class CompositionSchemaTests
         -- left untouched.
         CREATE TABLE IF NOT EXISTS cost_categories (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS budget_lines (id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, budget_id TEXT NOT NULL DEFAULT '');
+        -- v70 (census 2.9): budgets must exist too, because MigrateV69ToV70 copies it out and re-declares it
+        -- (a real database has had it since the v4 budgets rung). Same minimal-subset rule as above.
+        CREATE TABLE IF NOT EXISTS budgets (id TEXT NOT NULL PRIMARY KEY, company_id TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', under_id TEXT NULL, period_from TEXT NOT NULL DEFAULT '', period_to TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS currencies (id TEXT NOT NULL PRIMARY KEY, symbol TEXT NOT NULL DEFAULT '');
         CREATE TABLE IF NOT EXISTS godowns (id TEXT NOT NULL PRIMARY KEY, name TEXT NOT NULL DEFAULT '');
         """;

@@ -6999,6 +6999,22 @@
                                   <TextBox Grid.Column="1" Text="{Binding Name, Mode=TwoWay}"
                                            PlaceholderText="e.g. Q1 Budget"/>
                                 </Grid>
+                                <!-- v70 (census 2.9): Under = Primary or another BUDGET (the List of Budgets), never a
+                                     group. Between Name and From, so Tab reaches it second, as the vendor's form
+                                     orders Name, Under, Period. Type-to-search reads BudgetParentOption.Name. -->
+                                <Grid ColumnDefinitions="90,*">
+                                  <TextBlock Grid.Column="0" Text="Under" FontWeight="SemiBold"
+                                             VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
+                                  <ComboBox Grid.Column="1" Name="BudgetUnderPicker" HorizontalAlignment="Stretch"
+                                            ItemsSource="{Binding Parents}"
+                                            SelectedItem="{Binding SelectedParent, Mode=TwoWay}">
+                                    <ComboBox.ItemTemplate>
+                                      <DataTemplate x:DataType="vm:BudgetParentOption">
+                                        <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis"/>
+                                      </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                  </ComboBox>
+                                </Grid>
                                 <Grid ColumnDefinitions="90,*,60,*">
                                   <TextBlock Grid.Column="0" Text="From" FontWeight="SemiBold"
                                              VerticalAlignment="Center" Foreground="{StaticResource BrandNavy}"/>
@@ -7108,8 +7124,11 @@
                                              so the operator has to be able to SEE which row that is. -->
                                         <Border Grid.Column="0" Grid.ColumnSpan="3" Background="#FFF3CD"
                                                 IsVisible="{Binding IsHighlighted}"/>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"/>
+                                        <!-- v70 (census 2.9): TreeName — indented under its parent budget, in tree
+                                             order, the List of Budgets' hierarchical form. -->
+                                        <TextBlock Grid.Column="0" Text="{Binding TreeName}"
+                                                   Margin="8,0" VerticalAlignment="Center" FontSize="12.5"
+                                                   TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Grid.Column="1" Text="{Binding Period}"
                                                    VerticalAlignment="Center" FontSize="12" Foreground="#555555"/>
                                         <TextBlock Grid.Column="2" Text="{Binding Lines}"

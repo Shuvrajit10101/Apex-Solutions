@@ -78,6 +78,8 @@ public sealed class MasterDeletionForeignKeyCoverageTests
         Assert.Contains("gst_cdn_links.original_invoice_voucher_id", declared);
         Assert.Contains("companies.profit_and_loss_head_id", declared);
         Assert.Contains("pay_heads.under_group_id", declared);
+        Assert.Contains("budgets.under_id", declared);                     // budgets (v70)
+        Assert.Contains("budget_lines.budget_id", declared);               // budgets (v70)
         Assert.Contains("bom_lines.component_stock_item_id", declared);
         Assert.Contains("rcm_documents.supplier_ledger_id", declared);
         Assert.Contains("job_work_order_lines.component_stock_item_id", declared);
@@ -127,7 +129,10 @@ public sealed class MasterDeletionForeignKeyCoverageTests
         var reference = new Regex(
             @"^\s*([A-Za-z_][A-Za-z0-9_]*)\b[^-]*?REFERENCES\s+"
             + @"(vouchers|ledgers|groups|stock_items"
-            + @"|godowns|units|stock_groups|stock_categories|cost_centres|cost_categories)\s*\(\s*id\s*\)",
+            + @"|godowns|units|stock_groups|stock_categories|cost_centres|cost_categories"
+            // v70 (census 2.9): budgets joined the set when budgets.under_id began to REFERENCE budgets(id) — a
+            // second FK into a deletable master, and one a delete could orphan (EnsureBudgetDeletable).
+            + @"|budgets)\s*\(\s*id\s*\)",
             RegexOptions.IgnoreCase);
 
         foreach (var line in sql.Split('\n'))

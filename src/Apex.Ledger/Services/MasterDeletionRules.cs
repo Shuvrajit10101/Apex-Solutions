@@ -172,7 +172,8 @@ public static class MasterDeletionRules
 
         // ---- pointing at a GROUP (EnsureGroupDeletable)
         "budget_lines.group_id",
-        "budgets.under_id",
+        // 🔴 v70 (census 2.9): budgets.under_id USED to sit here — it REFERENCED groups(id) and the group guard
+        // counted "budgets filed under it". It now REFERENCES budgets(id), so it moved to the BUDGET section below.
         "companies.profit_and_loss_head_id",
         "groups.parent_id",
         "ledgers.group_id",
@@ -235,6 +236,12 @@ public static class MasterDeletionRules
         // the centre's own graph, so it does not leave with the centre — guarded, exactly like
         // budget_lines.ledger_id and budget_lines.group_id above.
         "budget_lines.cost_centre_id",
+
+        // ---- pointing at a BUDGET (EnsureBudgetDeletable) — v70, census 2.9.
+        // A child budget is written from Company.Budgets, NOT from its parent's graph, so deleting the parent does
+        // not take it along: the next Save's second pass would write an under_id naming a budget that no longer
+        // exists and fail the FK. Guarded, like groups.parent_id.
+        "budgets.under_id",
     ];
 
     /// <summary>
@@ -253,6 +260,9 @@ public static class MasterDeletionRules
     /// </summary>
     public static readonly IReadOnlyList<string> ForeignKeyColumnsThatDieWithTheirParent =
     [
+        // v70 (census 2.9): written from Budget.Lines, the budget's own graph — a deleted budget is simply not
+        // enumerated, so its lines go with it. Listed now because budgets(id) joined the guarded parent set.
+        "budget_lines.budget_id",
         "cheque_layouts.ledger_id",
         "entry_lines.voucher_id",
         "pos_tender_allocations.voucher_id",
@@ -746,15 +756,16 @@ public static class MasterDeletionRules
         var subGroups = company.Groups.Count(g => g.ParentId == group.Id);
         var ledgers = company.Ledgers.Count(l => l.GroupId == group.Id);
         var payHeads = company.PayHeads.Count(h => h.UnderGroupId == group.Id);
-        var budgets = company.Budgets.Count(b => b.UnderId == group.Id);
-        var total = subGroups + ledgers + payHeads + budgets;
+        // 🔴 v70 (census 2.9): NO budget count here any more. budgets.under_id now names a parent BUDGET, never a
+        // group, so "a budget filed under this group" cannot exist; counting UnderId == group.Id would only ever
+        // match a Guid collision. Budget lines that TARGET the group are still counted, as references, below.
+        var total = subGroups + ledgers + payHeads;
         if (total > 0)
         {
             var parts = new List<string>();
             AddPart(parts, subGroups, "sub-group", "sub-groups");
             AddPart(parts, ledgers, "ledger", "ledgers");
             AddPart(parts, payHeads, "pay head", "pay heads");
-            AddPart(parts, budgets, "budget", "budgets");
 
             var head = total == 1 ? "1 master is filed under it" : $"{total} masters are filed under it";
             throw new InvalidOperationException(
@@ -1226,6 +1237,37 @@ public static class MasterDeletionRules
     // 🔴 THE FOUR "no guard" ROWS ABOVE ARE A MEASURED ABSENCE, NOT AN OVERSIGHT. Inventing a refusal with no
     // rule behind it is the defect this file's own InventoryVoucher remarks name; a budget with no external
     // referent simply deletes.
+    // 🔴 v70 (census 2.9) MOVED BUDGETS OUT OF THAT SET: budgets.under_id now REFERENCES budgets(id) and a child
+    // budget is written from Company.Budgets, not from its parent — so a budget WITH budgets under it is refused
+    // by EnsureBudgetDeletable below. A budget with none still simply deletes.
+
+    /// <summary>
+    /// <b>THE BUDGET DELETE GUARD</b> (census 2.9, schema v70): a budget is refused while any other budget is filed
+    /// under it, with the count and the names, because <c>budgets.under_id</c> REFERENCES budgets(id) and a child
+    /// is written from <c>Company.Budgets</c> rather than from its parent — deleting the parent would leave the
+    /// child naming a budget that no longer exists and the next Save would fail the FK.
+    ///
+    /// <para><b>FIDELITY (R7).</b> The November 3, 2025 version of <c>help.tallysolutions.com/budgets-tally/</c>
+    /// says <i>"As a budget is only an estimation you can delete a budget without any dependency"</i> — about
+    /// TRANSACTIONS on the budgeted ledgers, groups and cost centres, which this guard does not count. Nothing on
+    /// that page, live or archived, speaks to deleting a budget that has budgets under it; <b>the refusal is OURS</b>
+    /// (docs/invented-vs-cloned.md IV-327), in this file's established group shape: count, name, remedy. The
+    /// budget's own lines are not counted — they leave with it.</para>
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Another budget is filed under this one.</exception>
+    public static void EnsureBudgetDeletable(Company company, Budget budget)
+    {
+        ArgumentNullException.ThrowIfNull(company);
+        ArgumentNullException.ThrowIfNull(budget);
+
+        var children = BudgetHierarchy.ChildrenOf(company, budget.Id);
+        if (children.Count == 0) return;
+
+        var head = children.Count == 1 ? "1 budget is filed under it" : $"{children.Count} budgets are filed under it";
+        throw new InvalidOperationException(
+            $"Cannot delete budget '{budget.Name}': {head} ({string.Join(", ", children.Select(c => c.Name))}). "
+            + "Move or delete them first.");
+    }
 
     /// <summary>
     /// <b>THE BILL-OF-MATERIALS DELETE GUARD</b> (census 3.9).

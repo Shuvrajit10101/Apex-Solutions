@@ -1774,6 +1774,59 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
             version = 69;
         }
 
+        // v69 → v70 (census 2.9, "no nested budget"): budgets.under_id is re-pointed from groups(id) to budgets(id).
+        // 🔴 THE FIRST UP-MIGRATION THAT REBUILDS A TABLE, and the only rung that needs foreign keys OFF: SQLite
+        // cannot change a REFERENCES target in place, and budgets is the FK PARENT of budget_lines, so dropping and
+        // re-declaring it with enforcement on would abort. `PRAGMA foreign_keys` is a no-op inside a transaction,
+        // hence OFF before BEGIN and ON again in `finally` whatever happens. Enforcement is not simply skipped: the
+        // two references this rung moves (budget_lines.budget_id, budgets.under_id) are re-checked inside the
+        // transaction and any orphan rolls the whole rung back, so a book either climbs with every budget, every
+        // line and zero orphans, or stays at v69 untouched. Every
+        // legacy under_id (a GROUP id under v69) is cleared — see Schema.MigrateV69ToV70 for why.
+        if (version == 69)
+        {
+            Exec("PRAGMA foreign_keys = OFF;");
+            try
+            {
+                using var tx = _connection.BeginTransaction();
+                using (var mig = _connection.CreateCommand())
+                {
+                    mig.Transaction = tx;
+                    mig.CommandText = Schema.MigrateV69ToV70;
+                    mig.ExecuteNonQuery();
+                }
+                // The two references this rung can break, checked by name. NOT a bare `PRAGMA foreign_key_check`:
+                // that walks EVERY table and raises "foreign key mismatch" on any parent whose PRIMARY KEY an older
+                // test-fixture downgrade dropped (companies, ledgers — the documented DropColumns residual), which
+                // would abort this rung over tables it never touched.
+                using (var check = _connection.CreateCommand())
+                {
+                    check.Transaction = tx;
+                    check.CommandText = """
+                        SELECT (SELECT COUNT(*) FROM budget_lines WHERE budget_id NOT IN (SELECT id FROM budgets))
+                             + (SELECT COUNT(*) FROM budgets WHERE under_id IS NOT NULL);
+                        """;
+                    if (Convert.ToInt64(check.ExecuteScalar()) != 0)
+                        throw new InvalidOperationException(
+                            "The v69 to v70 budget migration would leave a budget line without its budget, or a "
+                            + "budget filed under a parent that is not a budget. Nothing has been changed.");
+                }
+                using (var bump = _connection.CreateCommand())
+                {
+                    bump.Transaction = tx;
+                    bump.CommandText = "UPDATE schema_version SET version = $v;";
+                    bump.Parameters.AddWithValue("$v", 70);
+                    bump.ExecuteNonQuery();
+                }
+                tx.Commit();
+            }
+            finally
+            {
+                Exec("PRAGMA foreign_keys = ON;");
+            }
+            version = 70;
+        }
+
         if (version != Schema.CurrentVersion)
             throw new InvalidOperationException(
                 $"Database schema version {version} is not supported by this adapter (expected {Schema.CurrentVersion}). " +
@@ -8624,7 +8677,10 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$id", budget.Id.ToString("D"));
                 cmd.Parameters.AddWithValue("$cid", c.Id.ToString("D"));
                 cmd.Parameters.AddWithValue("$name", budget.Name);
-                cmd.Parameters.AddWithValue("$under", (object?)budget.UnderId?.ToString("D") ?? DBNull.Value);
+                // v70 (census 2.9): the parent is written in a SECOND pass, below. under_id now REFERENCES
+                // budgets(id), and a parent may sit later in Company.Budgets than its child (an Alter can file an
+                // older budget under a newer one), so writing it here would trip the immediate FK.
+                cmd.Parameters.AddWithValue("$under", DBNull.Value);
                 cmd.Parameters.AddWithValue("$from", FormatDate(budget.PeriodFrom));
                 cmd.Parameters.AddWithValue("$to", FormatDate(budget.PeriodTo));
                 cmd.ExecuteNonQuery();
@@ -8650,6 +8706,21 @@ public sealed class SqliteCompanyStore : ICompanyRepository, IMasterRepository, 
                 cmd.Parameters.AddWithValue("$ccid", (object?)line.CostCentreId?.ToString("D") ?? DBNull.Value);
                 cmd.ExecuteNonQuery();
             }
+        }
+
+        // v70 (census 2.9): the parent BUDGET, once every header row exists. Two passes rather than a parents-first
+        // sort because a sort would change the rowid order the reader loads in, and Company.Budgets would come back
+        // in a different order from the one it was saved in. A parent id that names no budget of this company
+        // fails the FK here and aborts the save, which is the right answer to a dangling parent.
+        foreach (var budget in c.Budgets)
+        {
+            if (budget.UnderId is not { } parentId) continue;
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "UPDATE budgets SET under_id = $under WHERE id = $id;";
+            cmd.Parameters.AddWithValue("$under", parentId.ToString("D"));
+            cmd.Parameters.AddWithValue("$id", budget.Id.ToString("D"));
+            cmd.ExecuteNonQuery();
         }
     }
 

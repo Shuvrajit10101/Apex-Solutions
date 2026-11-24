@@ -49,6 +49,13 @@ internal sealed class ImportPlan
 
     public bool CanResolveGroup(Guid id, Company t) =>
         GroupTargets.ContainsKey(id) || t.FindGroup(id) is not null;
+    /// <summary>
+    /// v70 (census 2.9, IV-328): <c>true</c> when a budget's <c>UnderId</c> is a pre-v70 GROUP id — not a budget in
+    /// the document or the target, but a group either resolves. Such a parent imports as <b>Primary</b>, the same
+    /// treatment <c>Schema.MigrateV69ToV70</c> gives a stored legacy group id, rather than refusing the whole import.
+    /// </summary>
+    public bool IsLegacyGroupBudgetParent(Guid id, Company t) =>
+        !BudgetTargets.ContainsKey(id) && t.FindBudget(id) is null && CanResolveGroup(id, t);
     public bool CanResolveLedger(Guid id, Company t) =>
         LedgerTargets.ContainsKey(id) || t.FindLedger(id) is not null;
     public bool CanResolveVoucherType(Guid id, Company t) =>
@@ -855,17 +862,30 @@ internal sealed class ImportPlan
 
         // 9b) Budgets — masters that reference resolved groups/ledgers; the "Primary Cost Category"-style seed does
         //     not apply here, so a budget is always created fresh (no predefined budgets exist).
-        foreach (var bd in _model.Payload.Budgets)
+        // 🔴 v70 (census 2.9): a budget's UnderId names a parent BUDGET (it named a group until v69, and this loop
+        // resolved it through the GROUP map — a budget id there would have thrown "Group reference … could not be
+        // resolved" and rolled the whole import back). Parents first, so a child's parent is already mapped; a
+        // reused (same-name) budget maps to the target's own budget, whose parent is left as the target has it.
+        var budgetId = new Dictionary<Guid, Guid>();
+        foreach (var bd in TopoOrder(_model.Payload.Budgets, b => b.Id, b => b.UnderId))
         {
             var target = BudgetTargets[bd.Id];
             if (target.IsDuplicate)
             {
+                if (t.FindBudgetByName(target.Name) is { } existingBudget) budgetId[bd.Id] = existingBudget.Id;
                 reused++;
                 continue;
             }
+            // A pre-v70 document's GROUP parent becomes Primary (IV-328), exactly as the v69 -> v70 migration clears it.
+            Guid? parentBudget = bd.UnderId is { } uid && !IsLegacyGroupBudgetParent(uid, t)
+                ? budgetId.TryGetValue(uid, out var mapped) ? mapped
+                  : t.FindBudget(uid)?.Id
+                    ?? throw new InvalidOperationException($"Budget reference {uid} could not be resolved.")
+                : null;
             var domain = new Budget(Guid.NewGuid(), bd.Name,
                 CompanyImportService.ParseDate(bd.PeriodFrom), CompanyImportService.ParseDate(bd.PeriodTo),
-                bd.UnderId is { } uid ? ResolveGroupId(uid, groupId, t) : null);
+                parentBudget);
+            budgetId[bd.Id] = domain.Id;
             foreach (var bl in bd.Lines)
             {
                 var type = ParseEnum<BudgetType>(bl.BudgetType);

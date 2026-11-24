@@ -86,14 +86,14 @@ public sealed class InventoryOptionalV69SchemaTests
             Assert.True(allocations >= 2);
             var closingBefore = new InventoryLedger(s.Company).OnHand(s.ItemId, s.GodownId, new DateOnly(2024, 5, 31));
 
-            using (var conn = Open(path)) { SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
             Assert.Equal(68L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.DoesNotContain("optional", ColumnNames(path, "inventory_vouchers"));
 
             Company reloaded;
             using (var store = new SqliteCompanyStore(path)) reloaded = store.Load(s.Company.Id)!;
 
-            Assert.Equal(69L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             Assert.Contains("optional", ColumnNames(path, "inventory_vouchers"));
             Assert.Equal(headers, ReadScalar(path, "SELECT COUNT(*) FROM inventory_vouchers;"));
             Assert.Equal(allocations, ReadScalar(path, "SELECT COUNT(*) FROM inventory_allocations;"));
@@ -123,14 +123,15 @@ public sealed class InventoryOptionalV69SchemaTests
             using (var store = new SqliteCompanyStore(migratedPath))
                 store.Save(CompanyFactory.CreateSeeded("Migrated Stock Optional Co", FyStart));
 
-            using (var conn = Open(migratedPath)) { SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(migratedPath)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
             Assert.DoesNotContain("optional", ColumnNames(migratedPath, "inventory_vouchers"));
 
             using (new SqliteCompanyStore(migratedPath)) { }
             Assert.Equal(TableInfo(freshPath, "inventory_vouchers"), TableInfo(migratedPath, "inventory_vouchers"));
             Assert.Equal(Schema.V69InventoryVoucherColumns, new[] { "optional" });
             Assert.DoesNotContain("UPDATE ", Schema.MigrateV68ToV69);
-            Assert.Equal(69, Schema.CurrentVersion);
+            // Re-baselined 69 -> 70 (census 2.9, wave 12): v70 re-points only budgets.under_id at budgets(id).
+            Assert.Equal(70, Schema.CurrentVersion);
         }
         finally
         {
@@ -155,7 +156,7 @@ public sealed class InventoryOptionalV69SchemaTests
             using (var store = new SqliteCompanyStore(path)) store.Save(s.Company);
             var indexesBefore = IndexNames(path, "inventory_vouchers").OrderBy(n => n).ToList();
 
-            using (var conn = Open(path)) { SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
+            using (var conn = Open(path)) { SchemaDowngrade.V70ToV69(conn); SchemaDowngrade.V69ToV68(conn); SqliteConnection.ClearPool(conn); }
 
             Assert.Equal(new List<string> { "id" }, PrimaryKeyColumns(path, "inventory_vouchers"));
             Assert.Equal(indexesBefore, IndexNames(path, "inventory_vouchers").OrderBy(n => n).ToList());
@@ -164,7 +165,7 @@ public sealed class InventoryOptionalV69SchemaTests
 
             Company reloaded;
             using (var store = new SqliteCompanyStore(path)) reloaded = store.Load(s.Company.Id)!;
-            Assert.Equal(69L, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
+            Assert.Equal((long)Schema.CurrentVersion, ReadScalar(path, "SELECT version FROM schema_version LIMIT 1;"));
             // What a downgrade means: the Optional mark is lost, the vouchers are not.
             Assert.All(reloaded.InventoryVouchers, v => Assert.False(v.Optional));
             Assert.Equal(4, reloaded.InventoryVouchers.Count);

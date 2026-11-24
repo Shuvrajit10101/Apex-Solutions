@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Linq;
 using Apex.Ledger;
 using Apex.Ledger.Domain;
+using Apex.Ledger.Services;
 using Apex.Desktop.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -14,6 +15,18 @@ namespace Apex.Desktop.ViewModels;
 public sealed partial class BudgetListRow : ObservableObject, IMasterListRow
 {
     public string Name { get; init; } = string.Empty;
+
+    /// <summary>v70 (census 2.9): how many budgets up the tree this one sits (0 = filed under Primary).</summary>
+    public int Depth { get; init; }
+
+    /// <summary>v70 (census 2.9): the parent budget's name, or "Primary".</summary>
+    public string Under { get; init; } = "Primary";
+
+    /// <summary>v70 (census 2.9): the name as the List of Budgets paints it — indented four spaces per level, so a
+    /// budget filed under another reads beneath it. <see cref="Name"/> stays bare: it is what the delete prompt
+    /// and the shared master-list arm name.</summary>
+    public string TreeName => new string(' ', 4 * Depth) + Name;
+
     public string Period { get; init; } = string.Empty;
     public string Lines { get; init; } = string.Empty;
 
@@ -50,6 +63,27 @@ public sealed class BudgetTargetOption
 
     /// <summary>v67 (census 2.9): true iff this option targets a cost centre.</summary>
     public bool IsCostCentre => CostCentreId is not null;
+}
+
+/// <summary>
+/// One entry in the budget's <b>Under</b> picker (v70, census 2.9): <b>Primary</b> first, then the List of Budgets in
+/// tree order. <see cref="Name"/> is the bare budget name — the app-wide picker type-to-search reads a <c>Name</c>
+/// property — and <see cref="Display"/> is what the drop-down paints, indented by depth.
+/// </summary>
+public sealed class BudgetParentOption
+{
+    /// <summary>The parent budget, or <c>null</c> for Primary.</summary>
+    public Guid? BudgetId { get; init; }
+
+    /// <summary>The search text: "Primary" or the bare budget name.</summary>
+    public string Name { get; init; } = string.Empty;
+
+    /// <summary>The painted text: the name, indented four spaces per level.</summary>
+    public string Display { get; init; } = string.Empty;
+
+    public bool IsPrimary => BudgetId is null;
+
+    public override string ToString() => Name;
 }
 
 /// <summary>One pending budget line shown in the "Budget Lines" grid before the budget is created.</summary>
@@ -112,14 +146,18 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     // "Delete a Budget": "Select the required budget. Press Alt + D and press Y to delete." Removing a line from
     // the pending grid is still absent (ours; not a vendor clause the census names).
     //
-    // 🔴 THE BUDGET'S "UNDER" IS NOT BUILT, AND A GROUP PICKER WAS BUILT AND DELIBERATELY REMOVED (W10 gb,
-    // A12 decision). The November 3, 2025 page gives the vendor shape: "you need to create the budget under
-    // Primary from the List of Budgets … create specific Department Budgets such as Sales Department Budget …
-    // under the main Department Budget. This shows the budget structure in a hierarchical form." A budget's
-    // parent is another BUDGET. `budgets.under_id` REFERENCES groups(id), so a group picker wrote a value with no
-    // downstream effect except making that group undeletable. The parent-budget model needs a migration
-    // (under_id → budgets(id)) and is OPEN for a later wave (docs/invented-vs-cloned.md IV-300). Every budget
-    // this screen writes is Primary (UnderId = null); BudgetUnderAbsenceTests reddens if a group picker returns.
+    // ~~🔴 THE BUDGET'S "UNDER" IS NOT BUILT … The parent-budget model needs a migration (under_id → budgets(id))
+    // and is OPEN for a later wave (docs/invented-vs-cloned.md IV-300). Every budget this screen writes is Primary
+    // (UnderId = null); BudgetUnderAbsenceTests reddens if a group picker returns.~~
+    // 🔴 BUILT, W12 hc (schema v70, 2026-11-22). budgets.under_id now REFERENCES budgets(id); the "Under" picker
+    // (BudgetUnderPicker, between Name and From) offers Primary + the List of Budgets in tree order — the shape the
+    // November 3, 2025 page describes ("create the budget under Primary from the List of Budgets … under the main
+    // Department Budget"). ⚠️ The live page (November 19, 2026) says "Primary or any other predefined groups"
+    // instead; that conflict is IV-325. A GROUP is still never offered: a group parent had no effect except making
+    // the group undeletable, which is why W10 gb removed it. The picker leaves out this budget and everything under
+    // it when altering (BudgetHierarchy.ParentRefusal re-asks on save), and Alt+D refuses a budget with budgets
+    // under it (MasterDeletionRules.EnsureBudgetDeletable). BudgetParentHierarchyTests replaces
+    // BudgetUnderAbsenceTests.
 
     /// <summary>The id of the budget being ALTERED, or <see cref="Guid.Empty"/> in Create mode.</summary>
     private Guid _editingId = Guid.Empty;
@@ -164,6 +202,10 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     {
         ArgumentNullException.ThrowIfNull(budget);
         Name = budget.Name;
+        // v70 (census 2.9): the picker is rebuilt for THIS budget (itself and its descendants are left out), then
+        // pointed at its current parent — so saving an untouched alteration writes the same parent back.
+        BuildParents(budget.Id);
+        SelectedParent = Parents.FirstOrDefault(p => p.BudgetId == budget.UnderId) ?? Parents.FirstOrDefault();
         PeriodFromText = budget.PeriodFrom.ToString(DateFormat, CultureInfo.InvariantCulture);
         PeriodToText = budget.PeriodTo.ToString(DateFormat, CultureInfo.InvariantCulture);
 
@@ -230,6 +272,15 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             Message = "Add at least one budget line (a group/ledger with an amount).";
             return false;
         }
+        // v70 (census 2.9): re-asked here even though the picker already leaves out this budget and its
+        // descendants — the picker was built when the screen opened, and another surface may have re-filed a
+        // budget since.
+        var parentId = SelectedParent?.BudgetId;
+        if (BudgetHierarchy.ParentRefusal(_company, _editingId, parentId) is { } refusal)
+        {
+            Message = refusal;
+            return false;
+        }
 
         // The restore runs FIRST and UNCONDITIONALLY if the save throws — the shape W0-13 A1 earned on Create
         // just below, for the same reason: a failed save must not leave the altered figures on the shared
@@ -237,11 +288,13 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         var beforeName = budget.Name;
         var beforeFrom = budget.PeriodFrom;
         var beforeTo = budget.PeriodTo;
+        var beforeUnder = budget.UnderId;
         var beforeLines = budget.Lines.ToList();
 
         budget.Name = name;
         budget.PeriodFrom = from;
         budget.PeriodTo = to;
+        budget.UnderId = parentId;
         budget.ReplaceLines(PendingLines.Select(r => r.Line));
         try
         {
@@ -252,6 +305,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             budget.Name = beforeName;
             budget.PeriodFrom = beforeFrom;
             budget.PeriodTo = beforeTo;
+            budget.UnderId = beforeUnder;
             budget.ReplaceLines(beforeLines);
             if (!SaveFailure.IsReportable(ex)) throw;
             Message = ex.Message;
@@ -268,17 +322,25 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     public IMasterListRow? HighlightedMasterRow => HighlightedRow;
 
     /// <inheritdoc/>
-    public void ReloadExisting() => RefreshList();
+    /// <remarks>v70 (census 2.9): the <b>Under</b> picker is rebuilt as well, keeping the current choice when it
+    /// still exists. The shell calls this after Alt+D, Y on this screen; refreshing only the list left the deleted
+    /// budget offered under Under, and choosing it was then refused with "no longer exists".</remarks>
+    public void ReloadExisting()
+    {
+        RefreshList();
+        var keep = SelectedParent?.BudgetId;
+        BuildParents(IsAltering ? _editingId : null);
+        SelectedParent = Parents.FirstOrDefault(p => p.BudgetId == keep) ?? Parents.FirstOrDefault();
+    }
 
     /// <inheritdoc/>
     /// <remarks>
-    /// <para>🔴 <b>NO REFERENTIAL GUARD, AND THAT IS A MEASURED ABSENCE RATHER THAN AN OMISSION — the reason is
-    /// written out in <c>MasterDeletionRules</c>'s W33 block.</b> The only foreign key in the schema into
-    /// <c>budgets(id)</c> is <c>budget_lines.budget_id</c>, and a budget line is written from
-    /// <c>Budget.Lines</c> — the parent's own object graph — so a deleted budget is simply not enumerated and no
-    /// orphan row is ever written. Nothing else in the book points at a budget: the Budget Variance report
-    /// recomputes from the budgets that exist. Inventing a refusal with no rule behind it is the defect this
-    /// product's own delete doctrine names.</para>
+    /// <para>~~🔴 NO REFERENTIAL GUARD … The only foreign key in the schema into <c>budgets(id)</c> is
+    /// <c>budget_lines.budget_id</c> …~~ 🔴 <b>STALE SINCE v70 (census 2.9):</b> <c>budgets.under_id</c> is now a
+    /// second foreign key into <c>budgets(id)</c>, and a child budget is written from <c>Company.Budgets</c>, not
+    /// from its parent — so a budget with budgets under it is refused by
+    /// <see cref="MasterDeletionRules.EnsureBudgetDeletable"/>, by name and count, before anything is removed. The
+    /// budget's own lines still leave with it, as before.</para>
     /// <para>Engine-only — the shell saves and reloads after this returns. A budget has no service of its own
     /// (its create path goes straight to <c>Company.AddBudget</c>), so this is the matching direct call rather
     /// than a service invented for symmetry. The unknown-id throw is what the shared arm turns into a notice
@@ -287,6 +349,7 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     {
         var budget = _company.Budgets.FirstOrDefault(b => b.Id == id)
             ?? throw new InvalidOperationException($"Budget {id} not found.");
+        MasterDeletionRules.EnsureBudgetDeletable(_company, budget);   // v70: throws, before the removal
         _company.RemoveBudget(budget);
     }
 
@@ -303,10 +366,41 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
     public void MoveHighlight(int direction) => Highlight.Move(direction);
 
     /// <inheritdoc/>
+    /// <remarks>v70 (census 2.9): an <b>Under</b> column carries the hierarchy into the export, and the rows are in
+    /// the List of Budgets' own tree order (<see cref="Existing"/>).</remarks>
     public MasterListSnapshot ToMasterListSnapshot() => new(
         "Budgets",
-        new[] { MasterListColumn.Text("Name"), MasterListColumn.Text("Period"), MasterListColumn.Text("Lines") },
-        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Period, r.Lines }).ToList());
+        new[]
+        {
+            MasterListColumn.Text("Name"), MasterListColumn.Text("Under"),
+            MasterListColumn.Text("Period"), MasterListColumn.Text("Lines"),
+        },
+        Existing.Select(r => (IReadOnlyList<string>)new[] { r.Name, r.Under, r.Period, r.Lines }).ToList());
+
+    /// <summary>v70 (census 2.9): the <b>Under</b> picker — Primary, then the List of Budgets in tree order, leaving
+    /// out the budget being altered and everything filed under it.</summary>
+    public ObservableCollection<BudgetParentOption> Parents { get; } = new();
+
+    /// <summary>v70 (census 2.9): the chosen parent; Primary by default.</summary>
+    [ObservableProperty] private BudgetParentOption? _selectedParent;
+
+    /// <summary>Fills <see cref="Parents"/>. <paramref name="excluding"/> is the budget being altered, whose own
+    /// subtree is not a legal parent.</summary>
+    private void BuildParents(Guid? excluding)
+    {
+        Parents.Clear();
+        Parents.Add(new BudgetParentOption { BudgetId = null, Name = "Primary", Display = "Primary" });
+        foreach (var (b, depth) in BudgetHierarchy.TreeOrder(_company))
+        {
+            if (excluding is { } self && BudgetHierarchy.IsSelfOrDescendant(_company, b.Id, self)) continue;
+            Parents.Add(new BudgetParentOption
+            {
+                BudgetId = b.Id,
+                Name = b.Name,
+                Display = new string(' ', 4 * (depth + 1)) + b.Name,
+            });
+        }
+    }
 
     /// <summary>The Group-or-Ledger targets the line picker offers (groups first, then ledgers).</summary>
     public ObservableCollection<BudgetTargetOption> Targets { get; } = new();
@@ -346,6 +440,8 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
 
         BuildTargets();
         SelectedTarget = Targets.FirstOrDefault();
+        BuildParents(excluding: null);
+        SelectedParent = Parents.FirstOrDefault();   // Primary
         RefreshList();
     }
 
@@ -503,9 +599,17 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
             Message = "Add at least one budget line (a group/ledger with an amount).";
             return false;
         }
+        // v70 (census 2.9): the parent must still exist (a new budget cannot be its own ancestor).
+        var parentId = SelectedParent?.BudgetId;
+        if (BudgetHierarchy.ParentRefusal(_company, null, parentId) is { } refusal)
+        {
+            Message = refusal;
+            return false;
+        }
 
         var budget = new Budget(
             Guid.NewGuid(), name, from, to,
+            underId: parentId,
             lines: PendingLines.Select(r => r.Line).ToList());
 
         // W0-13 A1 — this file previously held NO catch block at all, so ANY failure of the two lines below was an
@@ -531,6 +635,9 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         Message = $"Budget '{name}' created with {budget.Lines.Count} line(s).";
         Name = string.Empty;
         PendingLines.Clear();
+        // v70: the new budget is now a legal parent for the next one; the picker returns to Primary.
+        BuildParents(excluding: null);
+        SelectedParent = Parents.FirstOrDefault();
         _onChanged();
         return true;
     }
@@ -541,11 +648,15 @@ public sealed partial class BudgetMasterViewModel : ViewModelBase, IMasterListEx
         var previouslyHighlighted = Highlight.IdBeforeRebuild();
 
         Existing.Clear();
-        foreach (var b in _company.Budgets.OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase))
+        // v70 (census 2.9): TREE order, not a flat name sort — a budget is listed beneath the budget it is filed
+        // under, indented, the "hierarchical form" the vendor's List of Budgets shows. Siblings stay name-sorted.
+        foreach (var (b, depth) in BudgetHierarchy.TreeOrder(_company))
             Existing.Add(new BudgetListRow
             {
                 MasterId = b.Id,
                 Name = b.Name,
+                Depth = depth,
+                Under = b.UnderId is { } pid && _company.FindBudget(pid) is { } parent ? parent.Name : "Primary",
                 Period = $"{b.PeriodFrom.ToString(DateFormat, CultureInfo.InvariantCulture)} to " +
                          $"{b.PeriodTo.ToString(DateFormat, CultureInfo.InvariantCulture)}",
                 Lines = $"{b.Lines.Count} line(s)",

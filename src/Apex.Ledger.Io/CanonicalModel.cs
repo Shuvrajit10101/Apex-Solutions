@@ -1385,6 +1385,8 @@ public sealed record BudgetDto
 {
     public required Guid Id { get; init; }
     public required string Name { get; init; }
+    /// <summary>v70 (census 2.9): the parent <b>budget</b>'s id, or <c>null</c> for Primary. (Until v69 this named
+    /// a group; no screen had written one since wave 10, and the store clears legacy values on migration.)</summary>
     public Guid? UnderId { get; init; }
     public required string PeriodFrom { get; init; }       // ISO yyyy-MM-dd
     public required string PeriodTo { get; init; }         // ISO yyyy-MM-dd

@@ -3546,6 +3546,12 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | Nothing. This entry recorded an orphan-parent option on the group picker of IV-300's first cut; that picker is removed, so the option does not exist. The number is kept so the handle stays stable. |
 | **Tests** | None. |
 
+> **🟢 IV-300 AMENDED 2026-11-23 (wave 12, track `hc`, schema v70, IV-325).** The OPEN capability above is BUILT on
+> branch `claude/apex-hc-budget-parent-v70`: `budgets.under_id` now REFERENCES `budgets(id)`, the Budget master
+> carries the `BudgetUnderPicker` (Primary + the List of Budgets), and `BudgetUnderAbsenceTests` is replaced by
+> `BudgetParentHierarchyTests`. The group-count leg of `EnsureGroupDeletable` described above is removed (a budget
+> can no longer be filed under a group). See §2AD.
+
 ### IV-302 · **Budget Alter / Delete keys: Alt+D then Y is VENDOR-ATTESTED for budgets; Ctrl+Enter, and every scenario key, are ours** (wave 10, track gb)
 
 | | |
@@ -3831,6 +3837,77 @@ brief said in terms: build the formatting options and leave the refusal alone. I
 | **What we ship** | `VoucherEntryViewModel.RehydrateItemInvoiceFrom`: when an outward §34 debit note has no value leg on a Sales-family ledger, and exactly ONE non-tax leg on the value side sits on a Purchase-family ledger (the shape the screen posted before wave 11: Purchase Returns Cr 125.01), that ledger is carried (`_carriedLegacyValueLedgerId`) into the now Sales-family picker and selected. The note re-opens with its figures. An unchanged Accept keeps Purchase Returns Cr 125.01, Output CGST Cr 11.25 and the customer Dr 147.51 on the reloaded book, and the link to the sale. The operator may pick a Sales ledger instead, which posts Sales Cr 125.01, and GSTR-9C 5R then reads 0. Only the carried ledger joins the picker, not the rest of its family (Purchases is not offered). |
 | **What is OURS** | Carrying the legacy ledger rather than refusing; nothing moves the value to Sales silently, because re-opening must not change a figure the operator did not touch. While it stays on Purchase Returns the note keeps whatever 9C 5R effect it had before wave 11 (IV-321 recorded −value; not re-measured for the carried case). **Not built:** a note with TWO such legacy legs still falls to the generic refusal ("no Sales leg on it points at a ledger this screen offers"), which does not name the remedy; no screen shape posts that. 🔴 **Re-review (w11c): the carry is for ALTERATION only.** `ForDuplicate` (Alt+2) re-keys through the same rehydrate, and the carried ledger survived `DetachAsDuplicate`, so a duplicate of such a note posted a NEW outward note with its value on Purchase Returns (measured on a reloaded book before the fix: the copy carried no Sales leg). `DetachAsDuplicate` now clears the carry and rebuilds the picker to the Sales family, which falls to its first ledger; the operator sees it before Ctrl+A. |
 | **Tests** | `Section34NoteDirectionW11Tests.A_pre_wave_11_outward_debit_note_valued_on_purchase_returns_reopens_and_can_move_to_sales`: the legacy book is made by re-pointing the saved value line in the SQLite file, then reloaded through a fresh store handle. `…A_new_outward_debit_note_reopens_on_the_sales_ledger_it_was_posted_on` (two Sales ledgers, "Alpha Sales" sorts first; the note keyed on "Sales" re-opens on "Sales"). `…Ticking_section_34_on_a_debit_note_to_a_debtor_moves_the_picker_to_sales`. Mutations, run 2026-11-20 on the filtered Desktop set (105 tests), each reverted with `git checkout`: **M1** (legacy acceptance removed) reddens only the legacy test, at the refusal assertion. **M2** (`IsStockLegLedger` ignoring the carried id) reddens only the legacy test, inside `ForAlter`. **M3** (the original picker's `RefreshValueLedgerFamily` removed) reddens only the two-Sales re-open test, at the first family assertion after the Sale is picked. **M5** (the §34 tick's `RefreshValueLedgerFamily` removed) reddens only the tick test. **M4** (the rehydrate's `SelectedStockLedger` assignment removed) reddens the legacy test, the two-Sales test (the selection falls to "Alpha Sales") and `ReturnNoteItemInvoiceTests.A_posted_return_note_item_invoice_can_be_altered_and_the_amendment_reaches_the_book`. **Re-review addition:** `…A_duplicate_of_a_pre_wave_11_outward_debit_note_posts_its_value_to_sales` (the copy posts Sales Cr 125.01 and no Purchase-family leg on the reloaded book; the source keeps Purchase Returns Cr 125.01). Mutation **R1** (the carry-clear in `DetachAsDuplicate` removed) reddens it at the picker assertion; with the picker assertions removed, the unfixed duplicate is accepted and the copy has no Sales leg. |
+
+## 2AD. ADDED 2026-11-23 — WAVE 12 TRACK `hc`: A BUDGET IS FILED UNDER ANOTHER BUDGET (census row 2.9, schema v70, IV-325..IV-329)
+
+> **This track's block is IV-325..IV-329.** The section letter `2AD` is the wave plan's pre-assignment. It closes the
+> one clause of row 2.9 that was still open on `origin/main` 33ade75, *"no nested budget (the `UnderId` has no
+> picker)"*, and records (IV-329) why the cell's other three clauses are stale. The grade is A12's.
+>
+> **Sources opened BY CONTENT (R7, ruling 14):**
+> - `help.tallysolutions.com/budgets-tally/`, LIVE, opened with WebFetch 2026-11-23, *"Last updated on: November 19,
+>   2026"*. Under Create a Budget: *"Under : Select Primary or any other predefined groups, based on your
+>   requirement."* The intro keeps *"You can also create multiple budgets with a hierarchical structure"*. Alter and
+>   delete are one sentence, with no keys and no condition: *"You can alter the Budgets whenever your business
+>   requirements change, and delete them when they are no longer needed."*
+> - The same URL, the **November 3, 2025** version, web.archive.org snapshot `20260310093634`, fetched with curl
+>   (HTTP 200) and read by content on 2026-11-22 and again on 2026-11-23; WebFetch is refused for web.archive.org.
+>   *"Suppose, you want to create a budget for the overall department, you need to create the budget under Primary
+>   from the List of Budgets. After the Department Budget is created, you can further go ahead and create specific
+>   Department Budgets such as Sales Department Budget, Marketing Department Budget and so on under the main
+>   Department Budget. This shows the budget structure in a hierarchical form."* Under "Delete a Budget": *"Press Alt
+>   + D and press Y to delete."* and *"As a budget is only an estimation you can delete a budget without any
+>   dependency. You can delete a budget even if there is a transaction in the ledger, group or cost centres for which
+>   you have created the budget."* That version's creation steps name no Under field.
+
+### IV-325 · A budget's Under is Primary or another BUDGET; the live page's "predefined groups" wording conflicts and is not followed
+
+| | |
+|---|---|
+| **Severity** | **MEDIUM before the fix (a vendor-described capability absent; IV-300). Class A (vendor shape) against the November 3, 2025 version ONLY, with a recorded source CONFLICT: against the CURRENT page (November 19, 2026) the budget-only Under list is a divergence and is ours. Area: MST (census 2.9).** |
+| **What the sources say** | The November 3, 2025 version describes a hierarchy of BUDGETS: a budget created *"under Primary from the List of Budgets"*, then department budgets *"under the main Department Budget"*. The live November 19, 2026 version says *"Select Primary or any other predefined groups"* under Under, and also *"create multiple budgets with a hierarchical structure"*. ⚠️ **The two versions conflict.** The live sentence names no budget as a parent, and a group parent would have no effect on any figure. The archived text is the only one that says what the hierarchy is. |
+| **What we ship** | Schema **v70**: `budgets.under_id TEXT NULL REFERENCES budgets(id)` (`Schema.CreateV1` and `Schema.MigrateV69ToV70`, byte-identical; `SchemaDowngrade.V70ToV69` restores the v69 group reference). The Budget master's **Under** picker (`BudgetUnderPicker`, Tab from Name) offers **Primary** and then the List of Budgets in tree order, never a group. The List of Budgets paints a budget indented beneath its parent, and its export carries an **Under** column. Canonical JSON/XML carry `underId` and the importer resolves it through the budget map, parents first. |
+| **What is OURS** | **Following the archived version over the live one.** If the vendor really means groups, this is a divergence: a group parent here was removed in wave 10 because it changed nothing except making the group undeletable (IV-300). |
+| **Tests** | `BudgetParentHierarchyTests.Tab_from_Name_reaches_the_Under_picker_and_typing_files_the_new_budget_under_a_budget_by_keys` (keys on the realised picker; raw `under_id`; fresh `CompanyStorage`; the realised indented row); `BudgetListExportHierarchyTests.The_exported_List_of_Budgets_names_each_parent_and_lists_a_child_beneath_it_off_a_reloaded_book` (emitted CSV); `BudgetParentV70SchemaTests.*` (five: v69 climb from a downgraded v70 book, byte-identical DDL, downgrade, parent saved after child, FK refuses a group id); `CanonicalBudgetParentRoundTripTests.A_budget_hierarchy_round_trips_through_json_and_xml_and_imports_under_the_new_ids`. Mutations M1-M5, M9-M11, M16 (`Apex-Review-Artifacts/w12/hc/mutations.log`) each redden the named test. |
+
+### IV-326 · The cycle refusal, the tree order and every message are ours
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours, no source speaks). Area: MST.** |
+| **What the sources say** | Nothing on filing a budget under itself or its own descendant, or on how siblings are ordered in the List of Budgets. |
+| **What we ship** | `BudgetHierarchy.ParentRefusal` refuses a parent that is the budget itself or anything under it, by name. An existing loop (only possible through a hand-edited file) is treated as a loop and never walked forever. On Alter the picker leaves out the budget and its subtree, and Save re-asks the refusal. `BudgetHierarchy.TreeOrder` lists depth-first with name-sorted siblings. |
+| **What is OURS** | All of it: the refusal wording, the leave-out on Alter, and the order. |
+| **Tests** | `BudgetHierarchyTests.Filing_a_budget_under_itself_or_under_its_own_descendant_is_refused_by_name` (M6), `…An_existing_loop_is_treated_as_would_loop_and_never_walked_forever`, `…The_List_of_Budgets_order_is_depth_first_with_name_sorted_siblings`; `BudgetParentHierarchyTests.Alter_leaves_out_the_budget_and_its_subtree_and_refuses_a_parent_that_became_a_descendant` (M13). |
+
+### IV-327 · A budget with budgets under it cannot be deleted (ours)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: MST.** |
+| **What the sources say** | Alt+D, Y deletes a budget, and a budget can be deleted *"without any dependency"*, meaning transactions on the budgeted ledgers, groups and cost centres. **No version speaks to a budget that has budgets under it.** |
+| **What we ship** | `MasterDeletionRules.EnsureBudgetDeletable` refuses, with the count and the child names, before anything is removed, and `BudgetMasterViewModel.DeleteMaster` calls it. Transactions are not counted, which matches the vendor sentence. The budget's own lines leave with it. `EnsureGroupDeletable` no longer counts budgets (a budget is never filed under a group). |
+| **What is OURS** | The refusal. The alternative, silently re-filing the children under Primary, would change the structure without the operator choosing it. |
+| **Tests** | `BudgetHierarchyTests.A_budget_with_budgets_under_it_is_refused_with_the_count_and_the_names_and_a_leaf_is_not` (M7), `…The_group_guard_no_longer_counts_budgets_because_a_budget_is_never_filed_under_a_group` (M8); `BudgetParentHierarchyTests.AltD_Y_on_a_budget_with_budgets_under_it_is_refused_by_name_and_both_survive_a_reload` (M12). |
+
+### IV-328 · A legacy GROUP parent becomes Primary, on disk and on import (ours)
+
+| | |
+|---|---|
+| **Severity** | **LOW. Class C (ours). Area: MST / PERSIST / IO.** |
+| **What the sources say** | Nothing; it concerns our own v69 storage. |
+| **What we ship** | `Schema.MigrateV69ToV70` sets every `under_id` to NULL. Under v69 the column could hold only a group id, and no screen had written one since wave 10. A canonical document written before v70 that files a budget under a group imports it under **Primary** (`ImportPlan.IsLegacyGroupBudgetParent`) and does not refuse the whole import. A parent that is neither a budget nor a group is still a named error. |
+| **What is OURS** | Dropping the value instead of keeping a group meaning the vendor shape never had. |
+| **Tests** | `BudgetParentV70SchemaTests.A_v69_book_downgraded_from_v70_climbs_back_with_every_budget_and_line_and_the_legacy_group_id_cleared` (M1, M2); `CanonicalBudgetLegacyGroupParentImportTests.A_pre_v70_document_filing_a_budget_under_a_group_imports_it_under_Primary_with_its_lines` (M14 and M15, one per half); `CanonicalBudgetParentRoundTripTests.A_budget_filed_under_an_unknown_budget_is_a_named_error`. |
+
+### IV-329 · Row 2.9's other three clauses are stale on main, and what this track did not do
+
+| | |
+|---|---|
+| **Severity** | **Record only.** |
+| **What we ship** | **Stale on `origin/main` 33ade75, with evidence:** (1) *"no cost-centre target"*: v67 added `budget_lines.cost_centre_id` (`Schema.cs`, `V67BudgetLineColumns`), `BudgetLine.CostCentreId`, and the master offers *"&lt;name&gt;  (Cost Centre)"* targets (`BudgetMasterViewModel.BuildTargets`). Tests: `MasterFieldsV67ReachabilityTests`, `CostCentreBudgetReloadTests.A_cost_centre_budget_line_survives_repeated_saves`. (2) *"no Alter"*: `BudgetMasterViewModel.ForAlter` / `Alter`, test `BudgetScenarioAlterAndExcludeTests.A_budget_is_altered_with_CtrlEnter_then_CtrlA_and_the_name_period_and_figure_all_persist`. (3) *"no Delete service"*: `BudgetMasterViewModel.DeleteMaster` on Alt+D, Y (IV-302), tests `MasterVerbsW33ResidualDeleteTests`, `ScenarioBudgetByKeysTests`. |
+| **What is OURS / not done** | Removing a single line from the pending grid is still absent (T2-133; not a census clause). The Budget Variance report does not roll a child budget into its parent; no source says it should. The census cell text was **not** edited; the clauses are proposed for A12 to strike. |
+| **Tests** | As cited above. |
 
 ## 2AE. ADDED 2026-11-19 — WAVE 11 TRACK `hd`: THE VERTICAL PROFIT & LOSS A/c AND TWO OPTIONAL-VOUCHER RESIDUALS (census rows 11.2 / 5.7, IV-330..IV-334)
 

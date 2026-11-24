@@ -755,6 +755,48 @@ public static class SchemaDowngrade
     }
 
     /// <summary>
+    /// Reverses <see cref="Schema.MigrateV69ToV70"/> (census row <b>2.9</b>): re-declares <c>budgets</c> with
+    /// <c>under_id REFERENCES groups(id)</c>, exactly as v69 declared it, and stamps <c>schema_version</c> back to
+    /// <b>69</b>. ⚠️ <b>This is the TOP rung</b> — every chain that walks a current book down starts here.
+    ///
+    /// <para>🔴 <b>NOT <see cref="RebuildPreservingShape"/></b>: that helper reconstructs each column's
+    /// <c>REFERENCES</c> from <c>PRAGMA foreign_key_list</c>, so it would faithfully re-declare the v70 target
+    /// (<c>budgets(id)</c>) — the one thing this rung exists to undo. The v69 declaration is therefore written out,
+    /// and the same scratch-copy / drop / re-declare / copy-back idiom as the up-migration keeps the PRIMARY KEY
+    /// (budgets is the FK PARENT of <c>budget_lines</c>), the ids, the <c>rowid</c> order and the index.</para>
+    ///
+    /// <para><b>WHAT IS LOST:</b> the budget hierarchy. A budget id is not a group id, so every <c>under_id</c> is
+    /// cleared and every budget comes back Primary — the only shape v69 could store.</para>
+    /// </summary>
+    public static void V70ToV69(SqliteConnection connection)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+
+        Exec(connection, "PRAGMA foreign_keys=OFF;");
+        Exec(connection, """
+            CREATE TABLE budgets_v70_scratch AS
+                SELECT rowid AS old_rowid, id, company_id, name, period_from, period_to FROM budgets;
+            DROP TABLE budgets;
+            CREATE TABLE budgets (
+                id            TEXT    NOT NULL PRIMARY KEY,
+                company_id    TEXT    NOT NULL REFERENCES companies(id),
+                name          TEXT    NOT NULL,
+                under_id      TEXT        NULL REFERENCES groups(id),   -- optional Primary group; NULL = top-level
+                period_from   TEXT    NOT NULL,   -- ISO yyyy-MM-dd
+                period_to     TEXT    NOT NULL    -- ISO yyyy-MM-dd, ≥ period_from
+            );
+            INSERT INTO budgets (id, company_id, name, under_id, period_from, period_to)
+                SELECT id, company_id, name, NULL, period_from, period_to
+                FROM budgets_v70_scratch ORDER BY old_rowid;
+            DROP TABLE budgets_v70_scratch;
+            CREATE INDEX ix_budgets_company         ON budgets(company_id);
+            """);
+        Exec(connection, "PRAGMA foreign_keys=ON;");
+
+        Exec(connection, "UPDATE schema_version SET version = 69;");
+    }
+
+    /// <summary>
     /// Reverses <see cref="Schema.MigrateV68ToV69"/> (census rows <b>5.7 / 5.8</b>): removes
     /// <see cref="Schema.V69InventoryVoucherColumns"/> (<c>inventory_vouchers.optional</c>) and stamps
     /// <c>schema_version</c> back to <b>68</b>.
@@ -766,8 +808,8 @@ public static class SchemaDowngrade
     ///
     /// <para><b>WHAT IS LOST:</b> every Optional mark on a stock/order voucher — such a voucher becomes LIVE and
     /// moves stock again. A <c>SetPostDated</c> (ordinal 5) edit-log row is left in place: the downgrade is a
-    /// test-fixture manoeuvre, and the reader casts the ordinal without validating it. ⚠️ <b>This is now the TOP
-    /// rung</b> — to reach v67 run this, then <see cref="V68ToV67"/>.</para>
+    /// test-fixture manoeuvre, and the reader casts the ordinal without validating it. ⚠️ <b>Since v70 this is no
+    /// longer the top rung</b> — run <see cref="V70ToV69"/> first, then this, then <see cref="V68ToV67"/>.</para>
     /// </summary>
     public static void V69ToV68(SqliteConnection connection)
     {

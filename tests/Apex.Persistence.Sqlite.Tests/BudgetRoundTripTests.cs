@@ -46,15 +46,19 @@ public sealed class BudgetRoundTripTests
         Expense(rent, 3000m, new DateOnly(2024, 4, 10));
         Expense(salaries, 2000m, new DateOnly(2024, 5, 15));
 
-        // Under = the "Indirect Expenses" group (an optional Primary reference).
+        // ~~Under = the "Indirect Expenses" group (an optional Primary reference).~~ v70 (census 2.9): a budget's
+        // Under is a parent BUDGET (budgets.under_id REFERENCES budgets(id)); a group id here now fails the FK on
+        // save. The parent is added AFTER the child so the store's second-pass parent write is what carries it.
+        var parent = new Budget(Guid.NewGuid(), "FY Budget", new DateOnly(2024, 4, 1), new DateOnly(2025, 3, 31));
         var budget = new Budget(Guid.NewGuid(), "Q1 Budget",
-            new DateOnly(2024, 4, 1), new DateOnly(2024, 6, 30), underId: indirect.Id, lines: new[]
+            new DateOnly(2024, 4, 1), new DateOnly(2024, 6, 30), underId: parent.Id, lines: new[]
             {
                 BudgetLine.ForLedger(salaries.Id, BudgetType.OnNettTransactions, Money.FromRupees(10000m)),
                 BudgetLine.ForLedger(salaries.Id, BudgetType.OnClosingBalance, Money.FromRupees(9000m)),
                 BudgetLine.ForGroup(indirect.Id, BudgetType.OnNettTransactions, Money.FromRupees(12000m)),
             });
         c.AddBudget(budget);
+        c.AddBudget(parent);
 
         return (c, budget);
     }
@@ -84,9 +88,11 @@ public sealed class BudgetRoundTripTests
                 reloaded = read.Load(original.Id)!;
 
             // Budget master survived, including the optional Under reference and the period.
-            var rBudget = Assert.Single(reloaded.Budgets);
+            Assert.Equal(2, reloaded.Budgets.Count);
+            var rBudget = reloaded.FindBudgetByName("Q1 Budget")!;
             Assert.Equal("Q1 Budget", rBudget.Name);
-            Assert.Equal(reloaded.FindGroupByName("Indirect Expenses")!.Id, rBudget.UnderId);
+            Assert.Equal(reloaded.FindBudgetByName("FY Budget")!.Id, rBudget.UnderId);
+            Assert.Equal(new[] { "Q1 Budget", "FY Budget" }, reloaded.Budgets.Select(b => b.Name));   // saved order
             Assert.Equal(new DateOnly(2024, 4, 1), rBudget.PeriodFrom);
             Assert.Equal(new DateOnly(2024, 6, 30), rBudget.PeriodTo);
 
@@ -204,7 +210,9 @@ public sealed class BudgetRoundTripTests
             using (var store = new SqliteCompanyStore(dbPath))
             {
                 var reloaded = store.Load(original.Id)!;
-                var rBudget = Assert.Single(reloaded.Budgets);
+                Assert.Equal(2, reloaded.Budgets.Count);   // v70: Q1 + its parent FY Budget
+                var rBudget = reloaded.FindBudgetByName("Q1 Budget")!;
+                Assert.Equal(reloaded.FindBudgetByName("FY Budget")!.Id, rBudget.UnderId);
                 Assert.Equal(3, rBudget.Lines.Count);
                 var report = BudgetVarianceReport.Build(reloaded, rBudget);
                 Assert.Equal(Money.FromRupees(8000m), report.Lines[0].Actual);
